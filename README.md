@@ -3,16 +3,11 @@
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/状态-准备测试-warning?style=for-the-badge&logo=github" alt="准备测试" />
+<img src="https://img.shields.io/badge/状态-测...测不动了-warning?style=for-the-badge&logo=github" alt="测...测不动了" />
 
 <details>
-<summary><strong>🧪 测试准备 v1.0.0-beta</strong></summary>
+<summary><strong>🧪 测...测不动了</strong></summary>
 
-> ✨ **新增混合检索系统**: 支持9种先进融合策略  
-> 🛡️ **增强稳定性**: 全面错误处理和事务安全  
-> ⚙️ **智能配置验证**: Pydantic驱动的配置系统  
-> 📊 **会话管理优化**: 内存效率和自动清理机制  
->   
 > ⚠️ **需要测试验证**: 请在测试环境中验证所有新功能
 
 </details>
@@ -35,14 +30,6 @@
   <img src="https://komarev.com/ghpvc/?username=lxfight&repo=astrbot_plugin_livingmemory&color=blueviolet" alt="Visitor Count">
 </p>
 
-<p align="center">
-  <a href="https://github.com/anuraghazra/github-readme-stats">
-    <img align="center" src="https://github-readme-stats.vercel.app/api?username=lxfight&show_icons=true&theme=radical&rank_icon=github" />
-  </a>
-  <a href="https://github.com/anuraghazra/github-readme-stats">
-    <img align="center" src="https://github-readme-stats.vercel.app/api/top-langs/?username=lxfight&layout=compact&theme=radical" />
-  </a>
-</p>
 
 ---
 
@@ -280,7 +267,6 @@ pip install faiss-cpu pydantic jieba
 - 📖 [融合策略详解](FUSION_STRATEGIES.md) - 深入了解9种融合算法
 - ⚙️ [配置参考](docs/CONFIG.md) - 完整配置参数说明  
 - 🔧 [开发指南](docs/DEVELOPMENT.md) - 插件开发和扩展指南
-- 🐛 [故障排除](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
 
 ## 🤝 贡献
 
@@ -289,6 +275,12 @@ pip install faiss-cpu pydantic jieba
 - 💡 **功能建议**: [Feature Requests](https://github.com/lxfight/astrbot_plugin_livingmemory/issues/new?template=feature_request.md)
 - 🔧 **代码贡献**: [Pull Requests](https://github.com/lxfight/astrbot_plugin_livingmemory/pulls)
 - 📖 **文档改进**: 欢迎改进文档和示例
+
+## 交流一下
+遇到问题或想交流使用心得？加入我们的讨论群：
+[![加入QQ群](https://img.shields.io/badge/QQ群-953245617-blue?style=flat-square&logo=tencent-qq)](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh)
+
+`入关口令`： `lxfight`
 
 ## 📄 许可证
 
