@@ -7,6 +7,7 @@ main.py - LivingMemory 插件主文件
 import asyncio
 import os
 import json
+import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
@@ -32,6 +33,7 @@ from .core.engines.forgetting_agent import ForgettingAgent
 from .core.retrieval import SparseRetriever
 from .core.utils import get_persona_id, format_memories_for_injection, get_now_datetime, retry_on_failure, OperationContext, safe_parse_metadata
 from .core.config_validator import validate_config, merge_config_with_defaults
+from .core.handlers import MemoryHandler, SearchHandler, AdminHandler, FusionHandler
 
 # 会话管理器类，替代全局字典
 class SessionManager:
@@ -48,7 +50,6 @@ class SessionManager:
         
     def get_session(self, session_id: str) -> Dict[str, Any]:
         """获取会话数据，如果不存在则创建"""
-        import time
         current_time = time.time()
         
         # 清理过期会话
@@ -83,7 +84,6 @@ class SessionManager:
                 
     def reset_session(self, session_id: str):
         """重置指定会话"""
-        import time
         if session_id in self._sessions:
             self._sessions[session_id] = {"history": [], "round_count": 0}
             self._access_times[session_id] = time.time()
@@ -126,6 +126,12 @@ class LivingMemoryPlugin(Star):
         self.recall_engine: Optional[RecallEngine] = None
         self.reflection_engine: Optional[ReflectionEngine] = None
         self.forgetting_agent: Optional[ForgettingAgent] = None
+        
+        # 初始化业务逻辑处理器
+        self.memory_handler: Optional[MemoryHandler] = None
+        self.search_handler: Optional[SearchHandler] = None
+        self.admin_handler: Optional[AdminHandler] = None
+        self.fusion_handler: Optional[FusionHandler] = None
         
         # 初始化状态标记
         self._initialization_complete = False
@@ -190,6 +196,12 @@ class LivingMemoryPlugin(Star):
 
             # 4. 启动后台任务
             await self.forgetting_agent.start()
+
+            # 初始化业务逻辑处理器
+            self.memory_handler = MemoryHandler(self.context, self.config, self.faiss_manager)
+            self.search_handler = SearchHandler(self.context, self.config, self.recall_engine, self.sparse_retriever)
+            self.admin_handler = AdminHandler(self.context, self.config, self.faiss_manager, self.forgetting_agent, self.session_manager)
+            self.fusion_handler = FusionHandler(self.context, self.config, self.recall_engine)
 
             # 标记初始化完成
             self._initialization_complete = True
@@ -417,117 +429,57 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("status")
     async def lmem_status(self, event: AstrMessageEvent):
         """[管理员] 查看当前记忆库的状态。"""
-        if not self.faiss_manager or not self.faiss_manager.db:
-            yield event.plain_result("记忆库尚未初始化。")
+        if not self.admin_handler:
+            yield event.plain_result("管理员处理器尚未初始化。")
             return
-
-        count = await self.faiss_manager.db.count_documents()
-        yield event.plain_result(f"📊 LivingMemory 记忆库状态：\n- 总记忆数: {count}")
+            
+        result = await self.admin_handler.get_memory_status()
+        yield event.plain_result(self.admin_handler.format_status_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search")
     async def lmem_search(self, event: AstrMessageEvent, query: str, k: int = 3):
         """[管理员] 手动搜索记忆。"""
-        if not self.recall_engine:
-            yield event.plain_result("回忆引擎尚未初始化。")
+        if not self.search_handler:
+            yield event.plain_result("搜索处理器尚未初始化。")
             return
-
-        results = await self.recall_engine.recall(self.context, query, k=k)
-        if not results:
-            yield event.plain_result(f"未能找到与 '{query}' 相关的记忆。")
-            return
-
-        response_parts = [f"为您找到 {len(results)} 条相关记忆："]
-        tz = get_now_datetime(self.context).tzinfo  # 获取当前时区
-
-        for res in results:
-            metadata = res.data.get("metadata", {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except json.JSONDecodeError:
-                    metadata = {}
-
-            def format_timestamp(ts):
-                if not ts:
-                    return "未知"
-                try:
-                    dt_utc = datetime.fromtimestamp(float(ts), tz=timezone.utc)
-                    dt_local = dt_utc.astimezone(tz)
-                    return dt_local.strftime("%Y-%m-%d %H:%M:%S")
-                except (ValueError, TypeError):
-                    return "未知"
-
-            create_time_str = format_timestamp(metadata.get("create_time"))
-            last_access_time_str = format_timestamp(metadata.get("last_access_time"))
-
-            importance_score = metadata.get("importance", 0.0)
-            event_type = metadata.get("event_type", "未知")
-
-            card = (
-                f"ID: {res.data['id']}\n"
-                f"记 忆 度: {res.similarity:.2f}\n"
-                f"重 要 性: {importance_score:.2f}\n"
-                f"记忆类型: {event_type}\n\n"
-                f"内容: {res.data['text']}\n\n"
-                f"创建于: {create_time_str}\n"
-                f"最后访问: {last_access_time_str}"
-            )
-            response_parts.append(card)
-
-        response = "\n\n".join(response_parts)
-        yield event.plain_result(response)
+            
+        result = await self.search_handler.search_memories(query, k)
+        yield event.plain_result(self.search_handler.format_search_results_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
     async def lmem_forget(self, event: AstrMessageEvent, doc_id: int):
         """[管理员] 强制删除一条指定整数 ID 的记忆。"""
-        if not self.faiss_manager:
-            yield event.plain_result("记忆库尚未初始化。")
+        if not self.admin_handler:
+            yield event.plain_result("管理员处理器尚未初始化。")
             return
-
-        try:
-            await self.faiss_manager.delete_memories([doc_id])
-            yield event.plain_result(f"已成功删除 ID 为 {doc_id} 的记忆。")
-        except Exception as e:
-            yield event.plain_result(f"删除记忆时发生错误: {e}")
+            
+        result = await self.admin_handler.delete_memory(doc_id)
+        yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("run_forgetting_agent")
     async def run_forgetting_agent(self, event: AstrMessageEvent):
         """[管理员] 手动触发一次遗忘代理的清理任务。"""
-        if not self.forgetting_agent:
-            yield event.plain_result("遗忘代理尚未初始化。")
+        if not self.admin_handler:
+            yield event.plain_result("管理员处理器尚未初始化。")
             return
-
+            
         yield event.plain_result("正在后台手动触发遗忘代理任务...")
-        try:
-            logger.debug("1")
-            await self.forgetting_agent._prune_memories()
-            await self.context.send_message(
-                event.unified_msg_origin, MessageChain().message("遗忘代理任务执行完毕。")
-            )
-        except Exception as e:
-            logger.error(f"遗忘代理任务执行失败: {e}", exc_info=True)
-            await self.context.send_message(
-                event.unified_msg_origin, MessageChain().message(f"遗忘代理任务执行失败: {e}")
-            )
+        result = await self.admin_handler.run_forgetting_agent()
+        yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("sparse_rebuild")
     async def lmem_sparse_rebuild(self, event: AstrMessageEvent):
         """[管理员] 重建稀疏检索索引。"""
-        if not self.sparse_retriever:
-            yield event.plain_result("稀疏检索器未启用。")
+        if not self.search_handler:
+            yield event.plain_result("搜索处理器尚未初始化。")
             return
-
-        yield event.plain_result("正在重建稀疏检索索引...")
-        try:
-            await self.sparse_retriever.rebuild_index()
-            yield event.plain_result("稀疏检索索引重建完成。")
-        except Exception as e:
-            logger.error(f"重建稀疏索引失败: {e}", exc_info=True)
-            yield event.plain_result(f"重建稀疏索引失败: {e}")
+            
+        result = await self.search_handler.rebuild_sparse_index()
+        yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search_mode")
@@ -541,52 +493,23 @@ class LivingMemoryPlugin(Star):
           dense - 纯密集检索
           sparse - 纯稀疏检索
         """
-        valid_modes = ["hybrid", "dense", "sparse"]
-        if mode not in valid_modes:
-            yield event.plain_result(f"无效的模式，请使用: {', '.join(valid_modes)}")
+        if not self.admin_handler:
+            yield event.plain_result("管理员处理器尚未初始化。")
             return
-
-        if not self.recall_engine:
-            yield event.plain_result("回忆引擎尚未初始化。")
-            return
-
-        # 更新配置
-        self.recall_engine.config["retrieval_mode"] = mode
-        yield event.plain_result(f"检索模式已设置为: {mode}")
+            
+        result = await self.admin_handler.set_search_mode(mode)
+        yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("sparse_test")
     async def lmem_sparse_test(self, event: AstrMessageEvent, query: str, k: int = 5):
         """[管理员] 测试稀疏检索功能。"""
-        if not self.sparse_retriever:
-            yield event.plain_result("稀疏检索器未启用。")
+        if not self.search_handler:
+            yield event.plain_result("搜索处理器尚未初始化。")
             return
-
-        try:
-            results = await self.sparse_retriever.search(query=query, limit=k)
             
-            if not results:
-                yield event.plain_result(f"未找到与 '{query}' 相关的记忆。")
-                return
-
-            response_parts = [f"🔍 稀疏检索结果 ({len(results)} 条):"]
-            
-            for i, res in enumerate(results, 1):
-                response_parts.append(f"\n{i}. [ID: {res.doc_id}] Score: {res.score:.3f}")
-                response_parts.append(f"   内容: {res.content[:100]}{'...' if len(res.content) > 100 else ''}")
-                
-                # 显示元数据
-                metadata = res.metadata
-                if metadata.get("event_type"):
-                    response_parts.append(f"   类型: {metadata['event_type']}")
-                if metadata.get("importance"):
-                    response_parts.append(f"   重要性: {metadata['importance']:.2f}")
-
-            yield event.plain_result("\n".join(response_parts))
-
-        except Exception as e:
-            logger.error(f"稀疏检索测试失败: {e}", exc_info=True)
-            yield event.plain_result(f"稀疏检索测试失败: {e}")
+        result = await self.search_handler.test_sparse_search(query, k)
+        yield event.plain_result(self.search_handler.format_sparse_results_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("edit")
@@ -607,202 +530,39 @@ class LivingMemoryPlugin(Star):
           /lmem edit 123 type PREFERENCE 重新分类
           /lmem edit 123 status archived 项目已完成
         """
-        if not self.faiss_manager:
-            yield event.plain_result("记忆库尚未初始化。")
+        if not self.memory_handler:
+            yield event.plain_result("记忆处理器尚未初始化。")
             return
-
-        try:
-            # 解析 memory_id 为整数或字符串
-            try:
-                memory_id_int = int(memory_id)
-                memory_id_to_use = memory_id_int
-            except ValueError:
-                memory_id_to_use = memory_id
-
-            # 解析字段和值
-            updates = {}
             
-            if field == "content":
-                updates["content"] = value
-            elif field == "importance":
-                try:
-                    updates["importance"] = float(value)
-                    if not 0.0 <= updates["importance"] <= 1.0:
-                        yield event.plain_result("❌ 重要性评分必须在 0.0 到 1.0 之间")
-                        return
-                except ValueError:
-                    yield event.plain_result("❌ 重要性评分必须是数字")
-                    return
-            elif field == "type":
-                valid_types = ["FACT", "PREFERENCE", "GOAL", "OPINION", "RELATIONSHIP", "OTHER"]
-                if value not in valid_types:
-                    yield event.plain_result(f"❌ 无效的事件类型，必须是: {', '.join(valid_types)}")
-                    return
-                updates["event_type"] = value
-            elif field == "status":
-                valid_statuses = ["active", "archived", "deleted"]
-                if value not in valid_statuses:
-                    yield event.plain_result(f"❌ 无效的状态，必须是: {', '.join(valid_statuses)}")
-                    return
-                updates["status"] = value
-            else:
-                yield event.plain_result(f"❌ 未知的字段 '{field}'，支持的字段: content, importance, type, status")
-                return
-
-            # 执行更新
-            result = await self.faiss_manager.update_memory(
-                memory_id=memory_id_to_use,
-                update_reason=reason or f"更新{field}",
-                **updates
-            )
-
-            if result["success"]:
-                response_parts = [f"✅ {result['message']}"]
-                
-                if result["updated_fields"]:
-                    response_parts.append("\n📋 已更新的字段:")
-                    for f in result["updated_fields"]:
-                        response_parts.append(f"  - {f}")
-                
-                # 如果更新了内容，显示预览
-                if "content" in updates and len(updates["content"]) > 100:
-                    response_parts.append(f"\n📝 内容预览: {updates['content'][:100]}...")
-                
-                yield event.plain_result("\n".join(response_parts))
-            else:
-                yield event.plain_result(f"❌ 更新失败: {result['message']}")
-
-        except Exception as e:
-            logger.error(f"编辑记忆时发生错误: {e}", exc_info=True)
-            yield event.plain_result(f"编辑记忆时发生错误: {e}")
+        result = await self.memory_handler.edit_memory(memory_id, field, value, reason)
+        yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("update")
     async def lmem_update(self, event: AstrMessageEvent, memory_id: str):
-        """[管理员] 交互式编辑记忆。
+        """[管理员] 查看记忆详细信息并提供编辑指引。
         
         用法: /lmem update <id>
         
-        会引导你逐步选择要更新的字段。
+        显示记忆的完整信息，并指引如何使用编辑命令。
         """
-        if not self.faiss_manager:
-            yield event.plain_result("记忆库尚未初始化。")
+        if not self.memory_handler:
+            yield event.plain_result("记忆处理器尚未初始化。")
             return
-
-        try:
-            # 解析 memory_id
-            try:
-                memory_id_int = int(memory_id)
-                docs = await self.faiss_manager.db.document_storage.get_documents(ids=[memory_id_int])
-            except ValueError:
-                docs = await self.faiss_manager.db.document_storage.get_documents(
-                    metadata_filters={"memory_id": memory_id}
-                )
-
-            if not docs:
-                yield event.plain_result(f"未找到ID为 {memory_id} 的记忆。")
-                return
-
-            doc = docs[0]
-            metadata = (
-                json.loads(doc["metadata"])
-                if isinstance(doc["metadata"], str)
-                else doc["metadata"]
-            )
-
-            # 显示当前记忆信息
-            response = f"📝 记忆 {memory_id} 的当前信息:\n\n"
-            response += f"内容: {doc['content'][:100]}{'...' if len(doc['content']) > 100 else ''}\n\n"
-            response += f"重要性: {metadata.get('importance', 'N/A')}\n"
-            response += f"类型: {metadata.get('event_type', 'N/A')}\n"
-            response += f"状态: {metadata.get('status', 'active')}\n\n"
-            response += "请回复要更新的字段编号:\n"
-            response += "1. 内容\n"
-            response += "2. 重要性\n"
-            response += "3. 事件类型\n"
-            response += "4. 状态\n"
-            response += "0. 取消"
-
-            yield event.plain_result(response)
-
-            # 这里应该等待用户回复，但由于命令系统的限制，
-            # 我们只能引导用户使用 /lmem edit 命令
-            yield event.plain_result(f"\n请使用 /lmem edit {memory_id} <字段> <值> [原因] 来更新记忆")
-
-        except Exception as e:
-            logger.error(f"查看记忆时发生错误: {e}", exc_info=True)
-            yield event.plain_result(f"查看记忆时发生错误: {e}")
+            
+        result = await self.memory_handler.get_memory_details(memory_id)
+        yield event.plain_result(self.memory_handler.format_memory_details_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("history")
     async def lmem_history(self, event: AstrMessageEvent, memory_id: str):
         """[管理员] 查看记忆的更新历史。"""
-        if not self.faiss_manager or not self.faiss_manager.db:
-            yield event.plain_result("记忆库尚未初始化。")
+        if not self.memory_handler:
+            yield event.plain_result("记忆处理器尚未初始化。")
             return
-
-        try:
-            # 解析 memory_id
-            try:
-                memory_id_int = int(memory_id)
-                docs = await self.faiss_manager.db.document_storage.get_documents(ids=[memory_id_int])
-            except ValueError:
-                docs = await self.faiss_manager.db.document_storage.get_documents(
-                    metadata_filters={"memory_id": memory_id}
-                )
-
-            if not docs:
-                yield event.plain_result(f"未找到ID为 {memory_id} 的记忆。")
-                return
-
-            doc = docs[0]
-            metadata = (
-                json.loads(doc["metadata"])
-                if isinstance(doc["metadata"], str)
-                else doc["metadata"]
-            )
-
-            response_parts = [f"📝 记忆 {memory_id} 的详细信息:"]
-            response_parts.append(f"\n内容: {doc['content']}")
             
-            # 基本信息
-            response_parts.append(f"\n📊 基本信息:")
-            response_parts.append(f"- 重要性: {metadata.get('importance', 'N/A')}")
-            response_parts.append(f"- 类型: {metadata.get('event_type', 'N/A')}")
-            response_parts.append(f"- 状态: {metadata.get('status', 'active')}")
-            
-            # 时间信息
-            tz = get_now_datetime(self.context).tzinfo
-            create_time = metadata.get('create_time')
-            if create_time:
-                dt = datetime.fromtimestamp(create_time, tz=timezone.utc)
-                dt_local = dt.astimezone(tz)
-                response_parts.append(f"- 创建时间: {dt_local.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # 更新历史
-            update_history = metadata.get('update_history', [])
-            if update_history:
-                response_parts.append(f"\n🔄 更新历史 ({len(update_history)} 次):")
-                for i, update in enumerate(update_history[-5:], 1):  # 只显示最近5次
-                    timestamp = update.get('timestamp')
-                    if timestamp:
-                        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                        dt_local = dt.astimezone(tz)
-                        time_str = dt_local.strftime('%Y-%m-%d %H:%M:%S')
-                    else:
-                        time_str = "未知"
-                    
-                    response_parts.append(f"\n{i}. {time_str}")
-                    response_parts.append(f"   原因: {update.get('reason', 'N/A')}")
-                    response_parts.append(f"   字段: {', '.join(update.get('fields', []))}")
-            else:
-                response_parts.append("\n🔄 暂无更新记录")
-
-            yield event.plain_result("\n".join(response_parts))
-
-        except Exception as e:
-            logger.error(f"查看记忆历史时发生错误: {e}", exc_info=True)
-            yield event.plain_result(f"查看记忆历史时发生错误: {e}")
+        result = await self.memory_handler.get_memory_history(memory_id)
+        yield event.plain_result(self.memory_handler.format_memory_history_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("config")
@@ -815,60 +575,15 @@ class LivingMemoryPlugin(Star):
           show - 显示当前配置
           validate - 验证配置有效性
         """
+        if not self.admin_handler:
+            yield event.plain_result("管理员处理器尚未初始化。")
+            return
+            
+        result = await self.admin_handler.get_config_summary(action)
         if action == "show":
-            try:
-                # 显示主要配置项
-                config_summary = []
-                config_summary.append("📋 LivingMemory 配置摘要:")
-                config_summary.append("")
-                
-                # 会话管理器配置
-                sm_config = self.config.get("session_manager", {})
-                config_summary.append(f"🗂️ 会话管理:")
-                config_summary.append(f"  - 最大会话数: {sm_config.get('max_sessions', 1000)}")
-                config_summary.append(f"  - 会话TTL: {sm_config.get('session_ttl', 3600)}秒")
-                config_summary.append(f"  - 当前会话数: {self.session_manager.get_session_count()}")
-                config_summary.append("")
-                
-                # 回忆引擎配置
-                re_config = self.config.get("recall_engine", {})
-                config_summary.append(f"🧠 回忆引擎:")
-                config_summary.append(f"  - 检索模式: {re_config.get('retrieval_mode', 'hybrid')}")
-                config_summary.append(f"  - 返回数量: {re_config.get('top_k', 5)}")
-                config_summary.append(f"  - 召回策略: {re_config.get('recall_strategy', 'weighted')}")
-                config_summary.append("")
-                
-                # 反思引擎配置
-                rf_config = self.config.get("reflection_engine", {})
-                config_summary.append(f"💭 反思引擎:")
-                config_summary.append(f"  - 触发轮次: {rf_config.get('summary_trigger_rounds', 10)}")
-                config_summary.append(f"  - 重要性阈值: {rf_config.get('importance_threshold', 0.5)}")
-                config_summary.append("")
-                
-                # 遗忘代理配置
-                fa_config = self.config.get("forgetting_agent", {})
-                config_summary.append(f"🗑️ 遗忘代理:")
-                config_summary.append(f"  - 启用状态: {'是' if fa_config.get('enabled', True) else '否'}")
-                config_summary.append(f"  - 检查间隔: {fa_config.get('check_interval_hours', 24)}小时")
-                config_summary.append(f"  - 保留天数: {fa_config.get('retention_days', 90)}天")
-                
-                yield event.plain_result("\n".join(config_summary))
-                
-            except Exception as e:
-                yield event.plain_result(f"显示配置时发生错误: {e}")
-                
-        elif action == "validate":
-            try:
-                from .core.config_validator import validate_config
-                # 重新验证当前配置
-                validate_config(self.config)
-                yield event.plain_result("✅ 配置验证通过，所有参数均有效")
-                
-            except Exception as e:
-                yield event.plain_result(f"❌ 配置验证失败: {e}")
-                
+            yield event.plain_result(self.admin_handler.format_config_summary_for_display(result))
         else:
-            yield event.plain_result("❌ 无效的动作，请使用 'show' 或 'validate'")
+            yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("fusion")
@@ -895,97 +610,16 @@ class LivingMemoryPlugin(Star):
           /lmem fusion convex lambda=0.6
           /lmem fusion weighted dense_weight=0.8
         """
-        if not self.recall_engine:
-            yield event.plain_result("❌ 回忆引擎尚未初始化。")
+        if not self.fusion_handler:
+            yield event.plain_result("融合策略处理器尚未初始化。")
             return
-        
+            
         if strategy == "show":
-            # 显示当前融合配置
-            fusion_config = self.config.get("fusion", {})
-            current_strategy = fusion_config.get("strategy", "rrf")
-            
-            response = ["🔄 当前检索融合配置:"]
-            response.append(f"策略: {current_strategy}")
-            response.append("")
-            
-            if current_strategy in ["rrf", "hybrid_rrf"]:
-                response.append(f"RRF参数k: {fusion_config.get('rrf_k', 60)}")
-                if current_strategy == "hybrid_rrf":
-                    response.append(f"多样性奖励: {fusion_config.get('diversity_bonus', 0.1)}")
-            
-            if current_strategy in ["weighted", "convex", "rank_fusion", "score_fusion"]:
-                response.append(f"密集权重: {fusion_config.get('dense_weight', 0.7)}")
-                response.append(f"稀疏权重: {fusion_config.get('sparse_weight', 0.3)}")
-            
-            if current_strategy == "convex":
-                response.append(f"凸组合λ: {fusion_config.get('convex_lambda', 0.5)}")
-            
-            if current_strategy == "interleave":
-                response.append(f"交替比例: {fusion_config.get('interleave_ratio', 0.5)}")
-            
-            if current_strategy == "rank_fusion":
-                response.append(f"排序偏置: {fusion_config.get('rank_bias_factor', 0.1)}")
-            
-            response.append("")
-            response.append("💡 各策略特点:")
-            response.append("• rrf: 经典方法，平衡性好")
-            response.append("• hybrid_rrf: 动态调整，适应查询类型")
-            response.append("• weighted: 简单加权，可解释性强")
-            response.append("• convex: 凸组合，数学严格")
-            response.append("• interleave: 交替选择，保证多样性")
-            response.append("• rank_fusion: 基于排序位置")
-            response.append("• score_fusion: Borda Count投票")
-            response.append("• cascade: 稀疏初筛+密集精排")
-            response.append("• adaptive: 根据查询自适应")
-            
-            yield event.plain_result("\n".join(response))
-            
-        elif strategy in ["rrf", "hybrid_rrf", "weighted", "convex", "interleave", 
-                         "rank_fusion", "score_fusion", "cascade", "adaptive"]:
-            
-            # 更新融合策略
-            if "fusion" not in self.config:
-                self.config["fusion"] = {}
-            
-            old_strategy = self.config["fusion"].get("strategy", "rrf")
-            self.config["fusion"]["strategy"] = strategy
-            
-            # 处理参数
-            if param and "=" in param:
-                key, value = param.split("=", 1)
-                key = key.strip()
-                value = value.strip()
-                
-                try:
-                    # 尝试转换为数字
-                    if "." in value:
-                        self.config["fusion"][key] = float(value)
-                    else:
-                        self.config["fusion"][key] = int(value)
-                        
-                    logger.info(f"更新融合参数 {key} = {value}")
-                except ValueError:
-                    yield event.plain_result(f"❌ 参数值无效: {value}")
-                    return
-            
-            # 更新 RecallEngine 中的融合配置
-            if hasattr(self.recall_engine, 'result_fusion'):
-                self.recall_engine.result_fusion.strategy = strategy
-                self.recall_engine.result_fusion.config = self.config["fusion"]
-                
-                # 更新融合器的参数
-                fusion_obj = self.recall_engine.result_fusion
-                fusion_obj.dense_weight = self.config["fusion"].get("dense_weight", 0.7)
-                fusion_obj.sparse_weight = self.config["fusion"].get("sparse_weight", 0.3)
-                fusion_obj.rrf_k = self.config["fusion"].get("rrf_k", 60)
-                fusion_obj.convex_lambda = self.config["fusion"].get("convex_lambda", 0.5)
-                fusion_obj.interleave_ratio = self.config["fusion"].get("interleave_ratio", 0.5)
-                fusion_obj.rank_bias_factor = self.config["fusion"].get("rank_bias_factor", 0.1)
-            
-            yield event.plain_result(f"✅ 融合策略已从 '{old_strategy}' 更新为 '{strategy}'{f' (参数: {param})' if param else ''}")
-            
+            result = await self.fusion_handler.manage_fusion_strategy("show")
+            yield event.plain_result(self.fusion_handler.format_fusion_config_for_display(result))
         else:
-            yield event.plain_result("❌ 不支持的融合策略。使用 /lmem fusion show 查看可用选项。")
+            result = await self.fusion_handler.manage_fusion_strategy(strategy, param)
+            yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("test_fusion")
@@ -996,58 +630,13 @@ class LivingMemoryPlugin(Star):
         
         这个命令会使用当前的融合策略进行搜索，并显示详细的融合过程信息。
         """
-        if not self.recall_engine:
-            yield event.plain_result("❌ 回忆引擎尚未初始化。")
+        if not self.fusion_handler:
+            yield event.plain_result("融合策略处理器尚未初始化。")
             return
-        
-        try:
-            yield event.plain_result(f"🔍 测试融合策略，查询: '{query}', 返回数量: {k}")
             
-            # 执行搜索
-            session_id = await self.context.conversation_manager.get_curr_conversation_id(
-                event.unified_msg_origin
-            )
-            persona_id = await get_persona_id(self.context, event)
-            
-            results = await self.recall_engine.recall(
-                self.context, query, session_id, persona_id, k
-            )
-            
-            if not results:
-                yield event.plain_result("📭 未找到相关记忆。")
-                return
-            
-            # 获取融合配置
-            fusion_config = self.config.get("fusion", {})
-            current_strategy = fusion_config.get("strategy", "rrf")
-            
-            response = [f"🎯 融合测试结果 (策略: {current_strategy})"]
-            response.append("=" * 50)
-            
-            for i, result in enumerate(results, 1):
-                # 解析元数据
-                metadata = safe_parse_metadata(result.data.get("metadata", {}))
-                importance = metadata.get("importance", 0.0)
-                event_type = metadata.get("event_type", "未知")
-                
-                response.append(f"\n{i}. [ID: {result.data['id']}] 分数: {result.similarity:.4f}")
-                response.append(f"   重要性: {importance:.3f} | 类型: {event_type}")
-                response.append(f"   内容: {result.data['text'][:100]}{'...' if len(result.data['text']) > 100 else ''}")
-            
-            response.append("\n" + "=" * 50)
-            response.append(f"💡 当前融合配置:")
-            response.append(f"   策略: {current_strategy}")
-            if current_strategy in ["rrf", "hybrid_rrf"]:
-                response.append(f"   RRF-k: {fusion_config.get('rrf_k', 60)}")
-            if current_strategy in ["weighted", "convex"]:
-                response.append(f"   密集权重: {fusion_config.get('dense_weight', 0.7)}")
-                response.append(f"   稀疏权重: {fusion_config.get('sparse_weight', 0.3)}")
-            
-            yield event.plain_result("\n".join(response))
-            
-        except Exception as e:
-            logger.error(f"融合策略测试失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 测试失败: {e}")
+        yield event.plain_result(f"🔍 测试融合策略，查询: '{query}', 返回数量: {k}")
+        result = await self.fusion_handler.test_fusion_strategy(query, k)
+        yield event.plain_result(self.fusion_handler.format_fusion_test_for_display(result))
 
     async def terminate(self):
         """

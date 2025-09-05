@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import uuid
 import json
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 import aiosqlite
+
+from astrbot.api import logger
 
 from ..core.models.memory_models import (
     Memory,
@@ -65,14 +68,14 @@ class FaissManagerV2:
             memory.memory_id = str(uuid.uuid4())
 
         if not memory.embedding:
-            memory.embedding = self.embedding_model.encode(memory.description)
+            memory.embedding = await asyncio.to_thread(self.embedding_model.encode, memory.description)
 
         # 1. 存入 SQLite 并获取内部 ID
         internal_id = await self.storage.add_memory(memory)
 
         # 2. 将文本向量添加到 text_vstore
         if memory.embedding:
-            self.text_vstore.add([internal_id], [memory.embedding])
+            await asyncio.to_thread(self.text_vstore.add, [internal_id], [memory.embedding])
 
         # 3. 将图像向量添加到 image_vstore
         media_embeddings = [
@@ -80,7 +83,7 @@ class FaissManagerV2:
         ]
         if media_embeddings:
             media_ids = [internal_id] * len(media_embeddings)
-            self.image_vstore.add(media_ids, media_embeddings)
+            await asyncio.to_thread(self.image_vstore.add, media_ids, media_embeddings)
 
         # 4. 将图数据添加到 graph_storage
         if memory.knowledge_graph_payload:
@@ -89,8 +92,8 @@ class FaissManagerV2:
             )
 
         # TODO 考虑定期保存索引，而不是每次都保存
-        self.text_vstore.save_index()
-        self.image_vstore.save_index()
+        await asyncio.to_thread(self.text_vstore.save_index)
+        await asyncio.to_thread(self.image_vstore.save_index)
 
         return memory.memory_id
 
@@ -101,13 +104,13 @@ class FaissManagerV2:
         根据查询文本智能检索最相关的记忆。
         """
         # 1a. 向量搜索
-        query_embedding = self.embedding_model.encode(query_text)
+        query_embedding = await asyncio.to_thread(self.embedding_model.encode, query_text)
         # 召回数量可以设置得比最终需要的 k 要大，例如 k*5
-        distances, text_ids = self.text_vstore.search(query_embedding, k * 5)
+        distances, text_ids = await asyncio.to_thread(self.text_vstore.search, query_embedding, k * 5)
 
         # 1b. 基于图的种子扩展
         # 假设 embedding_model 有提取实体的能力
-        query_entities = self.embedding_model.extract_entities(query_text)
+        query_entities = await asyncio.to_thread(self.embedding_model.extract_entities, query_text)
         graph_ids = []
         if query_entities:
             for entity_id in query_entities:
@@ -184,7 +187,7 @@ class FaissManagerV2:
                     }
                 )
             except (json.JSONDecodeError, KeyError) as e:
-                print(
+                logger.error(
                     f"Error updating access info for memory_id {doc.get('memory_id')}: {e}"
                 )
 
@@ -217,10 +220,10 @@ class FaissManagerV2:
         internal_ids = [doc["id"] for doc in docs]
 
         # 1. 从 Faiss 移除
-        self.text_vstore.remove(internal_ids)
-        self.image_vstore.remove(internal_ids)
-        self.text_vstore.save_index()
-        self.image_vstore.save_index()
+        await asyncio.to_thread(self.text_vstore.remove, internal_ids)
+        await asyncio.to_thread(self.image_vstore.remove, internal_ids)
+        await asyncio.to_thread(self.text_vstore.save_index)
+        await asyncio.to_thread(self.image_vstore.save_index)
 
         # 2. 从 SQLite 的 memories 表移除
         # 由于设置了 ON DELETE CASCADE，graph_edges 表中相关的数据会被自动删除
@@ -235,12 +238,12 @@ class FaissManagerV2:
         internal_id = docs[0]["id"]
 
         # 2. 从所有 Faiss 索引中移除
-        self.text_vstore.remove([internal_id])
-        self.image_vstore.remove([internal_id])
+        await asyncio.to_thread(self.text_vstore.remove, [internal_id])
+        await asyncio.to_thread(self.image_vstore.remove, [internal_id])
         # (可选) 也可以从图数据库中移除以节省空间
         # await self.graph_storage.delete_graph_for_memory(internal_id)
 
         # 3. 在 SQLite 中更新状态
         await self.storage.update_memory_status([internal_id], "archived")
 
-        print(f"已归档记忆 {memory_id}。")
+        logger.info(f"已归档记忆 {memory_id}。")

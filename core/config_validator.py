@@ -5,7 +5,7 @@ config_validator.py - 配置验证模块
 """
 
 from typing import Dict, Any, List, Optional, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from astrbot.api import logger
 
 
@@ -24,21 +24,19 @@ class RecallEngineConfig(BaseModel):
     importance_weight: float = Field(default=0.2, ge=0.0, le=1.0, description="重要性权重") 
     recency_weight: float = Field(default=0.2, ge=0.0, le=1.0, description="新近度权重")
     
-    @field_validator('similarity_weight', 'importance_weight', 'recency_weight')
-    @classmethod
-    def validate_weights_sum(cls, v, info):
+    @model_validator(mode='after')
+    def validate_weights_sum(self):
         """验证权重总和接近1.0"""
-        # Pydantic v2 中 info 对象包含字段信息
-        if info.data and len(info.data) >= 2:  # 当有足够的权重值时
-            similarity = info.data.get('similarity_weight', 0.6)
-            importance = info.data.get('importance_weight', 0.2) 
-            recency = info.data.get('recency_weight', 0.2)
-            
-            # 计算当前已设置的权重总和
-            total = similarity + importance + recency
-            if abs(total - 1.0) > 0.1:
-                logger.warning(f"权重总和 {total:.2f} 偏离1.0较多，可能影响检索效果")
-        return v
+        similarity = self.similarity_weight
+        importance = self.importance_weight
+        recency = self.recency_weight
+        
+        # 计算权重总和
+        total = similarity + importance + recency
+        if abs(total - 1.0) > 0.1:
+            logger.warning(f"权重总和 {total:.2f} 偏离1.0较多，可能影响检索效果")
+        
+        return self
 
 
 class FusionConfig(BaseModel):

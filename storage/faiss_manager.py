@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 import numpy as np
 
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB, Result
+from astrbot.api import logger
 from ..core.utils import safe_parse_metadata, safe_serialize_metadata, validate_timestamp
 
 
@@ -121,7 +122,7 @@ class FaissManager:
 
     async def update_memory_access_time(self, doc_ids: List[int]):
         """
-        批量更新一组记忆的最后访问时间。
+        批量更新一组记忆的最后访问时间。使用批量更新避免N+1查询问题。
 
         Args:
             doc_ids (List[int]): 需要更新的文档 ID 列表。
@@ -131,27 +132,48 @@ class FaissManager:
 
         current_timestamp = time.time()
 
-        # 从数据库中获取现有的元数据
-        docs = await self.db.document_storage.get_documents(
-            ids=doc_ids, metadata_filters={}
-        )
+        try:
+            # 从数据库中获取现有的元数据
+            docs = await self.db.document_storage.get_documents(
+                ids=doc_ids, metadata_filters={}
+            )
 
-        for doc in docs:
-            try:
-                # 使用统一的元数据处理函数
-                metadata = safe_parse_metadata(doc["metadata"])
-                metadata["last_access_time"] = current_timestamp
+            if not docs:
+                return
 
-                # 更新数据库
-                await self.db.document_storage.connection.execute(
+            # 准备批量更新数据
+            batch_updates = []
+            for doc in docs:
+                try:
+                    # 使用统一的元数据处理函数
+                    metadata = safe_parse_metadata(doc["metadata"])
+                    metadata["last_access_time"] = current_timestamp
+                    
+                    # 添加到批量更新列表
+                    batch_updates.append((
+                        safe_serialize_metadata(metadata), 
+                        doc["id"]
+                    ))
+                except Exception as e:
+                    logger.warning(f"处理文档 {doc['id']} 的元数据时出错: {e}")
+                    continue
+
+            # 执行批量更新
+            if batch_updates:
+                await self.db.document_storage.connection.executemany(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
-                    (safe_serialize_metadata(metadata), doc["id"]),
+                    batch_updates
                 )
-            except Exception as e:
-                logger.warning(f"更新文档 {doc['id']} 的元数据时出错: {e}")
-                continue
-
-        await self.db.document_storage.connection.commit()
+                await self.db.document_storage.connection.commit()
+                logger.debug(f"成功批量更新 {len(batch_updates)} 个文档的访问时间")
+                
+        except Exception as e:
+            logger.error(f"批量更新访问时间失败: {e}")
+            # 回滚事务
+            try:
+                await self.db.document_storage.connection.rollback()
+            except Exception as rollback_error:
+                logger.error(f"回滚事务失败: {rollback_error}")
 
     async def get_all_memories_for_forgetting(self) -> List[Dict[str, Any]]:
         """
@@ -222,18 +244,40 @@ class FaissManager:
 
     async def update_memories_metadata(self, memories: List[Dict[str, Any]]):
         """
-        批量更新记忆的元数据。
+        批量更新记忆的元数据。使用executemany优化性能。
         """
         if not memories:
             return
 
-        async with self.db.document_storage.connection.cursor() as cursor:
+        try:
+            # 准备批量更新数据
+            batch_updates = []
             for mem in memories:
-                await cursor.execute(
+                try:
+                    batch_updates.append((
+                        safe_serialize_metadata(mem["metadata"]), 
+                        mem["id"]
+                    ))
+                except Exception as e:
+                    logger.warning(f"处理记忆 {mem.get('id')} 的元数据时出错: {e}")
+                    continue
+            
+            # 执行批量更新
+            if batch_updates:
+                await self.db.document_storage.connection.executemany(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
-                    (safe_serialize_metadata(mem["metadata"]), mem["id"]),
+                    batch_updates
                 )
-        await self.db.document_storage.connection.commit()
+                await self.db.document_storage.connection.commit()
+                logger.debug(f"成功批量更新 {len(batch_updates)} 个记忆的元数据")
+                
+        except Exception as e:
+            logger.error(f"批量更新记忆元数据失败: {e}")
+            try:
+                await self.db.document_storage.connection.rollback()
+            except Exception as rollback_error:
+                logger.error(f"回滚事务失败: {rollback_error}")
+            raise
 
     async def delete_memories(self, doc_ids: List[int]):
         """
@@ -286,7 +330,7 @@ class FaissManager:
         update_reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        更新记忆内容或元数据（事务性操作）。
+        更新记忆内容或元数据（完全事务性操作）。
 
         Args:
             memory_id (Union[int, str]): 记忆ID（整数或UUID）
@@ -299,6 +343,9 @@ class FaissManager:
         Returns:
             Dict[str, Any]: 更新结果，包含 success、message、updated_fields 等信息
         """
+        # 开始事务
+        await self.db.document_storage.connection.execute("BEGIN")
+        
         try:
             # 获取原始记忆
             if isinstance(memory_id, int):
@@ -310,6 +357,7 @@ class FaissManager:
                 )
             
             if not docs:
+                await self.db.document_storage.connection.rollback()
                 return {
                     "success": False,
                     "message": f"未找到ID为 {memory_id} 的记忆",
@@ -403,8 +451,12 @@ class FaissManager:
                 }
                 
         except Exception as e:
+            logger.error(f"更新记忆时发生错误: {e}", exc_info=True)
             # 回滚事务
-            await self.db.document_storage.connection.rollback()
+            try:
+                await self.db.document_storage.connection.rollback()
+            except Exception as rollback_error:
+                logger.error(f"回滚事务失败: {rollback_error}")
             return {
                 "success": False,
                 "message": f"更新记忆时发生错误: {str(e)}",

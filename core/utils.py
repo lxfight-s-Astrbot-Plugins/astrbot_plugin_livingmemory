@@ -5,6 +5,8 @@ utils.py - 插件的辅助工具函数
 
 import re
 import json
+import time
+import asyncio
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -68,8 +70,6 @@ def validate_timestamp(timestamp: Any, default_time: Optional[float] = None) -> 
     Returns:
         float: 标准化的时间戳
     """
-    import time
-    
     if default_time is None:
         default_time = time.time()
         
@@ -114,8 +114,6 @@ async def retry_on_failure(
     Returns:
         函数执行结果
     """
-    import asyncio
-    
     last_exception = None
     
     for attempt in range(max_retries + 1):
@@ -147,14 +145,12 @@ class OperationContext:
         self.start_time = None
         
     async def __aenter__(self):
-        import time
         self.start_time = time.time()
         session_info = f"[{self.session_id}] " if self.session_id else ""
         logger.debug(f"{session_info}开始执行操作: {self.operation_name}")
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        import time
         duration = time.time() - self.start_time if self.start_time else 0
         session_info = f"[{self.session_id}] " if self.session_id else ""
         
@@ -207,19 +203,43 @@ def extract_json_from_response(text: str) -> str:
     return text.strip()
 
 
-def get_now_datetime(context: Context) -> datetime:
+def get_now_datetime(tz_str: str = "Asia/Shanghai") -> datetime:
     """
-    获取当前时间，并根据插件配置设置时区。
+    获取当前时间，并根据指定的时区设置时区。
+    
+    Args:
+        tz_str: 时区字符串，默认为 "Asia/Shanghai"
+        
+    Returns:
+        datetime: 带有时区信息的当前时间
     """
     try:
-        # 尝试从配置中获取时区
-        tz_str = context.plugin_config.get("timezone_settings.timezone", "Asia/Shanghai")
         timezone = pytz.timezone(tz_str)
-    except (pytz.UnknownTimeZoneError, AttributeError):
-        # 如果配置不存在或时区无效，则使用默认值
+    except pytz.UnknownTimeZoneError:
+        # 如果时区无效，则使用默认值
+        logger.warning(f"无效的时区: {tz_str}，使用默认时区 Asia/Shanghai")
         timezone = pytz.timezone("Asia/Shanghai")
 
     return datetime.now(timezone)
+
+
+def get_now_datetime_from_context(context: Context) -> datetime:
+    """
+    从上下文中获取当前时间，根据插件配置设置时区。
+    
+    Args:
+        context: AstrBot 上下文对象
+        
+    Returns:
+        datetime: 带有时区信息的当前时间
+    """
+    try:
+        # 尝试从配置中获取时区
+        tz_str = context.plugin_config.get("timezone_settings", {}).get("timezone", "Asia/Shanghai")
+        return get_now_datetime(tz_str)
+    except (AttributeError, KeyError):
+        # 如果配置不存在，则使用默认值
+        return get_now_datetime()
 
 
 def format_memories_for_injection(memories: List[Result]) -> str:

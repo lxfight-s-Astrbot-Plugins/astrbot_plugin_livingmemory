@@ -46,13 +46,8 @@ class MemoryStorage:
         """)
         await self.connection.commit()
 
-    async def close(self):
-        """
-        关闭数据库连接
-        """
-        if self.connection:
-            await self.connection.close()
-            self.connection = None
+    # Note: 不提供 close() 方法，因为这个类不负责连接的生命周期管理
+    # 连接的创建和关闭应由更高层的组件（如 FaissManagerV2）负责
 
     async def add_memory(self, memory: Memory) -> int:
         """
