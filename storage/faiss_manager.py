@@ -11,7 +11,7 @@ import numpy as np
 
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB, Result
 from astrbot.api import logger
-from ..core.utils import safe_parse_metadata, safe_serialize_metadata, validate_timestamp
+from ..core.utils import safe_parse_metadata, safe_serialize_metadata
 
 
 class FaissManager:
@@ -148,12 +148,9 @@ class FaissManager:
                     # 使用统一的元数据处理函数
                     metadata = safe_parse_metadata(doc["metadata"])
                     metadata["last_access_time"] = current_timestamp
-                    
+
                     # 添加到批量更新列表
-                    batch_updates.append((
-                        safe_serialize_metadata(metadata), 
-                        doc["id"]
-                    ))
+                    batch_updates.append((safe_serialize_metadata(metadata), doc["id"]))
                 except Exception as e:
                     logger.warning(f"处理文档 {doc['id']} 的元数据时出错: {e}")
                     continue
@@ -161,12 +158,11 @@ class FaissManager:
             # 执行批量更新
             if batch_updates:
                 await self.db.document_storage.connection.executemany(
-                    "UPDATE documents SET metadata = ? WHERE id = ?",
-                    batch_updates
+                    "UPDATE documents SET metadata = ? WHERE id = ?", batch_updates
                 )
                 await self.db.document_storage.connection.commit()
                 logger.debug(f"成功批量更新 {len(batch_updates)} 个文档的访问时间")
-                
+
         except Exception as e:
             logger.error(f"批量更新访问时间失败: {e}")
             # 回滚事务
@@ -178,26 +174,24 @@ class FaissManager:
     async def get_all_memories_for_forgetting(self) -> List[Dict[str, Any]]:
         """
         获取所有记忆及其元数据，用于遗忘代理的处理。
-        
+
         注意：此方法仅为向后兼容保留，新代码应使用 get_memories_paginated
-        
+
         Returns:
             List[Dict[str, Any]]: 包含所有记忆数据的列表。
         """
         return await self.db.document_storage.get_documents(metadata_filters={})
-    
+
     async def get_memories_paginated(
-        self, 
-        page_size: int = 1000, 
-        offset: int = 0
+        self, page_size: int = 1000, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
         分页获取记忆数据，避免一次性加载大量数据。
-        
+
         Args:
             page_size: 每页记录数
             offset: 偏移量
-            
+
         Returns:
             List[Dict[str, Any]]: 分页记忆数据
         """
@@ -205,30 +199,30 @@ class FaissManager:
             # 使用 SQLite 的 LIMIT 和 OFFSET 进行分页
             async with self.db.document_storage.connection.execute(
                 "SELECT * FROM documents ORDER BY id LIMIT ? OFFSET ?",
-                (page_size, offset)
+                (page_size, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
-                
+
             # 转换为字典格式
             memories = []
             for row in rows:
                 memory = {
                     "id": row[0],  # id 列
                     "content": row[1],  # content 列
-                    "metadata": row[2] if row[2] else "{}"  # metadata 列
+                    "metadata": row[2] if row[2] else "{}",  # metadata 列
                 }
                 memories.append(memory)
-                
+
             return memories
-            
+
         except Exception as e:
             logger.error(f"分页获取记忆失败: {e}")
             return []
-    
+
     async def count_total_memories(self) -> int:
         """
         获取记忆总数。
-        
+
         Returns:
             int: 记忆总数
         """
@@ -254,23 +248,21 @@ class FaissManager:
             batch_updates = []
             for mem in memories:
                 try:
-                    batch_updates.append((
-                        safe_serialize_metadata(mem["metadata"]), 
-                        mem["id"]
-                    ))
+                    batch_updates.append(
+                        (safe_serialize_metadata(mem["metadata"]), mem["id"])
+                    )
                 except Exception as e:
                     logger.warning(f"处理记忆 {mem.get('id')} 的元数据时出错: {e}")
                     continue
-            
+
             # 执行批量更新
             if batch_updates:
                 await self.db.document_storage.connection.executemany(
-                    "UPDATE documents SET metadata = ? WHERE id = ?",
-                    batch_updates
+                    "UPDATE documents SET metadata = ? WHERE id = ?", batch_updates
                 )
                 await self.db.document_storage.connection.commit()
                 logger.debug(f"成功批量更新 {len(batch_updates)} 个记忆的元数据")
-                
+
         except Exception as e:
             logger.error(f"批量更新记忆元数据失败: {e}")
             try:
@@ -291,33 +283,37 @@ class FaissManager:
 
         # 开始事务
         await self.db.document_storage.connection.execute("BEGIN")
-        
+
         faiss_deleted = False
         try:
             # 首先从 SQLite 中删除（更容易回滚）
             placeholders = ",".join("?" for _ in doc_ids)
             sql = f"DELETE FROM documents WHERE id IN ({placeholders})"
             await self.db.document_storage.connection.execute(sql, doc_ids)
-            
+
             # 然后从 Faiss 索引中删除
-            self.db.embedding_storage.index.remove_ids(np.array(doc_ids, dtype=np.int64))
+            self.db.embedding_storage.index.remove_ids(
+                np.array(doc_ids, dtype=np.int64)
+            )
             await self.db.embedding_storage.save_index()
             faiss_deleted = True
-            
+
             # 提交事务
             await self.db.document_storage.connection.commit()
             logger.info(f"成功删除 {len(doc_ids)} 条记忆")
-            
+
         except Exception as e:
             logger.error(f"删除记忆时发生错误: {e}")
-            
+
             # 回滚SQLite事务
             await self.db.document_storage.connection.rollback()
-            
+
             # 如果Faiss已经删除但SQLite失败，需要恢复Faiss（这是不完美的，但比数据不一致好）
             if faiss_deleted:
-                logger.warning("Faiss索引已删除但SQLite回滚，数据可能不一致。建议重建索引。")
-            
+                logger.warning(
+                    "Faiss索引已删除但SQLite回滚，数据可能不一致。建议重建索引。"
+                )
+
             raise RuntimeError(f"删除记忆失败: {e}") from e
 
     async def update_memory(
@@ -345,7 +341,7 @@ class FaissManager:
         """
         # 开始事务
         await self.db.document_storage.connection.execute("BEGIN")
-        
+
         try:
             # 获取原始记忆
             if isinstance(memory_id, int):
@@ -355,15 +351,15 @@ class FaissManager:
                 docs = await self.db.document_storage.get_documents(
                     metadata_filters={"memory_id": memory_id}
                 )
-            
+
             if not docs:
                 await self.db.document_storage.connection.rollback()
                 return {
                     "success": False,
                     "message": f"未找到ID为 {memory_id} 的记忆",
-                    "updated_fields": []
+                    "updated_fields": [],
                 }
-            
+
             original_doc = docs[0]
             try:
                 original_metadata = (
@@ -376,44 +372,52 @@ class FaissManager:
                 return {
                     "success": False,
                     "message": f"解析记忆元数据失败: {str(e)}",
-                    "updated_fields": []
+                    "updated_fields": [],
                 }
-            
+
             # 准备更新数据
             updated_metadata = original_metadata.copy()
             updated_fields = []
-            
+
             # 1. 更新内容和向量
             if content is not None and content != original_doc["content"]:
                 # 重新计算向量
                 embedding = await self.db.embedding_provider.embed_query(content)
-                
+
                 # 更新数据库
                 await self.db.document_storage.connection.execute(
                     "UPDATE documents SET content = ?, embedding = ? WHERE id = ?",
                     (content, embedding.tobytes(), original_doc["id"]),
                 )
-                
+
                 # 更新 Faiss 索引
-                self.db.embedding_storage.index.remove_ids(np.array([original_doc["id"]], dtype=np.int64))
+                self.db.embedding_storage.index.remove_ids(
+                    np.array([original_doc["id"]], dtype=np.int64)
+                )
                 self.db.embedding_storage.index.add(embedding.reshape(1, -1))
                 await self.db.embedding_storage.save_index()
-                
+
                 updated_fields.append("content")
-            
+
             # 2. 更新元数据字段
-            if importance is not None and importance != original_metadata.get("importance"):
+            if importance is not None and importance != original_metadata.get(
+                "importance"
+            ):
                 updated_metadata["importance"] = importance
                 updated_fields.append("importance")
-            
-            if event_type is not None and event_type != original_metadata.get("event_type"):
+
+            if event_type is not None and event_type != original_metadata.get(
+                "event_type"
+            ):
                 updated_metadata["event_type"] = event_type
                 updated_fields.append("event_type")
-            
-            if status is not None and status != original_metadata.get("status", "active"):
+
+            if status is not None and status != original_metadata.get(
+                "status", "active"
+            ):
                 updated_metadata["status"] = status
                 updated_fields.append("status")
-            
+
             # 3. 记录更新历史
             if update_reason or updated_fields:
                 update_history = updated_metadata.get("update_history", [])
@@ -425,31 +429,31 @@ class FaissManager:
                 update_history.append(update_record)
                 updated_metadata["update_history"] = update_history
                 updated_metadata["last_updated_time"] = time.time()
-            
+
             # 4. 保存元数据更新
             if updated_fields:
                 await self.db.document_storage.connection.execute(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
                     (json.dumps(updated_metadata), original_doc["id"]),
                 )
-                
+
                 # 提交事务
                 await self.db.document_storage.connection.commit()
-                
+
                 return {
                     "success": True,
                     "message": f"成功更新记忆 {memory_id}",
                     "updated_fields": updated_fields,
-                    "memory_id": original_doc["id"]
+                    "memory_id": original_doc["id"],
                 }
             else:
                 return {
                     "success": True,
                     "message": "没有需要更新的字段",
                     "updated_fields": [],
-                    "memory_id": original_doc["id"]
+                    "memory_id": original_doc["id"],
                 }
-                
+
         except Exception as e:
             logger.error(f"更新记忆时发生错误: {e}", exc_info=True)
             # 回滚事务
@@ -461,5 +465,5 @@ class FaissManager:
                 "success": False,
                 "message": f"更新记忆时发生错误: {str(e)}",
                 "updated_fields": [],
-                "error": str(e)
+                "error": str(e),
             }

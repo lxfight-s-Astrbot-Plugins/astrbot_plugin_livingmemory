@@ -11,9 +11,9 @@ from .admin_handler import AdminHandler
 from .fusion_handler import FusionHandler
 
 __all__ = [
-    'BaseHandler',
-    'MemoryHandler', 
-    'SearchHandler',
-    'AdminHandler',
-    'FusionHandler'
+    "BaseHandler",
+    "MemoryHandler",
+    "SearchHandler",
+    "AdminHandler",
+    "FusionHandler",
 ]

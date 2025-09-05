@@ -10,9 +10,9 @@ from .admin_commands import AdminCommands
 from .fusion_commands import FusionCommands
 
 __all__ = [
-    'BaseCommand',
-    'MemoryCommands', 
-    'SearchCommands',
-    'AdminCommands',
-    'FusionCommands'
+    "BaseCommand",
+    "MemoryCommands",
+    "SearchCommands",
+    "AdminCommands",
+    "FusionCommands",
 ]

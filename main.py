@@ -6,13 +6,11 @@ main.py - LivingMemory 插件主文件
 
 import asyncio
 import os
-import json
 import time
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 # AstrBot API
-from astrbot.api.event import filter, AstrMessageEvent,MessageChain
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.provider import (
@@ -31,9 +29,15 @@ from .core.engines.recall_engine import RecallEngine
 from .core.engines.reflection_engine import ReflectionEngine
 from .core.engines.forgetting_agent import ForgettingAgent
 from .core.retrieval import SparseRetriever
-from .core.utils import get_persona_id, format_memories_for_injection, get_now_datetime, retry_on_failure, OperationContext, safe_parse_metadata
+from .core.utils import (
+    get_persona_id,
+    format_memories_for_injection,
+    retry_on_failure,
+    OperationContext,
+)
 from .core.config_validator import validate_config, merge_config_with_defaults
 from .core.handlers import MemoryHandler, SearchHandler, AdminHandler, FusionHandler
+
 
 # 会话管理器类，替代全局字典
 class SessionManager:
@@ -47,47 +51,49 @@ class SessionManager:
         self._access_times: Dict[str, float] = {}
         self.max_sessions = max_sessions
         self.session_ttl = session_ttl
-        
+
     def get_session(self, session_id: str) -> Dict[str, Any]:
         """获取会话数据，如果不存在则创建"""
         current_time = time.time()
-        
+
         # 清理过期会话
         self._cleanup_expired_sessions(current_time)
-        
+
         if session_id not in self._sessions:
             self._sessions[session_id] = {"history": [], "round_count": 0}
-            
+
         self._access_times[session_id] = current_time
         return self._sessions[session_id]
-        
+
     def _cleanup_expired_sessions(self, current_time: float):
         """清理过期的会话"""
         expired_sessions = []
         for session_id, last_access in self._access_times.items():
             if current_time - last_access > self.session_ttl:
                 expired_sessions.append(session_id)
-                
+
         for session_id in expired_sessions:
             self._sessions.pop(session_id, None)
             self._access_times.pop(session_id, None)
-            
+
         # 如果会话数量超过限制，删除最旧的会话
         if len(self._sessions) > self.max_sessions:
             # 按访问时间排序，删除最旧的
             sorted_sessions = sorted(self._access_times.items(), key=lambda x: x[1])
-            sessions_to_remove = sorted_sessions[:len(self._sessions) - self.max_sessions]
-            
+            sessions_to_remove = sorted_sessions[
+                : len(self._sessions) - self.max_sessions
+            ]
+
             for session_id, _ in sessions_to_remove:
                 self._sessions.pop(session_id, None)
                 self._access_times.pop(session_id, None)
-                
+
     def reset_session(self, session_id: str):
         """重置指定会话"""
         if session_id in self._sessions:
             self._sessions[session_id] = {"history": [], "round_count": 0}
             self._access_times[session_id] = time.time()
-            
+
     def get_session_count(self) -> int:
         """获取当前会话数量"""
         return len(self._sessions)
@@ -104,7 +110,7 @@ class LivingMemoryPlugin(Star):
     def __init__(self, context: Context, config: Dict[str, Any]):
         super().__init__(context)
         self.context = context
-        
+
         # 验证和标准化配置
         try:
             merged_config = merge_config_with_defaults(config)
@@ -114,6 +120,7 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"配置验证失败，使用默认配置: {e}")
             from .core.config_validator import get_default_config
+
             self.config = get_default_config()
             self.config_obj = validate_config(self.config)
 
@@ -126,22 +133,22 @@ class LivingMemoryPlugin(Star):
         self.recall_engine: Optional[RecallEngine] = None
         self.reflection_engine: Optional[ReflectionEngine] = None
         self.forgetting_agent: Optional[ForgettingAgent] = None
-        
+
         # 初始化业务逻辑处理器
         self.memory_handler: Optional[MemoryHandler] = None
         self.search_handler: Optional[SearchHandler] = None
         self.admin_handler: Optional[AdminHandler] = None
         self.fusion_handler: Optional[FusionHandler] = None
-        
+
         # 初始化状态标记
         self._initialization_complete = False
         self._initialization_task: Optional[asyncio.Task] = None
-        
+
         # 会话管理器
         session_config = self.config.get("session_manager", {})
         self.session_manager = SessionManager(
             max_sessions=session_config.get("max_sessions", 1000),
-            session_ttl=session_config.get("session_ttl", 3600)
+            session_ttl=session_config.get("session_ttl", 3600),
         )
 
         # 启动异步初始化流程
@@ -179,9 +186,9 @@ class LivingMemoryPlugin(Star):
 
             # 3. 初始化三大核心引擎
             self.recall_engine = RecallEngine(
-                self.config.get("recall_engine", {}), 
+                self.config.get("recall_engine", {}),
                 self.faiss_manager,
-                self.sparse_retriever
+                self.sparse_retriever,
             )
             self.reflection_engine = ReflectionEngine(
                 self.config.get("reflection_engine", {}),
@@ -198,10 +205,22 @@ class LivingMemoryPlugin(Star):
             await self.forgetting_agent.start()
 
             # 初始化业务逻辑处理器
-            self.memory_handler = MemoryHandler(self.context, self.config, self.faiss_manager)
-            self.search_handler = SearchHandler(self.context, self.config, self.recall_engine, self.sparse_retriever)
-            self.admin_handler = AdminHandler(self.context, self.config, self.faiss_manager, self.forgetting_agent, self.session_manager)
-            self.fusion_handler = FusionHandler(self.context, self.config, self.recall_engine)
+            self.memory_handler = MemoryHandler(
+                self.context, self.config, self.faiss_manager
+            )
+            self.search_handler = SearchHandler(
+                self.context, self.config, self.recall_engine, self.sparse_retriever
+            )
+            self.admin_handler = AdminHandler(
+                self.context,
+                self.config,
+                self.faiss_manager,
+                self.forgetting_agent,
+                self.session_manager,
+            )
+            self.fusion_handler = FusionHandler(
+                self.context, self.config, self.recall_engine
+            )
 
             # 标记初始化完成
             self._initialization_complete = True
@@ -216,16 +235,16 @@ class LivingMemoryPlugin(Star):
     async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
         """
         等待插件初始化完成。
-        
+
         Args:
             timeout: 超时时间（秒）
-            
+
         Returns:
             bool: 是否初始化成功
         """
         if self._initialization_complete:
             return True
-            
+
         if self._initialization_task:
             try:
                 await asyncio.wait_for(self._initialization_task, timeout=timeout)
@@ -236,7 +255,7 @@ class LivingMemoryPlugin(Star):
             except Exception as e:
                 logger.error(f"等待插件初始化时发生错误: {e}")
                 return False
-        
+
         return False
 
     def _initialize_providers(self):
@@ -282,11 +301,11 @@ class LivingMemoryPlugin(Star):
         if not await self._wait_for_initialization():
             logger.warning("插件未完成初始化，跳过记忆召回。")
             return
-            
+
         if not self.recall_engine:
             logger.warning("回忆引擎尚未初始化，跳过记忆召回。")
             return
-            
+
         logger.debug("on_llm_request 钩子被调用")
 
         try:
@@ -296,63 +315,90 @@ class LivingMemoryPlugin(Star):
                 )
             )
             logger.debug(f"on_llm_request 获取到会话ID: {session_id}")
-            
+
             async with OperationContext("记忆召回", session_id):
                 logger.info(f"[{session_id}] 开始记忆注入流程")
                 logger.debug(f"[{session_id}] 用户查询: '{req.prompt[:100]}...'")
-                
+
                 # 根据配置决定是否进行过滤
                 filtering_config = self.config.get("filtering_settings", {})
-                use_persona_filtering = filtering_config.get("use_persona_filtering", True)
-                use_session_filtering = filtering_config.get("use_session_filtering", True)
-                
-                logger.debug(f"[{session_id}] 过滤配置 - 人格过滤: {use_persona_filtering}, 会话过滤: {use_session_filtering}")
+                use_persona_filtering = filtering_config.get(
+                    "use_persona_filtering", True
+                )
+                use_session_filtering = filtering_config.get(
+                    "use_session_filtering", True
+                )
+
+                logger.debug(
+                    f"[{session_id}] 过滤配置 - 人格过滤: {use_persona_filtering}, 会话过滤: {use_session_filtering}"
+                )
 
                 persona_id = await get_persona_id(self.context, event)
                 logger.debug(f"[{session_id}] 当前人格ID: {persona_id}")
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
-                
-                logger.info(f"[{session_id}] 召回参数 - 会话ID: {recall_session_id}, 人格ID: {recall_persona_id}")
+
+                logger.info(
+                    f"[{session_id}] 召回参数 - 会话ID: {recall_session_id}, 人格ID: {recall_persona_id}"
+                )
 
                 # 使用 RecallEngine 进行智能回忆，带重试机制
                 logger.debug(f"[{session_id}] 开始执行记忆召回...")
                 recalled_memories = await retry_on_failure(
                     self.recall_engine.recall,
-                    self.context, req.prompt, recall_session_id, recall_persona_id,
+                    self.context,
+                    req.prompt,
+                    recall_session_id,
+                    recall_persona_id,
                     max_retries=1,  # 记忆召回失败影响较小，只重试1次
                     backoff_factor=0.5,
-                    exceptions=(Exception,)
+                    exceptions=(Exception,),
                 )
-                
-                logger.info(f"[{session_id}] 记忆召回完成，获得 {len(recalled_memories) if recalled_memories else 0} 条记忆")
+
+                logger.info(
+                    f"[{session_id}] 记忆召回完成，获得 {len(recalled_memories) if recalled_memories else 0} 条记忆"
+                )
 
                 if recalled_memories:
                     # 记录召回的记忆详情
                     logger.debug(f"[{session_id}] 召回记忆详情:")
-                    for i, memory in enumerate(recalled_memories[:3]):  # 只记录前3个记忆
-                        content = memory.data.get('text', '')[:100]
+                    for i, memory in enumerate(
+                        recalled_memories[:3]
+                    ):  # 只记录前3个记忆
+                        content = memory.data.get("text", "")[:100]
                         similarity = memory.similarity
-                        logger.debug(f"[{session_id}] 记忆 {i+1}: 相似度={similarity:.3f}, 内容={content}...")
-                    
+                        logger.debug(
+                            f"[{session_id}] 记忆 {i + 1}: 相似度={similarity:.3f}, 内容={content}..."
+                        )
+
                     # 格式化并注入记忆
                     logger.debug(f"[{session_id}] 开始格式化记忆用于注入...")
                     memory_str = format_memories_for_injection(recalled_memories)
-                    
+
                     # 记录注入前的System Prompt长度
-                    original_prompt_length = len(req.system_prompt) if req.system_prompt else 0
+                    original_prompt_length = (
+                        len(req.system_prompt) if req.system_prompt else 0
+                    )
                     memory_injection_length = len(memory_str)
-                    
+
                     req.system_prompt = memory_str + "\n" + req.system_prompt
                     final_prompt_length = len(req.system_prompt)
-                    
+
                     logger.info(f"[{session_id}] 📝 记忆注入完成")
-                    logger.info(f"[{session_id}] - 注入记忆数量: {len(recalled_memories)}")
-                    logger.info(f"[{session_id}] - 注入内容长度: {memory_injection_length} 字符")
-                    logger.info(f"[{session_id}] - 原始System Prompt长度: {original_prompt_length} 字符")
-                    logger.info(f"[{session_id}] - 最终System Prompt长度: {final_prompt_length} 字符")
-                    
+                    logger.info(
+                        f"[{session_id}] - 注入记忆数量: {len(recalled_memories)}"
+                    )
+                    logger.info(
+                        f"[{session_id}] - 注入内容长度: {memory_injection_length} 字符"
+                    )
+                    logger.info(
+                        f"[{session_id}] - 原始System Prompt长度: {original_prompt_length} 字符"
+                    )
+                    logger.info(
+                        f"[{session_id}] - 最终System Prompt长度: {final_prompt_length} 字符"
+                    )
+
                     # 记录完整的注入内容（只在debug级别）
                     logger.debug(f"[{session_id}] 完整注入内容:\n{memory_str}")
                 else:
@@ -362,16 +408,16 @@ class LivingMemoryPlugin(Star):
                 logger.debug(f"[{session_id}] 管理会话历史...")
                 session_data = self.session_manager.get_session(session_id)
                 history_length_before = len(session_data["history"])
-                
-                session_data["history"].append(
-                    {"role": "user", "content": req.prompt}
-                )
-                
+
+                session_data["history"].append({"role": "user", "content": req.prompt})
+
                 history_length_after = len(session_data["history"])
                 current_round_count = session_data.get("round_count", 0)
-                
+
                 logger.info(f"[{session_id}] 📝 会话历史已更新")
-                logger.info(f"[{session_id}] - 历史长度: {history_length_before} -> {history_length_after}")
+                logger.info(
+                    f"[{session_id}] - 历史长度: {history_length_before} -> {history_length_after}"
+                )
                 logger.info(f"[{session_id}] - 当前轮次计数: {current_round_count}")
                 logger.debug(f"[{session_id}] - 用户消息: '{req.prompt[:100]}...'")
 
@@ -389,16 +435,18 @@ class LivingMemoryPlugin(Star):
         if not await self._wait_for_initialization():
             logger.warning("插件未完成初始化，跳过记忆反思。")
             return
-            
+
         if not self.reflection_engine:
             logger.warning("反思引擎尚未初始化，跳过记忆反思。")
             return
-            
+
         if resp.role != "assistant":
             logger.debug(f"响应角色不是assistant（当前角色: {resp.role}），跳过反思。")
             return
-            
-        logger.debug(f"on_llm_response 钩子被调用，角色: {resp.role}, 响应长度: {len(resp.completion_text)}")
+
+        logger.debug(
+            f"on_llm_response 钩子被调用，角色: {resp.role}, 响应长度: {len(resp.completion_text)}"
+        )
 
         try:
             session_id = (
@@ -417,7 +465,9 @@ class LivingMemoryPlugin(Star):
                 {"role": "assistant", "content": resp.completion_text}
             )
             current_session["round_count"] += 1
-            logger.debug(f"[{session_id}] 助手响应已添加，轮次计数: {current_session['round_count']}")
+            logger.debug(
+                f"[{session_id}] 助手响应已添加，轮次计数: {current_session['round_count']}"
+            )
 
             # 检查是否满足总结条件
             trigger_rounds = self.config.get("reflection_engine", {}).get(
@@ -452,7 +502,7 @@ class LivingMemoryPlugin(Star):
                 logger.debug(
                     f"正在处理反思任务，session_id: {session_id}, persona_id: {persona_id}"
                 )
-                
+
                 async def reflection_task():
                     async with OperationContext("记忆反思", session_id):
                         try:
@@ -465,11 +515,13 @@ class LivingMemoryPlugin(Star):
                                 persona_prompt=persona_prompt,
                                 max_retries=2,  # 重试2次
                                 backoff_factor=1.0,
-                                exceptions=(Exception,)  # 捕获所有异常重试
+                                exceptions=(Exception,),  # 捕获所有异常重试
                             )
                         except Exception as e:
-                            logger.error(f"[{session_id}] 反思任务最终失败: {e}", exc_info=True)
-                
+                            logger.error(
+                                f"[{session_id}] 反思任务最终失败: {e}", exc_info=True
+                            )
+
                 asyncio.create_task(reflection_task())
 
         except Exception as e:
@@ -488,7 +540,7 @@ class LivingMemoryPlugin(Star):
         if not self.admin_handler:
             yield event.plain_result("管理员处理器尚未初始化。")
             return
-            
+
         result = await self.admin_handler.get_memory_status()
         yield event.plain_result(self.admin_handler.format_status_for_display(result))
 
@@ -499,9 +551,11 @@ class LivingMemoryPlugin(Star):
         if not self.search_handler:
             yield event.plain_result("搜索处理器尚未初始化。")
             return
-            
+
         result = await self.search_handler.search_memories(query, k)
-        yield event.plain_result(self.search_handler.format_search_results_for_display(result))
+        yield event.plain_result(
+            self.search_handler.format_search_results_for_display(result)
+        )
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
@@ -510,7 +564,7 @@ class LivingMemoryPlugin(Star):
         if not self.admin_handler:
             yield event.plain_result("管理员处理器尚未初始化。")
             return
-            
+
         result = await self.admin_handler.delete_memory(doc_id)
         yield event.plain_result(result["message"])
 
@@ -521,7 +575,7 @@ class LivingMemoryPlugin(Star):
         if not self.admin_handler:
             yield event.plain_result("管理员处理器尚未初始化。")
             return
-            
+
         yield event.plain_result("正在后台手动触发遗忘代理任务...")
         result = await self.admin_handler.run_forgetting_agent()
         yield event.plain_result(result["message"])
@@ -533,7 +587,7 @@ class LivingMemoryPlugin(Star):
         if not self.search_handler:
             yield event.plain_result("搜索处理器尚未初始化。")
             return
-            
+
         result = await self.search_handler.rebuild_sparse_index()
         yield event.plain_result(result["message"])
 
@@ -541,9 +595,9 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("search_mode")
     async def lmem_search_mode(self, event: AstrMessageEvent, mode: str):
         """[管理员] 设置检索模式。
-        
+
         用法: /lmem search_mode <mode>
-        
+
         模式:
           hybrid - 混合检索（默认）
           dense - 纯密集检索
@@ -552,7 +606,7 @@ class LivingMemoryPlugin(Star):
         if not self.admin_handler:
             yield event.plain_result("管理员处理器尚未初始化。")
             return
-            
+
         result = await self.admin_handler.set_search_mode(mode)
         yield event.plain_result(result["message"])
 
@@ -563,23 +617,32 @@ class LivingMemoryPlugin(Star):
         if not self.search_handler:
             yield event.plain_result("搜索处理器尚未初始化。")
             return
-            
+
         result = await self.search_handler.test_sparse_search(query, k)
-        yield event.plain_result(self.search_handler.format_sparse_results_for_display(result))
+        yield event.plain_result(
+            self.search_handler.format_sparse_results_for_display(result)
+        )
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("edit")
-    async def lmem_edit(self, event: AstrMessageEvent, memory_id: str, field: str, value: str, reason: str = ""):
+    async def lmem_edit(
+        self,
+        event: AstrMessageEvent,
+        memory_id: str,
+        field: str,
+        value: str,
+        reason: str = "",
+    ):
         """[管理员] 编辑记忆内容或元数据。
-        
+
         用法: /lmem edit <id> <字段> <值> [原因]
-        
+
         字段:
           content - 记忆内容
           importance - 重要性评分 (0.0-1.0)
           type - 事件类型 (FACT/PREFERENCE/GOAL/OPINION/RELATIONSHIP/OTHER)
           status - 状态 (active/archived/deleted)
-        
+
         示例:
           /lmem edit 123 content 这是新的记忆内容 修正了错误信息
           /lmem edit 123 importance 0.9 提高重要性
@@ -589,7 +652,7 @@ class LivingMemoryPlugin(Star):
         if not self.memory_handler:
             yield event.plain_result("记忆处理器尚未初始化。")
             return
-            
+
         result = await self.memory_handler.edit_memory(memory_id, field, value, reason)
         yield event.plain_result(result["message"])
 
@@ -597,17 +660,19 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("update")
     async def lmem_update(self, event: AstrMessageEvent, memory_id: str):
         """[管理员] 查看记忆详细信息并提供编辑指引。
-        
+
         用法: /lmem update <id>
-        
+
         显示记忆的完整信息，并指引如何使用编辑命令。
         """
         if not self.memory_handler:
             yield event.plain_result("记忆处理器尚未初始化。")
             return
-            
+
         result = await self.memory_handler.get_memory_details(memory_id)
-        yield event.plain_result(self.memory_handler.format_memory_details_for_display(result))
+        yield event.plain_result(
+            self.memory_handler.format_memory_details_for_display(result)
+        )
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("history")
@@ -616,17 +681,19 @@ class LivingMemoryPlugin(Star):
         if not self.memory_handler:
             yield event.plain_result("记忆处理器尚未初始化。")
             return
-            
+
         result = await self.memory_handler.get_memory_history(memory_id)
-        yield event.plain_result(self.memory_handler.format_memory_history_for_display(result))
+        yield event.plain_result(
+            self.memory_handler.format_memory_history_for_display(result)
+        )
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("config")
     async def lmem_config(self, event: AstrMessageEvent, action: str = "show"):
         """[管理员] 查看或验证配置。
-        
+
         用法: /lmem config [show|validate]
-        
+
         动作:
           show - 显示当前配置
           validate - 验证配置有效性
@@ -634,20 +701,24 @@ class LivingMemoryPlugin(Star):
         if not self.admin_handler:
             yield event.plain_result("管理员处理器尚未初始化。")
             return
-            
+
         result = await self.admin_handler.get_config_summary(action)
         if action == "show":
-            yield event.plain_result(self.admin_handler.format_config_summary_for_display(result))
+            yield event.plain_result(
+                self.admin_handler.format_config_summary_for_display(result)
+            )
         else:
             yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("fusion")
-    async def lmem_fusion(self, event: AstrMessageEvent, strategy: str = "show", param: str = ""):
+    async def lmem_fusion(
+        self, event: AstrMessageEvent, strategy: str = "show", param: str = ""
+    ):
         """[管理员] 管理检索融合策略。
-        
+
         用法: /lmem fusion [strategy] [param=value]
-        
+
         策略:
           show - 显示当前融合配置
           rrf - Reciprocal Rank Fusion (经典RRF)
@@ -659,7 +730,7 @@ class LivingMemoryPlugin(Star):
           score_fusion - 基于分数的融合 (Borda Count)
           cascade - 级联融合
           adaptive - 自适应融合
-          
+
         示例:
           /lmem fusion show
           /lmem fusion hybrid_rrf
@@ -669,10 +740,12 @@ class LivingMemoryPlugin(Star):
         if not self.fusion_handler:
             yield event.plain_result("融合策略处理器尚未初始化。")
             return
-            
+
         if strategy == "show":
             result = await self.fusion_handler.manage_fusion_strategy("show")
-            yield event.plain_result(self.fusion_handler.format_fusion_config_for_display(result))
+            yield event.plain_result(
+                self.fusion_handler.format_fusion_config_for_display(result)
+            )
         else:
             result = await self.fusion_handler.manage_fusion_strategy(strategy, param)
             yield event.plain_result(result["message"])
@@ -681,18 +754,20 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("test_fusion")
     async def lmem_test_fusion(self, event: AstrMessageEvent, query: str, k: int = 5):
         """[管理员] 测试不同融合策略的效果。
-        
+
         用法: /lmem test_fusion <查询> [返回数量]
-        
+
         这个命令会使用当前的融合策略进行搜索，并显示详细的融合过程信息。
         """
         if not self.fusion_handler:
             yield event.plain_result("融合策略处理器尚未初始化。")
             return
-            
+
         yield event.plain_result(f"🔍 测试融合策略，查询: '{query}', 返回数量: {k}")
         result = await self.fusion_handler.test_fusion_strategy(query, k)
-        yield event.plain_result(self.fusion_handler.format_fusion_test_for_display(result))
+        yield event.plain_result(
+            self.fusion_handler.format_fusion_test_for_display(result)
+        )
 
     async def terminate(self):
         """

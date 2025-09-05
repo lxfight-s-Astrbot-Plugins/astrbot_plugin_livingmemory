@@ -20,28 +20,30 @@ class CommunityDetector:
     async def initialize(self):
         """初始化数据库连接。"""
         self.connection = await aiosqlite.connect(self.db_path)
-        
+
     async def close(self):
         """关闭数据库连接。"""
         if self.connection:
             await self.connection.close()
             self.connection = None
-    
+
     async def _load_graph_from_db(self) -> nx.Graph:
         """从 SQLite 中加载边，构建一个 NetworkX 图对象。"""
         G = nx.Graph()
         if not self.connection:
             await self.initialize()
-            
+
         try:
             # 我们只需要边的信息来构建图的结构
-            cursor = await self.connection.execute("SELECT source_id, target_id FROM graph_edges")
+            cursor = await self.connection.execute(
+                "SELECT source_id, target_id FROM graph_edges"
+            )
             edges = await cursor.fetchall()
             G.add_edges_from(edges)
         except Exception as e:
             logger.error(f"从数据库加载图数据失败: {e}")
             raise
-            
+
         return G
 
     async def _save_results_to_db(self, communities: List[Tuple[str]]):
@@ -49,7 +51,7 @@ class CommunityDetector:
         if not self.connection:
             logger.error("数据库连接未初始化")
             return
-            
+
         # 注意：这里的逻辑需要一个从“图节点ID”到“记忆internal_id”的映射
         # 我们简化一下，假设 Event 节点的 ID 就是 memory_id
         updates = []
@@ -84,23 +86,26 @@ class CommunityDetector:
                 logger.info("图中没有节点，跳过社区发现。")
                 return
 
-            logger.info(f"图加载完成（{graph.number_of_nodes()}个节点，{graph.number_of_edges()}条边），开始运行 Louvain 社区发现算法...")
-            
+            logger.info(
+                f"图加载完成（{graph.number_of_nodes()}个节点，{graph.number_of_edges()}条边），开始运行 Louvain 社区发现算法..."
+            )
+
             # 使用进程池执行计算密集型的社区发现算法
             import concurrent.futures
+
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 # resolution 参数可以调整社区的大小，值越小社区越多越小
                 communities = await asyncio.get_event_loop().run_in_executor(
-                    executor, 
-                    nx.community.louvain_communities, 
-                    graph, 
-                    1.0  # resolution
+                    executor,
+                    nx.community.louvain_communities,
+                    graph,
+                    1.0,  # resolution
                 )
 
             logger.info(f"发现 {len(communities)} 个社区，开始将结果写回数据库...")
             await self._save_results_to_db(communities)
             logger.info("社区信息更新完成。")
-            
+
         except Exception as e:
             logger.error(f"社区发现过程中发生错误: {e}", exc_info=True)
             raise

@@ -84,5 +84,6 @@ class _LLMExtractionEventList(BaseModel):
 # 用于第二阶段：评分
 class _LLMScoreEvaluation(BaseModel):
     scores: Dict[str, float] = Field(
-        ..., description="一个字典，key是事件的临时ID (temp_id)，value是对应的0.0-1.0的重要性分数"
+        ...,
+        description="一个字典，key是事件的临时ID (temp_id)，value是对应的0.0-1.0的重要性分数",
     )

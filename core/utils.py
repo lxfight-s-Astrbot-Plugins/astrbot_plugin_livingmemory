@@ -22,10 +22,10 @@ from .constants import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
 def safe_parse_metadata(metadata_raw: Any) -> Dict[str, Any]:
     """
     安全解析元数据，统一处理字符串和字典类型。
-    
+
     Args:
         metadata_raw: 原始元数据，可能是字符串或字典
-        
+
     Returns:
         Dict[str, Any]: 解析后的元数据字典，解析失败时返回空字典
     """
@@ -45,10 +45,10 @@ def safe_parse_metadata(metadata_raw: Any) -> Dict[str, Any]:
 def safe_serialize_metadata(metadata: Dict[str, Any]) -> str:
     """
     安全序列化元数据为JSON字符串。
-    
+
     Args:
         metadata: 元数据字典
-        
+
     Returns:
         str: JSON字符串
     """
@@ -62,17 +62,17 @@ def safe_serialize_metadata(metadata: Dict[str, Any]) -> str:
 def validate_timestamp(timestamp: Any, default_time: Optional[float] = None) -> float:
     """
     验证和标准化时间戳。
-    
+
     Args:
         timestamp: 时间戳，可能是字符串、数字或其他类型
         default_time: 默认时间，如果为None则使用当前时间
-        
+
     Returns:
         float: 标准化的时间戳
     """
     if default_time is None:
         default_time = time.time()
-        
+
     if isinstance(timestamp, (int, float)):
         return float(timestamp)
     elif isinstance(timestamp, str):
@@ -81,7 +81,7 @@ def validate_timestamp(timestamp: Any, default_time: Optional[float] = None) -> 
         except (ValueError, TypeError):
             logger.warning(f"无法解析时间戳字符串: {timestamp}")
             return default_time
-    elif hasattr(timestamp, 'timestamp'):  # datetime对象
+    elif hasattr(timestamp, "timestamp"):  # datetime对象
         try:
             return timestamp.timestamp()
         except Exception as e:
@@ -93,16 +93,16 @@ def validate_timestamp(timestamp: Any, default_time: Optional[float] = None) -> 
 
 
 async def retry_on_failure(
-    func, 
-    *args, 
-    max_retries: int = 3, 
+    func,
+    *args,
+    max_retries: int = 3,
     backoff_factor: float = 1.0,
     exceptions: tuple = (Exception,),
-    **kwargs
+    **kwargs,
 ):
     """
     带重试机制的函数执行器。
-    
+
     Args:
         func: 要执行的函数
         *args: 函数位置参数
@@ -110,12 +110,12 @@ async def retry_on_failure(
         backoff_factor: 退避因子
         exceptions: 需要重试的异常类型
         **kwargs: 函数关键字参数
-        
+
     Returns:
         函数执行结果
     """
     last_exception = None
-    
+
     for attempt in range(max_retries + 1):
         try:
             if asyncio.iscoroutinefunction(func):
@@ -125,40 +125,48 @@ async def retry_on_failure(
         except exceptions as e:
             last_exception = e
             if attempt < max_retries:
-                wait_time = backoff_factor * (2 ** attempt)
-                logger.warning(f"函数 {func.__name__} 执行失败 (尝试 {attempt + 1}/{max_retries + 1}): {e}")
+                wait_time = backoff_factor * (2**attempt)
+                logger.warning(
+                    f"函数 {func.__name__} 执行失败 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
+                )
                 logger.info(f"等待 {wait_time:.2f} 秒后重试...")
                 await asyncio.sleep(wait_time)
             else:
-                logger.error(f"函数 {func.__name__} 重试 {max_retries} 次后仍然失败: {e}")
-                
+                logger.error(
+                    f"函数 {func.__name__} 重试 {max_retries} 次后仍然失败: {e}"
+                )
+
     # 所有重试都失败，抛出最后一个异常
     raise last_exception
 
 
 class OperationContext:
     """操作上下文管理器，用于错误处理和资源清理"""
-    
+
     def __init__(self, operation_name: str, session_id: Optional[str] = None):
         self.operation_name = operation_name
         self.session_id = session_id
         self.start_time = None
-        
+
     async def __aenter__(self):
         self.start_time = time.time()
         session_info = f"[{self.session_id}] " if self.session_id else ""
         logger.debug(f"{session_info}开始执行操作: {self.operation_name}")
         return self
-        
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         duration = time.time() - self.start_time if self.start_time else 0
         session_info = f"[{self.session_id}] " if self.session_id else ""
-        
+
         if exc_type is None:
-            logger.debug(f"{session_info}操作成功完成: {self.operation_name} (耗时 {duration:.3f}s)")
+            logger.debug(
+                f"{session_info}操作成功完成: {self.operation_name} (耗时 {duration:.3f}s)"
+            )
         else:
-            logger.error(f"{session_info}操作失败: {self.operation_name} (耗时 {duration:.3f}s) - {exc_val}")
-            
+            logger.error(
+                f"{session_info}操作失败: {self.operation_name} (耗时 {duration:.3f}s) - {exc_val}"
+            )
+
         # 不抑制异常，让调用者处理
         return False
 
@@ -206,10 +214,10 @@ def extract_json_from_response(text: str) -> str:
 def get_now_datetime(tz_str: str = "Asia/Shanghai") -> datetime:
     """
     获取当前时间，并根据指定的时区设置时区。
-    
+
     Args:
         tz_str: 时区字符串，默认为 "Asia/Shanghai"
-        
+
     Returns:
         datetime: 带有时区信息的当前时间
     """
@@ -226,16 +234,18 @@ def get_now_datetime(tz_str: str = "Asia/Shanghai") -> datetime:
 def get_now_datetime_from_context(context: Context) -> datetime:
     """
     从上下文中获取当前时间，根据插件配置设置时区。
-    
+
     Args:
         context: AstrBot 上下文对象
-        
+
     Returns:
         datetime: 带有时区信息的当前时间
     """
     try:
         # 尝试从配置中获取时区
-        tz_str = context.plugin_config.get("timezone_settings", {}).get("timezone", "Asia/Shanghai")
+        tz_str = context.plugin_config.get("timezone_settings", {}).get(
+            "timezone", "Asia/Shanghai"
+        )
         return get_now_datetime(tz_str)
     except (AttributeError, KeyError):
         # 如果配置不存在，则使用默认值

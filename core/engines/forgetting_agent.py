@@ -5,7 +5,6 @@ forgetting_agent.py - 遗忘代理
 """
 
 import asyncio
-import json
 from typing import Dict, Any, Optional
 
 from astrbot.api import logger
@@ -87,30 +86,32 @@ class ForgettingAgent:
         retention_days = self.config.get("retention_days", 90)
         decay_rate = self.config.get("importance_decay_rate", 0.005)
         current_time = get_now_datetime(self.context).timestamp()
-        
+
         # 分页处理配置
         page_size = self.config.get("forgetting_batch_size", 1000)  # 每批处理数量
-        
+
         logger.info(f"开始处理 {total_memories} 条记忆，每批 {page_size} 条")
 
         memories_to_update = []
         ids_to_delete = []
         total_processed = 0
-        
+
         # 分页处理所有记忆
         for offset in range(0, total_memories, page_size):
             batch_memories = await self.faiss_manager.get_memories_paginated(
                 page_size=page_size, offset=offset
             )
-            
+
             if not batch_memories:
                 break
-            
-            logger.debug(f"处理第 {offset//page_size + 1} 批，共 {len(batch_memories)} 条记忆")
+
+            logger.debug(
+                f"处理第 {offset // page_size + 1} 批，共 {len(batch_memories)} 条记忆"
+            )
 
             batch_updates = []
             batch_deletes = []
-            
+
             for mem in batch_memories:
                 # 使用统一的元数据解析函数
                 metadata = safe_parse_metadata(mem["metadata"])
@@ -119,7 +120,9 @@ class ForgettingAgent:
                     continue
 
                 # 1. 重要性衰减
-                create_time = validate_timestamp(metadata.get("create_time"), current_time)
+                create_time = validate_timestamp(
+                    metadata.get("create_time"), current_time
+                )
                 days_since_creation = (current_time - create_time) / (24 * 3600)
 
                 # 线性衰减
@@ -145,13 +148,13 @@ class ForgettingAgent:
             memories_to_update.extend(batch_updates)
             ids_to_delete.extend(batch_deletes)
             total_processed += len(batch_memories)
-            
+
             # 如果批次数据过多，执行中间提交
             if len(memories_to_update) >= page_size * 2:
                 logger.debug(f"执行中间批次更新，更新 {len(memories_to_update)} 条记忆")
                 await self.faiss_manager.update_memories_metadata(memories_to_update)
                 memories_to_update.clear()
-            
+
             logger.debug(f"已处理 {total_processed}/{total_memories} 条记忆")
 
         # 3. 执行最终数据库操作
@@ -163,10 +166,10 @@ class ForgettingAgent:
             # 分批删除，避免一次删除太多
             delete_batch_size = 100
             for i in range(0, len(ids_to_delete), delete_batch_size):
-                batch = ids_to_delete[i:i + delete_batch_size]
+                batch = ids_to_delete[i : i + delete_batch_size]
                 await self.faiss_manager.delete_memories(batch)
                 logger.debug(f"删除了 {len(batch)} 条记忆")
-            
+
             logger.info(f"总共删除了 {len(ids_to_delete)} 条陈旧且不重要的记忆。")
-        
+
         logger.info(f"记忆清理完成，处理了 {total_processed} 条记忆")

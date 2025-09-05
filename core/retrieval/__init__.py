@@ -6,9 +6,4 @@
 from .sparse_retriever import SparseRetriever, SparseResult
 from .result_fusion import ResultFusion, SearchResult
 
-__all__ = [
-    "SparseRetriever",
-    "SparseResult", 
-    "ResultFusion",
-    "SearchResult"
-]
+__all__ = ["SparseRetriever", "SparseResult", "ResultFusion", "SearchResult"]

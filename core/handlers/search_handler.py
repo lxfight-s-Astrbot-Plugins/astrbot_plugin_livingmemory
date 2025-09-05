@@ -4,8 +4,7 @@ search_handler.py - 搜索管理业务逻辑
 处理记忆搜索、稀疏检索测试等业务逻辑
 """
 
-import json
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 
 from astrbot.api import logger
 from astrbot.api.star import Context
@@ -15,16 +14,22 @@ from .base_handler import BaseHandler
 
 class SearchHandler(BaseHandler):
     """搜索管理业务逻辑处理器"""
-    
-    def __init__(self, context: Context, config: Dict[str, Any], recall_engine=None, sparse_retriever=None):
+
+    def __init__(
+        self,
+        context: Context,
+        config: Dict[str, Any],
+        recall_engine=None,
+        sparse_retriever=None,
+    ):
         super().__init__(context, config)
         self.recall_engine = recall_engine
         self.sparse_retriever = sparse_retriever
-    
+
     async def process(self, *args, **kwargs) -> Dict[str, Any]:
         """处理请求的抽象方法实现"""
         return self.create_response(True, "SearchHandler process method")
-    
+
     async def search_memories(self, query: str, k: int = 3) -> Dict[str, Any]:
         """搜索记忆"""
         if not self.recall_engine:
@@ -32,21 +37,29 @@ class SearchHandler(BaseHandler):
 
         try:
             results = await self.recall_engine.recall(self.context, query, k=k)
-            
+
             if not results:
-                return self.create_response(True, f"未能找到与 '{query}' 相关的记忆", [])
-            
+                return self.create_response(
+                    True, f"未能找到与 '{query}' 相关的记忆", []
+                )
+
             # 格式化搜索结果
             formatted_results = []
             for res in results:
-                formatted_results.append({
-                    "id": res.data['id'],
-                    "similarity": res.similarity,
-                    "text": res.data['text'],
-                    "metadata": self.safe_parse_metadata(res.data.get("metadata", {}))
-                })
-            
-            return self.create_response(True, f"为您找到 {len(results)} 条相关记忆", formatted_results)
+                formatted_results.append(
+                    {
+                        "id": res.data["id"],
+                        "similarity": res.similarity,
+                        "text": res.data["text"],
+                        "metadata": self.safe_parse_metadata(
+                            res.data.get("metadata", {})
+                        ),
+                    }
+                )
+
+            return self.create_response(
+                True, f"为您找到 {len(results)} 条相关记忆", formatted_results
+            )
 
         except Exception as e:
             logger.error(f"搜索记忆时发生错误: {e}", exc_info=True)
@@ -59,21 +72,25 @@ class SearchHandler(BaseHandler):
 
         try:
             results = await self.sparse_retriever.search(query=query, limit=k)
-            
+
             if not results:
                 return self.create_response(True, f"未找到与 '{query}' 相关的记忆", [])
 
             # 格式化搜索结果
             formatted_results = []
             for res in results:
-                formatted_results.append({
-                    "doc_id": res.doc_id,
-                    "score": res.score,
-                    "content": res.content,
-                    "metadata": res.metadata
-                })
-            
-            return self.create_response(True, f"找到 {len(results)} 条稀疏检索结果", formatted_results)
+                formatted_results.append(
+                    {
+                        "doc_id": res.doc_id,
+                        "score": res.score,
+                        "content": res.content,
+                        "metadata": res.metadata,
+                    }
+                )
+
+            return self.create_response(
+                True, f"找到 {len(results)} 条稀疏检索结果", formatted_results
+            )
 
         except Exception as e:
             logger.error(f"稀疏检索测试失败: {e}", exc_info=True)
@@ -95,16 +112,18 @@ class SearchHandler(BaseHandler):
         """格式化搜索结果用于显示"""
         if not response.get("success"):
             return response.get("message", "搜索失败")
-        
+
         data = response.get("data", [])
         message = response.get("message", "")
-        
+
         response_parts = [message]
-        
+
         for res in data:
             metadata = res.get("metadata", {})
             create_time_str = self.format_timestamp(metadata.get("create_time"))
-            last_access_time_str = self.format_timestamp(metadata.get("last_access_time"))
+            last_access_time_str = self.format_timestamp(
+                metadata.get("last_access_time")
+            )
             importance_score = metadata.get("importance", 0.0)
             event_type = metadata.get("event_type", "未知")
 
@@ -125,16 +144,20 @@ class SearchHandler(BaseHandler):
         """格式化稀疏检索结果用于显示"""
         if not response.get("success"):
             return response.get("message", "搜索失败")
-        
+
         data = response.get("data", [])
         message = response.get("message", "")
-        
+
         response_parts = [message]
-        
+
         for i, res in enumerate(data, 1):
-            response_parts.append(f"\n{i}. [ID: {res['doc_id']}] Score: {res['score']:.3f}")
-            response_parts.append(f"   内容: {res['content'][:100]}{'...' if len(res['content']) > 100 else ''}")
-            
+            response_parts.append(
+                f"\n{i}. [ID: {res['doc_id']}] Score: {res['score']:.3f}"
+            )
+            response_parts.append(
+                f"   内容: {res['content'][:100]}{'...' if len(res['content']) > 100 else ''}"
+            )
+
             # 显示元数据
             metadata = res.get("metadata", {})
             if metadata.get("event_type"):
