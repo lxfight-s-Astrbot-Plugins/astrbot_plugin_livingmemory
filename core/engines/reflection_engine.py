@@ -136,6 +136,9 @@ class ReflectionEngine:
                 logger.debug("对话历史为空，跳过反思。")
                 return
 
+            logger.info(f"[{session_id}] 开始反思任务，对话历史轮数: {len(conversation_history)}")
+            logger.debug(f"[{session_id}] 对话历史内容预览:\n{history_text[:500]}..." if len(history_text) > 500 else f"[{session_id}] 对话历史内容:\n{history_text}")
+
             # --- 第一阶段：提取事件 ---
             logger.info(f"[{session_id}] 阶段1：开始批量提取记忆事件...")
             extracted_events = await self._extract_events(history_text, persona_prompt)
@@ -143,11 +146,19 @@ class ReflectionEngine:
                 logger.info(f"[{session_id}] 未能从对话中提取任何记忆事件。")
                 return
             logger.info(f"[{session_id}] 成功提取 {len(extracted_events)} 个记忆事件。")
+            
+            # 记录提取的事件详情
+            for i, event in enumerate(extracted_events):
+                logger.debug(f"[{session_id}] 事件 {i+1}: {event.event_type.value} - {event.memory_content[:100]}...")
 
             # --- 第二阶段：评估分数 ---
             logger.info(f"[{session_id}] 阶段2：开始批量评估事件重要性...")
             scores = await self._evaluate_scores(extracted_events, persona_prompt)
             logger.info(f"[{session_id}] 成功收到 {len(scores)} 个评分。")
+            
+            # 记录评分结果
+            for temp_id, score in scores.items():
+                logger.debug(f"[{session_id}] 评分结果 - {temp_id}: {score:.3f}")
 
             # --- 第三阶段：合并与存储 ---
             threshold = self.config.get("importance_threshold", 0.5)

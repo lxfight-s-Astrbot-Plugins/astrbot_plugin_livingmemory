@@ -284,8 +284,10 @@ class LivingMemoryPlugin(Star):
             return
             
         if not self.recall_engine:
-            logger.debug("回忆引擎尚未初始化，跳过记忆召回。")
+            logger.warning("回忆引擎尚未初始化，跳过记忆召回。")
             return
+            
+        logger.debug("on_llm_request 钩子被调用")
 
         try:
             session_id = (
@@ -293,19 +295,29 @@ class LivingMemoryPlugin(Star):
                     event.unified_msg_origin
                 )
             )
+            logger.debug(f"on_llm_request 获取到会话ID: {session_id}")
             
             async with OperationContext("记忆召回", session_id):
+                logger.info(f"[{session_id}] 开始记忆注入流程")
+                logger.debug(f"[{session_id}] 用户查询: '{req.prompt[:100]}...'")
+                
                 # 根据配置决定是否进行过滤
                 filtering_config = self.config.get("filtering_settings", {})
                 use_persona_filtering = filtering_config.get("use_persona_filtering", True)
                 use_session_filtering = filtering_config.get("use_session_filtering", True)
+                
+                logger.debug(f"[{session_id}] 过滤配置 - 人格过滤: {use_persona_filtering}, 会话过滤: {use_session_filtering}")
 
                 persona_id = await get_persona_id(self.context, event)
+                logger.debug(f"[{session_id}] 当前人格ID: {persona_id}")
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
+                
+                logger.info(f"[{session_id}] 召回参数 - 会话ID: {recall_session_id}, 人格ID: {recall_persona_id}")
 
                 # 使用 RecallEngine 进行智能回忆，带重试机制
+                logger.debug(f"[{session_id}] 开始执行记忆召回...")
                 recalled_memories = await retry_on_failure(
                     self.recall_engine.recall,
                     self.context, req.prompt, recall_session_id, recall_persona_id,
@@ -313,21 +325,55 @@ class LivingMemoryPlugin(Star):
                     backoff_factor=0.5,
                     exceptions=(Exception,)
                 )
+                
+                logger.info(f"[{session_id}] 记忆召回完成，获得 {len(recalled_memories) if recalled_memories else 0} 条记忆")
 
                 if recalled_memories:
+                    # 记录召回的记忆详情
+                    logger.debug(f"[{session_id}] 召回记忆详情:")
+                    for i, memory in enumerate(recalled_memories[:3]):  # 只记录前3个记忆
+                        content = memory.data.get('text', '')[:100]
+                        similarity = memory.similarity
+                        logger.debug(f"[{session_id}] 记忆 {i+1}: 相似度={similarity:.3f}, 内容={content}...")
+                    
                     # 格式化并注入记忆
+                    logger.debug(f"[{session_id}] 开始格式化记忆用于注入...")
                     memory_str = format_memories_for_injection(recalled_memories)
+                    
+                    # 记录注入前的System Prompt长度
+                    original_prompt_length = len(req.system_prompt) if req.system_prompt else 0
+                    memory_injection_length = len(memory_str)
+                    
                     req.system_prompt = memory_str + "\n" + req.system_prompt
-                    logger.info(
-                        f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆。"
-                    )
+                    final_prompt_length = len(req.system_prompt)
+                    
+                    logger.info(f"[{session_id}] 📝 记忆注入完成")
+                    logger.info(f"[{session_id}] - 注入记忆数量: {len(recalled_memories)}")
+                    logger.info(f"[{session_id}] - 注入内容长度: {memory_injection_length} 字符")
+                    logger.info(f"[{session_id}] - 原始System Prompt长度: {original_prompt_length} 字符")
+                    logger.info(f"[{session_id}] - 最终System Prompt长度: {final_prompt_length} 字符")
+                    
+                    # 记录完整的注入内容（只在debug级别）
+                    logger.debug(f"[{session_id}] 完整注入内容:\n{memory_str}")
+                else:
+                    logger.info(f"[{session_id}] 未找到相关记忆，跳过注入")
 
                 # 管理会话历史
+                logger.debug(f"[{session_id}] 管理会话历史...")
                 session_data = self.session_manager.get_session(session_id)
+                history_length_before = len(session_data["history"])
+                
                 session_data["history"].append(
                     {"role": "user", "content": req.prompt}
                 )
-                logger.debug(f"[{session_id}] 用户消息已添加到会话历史，当前历史长度: {len(session_data['history'])}")
+                
+                history_length_after = len(session_data["history"])
+                current_round_count = session_data.get("round_count", 0)
+                
+                logger.info(f"[{session_id}] 📝 会话历史已更新")
+                logger.info(f"[{session_id}] - 历史长度: {history_length_before} -> {history_length_after}")
+                logger.info(f"[{session_id}] - 当前轮次计数: {current_round_count}")
+                logger.debug(f"[{session_id}] - 用户消息: '{req.prompt[:100]}...'")
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
@@ -344,9 +390,15 @@ class LivingMemoryPlugin(Star):
             logger.warning("插件未完成初始化，跳过记忆反思。")
             return
             
-        if not self.reflection_engine or resp.role != "assistant":
-            logger.debug("反思引擎尚未初始化或响应不是助手角色，跳过反思。")
+        if not self.reflection_engine:
+            logger.warning("反思引擎尚未初始化，跳过记忆反思。")
             return
+            
+        if resp.role != "assistant":
+            logger.debug(f"响应角色不是assistant（当前角色: {resp.role}），跳过反思。")
+            return
+            
+        logger.debug(f"on_llm_response 钩子被调用，角色: {resp.role}, 响应长度: {len(resp.completion_text)}")
 
         try:
             session_id = (
@@ -354,7 +406,9 @@ class LivingMemoryPlugin(Star):
                     event.unified_msg_origin
                 )
             )
+            logger.debug(f"获取到会话ID: {session_id}")
             if not session_id:
+                logger.warning("无法获取会话ID，跳过反思。")
                 return
 
             # 添加助手响应到历史并增加轮次计数
