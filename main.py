@@ -327,6 +327,7 @@ class LivingMemoryPlugin(Star):
                 session_data["history"].append(
                     {"role": "user", "content": req.prompt}
                 )
+                logger.debug(f"[{session_id}] 用户消息已添加到会话历史，当前历史长度: {len(session_data['history'])}")
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
@@ -362,13 +363,14 @@ class LivingMemoryPlugin(Star):
                 {"role": "assistant", "content": resp.completion_text}
             )
             current_session["round_count"] += 1
+            logger.debug(f"[{session_id}] 助手响应已添加，轮次计数: {current_session['round_count']}")
 
             # 检查是否满足总结条件
             trigger_rounds = self.config.get("reflection_engine", {}).get(
                 "summary_trigger_rounds", 10
             )
-            logger.debug(
-                f"[{session_id}] 当前轮次: {current_session['round_count']}, 触发轮次: {trigger_rounds}"
+            logger.info(
+                f"[{session_id}] 会话状态更新 - 当前轮次: {current_session['round_count']}, 触发轮次: {trigger_rounds}"
             )
             if current_session["round_count"] >= trigger_rounds:
                 logger.info(

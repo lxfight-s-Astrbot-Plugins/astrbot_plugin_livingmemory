@@ -7,6 +7,7 @@ recall_engine.py - 回忆引擎
 
 import json
 import math
+import time
 from typing import List, Dict, Any, Optional
 
 from astrbot.api import logger
@@ -209,7 +210,7 @@ class RecallEngine:
         rec_w = self.config.get("recency_weight", 0.2)
 
         reranked_results = []
-        current_time = get_now_datetime(context).timestamp()
+        current_time = time.time()
 
         for res in results:
             # 安全解析元数据
