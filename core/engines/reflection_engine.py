@@ -89,7 +89,7 @@ class ReflectionEngine:
 
         # 构建批量评估的输入
         memories_to_evaluate = [
-            {"id": event.temp_id, "content": event.memory_content} for event in events
+            {"id": event.id, "content": event.memory_content} for event in events
         ]
         persona_section = (
             f"\n**重要：**在评估时请代入以下人格，这会影响你对“重要性”的判断：\n<persona>{persona_prompt}</persona>\n"
