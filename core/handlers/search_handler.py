@@ -30,22 +30,45 @@ class SearchHandler(BaseHandler):
         if not self.recall_engine:
             return self.create_response(False, "回忆引擎尚未初始化")
 
+        # 输入验证
+        if not query or not query.strip():
+            return self.create_response(False, "查询内容不能为空")
+
+        if k <= 0:
+            return self.create_response(False, "返回数量必须大于0")
+
         try:
-            results = await self.recall_engine.recall(self.context, query, k=k)
-            
+            # 获取session_id和persona_id
+            try:
+                session_id = await self.context.conversation_manager.get_curr_conversation_id(None)
+            except Exception as e:
+                logger.warning(f"获取会话ID失败: {e}")
+                session_id = None
+
+            try:
+                from ..utils import get_persona_id
+                persona_id = await get_persona_id(self.context, None)
+            except Exception as e:
+                logger.warning(f"获取人格ID失败: {e}")
+                persona_id = None
+
+            results = await self.recall_engine.recall(
+                self.context, query, session_id, persona_id, k
+            )
+
             if not results:
                 return self.create_response(True, f"未能找到与 '{query}' 相关的记忆", [])
-            
+
             # 格式化搜索结果
             formatted_results = []
             for res in results:
                 formatted_results.append({
-                    "id": res.data['id'],
+                    "id": res.data.get('id', 'unknown'),
                     "similarity": res.similarity,
-                    "text": res.data['text'],
+                    "text": res.data.get('text', ''),
                     "metadata": self.safe_parse_metadata(res.data.get("metadata", {}))
                 })
-            
+
             return self.create_response(True, f"为您找到 {len(results)} 条相关记忆", formatted_results)
 
         except Exception as e:
@@ -56,6 +79,13 @@ class SearchHandler(BaseHandler):
         """测试稀疏检索功能"""
         if not self.sparse_retriever:
             return self.create_response(False, "稀疏检索器未启用")
+
+        # 输入验证
+        if not query or not query.strip():
+            return self.create_response(False, "查询内容不能为空")
+
+        if k <= 0:
+            return self.create_response(False, "返回数量必须大于0")
 
         try:
             results = await self.sparse_retriever.search(query=query, limit=k)

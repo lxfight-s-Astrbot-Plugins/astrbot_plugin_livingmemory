@@ -34,12 +34,29 @@ class RecallEngine:
         self.config = config
         self.faiss_manager = faiss_manager
         self.sparse_retriever = sparse_retriever
-        
+
         # 初始化结果融合器
         fusion_config = config.get("fusion", {})
         fusion_strategy = fusion_config.get("strategy", "rrf")
         self.result_fusion = ResultFusion(strategy=fusion_strategy, config=fusion_config)
-        
+
+        # 验证和归一化权重
+        sim_w = self.config.get("similarity_weight", 0.5)
+        imp_w = self.config.get("importance_weight", 0.3)
+        rec_w = self.config.get("recency_weight", 0.2)
+
+        total_weight = sim_w + imp_w + rec_w
+        if abs(total_weight - 1.0) > 0.01:
+            logger.warning(f"权重之和 {total_weight} 不等于1.0，将自动归一化")
+            self.config["similarity_weight"] = sim_w / total_weight
+            self.config["importance_weight"] = imp_w / total_weight
+            self.config["recency_weight"] = rec_w / total_weight
+            logger.info(
+                f"归一化后的权重: similarity={self.config['similarity_weight']:.3f}, "
+                f"importance={self.config['importance_weight']:.3f}, "
+                f"recency={self.config['recency_weight']:.3f}"
+            )
+
         logger.info("RecallEngine 初始化成功。")
 
     async def recall(
@@ -226,15 +243,10 @@ class RecallEngine:
             importance_score = metadata.get("importance", 0.0)
 
             # 计算新近度得分
-            last_access = metadata.get("last_access_time", current_time)
-            # 增加健壮性检查，以防 last_access 是字符串
-            if isinstance(last_access, str):
-                try:
-                    last_access = float(last_access)
-                except (ValueError, TypeError):
-                    last_access = current_time
+            from ..utils import validate_timestamp
+            last_access = validate_timestamp(metadata.get("last_access_time"), current_time)
 
-            hours_since_access = (current_time - last_access) / 3600
+            hours_since_access = max(0, (current_time - last_access) / 3600)  # 确保非负
             # 使用指数衰减，半衰期约为24小时
             recency_score = math.exp(-0.028 * hours_since_access)
 

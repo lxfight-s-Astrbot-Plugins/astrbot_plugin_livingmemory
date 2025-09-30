@@ -163,6 +163,20 @@ class LivingMemoryPlugin(Star):
             data_dir = StarTools.get_data_dir()
             db_path = os.path.join(data_dir, "livingmemory.db")
             index_path = os.path.join(data_dir, "livingmemory.index")
+
+            # 2.1 执行数据库迁移（如果需要）
+            db_exists = os.path.exists(db_path)
+            if db_exists:
+                logger.info("检测到现有数据库，检查是否需要数据迁移...")
+                from .storage.migration import DatabaseMigration
+                migration = DatabaseMigration(db_path)
+                try:
+                    await migration.check_and_migrate()
+                    logger.info("✓ 数据迁移检查完成")
+                except Exception as e:
+                    logger.error(f"数据迁移失败: {e}", exc_info=True)
+                    logger.warning("将尝试继续初始化，但可能会遇到问题")
+
             self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
             await self.db.initialize()
             logger.info(f"数据库已初始化。数据目录: {data_dir}")

@@ -56,41 +56,41 @@ class FTSManager:
             logger.info(f"FTS5 index initialized: {self.fts_table_name}")
     
     async def _create_triggers(self, db: aiosqlite.Connection):
-        """创建数据同步触发器"""
+        """创建数据同步触发器 - 使用text列（AstrBot标准）"""
         # 插入触发器
         await db.execute(f"""
             CREATE TRIGGER IF NOT EXISTS documents_ai
             AFTER INSERT ON documents BEGIN
                 INSERT INTO {self.fts_table_name}(doc_id, content)
-                VALUES (new.id, new.content);
+                VALUES (new.id, new.text);
             END;
         """)
-        
+
         # 删除触发器
         await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_ad 
+            CREATE TRIGGER IF NOT EXISTS documents_ad
             AFTER DELETE ON documents BEGIN
                 DELETE FROM {self.fts_table_name} WHERE doc_id = old.id;
             END;
         """)
-        
+
         # 更新触发器
         await db.execute(f"""
             CREATE TRIGGER IF NOT EXISTS documents_au
             AFTER UPDATE ON documents BEGIN
                 DELETE FROM {self.fts_table_name} WHERE doc_id = old.id;
                 INSERT INTO {self.fts_table_name}(doc_id, content)
-                VALUES (new.id, new.content);
+                VALUES (new.id, new.text);
             END;
         """)
     
     async def rebuild_index(self):
-        """重建索引"""
+        """重建索引 - 使用text列（AstrBot标准）"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(f"DELETE FROM {self.fts_table_name}")
             await db.execute(f"""
                 INSERT INTO {self.fts_table_name}(doc_id, content)
-                SELECT id, content FROM documents
+                SELECT id, text FROM documents
             """)
             await db.commit()
             logger.info("FTS index rebuilt")
@@ -198,25 +198,37 @@ class SparseRetriever:
                         )
                         filtered_results.append(result)
             
-            # 归一化 BM25 分数(转换为 0-1),处理负分数情况
+            # 归一化 BM25 分数(转换为 0-1),处理负分数和边界情况
             if filtered_results:
-                min_score = min(r.score for r in filtered_results)
-                max_score = max(r.score for r in filtered_results)
+                scores = [r.score for r in filtered_results]
 
-                # 处理负分数:先偏移到非负域
-                if min_score < 0:
-                    offset = abs(min_score)
+                # 检查特殊值
+                if any(math.isinf(s) or math.isnan(s) for s in scores):
+                    logger.warning("检测到无效分数(inf/nan),使用默认分数")
                     for result in filtered_results:
-                        result.score += offset
-                    # 重新计算范围
-                    min_score = 0
-                    max_score = max_score + offset
+                        result.score = 0.5
+                else:
+                    min_score = min(scores)
+                    max_score = max(scores)
 
-                # 归一化到[0, 1]
-                score_range = max_score - min_score if max_score != min_score else 1.0
+                    # 处理所有分数相同的情况
+                    if max_score == min_score:
+                        for result in filtered_results:
+                            result.score = 1.0
+                    else:
+                        # 偏移到非负域
+                        if min_score < 0:
+                            offset = abs(min_score)
+                            for result in filtered_results:
+                                result.score += offset
+                            # 重新计算范围(使用偏移后的值)
+                            min_score = 0
+                            max_score = max_score + offset
 
-                for result in filtered_results:
-                    result.score = (result.score - min_score) / score_range
+                        # 归一化
+                        score_range = max_score - min_score
+                        for result in filtered_results:
+                            result.score = (result.score - min_score) / score_range
             
             logger.debug(f"Sparse search returned {len(filtered_results)} results")
             return filtered_results
@@ -226,11 +238,16 @@ class SparseRetriever:
             return []
     
     async def _get_documents(self, doc_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-        """批量获取文档"""
+        """批量获取文档 - 使用text列（AstrBot标准）"""
+        # 验证doc_ids全是整数
+        if not all(isinstance(doc_id, int) for doc_id in doc_ids):
+            logger.error("doc_ids必须全部为整数")
+            return {}
+
         async with aiosqlite.connect(self.db_path) as db:
             placeholders = ",".join("?" for _ in doc_ids)
             cursor = await db.execute(f"""
-                SELECT id, content, metadata FROM documents WHERE id IN ({placeholders})
+                SELECT id, text, metadata FROM documents WHERE id IN ({placeholders})
             """, doc_ids)
 
             documents = {}

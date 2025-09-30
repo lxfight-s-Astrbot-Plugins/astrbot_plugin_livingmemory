@@ -170,8 +170,9 @@ class FaissManager:
                     logger.warning(f"处理文档 {doc['id']} 的元数据时出错: {e}")
                     continue
 
-            # 执行批量更新
+            # 执行批量更新（显式事务）
             if batch_updates:
+                await self.db.document_storage.connection.execute("BEGIN IMMEDIATE")
                 await self.db.document_storage.connection.executemany(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
                     batch_updates
@@ -226,7 +227,7 @@ class FaissManager:
             for row in rows:
                 memory = {
                     "id": row[0],  # id 列
-                    "content": row[1],  # content 列
+                    "text": row[1],  # text 列 (注意：AstrBot使用text列，不是content)
                     "metadata": row[2] if row[2] else "{}"  # metadata 列
                 }
                 memories.append(memory)
@@ -274,8 +275,9 @@ class FaissManager:
                     logger.warning(f"处理记忆 {mem.get('id')} 的元数据时出错: {e}")
                     continue
             
-            # 执行批量更新
+            # 执行批量更新（显式事务）
             if batch_updates:
+                await self.db.document_storage.connection.execute("BEGIN IMMEDIATE")
                 await self.db.document_storage.connection.executemany(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
                     batch_updates
@@ -323,8 +325,8 @@ class FaissManager:
         except Exception as e:
             logger.warning(f"向量备份失败(将继续删除操作): {e}")
 
-        # 开始事务
-        await self.db.document_storage.connection.execute("BEGIN")
+        # 开始事务（使用IMMEDIATE避免锁升级）
+        await self.db.document_storage.connection.execute("BEGIN IMMEDIATE")
 
         sqlite_deleted = False
         faiss_deleted = False
@@ -404,9 +406,9 @@ class FaissManager:
         Returns:
             Dict[str, Any]: 更新结果，包含 success、message、updated_fields 等信息
         """
-        # 开始事务
-        await self.db.document_storage.connection.execute("BEGIN")
-        
+        # 开始事务（使用IMMEDIATE避免锁升级）
+        await self.db.document_storage.connection.execute("BEGIN IMMEDIATE")
+
         try:
             # 获取原始记忆
             if isinstance(memory_id, int):
@@ -445,21 +447,24 @@ class FaissManager:
             updated_fields = []
             
             # 1. 更新内容和向量
-            if content is not None and content != original_doc["content"]:
+            if content is not None and content != original_doc.get("text"):
                 # 重新计算向量
                 embedding = await self.db.embedding_provider.embed_query(content)
-                
-                # 更新数据库
+
+                # 更新数据库 (AstrBot使用text列，不是content)
                 await self.db.document_storage.connection.execute(
-                    "UPDATE documents SET content = ?, embedding = ? WHERE id = ?",
+                    "UPDATE documents SET text = ?, embedding = ? WHERE id = ?",
                     (content, embedding.tobytes(), original_doc["id"]),
                 )
-                
-                # 更新 Faiss 索引
+
+                # 更新 Faiss 索引 - 使用 add_with_ids 保留原ID
                 self.db.embedding_storage.index.remove_ids(np.array([original_doc["id"]], dtype=np.int64))
-                self.db.embedding_storage.index.add(embedding.reshape(1, -1))
+                self.db.embedding_storage.index.add_with_ids(
+                    embedding.reshape(1, -1),
+                    np.array([original_doc["id"]], dtype=np.int64)
+                )
                 await self.db.embedding_storage.save_index()
-                
+
                 updated_fields.append("content")
             
             # 2. 更新元数据字段

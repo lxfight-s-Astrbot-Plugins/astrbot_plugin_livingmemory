@@ -142,9 +142,18 @@ class ResultFusion:
         k: int
     ) -> List[SearchResult]:
         """加权融合"""
-        # 归一化分数
-        dense_max = max(r.similarity for r in dense_results) if dense_results else 1.0
-        sparse_max = max(r.score for r in sparse_results) if sparse_results else 1.0
+        # 归一化分数,防止除零
+        dense_scores = [r.similarity for r in dense_results]
+        sparse_scores = [r.score for r in sparse_results]
+
+        dense_max = max(dense_scores) if dense_scores else 1.0
+        sparse_max = max(sparse_scores) if sparse_scores else 1.0
+
+        # 防止除零
+        if dense_max == 0:
+            dense_max = 1.0
+        if sparse_max == 0:
+            sparse_max = 1.0
         
         # 合并结果
         result_map = {}
@@ -690,16 +699,32 @@ class ResultFusion:
     
     def _normalize_scores(self, scores: List[float]) -> List[float]:
         """Min-Max 归一化"""
+        import math
+
         if not scores:
             return []
-        
-        min_score = min(scores)
-        max_score = max(scores)
-        
+
+        # 过滤无效值
+        valid_scores = [s for s in scores if not (math.isnan(s) or math.isinf(s))]
+        if not valid_scores:
+            logger.warning("所有分数无效,使用默认值")
+            return [0.5] * len(scores)
+
+        min_score = min(valid_scores)
+        max_score = max(valid_scores)
+
         if max_score == min_score:
-            return [1.0] * len(scores)
-        
-        return [(score - min_score) / (max_score - min_score) for score in scores]
+            return [0.5] * len(scores)
+
+        # 归一化,无效值映射到0
+        normalized = []
+        for score in scores:
+            if math.isnan(score) or math.isinf(score):
+                normalized.append(0.0)
+            else:
+                normalized.append((score - min_score) / (max_score - min_score))
+
+        return normalized
     
     def _apply_diversity_bonus(
         self, 

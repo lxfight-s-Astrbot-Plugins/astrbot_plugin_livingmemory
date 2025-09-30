@@ -112,10 +112,10 @@ class MemoryHandler(BaseHandler):
             doc = docs[0]
             metadata = self.safe_parse_metadata(doc["metadata"])
 
-            # 构建详细信息
+            # 构建详细信息 (注意：doc中的key是text，但显示为content)
             details = {
                 "id": memory_id,
-                "content": doc["content"],
+                "content": doc.get("text", doc.get("content", "")),  # 兼容两种格式
                 "metadata": metadata,
                 "create_time": self.format_timestamp(metadata.get("create_time")),
                 "last_access_time": self.format_timestamp(metadata.get("last_access_time")),
@@ -155,7 +155,7 @@ class MemoryHandler(BaseHandler):
             # 构建历史信息
             history_info = {
                 "id": memory_id,
-                "content": doc["content"],
+                "content": doc.get("text", doc.get("content", "")),  # 兼容两种格式
                 "metadata": {
                     "importance": metadata.get("importance", "N/A"),
                     "event_type": metadata.get("event_type", "N/A"),

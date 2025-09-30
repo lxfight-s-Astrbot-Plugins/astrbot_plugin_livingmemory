@@ -62,9 +62,15 @@ class ForgettingAgent:
         interval_seconds = interval_hours * 3600
         logger.info(f"遗忘代理将每 {interval_hours} 小时运行一次。")
 
+        # 首次立即执行,之后周期等待
+        first_run = True
+
         while True:
             try:
-                await asyncio.sleep(interval_seconds)
+                if not first_run:
+                    await asyncio.sleep(interval_seconds)
+                first_run = False
+
                 logger.info("开始执行每日记忆清理任务...")
                 await self._prune_memories()
                 logger.info("每日记忆清理任务执行完毕。")
@@ -119,7 +125,11 @@ class ForgettingAgent:
                     continue
 
                 # 1. 重要性衰减
-                create_time = validate_timestamp(metadata.get("create_time"), current_time)
+                create_time = validate_timestamp(metadata.get("create_time"), None)
+                if create_time is None:
+                    logger.warning(f"记忆 {mem['id']} 缺少create_time，使用90天前作为默认值")
+                    create_time = current_time - (90 * 24 * 3600)
+
                 days_since_creation = (current_time - create_time) / (24 * 3600)
 
                 # 线性衰减
@@ -150,11 +160,19 @@ class ForgettingAgent:
             if batch_deletes:
                 # 分批删除，避免单次删除过多
                 delete_chunk_size = 100
-                for i in range(0, len(batch_deletes), delete_chunk_size):
-                    chunk = batch_deletes[i:i + delete_chunk_size]
-                    await self.faiss_manager.delete_memories(chunk)
-                    total_deleted += len(chunk)
-                    logger.debug(f"删除了 {len(chunk)} 条记忆")
+                deleted_in_batch = 0
+                try:
+                    for i in range(0, len(batch_deletes), delete_chunk_size):
+                        chunk = batch_deletes[i:i + delete_chunk_size]
+                        await self.faiss_manager.delete_memories(chunk)
+                        deleted_in_batch += len(chunk)
+                        total_deleted += len(chunk)
+                        logger.debug(f"删除了 {len(chunk)} 条记忆")
+                except Exception as e:
+                    logger.error(
+                        f"批次删除失败，已删除 {deleted_in_batch} 条，"
+                        f"剩余 {len(batch_deletes) - deleted_in_batch} 条: {e}"
+                    )
 
             total_processed += len(batch_memories)
             logger.debug(f"已处理 {total_processed}/{total_memories} 条记忆")

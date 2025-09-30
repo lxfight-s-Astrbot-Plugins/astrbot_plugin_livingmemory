@@ -173,11 +173,12 @@ class FusionHandler(BaseHandler):
             
             # 权重和检查（对于需要权重的策略）
             if key in ["dense_weight", "sparse_weight"]:
-                other_key = "sparse_weight" if key == "dense_weight" else "dense_weight"
-                other_value = self.config["fusion"].get(other_key, 0.3 if other_key == "sparse_weight" else 0.7)
-                
-                # 如果设置了新的权重，检查和是否超过1.0
-                if key + other_key in [k for k in strategy_params.get(strategy, []) if k in ["dense_weight", "sparse_weight"]]:
+                # 检查当前策略是否需要两个权重
+                strategy_params_list = strategy_params.get(strategy, [])
+                if "dense_weight" in strategy_params_list and "sparse_weight" in strategy_params_list:
+                    other_key = "sparse_weight" if key == "dense_weight" else "dense_weight"
+                    other_value = self.config["fusion"].get(other_key, 0.3 if other_key == "sparse_weight" else 0.7)
+
                     total_weight = param_value + other_value
                     if total_weight > 1.0:
                         return self.create_response(False, f"权重总和不能超过 1.0 (当前总和: {total_weight:.2f})")
@@ -193,34 +194,32 @@ class FusionHandler(BaseHandler):
     async def _update_recall_engine_fusion_config(self, strategy: str, fusion_config: Dict[str, Any]) -> Dict[str, Any]:
         """更新RecallEngine的融合配置"""
         try:
-            if hasattr(self.recall_engine, 'result_fusion'):
+            # 首先尝试使用公开方法
+            if hasattr(self.recall_engine, 'update_fusion_config'):
                 self.recall_engine.update_fusion_config(strategy, fusion_config)
-            else:
-                logger.warning("RecallEngine 没有 result_fusion 属性，跳过更新")
-            
-            return self.create_response(True, "融合配置更新成功")
-        except AttributeError:
-            # 如果 RecallEngine 没有 update_fusion_config 方法，则直接更新属性
-            try:
-                if hasattr(self.recall_engine, 'result_fusion'):
-                    fusion_obj = self.recall_engine.result_fusion
-                    fusion_obj.strategy = strategy
-                    fusion_obj.config = fusion_config
-                    
-                    # 更新融合器的参数
-                    fusion_obj.dense_weight = fusion_config.get("dense_weight", 0.7)
-                    fusion_obj.sparse_weight = fusion_config.get("sparse_weight", 0.3)
-                    fusion_obj.rrf_k = fusion_config.get("rrf_k", 60)
-                    fusion_obj.convex_lambda = fusion_config.get("convex_lambda", 0.5)
-                    fusion_obj.interleave_ratio = fusion_config.get("interleave_ratio", 0.5)
-                    fusion_obj.rank_bias_factor = fusion_config.get("rank_bias_factor", 0.1)
-                
                 return self.create_response(True, "融合配置更新成功")
-            except Exception as e:
-                logger.error(f"更新融合配置时出错: {e}")
-                return self.create_response(False, f"配置已更新，但引擎同步可能失败: {e}")
+
+            # 回退到直接属性更新
+            if hasattr(self.recall_engine, 'result_fusion'):
+                fusion_obj = self.recall_engine.result_fusion
+                fusion_obj.strategy = strategy
+                fusion_obj.config = fusion_config
+
+                # 更新各项参数
+                fusion_obj.dense_weight = fusion_config.get("dense_weight", 0.7)
+                fusion_obj.sparse_weight = fusion_config.get("sparse_weight", 0.3)
+                fusion_obj.rrf_k = fusion_config.get("rrf_k", 60)
+                fusion_obj.convex_lambda = fusion_config.get("convex_lambda", 0.5)
+                fusion_obj.interleave_ratio = fusion_config.get("interleave_ratio", 0.5)
+                fusion_obj.rank_bias_factor = fusion_config.get("rank_bias_factor", 0.1)
+
+                return self.create_response(True, "融合配置更新成功")
+            else:
+                logger.warning("RecallEngine 没有 result_fusion 属性")
+                return self.create_response(False, "回忆引擎不支持融合配置更新")
+
         except Exception as e:
-            logger.error(f"更新融合配置时出错: {e}")
+            logger.error(f"更新融合配置时出错: {e}", exc_info=True)
             return self.create_response(False, f"更新融合配置失败: {e}")
 
     def format_fusion_config_for_display(self, response: Dict[str, Any]) -> str:
