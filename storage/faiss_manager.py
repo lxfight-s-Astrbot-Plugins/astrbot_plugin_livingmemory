@@ -293,7 +293,16 @@ class FaissManager:
 
     async def delete_memories(self, doc_ids: List[int]):
         """
-        批量删除一组记忆，使用事务确保数据一致性。
+        批量删除一组记忆,使用事务和备份确保数据一致性。
+
+        采用先备份Faiss向量,后删除的策略:
+        1. 提取待删除ID的向量数据作为备份
+        2. 开始SQLite事务
+        3. 从SQLite删除记录
+        4. 从Faiss索引删除向量
+        5. 保存Faiss索引
+        6. 提交SQLite事务
+        7. 如果任何步骤失败,回滚SQLite并尝试恢复Faiss
 
         Args:
             doc_ids (List[int]): 需要删除的文档 ID 列表。
@@ -301,35 +310,75 @@ class FaissManager:
         if not doc_ids:
             return
 
+        # 备份向量数据(用于回滚)
+        backup_vectors = {}
+        try:
+            for doc_id in doc_ids:
+                try:
+                    # 尝试从Faiss索引中提取向量
+                    vector = self.db.embedding_storage.index.reconstruct(int(doc_id))
+                    backup_vectors[doc_id] = vector
+                except Exception as e:
+                    logger.warning(f"无法备份文档 {doc_id} 的向量: {e}")
+        except Exception as e:
+            logger.warning(f"向量备份失败(将继续删除操作): {e}")
+
         # 开始事务
         await self.db.document_storage.connection.execute("BEGIN")
-        
+
+        sqlite_deleted = False
         faiss_deleted = False
+
         try:
-            # 首先从 SQLite 中删除（更容易回滚）
+            # 步骤1: 从 SQLite 中删除
             placeholders = ",".join("?" for _ in doc_ids)
             sql = f"DELETE FROM documents WHERE id IN ({placeholders})"
             await self.db.document_storage.connection.execute(sql, doc_ids)
-            
-            # 然后从 Faiss 索引中删除
+            sqlite_deleted = True
+
+            # 步骤2: 从 Faiss 索引中删除
             self.db.embedding_storage.index.remove_ids(np.array(doc_ids, dtype=np.int64))
-            await self.db.embedding_storage.save_index()
             faiss_deleted = True
-            
-            # 提交事务
+
+            # 步骤3: 保存Faiss索引
+            await self.db.embedding_storage.save_index()
+
+            # 步骤4: 提交SQLite事务
             await self.db.document_storage.connection.commit()
             logger.info(f"成功删除 {len(doc_ids)} 条记忆")
-            
+
         except Exception as e:
-            logger.error(f"删除记忆时发生错误: {e}")
-            
+            logger.error(f"删除记忆时发生错误: {e}", exc_info=True)
+
             # 回滚SQLite事务
-            await self.db.document_storage.connection.rollback()
-            
-            # 如果Faiss已经删除但SQLite失败，需要恢复Faiss（这是不完美的，但比数据不一致好）
-            if faiss_deleted:
-                logger.warning("Faiss索引已删除但SQLite回滚，数据可能不一致。建议重建索引。")
-            
+            try:
+                await self.db.document_storage.connection.rollback()
+                logger.info("SQLite事务已回滚")
+            except Exception as rollback_error:
+                logger.error(f"SQLite回滚失败: {rollback_error}")
+
+            # 尝试恢复Faiss索引
+            if faiss_deleted and backup_vectors:
+                try:
+                    logger.warning("尝试恢复Faiss索引...")
+                    for doc_id, vector in backup_vectors.items():
+                        # 重新添加向量
+                        vector_reshaped = vector.reshape(1, -1)
+                        self.db.embedding_storage.index.add_with_ids(
+                            vector_reshaped,
+                            np.array([doc_id], dtype=np.int64)
+                        )
+                    await self.db.embedding_storage.save_index()
+                    logger.info(f"Faiss索引已恢复 {len(backup_vectors)} 个向量")
+                except Exception as restore_error:
+                    logger.critical(
+                        f"Faiss索引恢复失败,数据可能不一致,建议重建索引: {restore_error}"
+                    )
+            elif faiss_deleted:
+                logger.critical(
+                    "Faiss索引已删除但SQLite回滚,且无备份数据,建议重建索引以保证一致性"
+                )
+
             raise RuntimeError(f"删除记忆失败: {e}") from e
 
     async def update_memory(
