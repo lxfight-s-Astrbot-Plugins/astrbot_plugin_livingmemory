@@ -26,16 +26,22 @@ class RecallEngineConfig(BaseModel):
     
     @model_validator(mode='after')
     def validate_weights_sum(self):
-        """验证权重总和接近1.0"""
+        """验证权重总和严格等于1.0"""
         similarity = self.similarity_weight
         importance = self.importance_weight
         recency = self.recency_weight
-        
+
         # 计算权重总和
         total = similarity + importance + recency
-        if abs(total - 1.0) > 0.1:
-            logger.warning(f"权重总和 {total:.2f} 偏离1.0较多，可能影响检索效果")
-        
+
+        # 严格验证:允许±1%的浮点数误差
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(
+                f"权重总和必须为1.0（允许±0.01误差）, "
+                f"当前: similarity={similarity:.3f} + importance={importance:.3f} + "
+                f"recency={recency:.3f} = {total:.3f}"
+            )
+
         return self
 
 
