@@ -62,13 +62,10 @@ class ReflectionEngine:
         try:
             extracted_data = _LLMExtractionEventList.model_validate_json(json_text)
             # 转换为 MemoryEvent 对象列表
-            # 注意：LLM 返回的是 _LLMExtractionEvent，其 id 字段对应 MemoryEvent 的 temp_id
             memory_events = []
             for event in extracted_data.events:
                 event_dict = event.model_dump()
-                # 将 'id' 字段重命名为 'temp_id' 以匹配 MemoryEvent 模型
-                if "id" in event_dict:
-                    event_dict["temp_id"] = event_dict.pop("id")
+                # _LLMExtractionEvent 已经包含 temp_id 字段，无需重命名
                 memory_events.append(MemoryEvent(**event_dict))
             return memory_events
         except (ValidationError, json.JSONDecodeError) as e:

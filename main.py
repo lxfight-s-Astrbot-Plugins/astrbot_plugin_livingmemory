@@ -134,7 +134,7 @@ class LivingMemoryPlugin(Star):
         self.fusion_handler: Optional[FusionHandler] = None
         
         # 初始化状态标记
-        self._initialization_complete = False
+        self._initialization_complete = asyncio.Event()
         self._initialization_task: Optional[asyncio.Task] = None
         
         # 会话管理器
@@ -204,40 +204,38 @@ class LivingMemoryPlugin(Star):
             self.fusion_handler = FusionHandler(self.context, self.config, self.recall_engine)
 
             # 标记初始化完成
-            self._initialization_complete = True
+            self._initialization_complete.set()
             logger.info("LivingMemory 插件初始化成功！")
 
         except Exception as e:
             logger.critical(
                 f"LivingMemory 插件初始化过程中发生严重错误: {e}", exc_info=True
             )
-            self._initialization_complete = False
+            # 即使失败也要设置Event,避免永久等待
+            self._initialization_complete.set()
 
     async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
         """
         等待插件初始化完成。
-        
+
         Args:
             timeout: 超时时间（秒）
-            
+
         Returns:
-            bool: 是否初始化成功
+            bool: 是否初始化成功（需要检查引擎是否真正初始化）
         """
-        if self._initialization_complete:
-            return True
-            
-        if self._initialization_task:
-            try:
-                await asyncio.wait_for(self._initialization_task, timeout=timeout)
-                return self._initialization_complete
-            except asyncio.TimeoutError:
-                logger.error(f"插件初始化超时（{timeout}秒）")
-                return False
-            except Exception as e:
-                logger.error(f"等待插件初始化时发生错误: {e}")
-                return False
-        
-        return False
+        try:
+            await asyncio.wait_for(self._initialization_complete.wait(), timeout=timeout)
+            # 检查关键组件是否真正初始化成功
+            return (self.recall_engine is not None and
+                    self.reflection_engine is not None and
+                    self.faiss_manager is not None)
+        except asyncio.TimeoutError:
+            logger.error(f"插件初始化超时（{timeout}秒）")
+            return False
+        except Exception as e:
+            logger.error(f"等待插件初始化时发生错误: {e}")
+            return False
 
     def _initialize_providers(self):
         """
