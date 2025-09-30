@@ -246,29 +246,90 @@ class ResultFusion:
         k: int,
         query_info: Optional[Dict[str, Any]] = None
     ) -> List[SearchResult]:
-        """自适应融合：根据查询特征选择融合策略"""
+        """自适应融合:根据查询特征选择融合策略(不修改实例变量)"""
         if not query_info:
             # 默认使用 RRF
             return self._rrf_fusion(dense_results, sparse_results, k)
-        
+
         query_type = query_info.get("type", "mixed")
         query_length = query_info.get("length", 0)
-        
-        # 短查询或关键词查询，偏向稀疏检索
+
+        # 根据查询类型确定权重(使用局部变量)
         if query_type == "keyword" or query_length < 10:
-            self.sparse_weight = 0.7
-            self.dense_weight = 0.3
-            return self._weighted_fusion(dense_results, sparse_results, k)
-        
-        # 长查询或语义查询，偏向密集检索
+            # 短查询或关键词查询,偏向稀疏检索
+            sparse_w = 0.7
+            dense_w = 0.3
         elif query_type == "semantic" or query_length > 50:
-            self.sparse_weight = 0.2
-            self.dense_weight = 0.8
-            return self._weighted_fusion(dense_results, sparse_results, k)
-        
-        # 混合查询，使用 RRF
+            # 长查询或语义查询,偏向密集检索
+            sparse_w = 0.2
+            dense_w = 0.8
         else:
+            # 混合查询,使用 RRF
             return self._rrf_fusion(dense_results, sparse_results, k)
+
+        # 使用临时权重进行加权融合
+        return self._weighted_fusion_with_custom_weights(
+            dense_results, sparse_results, k, dense_w, sparse_w
+        )
+
+    def _weighted_fusion_with_custom_weights(
+        self,
+        dense_results: List[Result],
+        sparse_results: List["SparseResult"],
+        k: int,
+        dense_weight: float,
+        sparse_weight: float
+    ) -> List[SearchResult]:
+        """使用自定义权重的加权融合(不修改实例变量)"""
+        # 归一化分数
+        dense_max = max(r.similarity for r in dense_results) if dense_results else 1.0
+        sparse_max = max(r.score for r in sparse_results) if sparse_results else 1.0
+
+        # 合并结果
+        result_map = {}
+
+        # 处理密集结果
+        for result in dense_results:
+            doc_id = result.data["id"]
+            result_map[doc_id] = SearchResult(
+                doc_id=doc_id,
+                content=result.data["text"],
+                metadata=result.data.get("metadata", {}),
+                dense_score=result.similarity / dense_max,
+                final_score=0.0
+            )
+
+        # 处理稀疏结果并融合
+        for result in sparse_results:
+            doc_id = result.doc_id
+            sparse_norm = result.score / sparse_max if sparse_max > 0 else 0
+
+            if doc_id in result_map:
+                # 已有密集结果,进行加权
+                existing = result_map[doc_id]
+                existing.sparse_score = sparse_norm
+                existing.final_score = (
+                    existing.dense_score * dense_weight +
+                    sparse_norm * sparse_weight
+                )
+            else:
+                # 只有稀疏结果
+                result_map[doc_id] = SearchResult(
+                    doc_id=doc_id,
+                    content=result.content,
+                    metadata=result.metadata,
+                    sparse_score=sparse_norm,
+                    final_score=sparse_norm * sparse_weight
+                )
+
+        # 排序并返回
+        sorted_results = sorted(
+            result_map.values(),
+            key=lambda x: x.final_score,
+            reverse=True
+        )
+
+        return sorted_results[:k]
     
     def _dense_to_search_results(self, dense_results: List[Result], k: int) -> List[SearchResult]:
         """将密集结果转换为 SearchResult"""
