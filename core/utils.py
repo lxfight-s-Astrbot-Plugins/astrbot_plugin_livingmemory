@@ -192,15 +192,53 @@ async def get_persona_id(context: Context, event: AstrMessageEvent) -> Optional[
 def extract_json_from_response(text: str) -> str:
     """
     从可能包含 Markdown 代码块的文本中提取纯 JSON 字符串。
+    支持对象 {...} 和数组 [{...}, {...}] 格式。
     """
-    # 查找被 ```json ... ``` 或 ``` ... ``` 包围的内容
-    match = re.search(r"```(json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    # 尝试匹配Markdown代码块中的JSON(支持对象和数组)
+    # 模式1: ```json ... ```
+    # 模式2: ``` ... ```
+    match = re.search(r"```(?:json)?\s*([{\[].*?[}\]])\s*```", text, re.DOTALL)
     if match:
-        # 返回捕获组中的 JSON 部分
-        return match.group(2)
+        return match.group(1)
 
-    # 如果没有找到代码块，假设整个文本就是 JSON（可能需要去除首尾空格）
-    return text.strip()
+    # 如果没有找到代码块,尝试直接提取JSON
+    # 查找第一个完整的JSON对象或数组
+    # 对象: { ... }
+    # 数组: [ ... ]
+    json_start = -1
+    bracket_type = None
+
+    for i, char in enumerate(text):
+        if char == '{':
+            json_start = i
+            bracket_type = '{'
+            break
+        elif char == '[':
+            json_start = i
+            bracket_type = '['
+            break
+
+    if json_start == -1:
+        # 没有找到JSON起始符,返回原文本
+        return text.strip()
+
+    # 匹配括号,找到JSON结束位置
+    stack = []
+    closing_bracket = '}' if bracket_type == '{' else ']'
+
+    for i in range(json_start, len(text)):
+        char = text[i]
+        if char == bracket_type:
+            stack.append(char)
+        elif char == closing_bracket:
+            if stack:
+                stack.pop()
+                if not stack:
+                    # 找到完整的JSON
+                    return text[json_start:i+1]
+
+    # 如果括号不匹配,返回从起始位置到文本结尾
+    return text[json_start:].strip()
 
 
 def get_now_datetime(tz_str: str = "Asia/Shanghai") -> datetime:
