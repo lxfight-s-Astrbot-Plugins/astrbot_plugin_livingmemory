@@ -59,10 +59,10 @@ class FTSManager:
         """创建数据同步触发器"""
         # 插入触发器
         await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_ai 
+            CREATE TRIGGER IF NOT EXISTS documents_ai
             AFTER INSERT ON documents BEGIN
-                INSERT INTO {self.fts_table_name}(doc_id, content) 
-                VALUES (new.id, new.text);
+                INSERT INTO {self.fts_table_name}(doc_id, content)
+                VALUES (new.id, new.content);
             END;
         """)
         
@@ -76,11 +76,11 @@ class FTSManager:
         
         # 更新触发器
         await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_au 
+            CREATE TRIGGER IF NOT EXISTS documents_au
             AFTER UPDATE ON documents BEGIN
                 DELETE FROM {self.fts_table_name} WHERE doc_id = old.id;
-                INSERT INTO {self.fts_table_name}(doc_id, content) 
-                VALUES (new.id, new.text);
+                INSERT INTO {self.fts_table_name}(doc_id, content)
+                VALUES (new.id, new.content);
             END;
         """)
     
@@ -90,7 +90,7 @@ class FTSManager:
             await db.execute(f"DELETE FROM {self.fts_table_name}")
             await db.execute(f"""
                 INSERT INTO {self.fts_table_name}(doc_id, content)
-                SELECT id, text FROM documents
+                SELECT id, content FROM documents
             """)
             await db.commit()
             logger.info("FTS index rebuilt")
@@ -219,9 +219,9 @@ class SparseRetriever:
         async with aiosqlite.connect(self.db_path) as db:
             placeholders = ",".join("?" for _ in doc_ids)
             cursor = await db.execute(f"""
-                SELECT id, text, metadata FROM documents WHERE id IN ({placeholders})
+                SELECT id, content, metadata FROM documents WHERE id IN ({placeholders})
             """, doc_ids)
-            
+
             documents = {}
             async for row in cursor:
                 metadata = json.loads(row[2]) if isinstance(row[2], str) else row[2]
@@ -229,7 +229,7 @@ class SparseRetriever:
                     "text": row[1],
                     "metadata": metadata or {}
                 }
-            
+
             return documents
     
     def _apply_filters(
