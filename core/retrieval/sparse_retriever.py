@@ -198,12 +198,23 @@ class SparseRetriever:
                         )
                         filtered_results.append(result)
             
-            # 归一化 BM25 分数（转换为 0-1）
+            # 归一化 BM25 分数(转换为 0-1),处理负分数情况
             if filtered_results:
-                max_score = max(r.score for r in filtered_results)
                 min_score = min(r.score for r in filtered_results)
-                score_range = max_score - min_score if max_score != min_score else 1
-                
+                max_score = max(r.score for r in filtered_results)
+
+                # 处理负分数:先偏移到非负域
+                if min_score < 0:
+                    offset = abs(min_score)
+                    for result in filtered_results:
+                        result.score += offset
+                    # 重新计算范围
+                    min_score = 0
+                    max_score = max_score + offset
+
+                # 归一化到[0, 1]
+                score_range = max_score - min_score if max_score != min_score else 1.0
+
                 for result in filtered_results:
                     result.score = (result.score - min_score) / score_range
             
