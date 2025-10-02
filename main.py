@@ -144,14 +144,13 @@ class LivingMemoryPlugin(Star):
             session_ttl=session_config.get("session_ttl", 3600)
         )
 
-        # 启动异步初始化流程
-        self._initialization_task = asyncio.create_task(self._initialize_plugin())
 
+    @filter.on_astrbot_loaded()
     async def _initialize_plugin(self):
         """
         执行插件的异步初始化。
         """
-        logger.info("开始异步初始化 LivingMemory 插件...")
+        logger.info("开始初始化 LivingMemory 插件...")
         try:
             # 1. 初始化 Provider
             self._initialize_providers()
