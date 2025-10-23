@@ -23,11 +23,7 @@ class SearchHandler(BaseHandler):
         super().__init__(context, config)
         self.recall_engine = recall_engine
         self.sparse_retriever = sparse_retriever
-    
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """处理请求的抽象方法实现"""
-        return self.create_response(True, "SearchHandler process method")
-    
+
     async def search_memories(self, query: str, k: int = 3) -> Dict[str, Any]:
         """搜索记忆"""
         if not self.recall_engine:

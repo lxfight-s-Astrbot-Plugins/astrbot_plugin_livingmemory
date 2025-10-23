@@ -23,11 +23,7 @@ class MemoryHandler(BaseHandler):
     def __init__(self, context: Context, config: Dict[str, Any], faiss_manager):
         super().__init__(context, config)
         self.faiss_manager = faiss_manager
-    
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """处理请求的抽象方法实现"""
-        return self.create_response(True, "MemoryHandler process method")
-    
+
     async def edit_memory(self, memory_id: str, field: str, value: str, reason: str = "") -> Dict[str, Any]:
         """编辑记忆内容或元数据"""
         if not self.faiss_manager:

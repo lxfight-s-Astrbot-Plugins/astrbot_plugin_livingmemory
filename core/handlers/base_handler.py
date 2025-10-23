@@ -4,8 +4,7 @@ base_handler.py - 基础处理器类
 提供业务逻辑处理的基础功能和通用方法
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import json
 
@@ -13,17 +12,12 @@ from astrbot.api import logger
 from astrbot.api.star import Context
 
 
-class BaseHandler(ABC):
+class BaseHandler:
     """基础处理器类，提供通用的业务逻辑功能"""
-    
+
     def __init__(self, context: Context, config: Dict[str, Any]):
         self.context = context
         self.config = config
-        
-    @abstractmethod
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """处理请求的抽象方法"""
-        pass
     
     def get_timezone(self) -> Any:
         """获取当前时区"""
@@ -86,11 +80,3 @@ class BaseHandler(ABC):
             "message": message,
             "data": data
         }
-
-
-class TestableBaseHandler(BaseHandler):
-    """用于测试的基础处理器实现"""
-    
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """测试用的process方法实现"""
-        return self.create_response(True, "Test response")

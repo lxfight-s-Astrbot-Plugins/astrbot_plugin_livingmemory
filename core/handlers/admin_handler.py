@@ -21,11 +21,7 @@ class AdminHandler(BaseHandler):
         self.forgetting_agent = forgetting_agent
         self.session_manager = session_manager
         self.recall_engine = recall_engine
-    
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """处理请求的抽象方法实现"""
-        return self.create_response(True, "AdminHandler process method")
-    
+
     async def get_memory_status(self) -> Dict[str, Any]:
         """获取记忆库状态"""
         if not self.faiss_manager or not self.faiss_manager.db:

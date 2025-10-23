@@ -21,11 +21,7 @@ class FusionHandler(BaseHandler):
     def __init__(self, context: Context, config: Dict[str, Any], recall_engine=None):
         super().__init__(context, config)
         self.recall_engine = recall_engine
-    
-    async def process(self, *args, **kwargs) -> Dict[str, Any]:
-        """处理请求的抽象方法实现"""
-        return self.create_response(True, "FusionHandler process method")
-    
+
     async def manage_fusion_strategy(self, strategy: str = "show", param: str = "") -> Dict[str, Any]:
         """管理检索融合策略"""
         if not self.recall_engine:
