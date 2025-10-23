@@ -98,7 +98,7 @@ class SessionManager:
     "LivingMemory",
     "lxfight",
     "一个拥有动态生命周期的智能长期记忆插件。",
-    "1.3.2",
+    "1.3.3",
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
