@@ -28,6 +28,7 @@ from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 # 插件内部模块
 from .storage.faiss_manager import FaissManager
 from .core.engines.recall_engine import RecallEngine
+from .core.commands import require_handlers, handle_command_errors, deprecated
 from .core.engines.reflection_engine import ReflectionEngine
 from .core.engines.forgetting_agent import ForgettingAgent
 from .core.retrieval import SparseRetriever
@@ -493,158 +494,160 @@ class LivingMemoryPlugin(Star):
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("status")
+    @handle_command_errors
+    @require_handlers("admin_handler")
     async def lmem_status(self, event: AstrMessageEvent):
         """[管理员] 查看当前记忆库的状态。"""
-        if not self.admin_handler:
-            yield event.plain_result("管理员处理器尚未初始化。")
-            return
-            
         result = await self.admin_handler.get_memory_status()
         yield event.plain_result(self.admin_handler.format_status_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search")
+    @handle_command_errors
+    @require_handlers("search_handler")
     async def lmem_search(self, event: AstrMessageEvent, query: str, k: int = 3):
         """[管理员] 手动搜索记忆。"""
-        if not self.search_handler:
-            yield event.plain_result("搜索处理器尚未初始化。")
-            return
-            
         result = await self.search_handler.search_memories(query, k)
         yield event.plain_result(self.search_handler.format_search_results_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
+    @handle_command_errors
+    @require_handlers("admin_handler")
     async def lmem_forget(self, event: AstrMessageEvent, doc_id: int):
         """[管理员] 强制删除一条指定整数 ID 的记忆。"""
-        if not self.admin_handler:
-            yield event.plain_result("管理员处理器尚未初始化。")
-            return
-            
         result = await self.admin_handler.delete_memory(doc_id)
         yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("run_forgetting_agent")
+    @handle_command_errors
+    @require_handlers("admin_handler")
     async def run_forgetting_agent(self, event: AstrMessageEvent):
         """[管理员] 手动触发一次遗忘代理的清理任务。"""
-        if not self.admin_handler:
-            yield event.plain_result("管理员处理器尚未初始化。")
-            return
-            
         yield event.plain_result("正在后台手动触发遗忘代理任务...")
         result = await self.admin_handler.run_forgetting_agent()
         yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("sparse_rebuild")
+    @handle_command_errors
+    @require_handlers("search_handler")
     async def lmem_sparse_rebuild(self, event: AstrMessageEvent):
         """[管理员] 重建稀疏检索索引。"""
-        if not self.search_handler:
-            yield event.plain_result("搜索处理器尚未初始化。")
-            return
-            
         result = await self.search_handler.rebuild_sparse_index()
         yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search_mode")
+    @handle_command_errors
+    @require_handlers("admin_handler")
     async def lmem_search_mode(self, event: AstrMessageEvent, mode: str):
         """[管理员] 设置检索模式。
-        
+
         用法: /lmem search_mode <mode>
-        
+
         模式:
           hybrid - 混合检索（默认）
           dense - 纯密集检索
           sparse - 纯稀疏检索
         """
-        if not self.admin_handler:
-            yield event.plain_result("管理员处理器尚未初始化。")
-            return
-            
         result = await self.admin_handler.set_search_mode(mode)
         yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("sparse_test")
+    @handle_command_errors
+    @require_handlers("search_handler")
     async def lmem_sparse_test(self, event: AstrMessageEvent, query: str, k: int = 5):
         """[管理员] 测试稀疏检索功能。"""
-        if not self.search_handler:
-            yield event.plain_result("搜索处理器尚未初始化。")
-            return
-            
         result = await self.search_handler.test_sparse_search(query, k)
         yield event.plain_result(self.search_handler.format_sparse_results_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("edit")
+    @handle_command_errors
+    @require_handlers("memory_handler")
     async def lmem_edit(self, event: AstrMessageEvent, memory_id: str, field: str, value: str, reason: str = ""):
         """[管理员] 编辑记忆内容或元数据。
-        
+
         用法: /lmem edit <id> <字段> <值> [原因]
-        
+
         字段:
           content - 记忆内容
           importance - 重要性评分 (0.0-1.0)
           type - 事件类型 (FACT/PREFERENCE/GOAL/OPINION/RELATIONSHIP/OTHER)
           status - 状态 (active/archived/deleted)
-        
+
         示例:
           /lmem edit 123 content 这是新的记忆内容 修正了错误信息
           /lmem edit 123 importance 0.9 提高重要性
           /lmem edit 123 type PREFERENCE 重新分类
           /lmem edit 123 status archived 项目已完成
         """
-        if not self.memory_handler:
-            yield event.plain_result("记忆处理器尚未初始化。")
-            return
-            
         result = await self.memory_handler.edit_memory(memory_id, field, value, reason)
         yield event.plain_result(result["message"])
 
     @permission_type(PermissionType.ADMIN)
+    @lmem_group.command("info")
+    @handle_command_errors
+    @require_handlers("memory_handler")
+    async def lmem_info(self, event: AstrMessageEvent, memory_id: str, full: bool = False):
+        """[管理员] 查看记忆详细信息。
+
+        用法:
+          /lmem info <id>           # 显示基本信息和编辑指引
+          /lmem info <id> --full    # 显示完整更新历史
+
+        显示记忆的完整信息，包括内容、元数据、更新历史和编辑指引。
+        """
+        result = await self.memory_handler.get_memory_info(
+            memory_id,
+            show_edit_guide=True,
+            full_history=full
+        )
+        yield event.plain_result(self.memory_handler.format_memory_info_for_display(result))
+
+    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("update")
+    @deprecated("/lmem info", version="1.4.0")
+    @handle_command_errors
+    @require_handlers("memory_handler")
     async def lmem_update(self, event: AstrMessageEvent, memory_id: str):
-        """[管理员] 查看记忆详细信息并提供编辑指引。
-        
+        """[管理员] 查看记忆详细信息并提供编辑指引。（已废弃，请使用 /lmem info）
+
         用法: /lmem update <id>
-        
+
         显示记忆的完整信息，并指引如何使用编辑命令。
         """
-        if not self.memory_handler:
-            yield event.plain_result("记忆处理器尚未初始化。")
-            return
-            
-        result = await self.memory_handler.get_memory_details(memory_id)
-        yield event.plain_result(self.memory_handler.format_memory_details_for_display(result))
+        # 内部调用新命令
+        async for result in self.lmem_info(event, memory_id, full=False):
+            yield result
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("history")
+    @deprecated("/lmem info <id> --full", version="1.4.0")
+    @handle_command_errors
+    @require_handlers("memory_handler")
     async def lmem_history(self, event: AstrMessageEvent, memory_id: str):
-        """[管理员] 查看记忆的更新历史。"""
-        if not self.memory_handler:
-            yield event.plain_result("记忆处理器尚未初始化。")
-            return
-            
-        result = await self.memory_handler.get_memory_history(memory_id)
-        yield event.plain_result(self.memory_handler.format_memory_history_for_display(result))
+        """[管理员] 查看记忆的更新历史。（已废弃，请使用 /lmem info <id> --full）"""
+        # 内部调用新命令
+        async for result in self.lmem_info(event, memory_id, full=True):
+            yield result
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("config")
+    @handle_command_errors
+    @require_handlers("admin_handler")
     async def lmem_config(self, event: AstrMessageEvent, action: str = "show"):
         """[管理员] 查看或验证配置。
-        
+
         用法: /lmem config [show|validate]
-        
+
         动作:
           show - 显示当前配置
           validate - 验证配置有效性
         """
-        if not self.admin_handler:
-            yield event.plain_result("管理员处理器尚未初始化。")
-            return
-            
         result = await self.admin_handler.get_config_summary(action)
         if action == "show":
             yield event.plain_result(self.admin_handler.format_config_summary_for_display(result))
@@ -653,11 +656,13 @@ class LivingMemoryPlugin(Star):
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("fusion")
+    @handle_command_errors
+    @require_handlers("fusion_handler")
     async def lmem_fusion(self, event: AstrMessageEvent, strategy: str = "show", param: str = ""):
         """[管理员] 管理检索融合策略。
-        
+
         用法: /lmem fusion [strategy] [param=value]
-        
+
         策略:
           show - 显示当前融合配置
           rrf - Reciprocal Rank Fusion (经典RRF)
@@ -669,17 +674,13 @@ class LivingMemoryPlugin(Star):
           score_fusion - 基于分数的融合 (Borda Count)
           cascade - 级联融合
           adaptive - 自适应融合
-          
+
         示例:
           /lmem fusion show
           /lmem fusion hybrid_rrf
           /lmem fusion convex lambda=0.6
           /lmem fusion weighted dense_weight=0.8
         """
-        if not self.fusion_handler:
-            yield event.plain_result("融合策略处理器尚未初始化。")
-            return
-            
         if strategy == "show":
             result = await self.fusion_handler.manage_fusion_strategy("show")
             yield event.plain_result(self.fusion_handler.format_fusion_config_for_display(result))
@@ -689,17 +690,15 @@ class LivingMemoryPlugin(Star):
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("test_fusion")
+    @handle_command_errors
+    @require_handlers("fusion_handler")
     async def lmem_test_fusion(self, event: AstrMessageEvent, query: str, k: int = 5):
         """[管理员] 测试不同融合策略的效果。
-        
+
         用法: /lmem test_fusion <查询> [返回数量]
-        
+
         这个命令会使用当前的融合策略进行搜索，并显示详细的融合过程信息。
         """
-        if not self.fusion_handler:
-            yield event.plain_result("融合策略处理器尚未初始化。")
-            return
-            
         yield event.plain_result(f"🔍 测试融合策略，查询: '{query}', 返回数量: {k}")
         result = await self.fusion_handler.test_fusion_strategy(query, k)
         yield event.plain_result(self.fusion_handler.format_fusion_test_for_display(result))

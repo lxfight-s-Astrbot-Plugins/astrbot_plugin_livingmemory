@@ -137,7 +137,18 @@ class MemoryHandler(BaseHandler):
             return self.create_response(False, f"获取记忆详细信息时发生错误: {e}")
 
     async def get_memory_history(self, memory_id: str) -> Dict[str, Any]:
-        """获取记忆更新历史"""
+        """获取记忆更新历史（已废弃，请使用 get_memory_info）"""
+        return await self.get_memory_info(memory_id, show_edit_guide=False, full_history=True)
+
+    async def get_memory_info(self, memory_id: str, show_edit_guide: bool = True,
+                             full_history: bool = False) -> Dict[str, Any]:
+        """获取记忆完整信息
+
+        参数:
+            memory_id: 记忆 ID
+            show_edit_guide: 是否显示编辑指引
+            full_history: 是否显示完整更新历史
+        """
         if not self.faiss_manager or not self.faiss_manager.db:
             return self.create_response(False, "记忆库尚未初始化")
 
@@ -157,122 +168,112 @@ class MemoryHandler(BaseHandler):
             doc = docs[0]
             metadata = self.safe_parse_metadata(doc["metadata"])
 
-            # 构建历史信息
-            history_info = {
+            # 构建信息
+            info = {
                 "id": memory_id,
                 "content": doc["content"],
-                "metadata": {
-                    "importance": metadata.get("importance", "N/A"),
-                    "event_type": metadata.get("event_type", "N/A"),
-                    "status": metadata.get("status", "active"),
-                    "create_time": self.format_timestamp(metadata.get("create_time"))
-                },
-                "update_history": metadata.get("update_history", [])
+                "metadata": metadata,
+                "create_time": self.format_timestamp(metadata.get("create_time")),
+                "last_access_time": self.format_timestamp(metadata.get("last_access_time")),
+                "importance": metadata.get("importance", "N/A"),
+                "event_type": metadata.get("event_type", "N/A"),
+                "status": metadata.get("status", "active"),
+                "update_history": metadata.get("update_history", []),
+                "show_edit_guide": show_edit_guide,
+                "full_history": full_history
             }
 
-            return self.create_response(True, "获取记忆历史成功", history_info)
+            return self.create_response(True, "获取记忆信息成功", info)
 
         except Exception as e:
-            logger.error(f"获取记忆历史时发生错误: {e}", exc_info=True)
-            return self.create_response(False, f"获取记忆历史时发生错误: {e}")
+            logger.error(f"获取记忆信息时发生错误: {e}", exc_info=True)
+            return self.create_response(False, f"获取记忆信息时发生错误: {e}")
 
     def format_memory_details_for_display(self, details: Dict[str, Any]) -> str:
-        """格式化记忆详细信息用于显示"""
-        if not details.get("success"):
-            return details.get("message", "获取失败")
-        
-        data = details.get("data", {})
+        """格式化记忆详细信息用于显示（已废弃，请使用 format_memory_info_for_display）"""
+        return self.format_memory_info_for_display(details)
+
+    def format_memory_history_for_display(self, history: Dict[str, Any]) -> str:
+        """格式化记忆历史用于显示（已废弃，请使用 format_memory_info_for_display）"""
+        return self.format_memory_info_for_display(history)
+
+    def format_memory_info_for_display(self, info: Dict[str, Any]) -> str:
+        """格式化记忆信息用于显示
+
+        根据 info 中的 show_edit_guide 和 full_history 参数决定显示内容
+        """
+        if not info.get("success"):
+            return info.get("message", "获取失败")
+
+        data = info.get("data", {})
+        show_edit_guide = data.get("show_edit_guide", True)
+        full_history = data.get("full_history", False)
+
         response_parts = [f"📝 记忆 {data['id']} 的详细信息:"]
         response_parts.append("=" * 50)
-        
+
         # 内容
         response_parts.append(f"\n📄 内容:")
         response_parts.append(f"{data['content']}")
-        
+
         # 基本信息
         response_parts.append(f"\n📊 基本信息:")
         response_parts.append(f"- ID: {data['id']}")
         response_parts.append(f"- 重要性: {data['importance']}")
         response_parts.append(f"- 类型: {data['event_type']}")
         response_parts.append(f"- 状态: {data['status']}")
-        
+
         # 时间信息
         if data['create_time'] != "未知":
             response_parts.append(f"- 创建时间: {data['create_time']}")
-        if data['last_access_time'] != "未知":
+        if data.get('last_access_time') != "未知":
             response_parts.append(f"- 最后访问: {data['last_access_time']}")
-        
+
         # 更新历史
         update_history = data.get('update_history', [])
         if update_history:
+            # 根据 full_history 参数决定显示数量
+            history_count = len(update_history) if full_history else min(3, len(update_history))
             response_parts.append(f"\n🔄 更新历史 ({len(update_history)} 次):")
-            for i, update in enumerate(update_history[-3:], 1):  # 只显示最近3次
+
+            if full_history:
+                displayed_history = update_history
+            else:
+                displayed_history = update_history[-3:]
+
+            for i, update in enumerate(displayed_history, 1):
                 timestamp = update.get('timestamp')
                 if timestamp:
                     time_str = self.format_timestamp(timestamp)
                 else:
                     time_str = "未知"
-                
+
                 response_parts.append(f"\n{i}. {time_str}")
                 response_parts.append(f"   原因: {update.get('reason', 'N/A')}")
                 response_parts.append(f"   字段: {', '.join(update.get('fields', []))}")
-        
-        # 编辑指引
-        response_parts.append(f"\n" + "=" * 50)
-        response_parts.append(f"\n🛠️ 编辑指引:")
-        response_parts.append(f"使用以下命令编辑此记忆:")
-        response_parts.append(f"\n• 编辑内容:")
-        response_parts.append(f"  /lmem edit {data['id']} content <新内容> [原因]")
-        response_parts.append(f"\n• 编辑重要性:")
-        response_parts.append(f"  /lmem edit {data['id']} importance <0.0-1.0> [原因]")
-        response_parts.append(f"\n• 编辑类型:")
-        response_parts.append(f"  /lmem edit {data['id']} type <FACT/PREFERENCE/GOAL/OPINION/RELATIONSHIP/OTHER> [原因]")
-        response_parts.append(f"\n• 编辑状态:")
-        response_parts.append(f"  /lmem edit {data['id']} status <active/archived/deleted> [原因]")
-        
-        # 示例
-        response_parts.append(f"\n💡 示例:")
-        response_parts.append(f"  /lmem edit {data['id']} importance 0.9 提高重要性评分")
-        response_parts.append(f"  /lmem edit {data['id']} type PREFERENCE 重新分类为偏好")
 
-        return "\n".join(response_parts)
-
-    def format_memory_history_for_display(self, history: Dict[str, Any]) -> str:
-        """格式化记忆历史用于显示"""
-        if not history.get("success"):
-            return history.get("message", "获取失败")
-        
-        data = history.get("data", {})
-        metadata = data.get("metadata", {})
-        
-        response_parts = [f"📝 记忆 {data['id']} 的详细信息:"]
-        response_parts.append(f"\n内容: {data['content']}")
-        
-        # 基本信息
-        response_parts.append(f"\n📊 基本信息:")
-        response_parts.append(f"- 重要性: {metadata['importance']}")
-        response_parts.append(f"- 类型: {metadata['event_type']}")
-        response_parts.append(f"- 状态: {metadata['status']}")
-        
-        # 时间信息
-        if metadata.get('create_time') != "未知":
-            response_parts.append(f"- 创建时间: {metadata['create_time']}")
-        
-        # 更新历史
-        update_history = data.get('update_history', [])
-        if update_history:
-            response_parts.append(f"\n🔄 更新历史 ({len(update_history)} 次):")
-            for i, update in enumerate(update_history[-5:], 1):  # 只显示最近5次
-                timestamp = update.get('timestamp')
-                if timestamp:
-                    time_str = self.format_timestamp(timestamp)
-                else:
-                    time_str = "未知"
-                
-                response_parts.append(f"\n{i}. {time_str}")
-                response_parts.append(f"   原因: {update.get('reason', 'N/A')}")
-                response_parts.append(f"   字段: {', '.join(update.get('fields', []))}")
+            if not full_history and len(update_history) > 3:
+                response_parts.append(f"\n💡 使用 /lmem info {data['id']} --full 查看完整历史")
         else:
             response_parts.append("\n🔄 暂无更新记录")
+
+        # 编辑指引（仅在 show_edit_guide=True 时显示）
+        if show_edit_guide:
+            response_parts.append(f"\n" + "=" * 50)
+            response_parts.append(f"\n🛠️ 编辑指引:")
+            response_parts.append(f"使用以下命令编辑此记忆:")
+            response_parts.append(f"\n• 编辑内容:")
+            response_parts.append(f"  /lmem edit {data['id']} content <新内容> [原因]")
+            response_parts.append(f"\n• 编辑重要性:")
+            response_parts.append(f"  /lmem edit {data['id']} importance <0.0-1.0> [原因]")
+            response_parts.append(f"\n• 编辑类型:")
+            response_parts.append(f"  /lmem edit {data['id']} type <FACT/PREFERENCE/GOAL/OPINION/RELATIONSHIP/OTHER> [原因]")
+            response_parts.append(f"\n• 编辑状态:")
+            response_parts.append(f"  /lmem edit {data['id']} status <active/archived/deleted> [原因]")
+
+            # 示例
+            response_parts.append(f"\n💡 示例:")
+            response_parts.append(f"  /lmem edit {data['id']} importance 0.9 提高重要性评分")
+            response_parts.append(f"  /lmem edit {data['id']} type PREFERENCE 重新分类为偏好")
 
         return "\n".join(response_parts)
