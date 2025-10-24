@@ -314,6 +314,25 @@
       }
     }
   },
+  "migration_settings": {
+    "description": "数据库迁移设置",
+    "hint": "控制数据库版本升级和自动迁移行为",
+    "type": "object",
+    "items": {
+      "auto_migrate": {
+        "description": "启用自动迁移",
+        "hint": "插件启动时自动检测并执行数据库迁移。旧版本数据库将自动升级。",
+        "type": "bool",
+        "default": true
+      },
+      "create_backup": {
+        "description": "迁移前自动备份",
+        "hint": "执行数据库迁移前自动创建备份文件。",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
   "forgetting_agent": {
     "description": "遗忘代理设置",
     "hint": "负责模拟遗忘，清理陈旧记忆",

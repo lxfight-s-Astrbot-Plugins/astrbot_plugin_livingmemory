@@ -124,6 +124,12 @@ class TimezoneConfig(BaseModel):
     timezone: str = Field(default="Asia/Shanghai", description="时区")
 
 
+class MigrationSettings(BaseModel):
+    """数据库迁移设置"""
+    auto_migrate: bool = Field(default=True, description="是否启用自动迁移")
+    create_backup: bool = Field(default=True, description="迁移前是否创建备份")
+
+
 class WebUISettings(BaseModel):
     """WebUI 设置"""
     enabled: bool = Field(default=False, description="是否启用 WebUI 控制台")
@@ -152,6 +158,7 @@ class LivingMemoryConfig(BaseModel):
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
     timezone_settings: TimezoneConfig = Field(default_factory=TimezoneConfig)
     webui_settings: WebUISettings = Field(default_factory=WebUISettings)
+    migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)
     
     # 为融合配置添加嵌套支持
     fusion: Optional[FusionConfig] = Field(default_factory=FusionConfig, description="结果融合配置")

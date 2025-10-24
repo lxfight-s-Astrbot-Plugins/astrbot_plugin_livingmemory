@@ -27,6 +27,7 @@ from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
 # 插件内部模块
 from .storage.faiss_manager import FaissManager
+from .storage.db_migration import DBMigration
 from .core.engines.recall_engine import RecallEngine
 from .core.commands import require_handlers, handle_command_errors, deprecated
 from .core.engines.reflection_engine import ReflectionEngine
@@ -128,6 +129,7 @@ class LivingMemoryPlugin(Star):
         self.recall_engine: Optional[RecallEngine] = None
         self.reflection_engine: Optional[ReflectionEngine] = None
         self.forgetting_agent: Optional[ForgettingAgent] = None
+        self.db_migration: Optional[DBMigration] = None
         
         # 初始化业务逻辑处理器
         self.memory_handler: Optional[MemoryHandler] = None
@@ -177,6 +179,14 @@ class LivingMemoryPlugin(Star):
             self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
             await self.db.initialize()
             logger.info(f"数据库已初始化。数据目录: {data_dir}")
+
+            # 2.3. 初始化数据库迁移管理器
+            self.db_migration = DBMigration(db_path)
+            
+            # 2.4. 检查并执行数据库迁移（在初始化稀疏检索器之前）
+            migration_config = self.config.get("migration_settings", {})
+            if migration_config.get("auto_migrate", True):
+                await self._check_and_migrate_database()
 
             # 2.5. 初始化稀疏检索器（带停用词管理）
             sparse_config = self.config.get("sparse_retriever", {})
@@ -238,6 +248,52 @@ class LivingMemoryPlugin(Star):
                 f"LivingMemory 插件初始化过程中发生严重错误: {e}", exc_info=True
             )
             self._initialization_complete = False
+
+    async def _check_and_migrate_database(self):
+        """
+        检查并执行数据库迁移
+        """
+        try:
+            if not self.db_migration:
+                logger.warning("数据库迁移管理器未初始化")
+                return
+            
+            # 检查是否需要迁移
+            needs_migration = await self.db_migration.needs_migration()
+            
+            if not needs_migration:
+                logger.info("✅ 数据库版本已是最新，无需迁移")
+                return
+            
+            logger.info("🔄 检测到旧版本数据库，开始自动迁移...")
+            
+            # 获取迁移配置
+            migration_config = self.config.get("migration_settings", {})
+            
+            # 创建备份（如果配置启用）
+            if migration_config.get("create_backup", True):
+                backup_path = await self.db_migration.create_backup()
+                if backup_path:
+                    logger.info(f"✅ 数据库备份已创建: {backup_path}")
+                else:
+                    logger.warning("⚠️ 数据库备份失败，但将继续迁移")
+            
+            # 执行迁移（此时sparse_retriever尚未初始化，将在迁移完成后初始化）
+            # 注意：这里传入None，因为稀疏检索器还未初始化
+            # 实际的FTS索引重建会在稀疏检索器初始化后自动触发
+            result = await self.db_migration.migrate(
+                sparse_retriever=None,
+                progress_callback=None
+            )
+            
+            if result.get("success"):
+                logger.info(f"✅ {result.get('message')}")
+                logger.info(f"   耗时: {result.get('duration', 0):.2f}秒")
+            else:
+                logger.error(f"❌ 数据库迁移失败: {result.get('message')}")
+                
+        except Exception as e:
+            logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
 
     async def _start_webui(self):
         """
@@ -817,6 +873,102 @@ class LivingMemoryPlugin(Star):
         yield event.plain_result(self.fusion_handler.format_fusion_test_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
+    @lmem_group.command("migrate")
+    @handle_command_errors
+    async def lmem_migrate(self, event: AstrMessageEvent, action: str = "status"):
+        """[管理员] 数据库迁移管理。
+
+        用法: /lmem migrate [status|run|info]
+
+        动作:
+          status - 查看迁移状态
+          run - 手动执行迁移
+          info - 查看迁移详细信息
+        """
+        if not await self._wait_for_initialization():
+            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+            return
+
+        if not self.db_migration:
+            yield event.plain_result("❌ 数据库迁移管理器未初始化")
+            return
+
+        try:
+            if action == "status":
+                needs_migration = await self.db_migration.needs_migration()
+                current_version = await self.db_migration.get_db_version()
+                
+                if needs_migration:
+                    message = (
+                        f"⚠️ 数据库需要迁移\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"当前版本: v{current_version}\n"
+                        f"最新版本: v{self.db_migration.CURRENT_VERSION}\n\n"
+                        f"使用 /lmem migrate run 执行迁移"
+                    )
+                else:
+                    message = (
+                        f"✅ 数据库版本已是最新\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"当前版本: v{current_version}"
+                    )
+                yield event.plain_result(message)
+
+            elif action == "run":
+                yield event.plain_result("🔄 开始执行数据库迁移，请稍候...")
+                
+                # 创建备份
+                backup_path = await self.db_migration.create_backup()
+                if backup_path:
+                    yield event.plain_result(f"✅ 备份已创建: {backup_path}")
+                
+                # 执行迁移
+                result = await self.db_migration.migrate(
+                    sparse_retriever=self.sparse_retriever,
+                    progress_callback=None
+                )
+                
+                if result.get("success"):
+                    message = (
+                        f"✅ {result.get('message')}\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"从版本: v{result.get('from_version')}\n"
+                        f"到版本: v{result.get('to_version')}\n"
+                        f"耗时: {result.get('duration', 0):.2f}秒"
+                    )
+                else:
+                    message = f"❌ {result.get('message')}"
+                
+                yield event.plain_result(message)
+
+            elif action == "info":
+                info = await self.db_migration.get_migration_info()
+                
+                history_text = ""
+                if info.get("migration_history"):
+                    history_text = "\n\n📜 迁移历史:\n"
+                    for record in info["migration_history"][:5]:
+                        history_text += f"  v{record['version']} - {record['migrated_at'][:10]} ({record['duration']:.2f}s)\n"
+                
+                message = (
+                    f"📊 数据库迁移信息\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"当前版本: v{info.get('current_version')}\n"
+                    f"最新版本: v{info.get('latest_version')}\n"
+                    f"需要迁移: {'是' if info.get('needs_migration') else '否'}\n"
+                    f"数据库路径: {info.get('db_path')}"
+                    f"{history_text}"
+                )
+                yield event.plain_result(message)
+            
+            else:
+                yield event.plain_result(f"❌ 未知的动作: {action}\n使用 status、run 或 info")
+
+        except Exception as e:
+            logger.error(f"执行迁移命令失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 执行失败: {str(e)}")
+
+    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("webui")
     @handle_command_errors
     async def lmem_webui(self, event: AstrMessageEvent):
@@ -902,6 +1054,8 @@ class LivingMemoryPlugin(Star):
             "    示例: /lmem forget 123\n\n"
             "  /lmem webui\n"
             "    显示 WebUI 访问信息和功能说明\n\n"
+            "  /lmem migrate [status|run|info]\n"
+            "    数据库迁移管理（查看状态、执行迁移）\n\n"
             "  /lmem help\n"
             "    显示本帮助信息\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
