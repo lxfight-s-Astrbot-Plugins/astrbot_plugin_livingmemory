@@ -494,67 +494,6 @@ class WebUIServer:
             """获取会话列表"""
             return await self._get_sessions_info()
 
-        # ========== 配置管理 API ==========
-        @self._app.get("/api/config/recall-engine")
-        async def get_recall_config(
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """获取检索引擎配置"""
-            return await self._get_recall_config()
-
-        @self._app.put("/api/config/recall-engine")
-        async def update_recall_config(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """更新检索引擎配置"""
-            return await self._update_recall_config(payload)
-
-        @self._app.get("/api/config/fusion-strategy")
-        async def get_fusion_config(
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """获取融合策略配置"""
-            return await self._get_fusion_config()
-
-        @self._app.put("/api/config/fusion-strategy")
-        async def update_fusion_config(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """更新融合策略配置"""
-            return await self._update_fusion_config(payload)
-
-        @self._app.get("/api/config/reflection-engine")
-        async def get_reflection_config(
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """获取反思引擎配置"""
-            return await self._get_reflection_config()
-
-        @self._app.put("/api/config/reflection-engine")
-        async def update_reflection_config(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """更新反思引擎配置"""
-            return await self._update_reflection_config(payload)
-
-        @self._app.get("/api/config/forgetting-agent")
-        async def get_forgetting_config(
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """获取遗忘代理配置"""
-            return await self._get_forgetting_config()
-
-        @self._app.put("/api/config/forgetting-agent")
-        async def update_forgetting_config(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency()),
-        ):
-            """更新遗忘代理配置"""
-            return await self._update_forgetting_config(payload)
-
         # ========== 调试工具 API ==========
         @self._app.post("/api/debug/search-test")
         async def test_search(
@@ -1182,16 +1121,9 @@ class WebUIServer:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="遗忘代理未初始化")
 
         try:
-            # 触发遗忘任务
-            result = await self.forgetting_agent.run_forgetting_task()
-
-            return {
-                "success": True,
-                "message": "遗忘代理执行完成",
-                "deleted_count": result.get("deleted_count", 0),
-                "checked_count": result.get("checked_count", 0),
-                "execution_time": result.get("execution_time", 0)
-            }
+            # 触发遗忘任务，直接返回原始结果
+            result = await self.forgetting_agent.trigger_manual_run()
+            return result
         except Exception as exc:
             logger.error(f"触发遗忘代理失败: {exc}", exc_info=True)
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="遗忘代理执行失败") from exc
@@ -1202,26 +1134,16 @@ class WebUIServer:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="稀疏检索器未启用")
 
         try:
-            # 获取所有记忆
+            # 获取所有记忆数量
             total = await self.faiss_manager.count_total_memories()
-            memories = await self.faiss_manager.get_memories_paginated(page_size=total, offset=0)
-
-            # 重建索引
-            documents = []
-            doc_ids = []
-            for mem in memories:
-                doc_ids.append(mem.get("id"))
-                content = mem.get("metadata", {}).get("memory_content") or mem.get("content", "")
-                documents.append(content)
-
-            # 清空并重建
-            await self.sparse_retriever.clear_index()
-            await self.sparse_retriever.add_documents(documents, doc_ids)
+            
+            # 直接调用 rebuild_index，它会自动清空并重建索引
+            await self.sparse_retriever.rebuild_index()
 
             return {
                 "success": True,
                 "message": "稀疏索引重建完成",
-                "indexed_count": len(documents)
+                "indexed_count": total
             }
         except Exception as exc:
             logger.error(f"重建稀疏索引失败: {exc}", exc_info=True)
@@ -1260,224 +1182,6 @@ class WebUIServer:
         except Exception as exc:
             logger.error(f"获取会话信息失败: {exc}", exc_info=True)
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取会话信息失败") from exc
-
-    # ========== 配置管理 API 实现 ==========
-    async def _get_recall_config(self) -> Dict[str, Any]:
-        """获取检索引擎配置"""
-        if not self.recall_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="检索引擎未初始化")
-
-        return {
-            "mode": self.recall_engine.config.get("mode", "hybrid"),
-            "top_k": self.recall_engine.config.get("top_k", 3),
-            "recall_strategy": self.recall_engine.config.get("recall_strategy", "similarity_first")
-        }
-
-    async def _update_recall_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """更新检索引擎配置"""
-        if not self.recall_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="检索引擎未初始化")
-
-        try:
-            if "mode" in payload:
-                mode = payload["mode"]
-                if mode not in ["dense", "sparse", "hybrid"]:
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的检索模式")
-                self.recall_engine.config["mode"] = mode
-
-            if "top_k" in payload:
-                try:
-                    top_k = int(payload["top_k"])
-                    if top_k < 1 or top_k > 50:
-                        raise ValueError
-                    self.recall_engine.config["top_k"] = top_k
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="top_k 必须在 1-50 之间")
-
-            if "recall_strategy" in payload:
-                self.recall_engine.config["recall_strategy"] = payload["recall_strategy"]
-
-            return {
-                "success": True,
-                "message": "检索配置已更新",
-                "config": await self._get_recall_config()
-            }
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error(f"更新检索配置失败: {exc}", exc_info=True)
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新配置失败") from exc
-
-    async def _get_fusion_config(self) -> Dict[str, Any]:
-        """获取融合策略配置"""
-        if not self.recall_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="检索引擎未初始化")
-
-        fusion_config = self.recall_engine.config.get("fusion", {})
-        return {
-            "strategy": fusion_config.get("strategy", "rrf"),
-            "k": fusion_config.get("k", 60),
-            "dense_weight": fusion_config.get("dense_weight", 0.7),
-            "lambda_param": fusion_config.get("lambda", 0.5)
-        }
-
-    async def _update_fusion_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """更新融合策略配置"""
-        if not self.recall_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="检索引擎未初始化")
-
-        try:
-            fusion_config = self.recall_engine.config.setdefault("fusion", {})
-
-            if "strategy" in payload:
-                strategy = payload["strategy"]
-                valid_strategies = ["rrf", "hybrid_rrf", "weighted", "convex", "interleave",
-                                  "rank_fusion", "score_fusion", "cascade", "adaptive"]
-                if strategy not in valid_strategies:
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="无效的融合策略")
-                fusion_config["strategy"] = strategy
-
-            if "k" in payload:
-                try:
-                    k = int(payload["k"])
-                    if k < 1:
-                        raise ValueError
-                    fusion_config["k"] = k
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="k 必须是正整数")
-
-            if "dense_weight" in payload:
-                try:
-                    weight = float(payload["dense_weight"])
-                    if weight < 0 or weight > 1:
-                        raise ValueError
-                    fusion_config["dense_weight"] = weight
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="dense_weight 必须在 0-1 之间")
-
-            if "lambda_param" in payload:
-                try:
-                    lambda_val = float(payload["lambda_param"])
-                    if lambda_val < 0 or lambda_val > 1:
-                        raise ValueError
-                    fusion_config["lambda"] = lambda_val
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="lambda 必须在 0-1 之间")
-
-            return {
-                "success": True,
-                "message": "融合策略配置已更新",
-                "config": await self._get_fusion_config()
-            }
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error(f"更新融合配置失败: {exc}", exc_info=True)
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新配置失败") from exc
-
-    async def _get_reflection_config(self) -> Dict[str, Any]:
-        """获取反思引擎配置"""
-        if not self.reflection_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="反思引擎未初始化")
-
-        return {
-            "summary_trigger_rounds": self.reflection_engine.config.get("summary_trigger_rounds", 10),
-            "importance_threshold": self.reflection_engine.config.get("importance_threshold", 5.0)
-        }
-
-    async def _update_reflection_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """更新反思引擎配置"""
-        if not self.reflection_engine:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="反思引擎未初始化")
-
-        try:
-            if "summary_trigger_rounds" in payload:
-                try:
-                    rounds = int(payload["summary_trigger_rounds"])
-                    if rounds < 1:
-                        raise ValueError
-                    self.reflection_engine.config["summary_trigger_rounds"] = rounds
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="触发轮次必须是正整数")
-
-            if "importance_threshold" in payload:
-                try:
-                    threshold = float(payload["importance_threshold"])
-                    if threshold < 0 or threshold > 10:
-                        raise ValueError
-                    self.reflection_engine.config["importance_threshold"] = threshold
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="重要性阈值必须在 0-10 之间")
-
-            return {
-                "success": True,
-                "message": "反思引擎配置已更新",
-                "config": await self._get_reflection_config()
-            }
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error(f"更新反思配置失败: {exc}", exc_info=True)
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新配置失败") from exc
-
-    async def _get_forgetting_config(self) -> Dict[str, Any]:
-        """获取遗忘代理配置"""
-        if not self.forgetting_agent:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="遗忘代理未初始化")
-
-        return {
-            "enabled": self.forgetting_agent.config.get("enabled", True),
-            "check_interval_hours": self.forgetting_agent.config.get("check_interval_hours", 24),
-            "retention_days": self.forgetting_agent.config.get("retention_days", 30),
-            "min_importance_threshold": self.forgetting_agent.config.get("min_importance_threshold", 3.0)
-        }
-
-    async def _update_forgetting_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """更新遗忘代理配置"""
-        if not self.forgetting_agent:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="遗忘代理未初始化")
-
-        try:
-            if "enabled" in payload:
-                self.forgetting_agent.config["enabled"] = bool(payload["enabled"])
-
-            if "check_interval_hours" in payload:
-                try:
-                    hours = float(payload["check_interval_hours"])
-                    if hours < 1:
-                        raise ValueError
-                    self.forgetting_agent.config["check_interval_hours"] = hours
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="检查间隔必须大于1小时")
-
-            if "retention_days" in payload:
-                try:
-                    days = int(payload["retention_days"])
-                    if days < 1:
-                        raise ValueError
-                    self.forgetting_agent.config["retention_days"] = days
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="保留天数必须是正整数")
-
-            if "min_importance_threshold" in payload:
-                try:
-                    threshold = float(payload["min_importance_threshold"])
-                    if threshold < 0 or threshold > 10:
-                        raise ValueError
-                    self.forgetting_agent.config["min_importance_threshold"] = threshold
-                except (ValueError, TypeError):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="最小重要性阈值必须在 0-10 之间")
-
-            return {
-                "success": True,
-                "message": "遗忘代理配置已更新",
-                "config": await self._get_forgetting_config()
-            }
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error(f"更新遗忘配置失败: {exc}", exc_info=True)
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新配置失败") from exc
 
     # ========== 调试工具 API 实现 ==========
     async def _test_search(self, payload: Dict[str, Any]) -> Dict[str, Any]:

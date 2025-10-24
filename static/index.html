@@ -44,7 +44,6 @@
         <nav class="tabs-nav">
           <button class="tab-btn active" data-tab="memories">记忆管理</button>
           <button class="tab-btn" data-tab="system">系统管理</button>
-          <button class="tab-btn" data-tab="config">配置中心</button>
           <button class="tab-btn" data-tab="debug">调试工具</button>
         </nav>
 
@@ -185,101 +184,6 @@
                 </div>
                 <div id="sessions-list"></div>
               </div>
-            </section>
-          </div>
-
-          <!-- 配置中心标签页 -->
-          <div class="tab-content" data-tab="config">
-            <section class="card">
-              <h2 class="card-title">检索引擎配置</h2>
-              <div class="form-group">
-                <label for="config-mode">检索模式</label>
-                <select id="config-mode">
-                  <option value="dense">Dense (密集检索)</option>
-                  <option value="sparse">Sparse (稀疏检索)</option>
-                  <option value="hybrid">Hybrid (混合检索)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="config-top-k">Top-K (返回结果数)</label>
-                <input type="number" id="config-top-k" min="1" max="50" value="3" />
-              </div>
-              <div class="form-group">
-                <label for="config-recall-strategy">召回策略</label>
-                <input type="text" id="config-recall-strategy" placeholder="如: similarity_first" />
-              </div>
-              <button id="save-recall-config" class="primary">保存检索配置</button>
-              <div id="recall-config-result" class="result-box hidden"></div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">融合策略配置</h2>
-              <div class="form-group">
-                <label for="config-fusion-strategy">融合策略</label>
-                <select id="config-fusion-strategy">
-                  <option value="rrf">RRF (Reciprocal Rank Fusion)</option>
-                  <option value="hybrid_rrf">Hybrid RRF</option>
-                  <option value="weighted">Weighted (加权)</option>
-                  <option value="convex">Convex (凸组合)</option>
-                  <option value="interleave">Interleave (交替)</option>
-                  <option value="rank_fusion">Rank Fusion</option>
-                  <option value="score_fusion">Score Fusion</option>
-                  <option value="cascade">Cascade (级联)</option>
-                  <option value="adaptive">Adaptive (自适应)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="config-fusion-k">RRF K 参数</label>
-                <input type="number" id="config-fusion-k" min="1" value="60" />
-              </div>
-              <div class="form-group">
-                <label for="config-dense-weight">Dense 权重 (0-1)</label>
-                <input type="number" id="config-dense-weight" min="0" max="1" step="0.1" value="0.7" />
-              </div>
-              <div class="form-group">
-                <label for="config-lambda">Lambda 参数 (0-1)</label>
-                <input type="number" id="config-lambda" min="0" max="1" step="0.1" value="0.5" />
-              </div>
-              <button id="save-fusion-config" class="primary">保存融合配置</button>
-              <div id="fusion-config-result" class="result-box hidden"></div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">反思引擎配置</h2>
-              <div class="form-group">
-                <label for="config-trigger-rounds">触发轮次</label>
-                <input type="number" id="config-trigger-rounds" min="1" value="10" />
-              </div>
-              <div class="form-group">
-                <label for="config-importance-threshold">重要性阈值 (0-10)</label>
-                <input type="number" id="config-importance-threshold" min="0" max="10" step="0.1" value="5.0" />
-              </div>
-              <button id="save-reflection-config" class="primary">保存反思配置</button>
-              <div id="reflection-config-result" class="result-box hidden"></div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">遗忘代理配置</h2>
-              <div class="form-group">
-                <label class="checkbox">
-                  <input type="checkbox" id="config-forgetting-enabled" checked />
-                  <span>启用遗忘代理</span>
-                </label>
-              </div>
-              <div class="form-group">
-                <label for="config-check-interval">检查间隔 (小时)</label>
-                <input type="number" id="config-check-interval" min="1" value="24" />
-              </div>
-              <div class="form-group">
-                <label for="config-retention-days">保留天数</label>
-                <input type="number" id="config-retention-days" min="1" value="30" />
-              </div>
-              <div class="form-group">
-                <label for="config-min-importance">最小重要性阈值 (0-10)</label>
-                <input type="number" id="config-min-importance" min="0" max="10" step="0.1" value="3.0" />
-              </div>
-              <button id="save-forgetting-config" class="primary">保存遗忘配置</button>
-              <div id="forgetting-config-result" class="result-box hidden"></div>
             </section>
           </div>
 

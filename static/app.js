@@ -116,16 +116,6 @@
     if (rebuildIndex) rebuildIndex.addEventListener("click", rebuildSparseIndex);
     if (loadSessions) loadSessions.addEventListener("click", loadSessionsInfo);
 
-    // 配置管理功能
-    const saveRecallConfig = document.getElementById("save-recall-config");
-    const saveFusionConfig = document.getElementById("save-fusion-config");
-    const saveReflectionConfig = document.getElementById("save-reflection-config");
-    const saveForgettingConfig = document.getElementById("save-forgetting-config");
-
-    if (saveRecallConfig) saveRecallConfig.addEventListener("click", saveRecallConfiguration);
-    if (saveFusionConfig) saveFusionConfig.addEventListener("click", saveFusionConfiguration);
-    if (saveReflectionConfig) saveReflectionConfig.addEventListener("click", saveReflectionConfiguration);
-    if (saveForgettingConfig) saveForgettingConfig.addEventListener("click", saveForgettingConfiguration);
 
     // 调试工具功能
     const runSearchTest = document.getElementById("run-search-test");
@@ -140,7 +130,6 @@
       switchView("dashboard");
       showToast("Session restored, loading data...");
       fetchAll();
-      loadConfigData(); // 加载配置数据
     } else {
       switchView("login");
     }
@@ -1052,11 +1041,9 @@
       resultBox.classList.add("success");
       resultBox.innerHTML = `
         <strong>执行成功!</strong><br>
-        删除记忆数: ${result.deleted_count}<br>
-        检查记忆数: ${result.checked_count}<br>
-        执行时间: ${result.execution_time?.toFixed(2)}秒
+        ${escapeHTML(result.message || "遗忘代理执行完成")}
       `;
-      showToast("遗忘代理执行完成");
+      showToast(result.message || "遗忘代理执行完成");
       fetchStats(); // 刷新统计
     } catch (error) {
       resultBox.classList.add("error");
@@ -1142,162 +1129,6 @@
       showToast("会话信息加载完成");
     } catch (error) {
       showToast(error.message || "加载失败", true);
-    }
-  }
-
-  // ============================================
-  // 配置管理功能
-  // ============================================
-
-  async function loadConfigData() {
-    try {
-      // 加载检索引擎配置
-      const recallConfig = await apiRequest("/api/config/recall-engine");
-      document.getElementById("config-mode").value = recallConfig.mode || "hybrid";
-      document.getElementById("config-top-k").value = recallConfig.top_k || 3;
-      document.getElementById("config-recall-strategy").value = recallConfig.recall_strategy || "";
-
-      // 加载融合策略配置
-      const fusionConfig = await apiRequest("/api/config/fusion-strategy");
-      document.getElementById("config-fusion-strategy").value = fusionConfig.strategy || "rrf";
-      document.getElementById("config-fusion-k").value = fusionConfig.k || 60;
-      document.getElementById("config-dense-weight").value = fusionConfig.dense_weight || 0.7;
-      document.getElementById("config-lambda").value = fusionConfig.lambda_param || 0.5;
-
-      // 加载反思引擎配置
-      const reflectionConfig = await apiRequest("/api/config/reflection-engine");
-      document.getElementById("config-trigger-rounds").value = reflectionConfig.summary_trigger_rounds || 10;
-      document.getElementById("config-importance-threshold").value = reflectionConfig.importance_threshold || 5.0;
-
-      // 加载遗忘代理配置
-      const forgettingConfig = await apiRequest("/api/config/forgetting-agent");
-      document.getElementById("config-forgetting-enabled").checked = forgettingConfig.enabled !== false;
-      document.getElementById("config-check-interval").value = forgettingConfig.check_interval_hours || 24;
-      document.getElementById("config-retention-days").value = forgettingConfig.retention_days || 30;
-      document.getElementById("config-min-importance").value = forgettingConfig.min_importance_threshold || 3.0;
-    } catch (error) {
-      console.error("加载配置失败:", error);
-    }
-  }
-
-  async function saveRecallConfiguration() {
-    const resultBox = document.getElementById("recall-config-result");
-    try {
-      document.getElementById("save-recall-config").disabled = true;
-
-      const config = {
-        mode: document.getElementById("config-mode").value,
-        top_k: parseInt(document.getElementById("config-top-k").value),
-        recall_strategy: document.getElementById("config-recall-strategy").value.trim() || undefined,
-      };
-
-      const result = await apiRequest("/api/config/recall-engine", {
-        method: "PUT",
-        body: config,
-      });
-
-      resultBox.classList.remove("hidden", "error");
-      resultBox.classList.add("success");
-      resultBox.textContent = result.message || "配置保存成功";
-      showToast("检索配置已更新");
-    } catch (error) {
-      resultBox.classList.remove("hidden", "success");
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "保存失败";
-      showToast(error.message || "保存失败", true);
-    } finally {
-      document.getElementById("save-recall-config").disabled = false;
-    }
-  }
-
-  async function saveFusionConfiguration() {
-    const resultBox = document.getElementById("fusion-config-result");
-    try {
-      document.getElementById("save-fusion-config").disabled = true;
-
-      const config = {
-        strategy: document.getElementById("config-fusion-strategy").value,
-        k: parseInt(document.getElementById("config-fusion-k").value),
-        dense_weight: parseFloat(document.getElementById("config-dense-weight").value),
-        lambda_param: parseFloat(document.getElementById("config-lambda").value),
-      };
-
-      const result = await apiRequest("/api/config/fusion-strategy", {
-        method: "PUT",
-        body: config,
-      });
-
-      resultBox.classList.remove("hidden", "error");
-      resultBox.classList.add("success");
-      resultBox.textContent = result.message || "配置保存成功";
-      showToast("融合策略配置已更新");
-    } catch (error) {
-      resultBox.classList.remove("hidden", "success");
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "保存失败";
-      showToast(error.message || "保存失败", true);
-    } finally {
-      document.getElementById("save-fusion-config").disabled = false;
-    }
-  }
-
-  async function saveReflectionConfiguration() {
-    const resultBox = document.getElementById("reflection-config-result");
-    try {
-      document.getElementById("save-reflection-config").disabled = true;
-
-      const config = {
-        summary_trigger_rounds: parseInt(document.getElementById("config-trigger-rounds").value),
-        importance_threshold: parseFloat(document.getElementById("config-importance-threshold").value),
-      };
-
-      const result = await apiRequest("/api/config/reflection-engine", {
-        method: "PUT",
-        body: config,
-      });
-
-      resultBox.classList.remove("hidden", "error");
-      resultBox.classList.add("success");
-      resultBox.textContent = result.message || "配置保存成功";
-      showToast("反思引擎配置已更新");
-    } catch (error) {
-      resultBox.classList.remove("hidden", "success");
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "保存失败";
-      showToast(error.message || "保存失败", true);
-    } finally {
-      document.getElementById("save-reflection-config").disabled = false;
-    }
-  }
-
-  async function saveForgettingConfiguration() {
-    const resultBox = document.getElementById("forgetting-config-result");
-    try {
-      document.getElementById("save-forgetting-config").disabled = true;
-
-      const config = {
-        enabled: document.getElementById("config-forgetting-enabled").checked,
-        check_interval_hours: parseFloat(document.getElementById("config-check-interval").value),
-        retention_days: parseInt(document.getElementById("config-retention-days").value),
-        min_importance_threshold: parseFloat(document.getElementById("config-min-importance").value),
-      };
-
-      const result = await apiRequest("/api/config/forgetting-agent", {
-        method: "PUT",
-        body: config,
-      });
-
-      resultBox.classList.remove("hidden", "error");
-      resultBox.classList.add("success");
-      resultBox.textContent = result.message || "配置保存成功";
-      showToast("遗忘代理配置已更新");
-    } catch (error) {
-      resultBox.classList.remove("hidden", "success");
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "保存失败";
-      showToast(error.message || "保存失败", true);
-    } finally {
-      document.getElementById("save-forgetting-config").disabled = false;
     }
   }
 
