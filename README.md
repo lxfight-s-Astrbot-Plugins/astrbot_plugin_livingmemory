@@ -1,14 +1,19 @@
-# LivingMemory - 动态生命周期记忆插件 v1.3.3
+# LivingMemory - 动态生命周期记忆插件 v1.4.0
 
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/状态-测...测不动了-warning?style=for-the-badge&logo=github" alt="测...测不动了" />
+<img src="https://img.shields.io/badge/状态-WebUI已完成-success?style=for-the-badge&logo=github" alt="WebUI已完成" />
 
 <details>
-<summary><strong>🧪 测...测不动了</strong></summary>
+<summary><strong>🎉 v1.4.0 新特性</strong></summary>
 
-> ⚠️ **需要测试验证**: 请在测试环境中验证所有新功能
+> ✨ **全新 WebUI 管理控制台**: 四标签页架构，提供完整的可视化管理界面
+>
+> - 📱 **记忆管理**: 浏览、搜索、编辑、批量操作
+> - 🛠️ **系统管理**: 遗忘代理、索引重建、会话监控
+> - ⚙️ **配置中心**: 实时调整所有引擎参数
+> - 🔧 **调试工具**: 检索测试、策略对比、统计分析
 
 </details>
 
@@ -127,11 +132,14 @@ jieba>=0.42.1
 
 </details>
 
-#### 🔐 WebUI 控制台
+### 🎨 WebUI 可视化管理控制台
 
-- **访问安全**：新增 `webui_settings.access_password` 入口密码校验，未通过验证无法进入面板。
-- **端口可配**：默认监听 `8080`，通过 `webui_settings.port` 自定义端口，支持只监听本地或外部地址。
-- **可视化功能**：登陆后即可查看全部记忆、按页浏览、筛选状态、批量勾选删除，并实时查看记忆与会话统计。
+**全新升级**：现代化的四标签页架构，提供完整的可视化管理界面！
+
+<details>
+<summary><strong>🌐 查看 WebUI 功能详情（点击展开）</strong></summary>
+
+#### 🔑 访问配置
 
 ```jsonc
 {
@@ -145,10 +153,67 @@ jieba>=0.42.1
 }
 ```
 
-> 启用 WebUI 时务必设置强密码，避免长期记忆泄露。配置生效后访问 `http://host:port` 即可使用白色现代风格的控制台。
+> ⚠️ **安全提示**：启用 WebUI 时务必设置强密码，避免长期记忆泄露。
+>
+> - **首次安装**：请先到 AstrBot 插件配置页填写 `access_password`
+> - **Docker 部署**：将 `host` 设为 `0.0.0.0` 以允许外部访问
+> - **访问地址**：`http://host:port`（默认 http://127.0.0.1:8080）
 
-- **首次安装或升级插件时**，请先到 AstrBot 插件配置页填写 `webui_settings.access_password`；未设置密码会导致 WebUI 无法启用。
-- 如果插件运行在 Docker / 容器环境，为方便外部访问可将 `webui_settings.host` 调整为 `0.0.0.0`，再配合映射的端口进行访问。
+#### 📱 四大功能模块
+
+##### 1️⃣ 记忆管理（Memory Management）
+- ✅ **记忆浏览**: 分页列表显示，支持状态筛选和关键词搜索
+- ✅ **记忆详情**: 查看完整的记忆元数据和 JSON 原始数据
+- ✅ **记忆编辑**: 可视化编辑记忆内容、重要性、类型、状态
+- ✅ **批量操作**: 多选删除、批量归档
+- ✅ **统计看板**: 实时显示总记忆数、活跃/归档/删除状态分布、活跃会话数
+- ✅ **核爆清除**: 一键清空所有记忆（带倒计时确认和视觉特效）
+
+##### 2️⃣ 系统管理（System Management）
+- 🗑️ **遗忘代理**: 手动触发遗忘任务，查看执行结果（删除数、检查数、耗时）
+- 🔨 **索引管理**: 重建 BM25 稀疏索引，显示索引文档数
+- 👥 **会话管理**: 查看活跃会话列表（会话ID、轮次、历史长度、最后访问时间）
+
+##### 3️⃣ 配置中心（Configuration）
+所有配置均可在 WebUI 中实时修改，无需重启插件：
+
+- 🔍 **检索引擎配置**
+  - 检索模式：Dense / Sparse / Hybrid
+  - Top-K：返回结果数（1-50）
+  - 召回策略：自定义召回算法
+
+- 🎯 **融合策略配置**
+  - 策略选择：9种融合策略下拉选择
+  - 参数调整：RRF K参数、Dense权重、Lambda参数
+  - 实时生效
+
+- 🧠 **反思引擎配置**
+  - 触发轮次：对话多少轮后触发反思
+  - 重要性阈值：记忆保存的最低重要性
+
+- ⏰ **遗忘代理配置**
+  - 启用/禁用开关
+  - 检查间隔（小时）
+  - 保留天数
+  - 最小重要性阈值
+
+##### 4️⃣ 调试工具（Debug Tools）
+- 🧪 **检索测试**: 测试三种检索模式的效果，对比耗时和结果
+- 📊 **融合策略对比**: 同一查询使用多种策略，查看性能差异
+- 📈 **记忆统计分析**:
+  - 重要性分布（0-3, 3-5, 5-7, 7-10）
+  - 类型分布（FACT, EVENT, PREFERENCE等）
+  - 状态分布（active, archived, deleted）
+  - 平均重要性
+
+
+#### 🚀 快速开始
+1. 在配置文件中启用 WebUI 并设置密码
+2. 重启插件或等待 WebUI 自动启动
+3. 浏览器访问 `http://127.0.0.1:8080`
+4. 输入密码登录，开始管理您的记忆库！
+
+</details>
 
 ### 3. 高级配置示例
 
@@ -171,80 +236,79 @@ recall_engine:
   recency_weight: 0.2      # 新近度权重
 ```
 
-## 🛠️ 完整管理命令
+## 🛠️ 命令参考
 
 <details>
-<summary><strong>⚡ 查看所有管理命令（点击展开）</strong></summary>
+<summary><strong>⚡ 查看所有命令（点击展开）</strong></summary>
 
-插件在后台自动运行，同时提供了强大的命令行管理界面：
+插件在后台自动运行，提供精简的命令行接口和完整的 WebUI 管理界面：
 
-### 📊 基础管理
+### 📊 核心命令（推荐使用）
 | 命令 | 参数 | 描述 |
 | :--- | :--- | :--- |
 | `/lmem status` | - | 📈 查看记忆库状态和统计信息 |
 | `/lmem search` | `<query> [k=3]` | 🔍 手动搜索记忆，支持详细信息展示 |
-| `/lmem forget` | `<memory_id>` | 🗑️ 删除指定ID的记忆 |
+| `/lmem forget` | `<memory_id>` | 🗑️ 快速删除指定ID的记忆 |
+| `/lmem webui` | - | 🌐 显示 WebUI 访问信息和状态 |
+| `/lmem help` | - | ❓ 显示帮助信息和 WebUI 引导 |
 
-### 🧠 引擎管理
+### 🎯 高级功能（建议使用 WebUI）
+以下功能推荐在 WebUI 中使用，提供更好的可视化体验：
+
+**记忆管理** → WebUI "记忆管理" 标签页
+- ✏️ 编辑记忆内容、重要性、类型、状态
+- 📝 查看记忆详情和更新历史
+- 📦 批量删除和归档操作
+
+**系统管理** → WebUI "系统管理" 标签页
+- 🔄 触发遗忘代理清理任务
+- 🏗️ 重建稀疏检索索引
+- 👥 查看活跃会话列表
+
+**配置调整** → WebUI "配置中心" 标签页
+- 🔍 切换检索模式（Dense/Sparse/Hybrid）
+- 🎯 调整融合策略和参数
+- 🧠 配置反思引擎和遗忘代理
+
+**调试测试** → WebUI "调试工具" 标签页
+- 🧪 测试不同检索模式的效果
+- 📊 对比多种融合策略性能
+- 📈 分析记忆统计分布
+
+### ⚙️ 命令行管理（高级用户）
+如果您更喜欢命令行，以下命令仍然可用：
+
 | 命令 | 参数 | 描述 |
 | :--- | :--- | :--- |
-| `/lmem run_forgetting_agent` | - | 🔄 手动触发遗忘代理清理任务 |
-| `/lmem sparse_rebuild` | - | 🏗️ 重建稀疏检索索引 |
-| `/lmem sparse_test` | `<query> [k=5]` | ⚡ 测试稀疏检索功能 |
+| `/lmem edit` | `<id> <field> <value> [reason]` | ✏️ 编辑记忆字段 |
+| `/lmem run_forgetting_agent` | - | 🔄 手动触发遗忘代理 |
+| `/lmem sparse_rebuild` | - | 🏗️ 重建稀疏索引 |
+| `/lmem sparse_test` | `<query> [k=5]` | ⚡ 测试稀疏检索 |
+| `/lmem config` | `[show\|validate]` | 📋 显示或验证配置 |
+| `/lmem search_mode` | `<mode>` | 🔄 切换检索模式 |
+| `/lmem fusion` | `[strategy] [param=value]` | 🎯 管理融合策略 |
+| `/lmem test_fusion` | `<query> [k=5]` | 🧪 测试融合策略 |
 
-### ⚙️ 配置管理
-| 命令 | 参数 | 描述 |
-| :--- | :--- | :--- |
-| `/lmem config` | `[show\|validate]` | 📋 显示或验证当前配置 |
-| `/lmem search_mode` | `<hybrid\|dense\|sparse>` | 🔄 切换检索模式 |
-
-### 🔄 融合策略管理
-| 命令 | 参数 | 描述 |
-| :--- | :--- | :--- |
-| `/lmem fusion` | `[strategy] [param=value]` | 🎯 管理融合策略和参数 |
-| `/lmem test_fusion` | `<query> [k=5]` | 🧪 测试当前融合策略效果 |
-
-### 📝 记忆编辑 *(新增)*
-| 命令 | 参数 | 描述 |
-| :--- | :--- | :--- |
-| `/lmem edit` | `<id> <field> <value> [reason]` | ✏️ 精确编辑记忆内容或元数据 |
-| `/lmem update` | `<id>` | 📝 交互式记忆编辑引导 |
-| `/lmem history` | `<id>` | 📚 查看记忆的完整更新历史 |
-
-#### 编辑示例
+#### 命令示例
 ```bash
-# 编辑记忆内容
-/lmem edit 123 content 这是新的记忆内容 修正错误信息
+# 快速搜索
+/lmem search "用户的兴趣爱好" 5
 
-# 调整重要性评分
+# 编辑记忆
+/lmem edit 123 content 这是新的记忆内容 修正错误信息
 /lmem edit 123 importance 0.9 提高重要性
 
-# 更改记忆类型
-/lmem edit 123 type PREFERENCE 重新分类为偏好
+# 切换检索模式
+/lmem search_mode hybrid
 
-# 归档记忆
-/lmem edit 123 status archived 项目已完成
+# 调整融合策略
+/lmem fusion hybrid_rrf
+/lmem fusion weighted dense_weight=0.8
 ```
+
+> 💡 **提示**：大多数操作在 WebUI 中更直观和易用，建议优先使用 WebUI 界面！
 
 </details>
-
-#### 融合策略示例  
-```bash  
-# 查看当前融合配置
-/lmem fusion show
-
-# 切换到自适应RRF
-/lmem fusion hybrid_rrf
-
-# 调整凸组合参数
-/lmem fusion convex convex_lambda=0.6
-
-# 调整加权融合权重
-/lmem fusion weighted dense_weight=0.8
-
-# 测试融合效果
-/lmem test_fusion "用户的兴趣爱好" 5
-```
 
 ## 🎯 性能优化与最佳实践
 
