@@ -1,4 +1,4 @@
-# LivingMemory - 动态生命周期记忆插件 v1.3.0
+# LivingMemory - 动态生命周期记忆插件 v1.3.3
 
 
 <div align="center">

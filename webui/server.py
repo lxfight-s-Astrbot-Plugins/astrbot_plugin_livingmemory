@@ -79,7 +79,7 @@ class WebUIServer:
         self._pending_nuke: Optional[Dict[str, Any]] = None
         self._nuke_lock = asyncio.Lock()
 
-        self._app = FastAPI(title="LivingMemory 控制台", version="1.3.0")
+        self._app = FastAPI(title="LivingMemory 控制台", version="1.3.3")
         self._setup_routes()
 
     # ------------------------------------------------------------------

@@ -31,6 +31,8 @@ body {
   color: var(--text);
   background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 45%, #f1f5f9 100%);
   -webkit-font-smoothing: antialiased;
+
+  overflow-x: hidden;
 }
 
 a {
@@ -314,8 +316,14 @@ button.danger-outline:hover:not(:disabled) {
 
 .table-card {
   padding: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
+
+.table-card table {
+  min-width: 720px;
+}
+
 
 table {
   width: 100%;
@@ -334,6 +342,8 @@ td {
   text-align: left;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 tbody tr:hover {
@@ -1126,3 +1136,9 @@ tbody tr.selected {
   }
 }
 
+
+@media (max-width: 480px) {
+  input, select, button {
+    font-size: 16px;
+  }
+}
