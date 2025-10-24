@@ -18,6 +18,8 @@
       secondsLeft: 0,
       timer: null,
     },
+    currentTab: "memories",
+    currentMemoryItem: null, // 用于记忆编辑
   };
 
   const dom = {
@@ -86,10 +88,59 @@
       }
     });
 
+    // 标签页切换
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+
+    // 记忆编辑功能
+    const editBtn = document.getElementById("edit-memory-btn");
+    const editModal = document.getElementById("edit-modal");
+    const modalClose = document.getElementById("modal-close");
+    const cancelEdit = document.getElementById("cancel-edit");
+    const saveEdit = document.getElementById("save-edit");
+    const editField = document.getElementById("edit-field");
+
+    if (editBtn) editBtn.addEventListener("click", openEditModal);
+    if (modalClose) modalClose.addEventListener("click", closeEditModal);
+    if (cancelEdit) cancelEdit.addEventListener("click", closeEditModal);
+    if (saveEdit) saveEdit.addEventListener("click", saveMemoryEdit);
+    if (editField) editField.addEventListener("change", onEditFieldChange);
+
+    // 系统管理功能
+    const triggerForgetting = document.getElementById("trigger-forgetting");
+    const rebuildIndex = document.getElementById("rebuild-index");
+    const loadSessions = document.getElementById("load-sessions");
+
+    if (triggerForgetting) triggerForgetting.addEventListener("click", triggerForgettingAgent);
+    if (rebuildIndex) rebuildIndex.addEventListener("click", rebuildSparseIndex);
+    if (loadSessions) loadSessions.addEventListener("click", loadSessionsInfo);
+
+    // 配置管理功能
+    const saveRecallConfig = document.getElementById("save-recall-config");
+    const saveFusionConfig = document.getElementById("save-fusion-config");
+    const saveReflectionConfig = document.getElementById("save-reflection-config");
+    const saveForgettingConfig = document.getElementById("save-forgetting-config");
+
+    if (saveRecallConfig) saveRecallConfig.addEventListener("click", saveRecallConfiguration);
+    if (saveFusionConfig) saveFusionConfig.addEventListener("click", saveFusionConfiguration);
+    if (saveReflectionConfig) saveReflectionConfig.addEventListener("click", saveReflectionConfiguration);
+    if (saveForgettingConfig) saveForgettingConfig.addEventListener("click", saveForgettingConfiguration);
+
+    // 调试工具功能
+    const runSearchTest = document.getElementById("run-search-test");
+    const runFusionCompare = document.getElementById("run-fusion-compare");
+    const runMemoryAnalysis = document.getElementById("run-memory-analysis");
+
+    if (runSearchTest) runSearchTest.addEventListener("click", runSearchTestFunc);
+    if (runFusionCompare) runFusionCompare.addEventListener("click", runFusionCompareFunc);
+    if (runMemoryAnalysis) runMemoryAnalysis.addEventListener("click", runMemoryAnalysisFunc);
+
     if (state.token) {
       switchView("dashboard");
       showToast("Session restored, loading data...");
       fetchAll();
+      loadConfigData(); // 加载配置数据
     } else {
       switchView("login");
     }
@@ -839,6 +890,561 @@
 
     if (dom.nukeBanner) {
       dom.nukeBanner.classList.remove("critical");
+    }
+  }
+
+  // ============================================
+  // 标签页切换功能
+  // ============================================
+
+  function switchTab(tabName) {
+    state.currentTab = tabName;
+
+    // 更新标签按钮状态
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      if (btn.dataset.tab === tabName) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+
+    // 更新标签页内容
+    document.querySelectorAll(".tab-content").forEach((content) => {
+      if (content.dataset.tab === tabName) {
+        content.classList.add("active");
+      } else {
+        content.classList.remove("active");
+      }
+    });
+  }
+
+  // ============================================
+  // 记忆编辑功能
+  // ============================================
+
+  function openEditModal() {
+    if (!state.currentMemoryItem) {
+      showToast("未找到当前记忆信息", true);
+      return;
+    }
+
+    const modal = document.getElementById("edit-modal");
+    modal.classList.remove("hidden");
+
+    // 设置默认值
+    const item = state.currentMemoryItem;
+    document.getElementById("edit-value-content").value = item.summary || "";
+    document.getElementById("edit-value-importance").value = item.importance || 5;
+    document.getElementById("edit-value-type").value = item.memory_type || "";
+    document.getElementById("edit-value-status").value = item.status || "active";
+    document.getElementById("edit-reason").value = "";
+
+    // 显示内容字段
+    onEditFieldChange();
+  }
+
+  function closeEditModal() {
+    const modal = document.getElementById("edit-modal");
+    modal.classList.add("hidden");
+  }
+
+  function onEditFieldChange() {
+    const field = document.getElementById("edit-field").value;
+
+    // 隐藏所有字段组
+    document.getElementById("edit-content-group").classList.add("hidden");
+    document.getElementById("edit-importance-group").classList.add("hidden");
+    document.getElementById("edit-type-group").classList.add("hidden");
+    document.getElementById("edit-status-group").classList.add("hidden");
+
+    // 显示选中的字段组
+    if (field === "content") {
+      document.getElementById("edit-content-group").classList.remove("hidden");
+    } else if (field === "importance") {
+      document.getElementById("edit-importance-group").classList.remove("hidden");
+    } else if (field === "type") {
+      document.getElementById("edit-type-group").classList.remove("hidden");
+    } else if (field === "status") {
+      document.getElementById("edit-status-group").classList.remove("hidden");
+    }
+  }
+
+  async function saveMemoryEdit() {
+    if (!state.currentMemoryItem) {
+      showToast("未找到当前记忆信息", true);
+      return;
+    }
+
+    const field = document.getElementById("edit-field").value;
+    let value;
+
+    if (field === "content") {
+      value = document.getElementById("edit-value-content").value.trim();
+    } else if (field === "importance") {
+      value = document.getElementById("edit-value-importance").value;
+    } else if (field === "type") {
+      value = document.getElementById("edit-value-type").value.trim();
+    } else if (field === "status") {
+      value = document.getElementById("edit-value-status").value;
+    }
+
+    if (!value) {
+      showToast("请输入新值", true);
+      return;
+    }
+
+    const reason = document.getElementById("edit-reason").value.trim();
+    const memoryId = state.currentMemoryItem.memory_id || state.currentMemoryItem.doc_id;
+
+    try {
+      document.getElementById("save-edit").disabled = true;
+      const result = await apiRequest(`/api/memories/${memoryId}`, {
+        method: "PUT",
+        body: { field, value, reason },
+      });
+
+      showToast(result.message || "更新成功");
+      closeEditModal();
+      closeDetailDrawer();
+      fetchMemories(); // 刷新列表
+    } catch (error) {
+      showToast(error.message || "更新失败", true);
+    } finally {
+      document.getElementById("save-edit").disabled = false;
+    }
+  }
+
+  function openDetailDrawer(item) {
+    state.currentMemoryItem = item; // 保存当前项
+    dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
+    dom.detail.source.textContent =
+      item.source === "storage" ? "自定义存储" : "向量存储";
+    dom.detail.status.textContent = item.status || "--";
+    dom.detail.importance.textContent =
+      item.importance !== undefined && item.importance !== null
+        ? Number(item.importance).toFixed(2)
+        : "--";
+    dom.detail.type.textContent = item.memory_type || "--";
+    dom.detail.created.textContent = item.created_at || "--";
+    dom.detail.access.textContent = item.last_access || "--";
+    dom.detail.json.textContent = item.raw_json || JSON.stringify(item.raw, null, 2);
+    dom.drawer.classList.remove("hidden");
+  }
+
+  // ============================================
+  // 系统管理功能
+  // ============================================
+
+  async function triggerForgettingAgent() {
+    const btn = document.getElementById("trigger-forgetting");
+    const resultBox = document.getElementById("forgetting-result");
+
+    try {
+      btn.disabled = true;
+      resultBox.classList.remove("hidden", "success", "error");
+      resultBox.textContent = "正在运行遗忘代理...";
+
+      const result = await apiRequest("/api/admin/forgetting-agent/trigger", {
+        method: "POST",
+      });
+
+      resultBox.classList.add("success");
+      resultBox.innerHTML = `
+        <strong>执行成功!</strong><br>
+        删除记忆数: ${result.deleted_count}<br>
+        检查记忆数: ${result.checked_count}<br>
+        执行时间: ${result.execution_time?.toFixed(2)}秒
+      `;
+      showToast("遗忘代理执行完成");
+      fetchStats(); // 刷新统计
+    } catch (error) {
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "执行失败";
+      showToast(error.message || "执行失败", true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function rebuildSparseIndex() {
+    const btn = document.getElementById("rebuild-index");
+    const resultBox = document.getElementById("rebuild-result");
+
+    try {
+      btn.disabled = true;
+      resultBox.classList.remove("hidden", "success", "error");
+      resultBox.textContent = "正在重建索引...";
+
+      const result = await apiRequest("/api/admin/sparse-index/rebuild", {
+        method: "POST",
+      });
+
+      resultBox.classList.add("success");
+      resultBox.innerHTML = `
+        <strong>重建成功!</strong><br>
+        索引文档数: ${result.indexed_count}
+      `;
+      showToast("稀疏索引重建完成");
+    } catch (error) {
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "重建失败";
+      showToast(error.message || "重建失败", true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function loadSessionsInfo() {
+    const infoBox = document.getElementById("sessions-info");
+    const listBox = document.getElementById("sessions-list");
+
+    try {
+      const result = await apiRequest("/api/admin/sessions");
+
+      infoBox.classList.remove("hidden");
+      document.getElementById("total-sessions").textContent = result.total_sessions;
+      document.getElementById("max-sessions").textContent = result.max_sessions;
+      document.getElementById("session-ttl").textContent = result.session_ttl;
+
+      if (result.sessions && result.sessions.length > 0) {
+        const html = `
+          <table style="width: 100%; margin-top: 16px; border-collapse: collapse;">
+            <thead>
+              <tr style="background: var(--surface-alt); text-align: left;">
+                <th style="padding: 8px; border: 1px solid var(--border);">会话 ID</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">轮次</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">历史长度</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">最后访问</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${result.sessions
+                .map(
+                  (s) => `
+                <tr>
+                  <td style="padding: 8px; border: 1px solid var(--border); font-family: monospace;">${escapeHTML(s.session_id)}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${s.round_count}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${s.history_size}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.last_access || "--")}</td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        `;
+        listBox.innerHTML = html;
+      } else {
+        listBox.innerHTML = "<p>暂无活跃会话</p>";
+      }
+
+      showToast("会话信息加载完成");
+    } catch (error) {
+      showToast(error.message || "加载失败", true);
+    }
+  }
+
+  // ============================================
+  // 配置管理功能
+  // ============================================
+
+  async function loadConfigData() {
+    try {
+      // 加载检索引擎配置
+      const recallConfig = await apiRequest("/api/config/recall-engine");
+      document.getElementById("config-mode").value = recallConfig.mode || "hybrid";
+      document.getElementById("config-top-k").value = recallConfig.top_k || 3;
+      document.getElementById("config-recall-strategy").value = recallConfig.recall_strategy || "";
+
+      // 加载融合策略配置
+      const fusionConfig = await apiRequest("/api/config/fusion-strategy");
+      document.getElementById("config-fusion-strategy").value = fusionConfig.strategy || "rrf";
+      document.getElementById("config-fusion-k").value = fusionConfig.k || 60;
+      document.getElementById("config-dense-weight").value = fusionConfig.dense_weight || 0.7;
+      document.getElementById("config-lambda").value = fusionConfig.lambda_param || 0.5;
+
+      // 加载反思引擎配置
+      const reflectionConfig = await apiRequest("/api/config/reflection-engine");
+      document.getElementById("config-trigger-rounds").value = reflectionConfig.summary_trigger_rounds || 10;
+      document.getElementById("config-importance-threshold").value = reflectionConfig.importance_threshold || 5.0;
+
+      // 加载遗忘代理配置
+      const forgettingConfig = await apiRequest("/api/config/forgetting-agent");
+      document.getElementById("config-forgetting-enabled").checked = forgettingConfig.enabled !== false;
+      document.getElementById("config-check-interval").value = forgettingConfig.check_interval_hours || 24;
+      document.getElementById("config-retention-days").value = forgettingConfig.retention_days || 30;
+      document.getElementById("config-min-importance").value = forgettingConfig.min_importance_threshold || 3.0;
+    } catch (error) {
+      console.error("加载配置失败:", error);
+    }
+  }
+
+  async function saveRecallConfiguration() {
+    const resultBox = document.getElementById("recall-config-result");
+    try {
+      document.getElementById("save-recall-config").disabled = true;
+
+      const config = {
+        mode: document.getElementById("config-mode").value,
+        top_k: parseInt(document.getElementById("config-top-k").value),
+        recall_strategy: document.getElementById("config-recall-strategy").value.trim() || undefined,
+      };
+
+      const result = await apiRequest("/api/config/recall-engine", {
+        method: "PUT",
+        body: config,
+      });
+
+      resultBox.classList.remove("hidden", "error");
+      resultBox.classList.add("success");
+      resultBox.textContent = result.message || "配置保存成功";
+      showToast("检索配置已更新");
+    } catch (error) {
+      resultBox.classList.remove("hidden", "success");
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "保存失败";
+      showToast(error.message || "保存失败", true);
+    } finally {
+      document.getElementById("save-recall-config").disabled = false;
+    }
+  }
+
+  async function saveFusionConfiguration() {
+    const resultBox = document.getElementById("fusion-config-result");
+    try {
+      document.getElementById("save-fusion-config").disabled = true;
+
+      const config = {
+        strategy: document.getElementById("config-fusion-strategy").value,
+        k: parseInt(document.getElementById("config-fusion-k").value),
+        dense_weight: parseFloat(document.getElementById("config-dense-weight").value),
+        lambda_param: parseFloat(document.getElementById("config-lambda").value),
+      };
+
+      const result = await apiRequest("/api/config/fusion-strategy", {
+        method: "PUT",
+        body: config,
+      });
+
+      resultBox.classList.remove("hidden", "error");
+      resultBox.classList.add("success");
+      resultBox.textContent = result.message || "配置保存成功";
+      showToast("融合策略配置已更新");
+    } catch (error) {
+      resultBox.classList.remove("hidden", "success");
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "保存失败";
+      showToast(error.message || "保存失败", true);
+    } finally {
+      document.getElementById("save-fusion-config").disabled = false;
+    }
+  }
+
+  async function saveReflectionConfiguration() {
+    const resultBox = document.getElementById("reflection-config-result");
+    try {
+      document.getElementById("save-reflection-config").disabled = true;
+
+      const config = {
+        summary_trigger_rounds: parseInt(document.getElementById("config-trigger-rounds").value),
+        importance_threshold: parseFloat(document.getElementById("config-importance-threshold").value),
+      };
+
+      const result = await apiRequest("/api/config/reflection-engine", {
+        method: "PUT",
+        body: config,
+      });
+
+      resultBox.classList.remove("hidden", "error");
+      resultBox.classList.add("success");
+      resultBox.textContent = result.message || "配置保存成功";
+      showToast("反思引擎配置已更新");
+    } catch (error) {
+      resultBox.classList.remove("hidden", "success");
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "保存失败";
+      showToast(error.message || "保存失败", true);
+    } finally {
+      document.getElementById("save-reflection-config").disabled = false;
+    }
+  }
+
+  async function saveForgettingConfiguration() {
+    const resultBox = document.getElementById("forgetting-config-result");
+    try {
+      document.getElementById("save-forgetting-config").disabled = true;
+
+      const config = {
+        enabled: document.getElementById("config-forgetting-enabled").checked,
+        check_interval_hours: parseFloat(document.getElementById("config-check-interval").value),
+        retention_days: parseInt(document.getElementById("config-retention-days").value),
+        min_importance_threshold: parseFloat(document.getElementById("config-min-importance").value),
+      };
+
+      const result = await apiRequest("/api/config/forgetting-agent", {
+        method: "PUT",
+        body: config,
+      });
+
+      resultBox.classList.remove("hidden", "error");
+      resultBox.classList.add("success");
+      resultBox.textContent = result.message || "配置保存成功";
+      showToast("遗忘代理配置已更新");
+    } catch (error) {
+      resultBox.classList.remove("hidden", "success");
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "保存失败";
+      showToast(error.message || "保存失败", true);
+    } finally {
+      document.getElementById("save-forgetting-config").disabled = false;
+    }
+  }
+
+  // ============================================
+  // 调试工具功能
+  // ============================================
+
+  async function runSearchTestFunc() {
+    const resultBox = document.getElementById("search-test-result");
+    const query = document.getElementById("debug-query").value.trim();
+
+    if (!query) {
+      showToast("请输入查询内容", true);
+      return;
+    }
+
+    try {
+      document.getElementById("run-search-test").disabled = true;
+      resultBox.classList.remove("hidden", "success", "error");
+      resultBox.textContent = "正在测试...";
+
+      const payload = {
+        query,
+        mode: document.getElementById("debug-mode").value,
+        top_k: parseInt(document.getElementById("debug-top-k").value),
+      };
+
+      const result = await apiRequest("/api/debug/search-test", {
+        method: "POST",
+        body: payload,
+      });
+
+      resultBox.classList.add("success");
+      let html = `
+        <strong>测试完成</strong><br>
+        查询: ${escapeHTML(result.query)}<br>
+        模式: ${result.mode}<br>
+        耗时: ${result.elapsed_time}秒<br>
+        结果数: ${result.result_count}<br><br>
+        <strong>检索结果:</strong>
+      `;
+
+      if (result.results && result.results.length > 0) {
+        html += "<pre>" + JSON.stringify(result.results, null, 2) + "</pre>";
+      } else {
+        html += "<p>无结果</p>";
+      }
+
+      resultBox.innerHTML = html;
+      showToast("检索测试完成");
+    } catch (error) {
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "测试失败";
+      showToast(error.message || "测试失败", true);
+    } finally {
+      document.getElementById("run-search-test").disabled = false;
+    }
+  }
+
+  async function runFusionCompareFunc() {
+    const resultBox = document.getElementById("fusion-compare-result");
+    const query = document.getElementById("fusion-compare-query").value.trim();
+
+    if (!query) {
+      showToast("请输入查询内容", true);
+      return;
+    }
+
+    try {
+      document.getElementById("run-fusion-compare").disabled = true;
+      resultBox.classList.remove("hidden", "success", "error");
+      resultBox.textContent = "正在对比...";
+
+      const selectElem = document.getElementById("fusion-compare-strategies");
+      const strategies = Array.from(selectElem.selectedOptions).map((opt) => opt.value);
+
+      if (strategies.length === 0) {
+        showToast("请至少选择一个策略", true);
+        document.getElementById("run-fusion-compare").disabled = false;
+        return;
+      }
+
+      const payload = { query, strategies, top_k: 5 };
+
+      const result = await apiRequest("/api/debug/fusion-comparison", {
+        method: "POST",
+        body: payload,
+      });
+
+      resultBox.classList.add("success");
+      let html = `
+        <strong>对比完成</strong><br>
+        查询: ${escapeHTML(result.query)}<br>
+        测试策略数: ${result.strategies_tested}<br><br>
+        <strong>对比结果:</strong>
+      `;
+
+      if (result.comparison && result.comparison.length > 0) {
+        html += "<pre>" + JSON.stringify(result.comparison, null, 2) + "</pre>";
+      }
+
+      resultBox.innerHTML = html;
+      showToast("策略对比完成");
+    } catch (error) {
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "对比失败";
+      showToast(error.message || "对比失败", true);
+    } finally {
+      document.getElementById("run-fusion-compare").disabled = false;
+    }
+  }
+
+  async function runMemoryAnalysisFunc() {
+    const resultBox = document.getElementById("memory-analysis-result");
+
+    try {
+      document.getElementById("run-memory-analysis").disabled = true;
+      resultBox.classList.remove("hidden", "success", "error");
+      resultBox.textContent = "正在分析...";
+
+      const result = await apiRequest("/api/debug/memory-analysis");
+
+      resultBox.classList.add("success");
+      let html = `
+        <strong>分析完成</strong><br>
+        总记忆数: ${result.total_memories}<br>
+        平均重要性: ${result.average_importance}<br><br>
+        <strong>详细统计:</strong>
+        <pre>${JSON.stringify(
+          {
+            importance_distribution: result.importance_distribution,
+            type_distribution: result.type_distribution,
+            status_distribution: result.status_distribution,
+          },
+          null,
+          2
+        )}</pre>
+      `;
+
+      resultBox.innerHTML = html;
+      showToast("记忆分析完成");
+    } catch (error) {
+      resultBox.classList.add("error");
+      resultBox.textContent = error.message || "分析失败";
+      showToast(error.message || "分析失败", true);
+    } finally {
+      document.getElementById("run-memory-analysis").disabled = false;
     }
   }
 

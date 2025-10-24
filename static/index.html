@@ -36,12 +36,17 @@
             <p class="subtitle">自定义记忆数据库的可视化管理面板</p>
           </div>
           <div class="toolbar">
-            <button id="refresh-button" class="ghost">刷新</button>
-            <button id="load-all-button" class="ghost">加载全部</button>
-            <button id="nuke-button" class="danger">核爆清除</button>
             <button id="logout-button" class="ghost">退出</button>
           </div>
         </header>
+
+        <!-- 标签页导航 -->
+        <nav class="tabs-nav">
+          <button class="tab-btn active" data-tab="memories">记忆管理</button>
+          <button class="tab-btn" data-tab="system">系统管理</button>
+          <button class="tab-btn" data-tab="config">配置中心</button>
+          <button class="tab-btn" data-tab="debug">调试工具</button>
+        </nav>
 
         <div id="nuke-banner" class="nuke-banner hidden" role="alert">
           <div class="nuke-content">
@@ -51,6 +56,14 @@
         </div>
 
         <main class="content">
+          <!-- 记忆管理标签页 -->
+          <div class="tab-content active" data-tab="memories">
+            <div class="tab-toolbar">
+              <button id="refresh-button" class="ghost">刷新</button>
+              <button id="load-all-button" class="ghost">加载全部</button>
+              <button id="nuke-button" class="danger">核爆清除</button>
+            </div>
+
           <section class="card stats-card">
             <div class="stat">
               <span class="label">总记忆</span>
@@ -139,6 +152,191 @@
               </select>
             </div>
           </section>
+          </div>
+
+          <!-- 系统管理标签页 -->
+          <div class="tab-content" data-tab="system">
+            <section class="card">
+              <h2 class="card-title">遗忘代理</h2>
+              <div class="form-group">
+                <p class="help-text">手动触发遗忘代理，清理低重要性的过期记忆</p>
+                <button id="trigger-forgetting" class="primary">运行遗忘代理</button>
+                <div id="forgetting-result" class="result-box hidden"></div>
+              </div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">索引管理</h2>
+              <div class="form-group">
+                <p class="help-text">重建 BM25 稀疏索引，提升检索效果</p>
+                <button id="rebuild-index" class="primary">重建稀疏索引</button>
+                <div id="rebuild-result" class="result-box hidden"></div>
+              </div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">会话管理</h2>
+              <div class="form-group">
+                <button id="load-sessions" class="ghost">刷新会话列表</button>
+                <div id="sessions-info" class="info-box hidden">
+                  <p><strong>总会话数:</strong> <span id="total-sessions">0</span></p>
+                  <p><strong>最大会话数:</strong> <span id="max-sessions">0</span></p>
+                  <p><strong>会话TTL:</strong> <span id="session-ttl">0</span> 秒</p>
+                </div>
+                <div id="sessions-list"></div>
+              </div>
+            </section>
+          </div>
+
+          <!-- 配置中心标签页 -->
+          <div class="tab-content" data-tab="config">
+            <section class="card">
+              <h2 class="card-title">检索引擎配置</h2>
+              <div class="form-group">
+                <label for="config-mode">检索模式</label>
+                <select id="config-mode">
+                  <option value="dense">Dense (密集检索)</option>
+                  <option value="sparse">Sparse (稀疏检索)</option>
+                  <option value="hybrid">Hybrid (混合检索)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="config-top-k">Top-K (返回结果数)</label>
+                <input type="number" id="config-top-k" min="1" max="50" value="3" />
+              </div>
+              <div class="form-group">
+                <label for="config-recall-strategy">召回策略</label>
+                <input type="text" id="config-recall-strategy" placeholder="如: similarity_first" />
+              </div>
+              <button id="save-recall-config" class="primary">保存检索配置</button>
+              <div id="recall-config-result" class="result-box hidden"></div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">融合策略配置</h2>
+              <div class="form-group">
+                <label for="config-fusion-strategy">融合策略</label>
+                <select id="config-fusion-strategy">
+                  <option value="rrf">RRF (Reciprocal Rank Fusion)</option>
+                  <option value="hybrid_rrf">Hybrid RRF</option>
+                  <option value="weighted">Weighted (加权)</option>
+                  <option value="convex">Convex (凸组合)</option>
+                  <option value="interleave">Interleave (交替)</option>
+                  <option value="rank_fusion">Rank Fusion</option>
+                  <option value="score_fusion">Score Fusion</option>
+                  <option value="cascade">Cascade (级联)</option>
+                  <option value="adaptive">Adaptive (自适应)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="config-fusion-k">RRF K 参数</label>
+                <input type="number" id="config-fusion-k" min="1" value="60" />
+              </div>
+              <div class="form-group">
+                <label for="config-dense-weight">Dense 权重 (0-1)</label>
+                <input type="number" id="config-dense-weight" min="0" max="1" step="0.1" value="0.7" />
+              </div>
+              <div class="form-group">
+                <label for="config-lambda">Lambda 参数 (0-1)</label>
+                <input type="number" id="config-lambda" min="0" max="1" step="0.1" value="0.5" />
+              </div>
+              <button id="save-fusion-config" class="primary">保存融合配置</button>
+              <div id="fusion-config-result" class="result-box hidden"></div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">反思引擎配置</h2>
+              <div class="form-group">
+                <label for="config-trigger-rounds">触发轮次</label>
+                <input type="number" id="config-trigger-rounds" min="1" value="10" />
+              </div>
+              <div class="form-group">
+                <label for="config-importance-threshold">重要性阈值 (0-10)</label>
+                <input type="number" id="config-importance-threshold" min="0" max="10" step="0.1" value="5.0" />
+              </div>
+              <button id="save-reflection-config" class="primary">保存反思配置</button>
+              <div id="reflection-config-result" class="result-box hidden"></div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">遗忘代理配置</h2>
+              <div class="form-group">
+                <label class="checkbox">
+                  <input type="checkbox" id="config-forgetting-enabled" checked />
+                  <span>启用遗忘代理</span>
+                </label>
+              </div>
+              <div class="form-group">
+                <label for="config-check-interval">检查间隔 (小时)</label>
+                <input type="number" id="config-check-interval" min="1" value="24" />
+              </div>
+              <div class="form-group">
+                <label for="config-retention-days">保留天数</label>
+                <input type="number" id="config-retention-days" min="1" value="30" />
+              </div>
+              <div class="form-group">
+                <label for="config-min-importance">最小重要性阈值 (0-10)</label>
+                <input type="number" id="config-min-importance" min="0" max="10" step="0.1" value="3.0" />
+              </div>
+              <button id="save-forgetting-config" class="primary">保存遗忘配置</button>
+              <div id="forgetting-config-result" class="result-box hidden"></div>
+            </section>
+          </div>
+
+          <!-- 调试工具标签页 -->
+          <div class="tab-content" data-tab="debug">
+            <section class="card">
+              <h2 class="card-title">检索测试</h2>
+              <div class="form-group">
+                <label for="debug-query">查询内容</label>
+                <input type="text" id="debug-query" placeholder="输入测试查询" />
+              </div>
+              <div class="form-group">
+                <label for="debug-mode">检索模式</label>
+                <select id="debug-mode">
+                  <option value="dense">Dense</option>
+                  <option value="sparse">Sparse</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="debug-top-k">Top-K</label>
+                <input type="number" id="debug-top-k" min="1" max="20" value="5" />
+              </div>
+              <button id="run-search-test" class="primary">运行测试</button>
+              <div id="search-test-result" class="result-box hidden"></div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">融合策略对比</h2>
+              <div class="form-group">
+                <label for="fusion-compare-query">查询内容</label>
+                <input type="text" id="fusion-compare-query" placeholder="输入测试查询" />
+              </div>
+              <div class="form-group">
+                <label for="fusion-compare-strategies">对比策略 (按住 Ctrl 多选)</label>
+                <select id="fusion-compare-strategies" multiple size="5">
+                  <option value="rrf" selected>RRF</option>
+                  <option value="hybrid_rrf" selected>Hybrid RRF</option>
+                  <option value="weighted" selected>Weighted</option>
+                  <option value="convex">Convex</option>
+                  <option value="interleave">Interleave</option>
+                  <option value="rank_fusion">Rank Fusion</option>
+                  <option value="score_fusion">Score Fusion</option>
+                  <option value="cascade">Cascade</option>
+                  <option value="adaptive">Adaptive</option>
+                </select>
+              </div>
+              <button id="run-fusion-compare" class="primary">运行对比</button>
+              <div id="fusion-compare-result" class="result-box hidden"></div>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">记忆统计分析</h2>
+              <button id="run-memory-analysis" class="primary">运行分析</button>
+              <div id="memory-analysis-result" class="result-box hidden"></div>
+            </section>
+          </div>
         </main>
       </section>
     </div>
@@ -147,6 +345,9 @@
       <div class="drawer-content">
         <button id="drawer-close" class="close-btn" aria-label="关闭详情">×</button>
         <h2>记忆详情</h2>
+        <div class="detail-actions">
+          <button id="edit-memory-btn" class="primary">编辑记忆</button>
+        </div>
         <div class="detail-meta">
           <div>
             <span class="meta-label">记忆 ID</span>
@@ -179,6 +380,55 @@
         </div>
         <div class="detail-json">
           <pre id="detail-json"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑记忆对话框 -->
+    <div id="edit-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>编辑记忆</h2>
+          <button id="modal-close" class="close-btn" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="edit-field">编辑字段</label>
+            <select id="edit-field">
+              <option value="content">内容</option>
+              <option value="importance">重要性</option>
+              <option value="type">类型</option>
+              <option value="status">状态</option>
+            </select>
+          </div>
+          <div class="form-group" id="edit-content-group">
+            <label for="edit-value-content">新内容</label>
+            <textarea id="edit-value-content" rows="4"></textarea>
+          </div>
+          <div class="form-group hidden" id="edit-importance-group">
+            <label for="edit-value-importance">新重要性 (0-10)</label>
+            <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" />
+          </div>
+          <div class="form-group hidden" id="edit-type-group">
+            <label for="edit-value-type">新类型</label>
+            <input type="text" id="edit-value-type" placeholder="如: FACT, EVENT, PREFERENCE" />
+          </div>
+          <div class="form-group hidden" id="edit-status-group">
+            <label for="edit-value-status">新状态</label>
+            <select id="edit-value-status">
+              <option value="active">活跃</option>
+              <option value="archived">已归档</option>
+              <option value="deleted">已删除</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="edit-reason">更新原因 (可选)</label>
+            <input type="text" id="edit-reason" placeholder="说明本次更新的原因" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-edit" class="ghost">取消</button>
+          <button id="save-edit" class="primary">保存</button>
         </div>
       </div>
     </div>
