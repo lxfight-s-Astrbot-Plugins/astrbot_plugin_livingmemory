@@ -137,7 +137,7 @@ class LivingMemoryPlugin(Star):
         
         # 初始化状态标记
         self._initialization_complete = False
-        self._initialization_task: Optional[asyncio.Task] = None
+        self._initialization_lock = asyncio.Lock()
         
         # 会话管理器
         session_config = self.config.get("session_manager", {})
@@ -145,36 +145,23 @@ class LivingMemoryPlugin(Star):
             max_sessions=session_config.get("max_sessions", 1000),
             session_ttl=session_config.get("session_ttl", 3600)
         )
-        # 启动初始化任务
-        self._initialization_task = asyncio.create_task(self._wait_for_astrbot_and_initialize())
 
         # WebUI 服务句柄
         self.webui_server: Optional[WebUIServer] = None
-
-    async def _wait_for_astrbot_and_initialize(self):
-        """
-        等待AstrBot完全启动后进行插件初始化。
-        通过检查是否有可用的LLM provider来判断AstrBot是否完全启动。
-        在插件重载时，由于AstrBot仍在运行，providers应该立即可用。
-        """
-        logger.info("等待AstrBot完全启动...")
-
-        while True:
-            # 检查是否有可用的LLM provider，这表明AstrBot已完全初始化
-            if self.context.get_using_provider() is not None:
-                try:
-                    await self._initialize_plugin()
-                    break
-                except Exception as e:
-                    logger.error(f"插件初始化失败: {e}", exc_info=True)
-                    break
-
-            await asyncio.sleep(1)
+        
+        # 在 __init__ 阶段直接启动初始化任务
+        # AstrBot 会确保在插件 __init__ 时已经完全启动
+        asyncio.create_task(self._initialize_plugin())
 
     async def _initialize_plugin(self):
         """
         执行插件的异步初始化。
+        因为插件是在 AstrBot 启动后才被加载的，所以可以直接初始化。
         """
+        async with self._initialization_lock:
+            if self._initialization_complete:
+                return
+                
         logger.info("开始初始化 LivingMemory 插件...")
         try:
             # 1. 初始化 Provider
@@ -309,18 +296,15 @@ class LivingMemoryPlugin(Star):
         if self._initialization_complete:
             return True
 
-        if self._initialization_task:
-            try:
-                await asyncio.wait_for(self._initialization_task, timeout=timeout)
-                return self._initialization_complete
-            except asyncio.TimeoutError:
+        # 等待初始化锁释放，表示初始化完成或失败
+        start_time = time.time()
+        while not self._initialization_complete:
+            if time.time() - start_time > timeout:
                 logger.error(f"插件初始化超时（{timeout}秒）")
                 return False
-            except Exception as e:
-                logger.error(f"等待插件初始化时发生错误: {e}")
-                return False
-
-        return False
+            await asyncio.sleep(0.1)
+        
+        return self._initialization_complete
 
     def _get_webui_url(self) -> Optional[str]:
         """
