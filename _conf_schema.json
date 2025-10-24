@@ -226,9 +226,40 @@
         "type": "float",
         "default": 0.75
       },
-      "use_jieba": {
+      "use_chinese_tokenizer": {
         "description": "使用中文分词",
         "hint": "是否使用jieba进行中文分词处理。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_stopwords_filtering": {
+        "description": "启用停用词过滤",
+        "hint": "是否在分词后去除停用词。启用后可以提高检索精度。",
+        "type": "bool",
+        "default": true
+      },
+      "stopwords_source": {
+        "description": "停用词来源",
+        "hint": "停用词表来源：hit（哈工大）、baidu（百度）、cn（通用中文）或自定义文件路径。",
+        "type": "string",
+        "default": "hit"
+      },
+      "custom_stopwords": {
+        "description": "自定义停用词",
+        "hint": "额外的停用词列表，以逗号分隔。例如：额,嗯,哦",
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "dense_retriever": {
+    "description": "稠密检索器设置",
+    "hint": "基于向量语义的检索配置",
+    "type": "object",
+    "items": {
+      "enable_query_preprocessing": {
+        "description": "启用查询预处理",
+        "hint": "是否对查询进行分词和停用词过滤。启用后可以提高语义检索精度。",
         "type": "bool",
         "default": true
       }

@@ -72,7 +72,29 @@ class SparseRetrieverConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否启用稀疏检索")
     bm25_k1: float = Field(default=1.2, ge=0.1, le=10.0, description="BM25 k1参数")
     bm25_b: float = Field(default=0.75, ge=0.0, le=1.0, description="BM25 b参数")
-    use_jieba: bool = Field(default=True, description="是否使用jieba分词")
+    use_chinese_tokenizer: bool = Field(default=True, description="是否使用jieba分词")
+    enable_stopwords_filtering: bool = Field(default=True, description="是否启用停用词过滤")
+    stopwords_source: str = Field(default="hit", description="停用词来源")
+    custom_stopwords: Union[str, List[str]] = Field(default="", description="自定义停用词")
+
+    @model_validator(mode='after')
+    def process_custom_stopwords(self):
+        """处理自定义停用词字符串"""
+        if isinstance(self.custom_stopwords, str):
+            if self.custom_stopwords.strip():
+                # 逗号或空格分隔
+                self.custom_stopwords = [
+                    w.strip() for w in self.custom_stopwords.replace(',', ' ').split()
+                    if w.strip()
+                ]
+            else:
+                self.custom_stopwords = []
+        return self
+
+
+class DenseRetrieverConfig(BaseModel):
+    """稠密检索器配置"""
+    enable_query_preprocessing: bool = Field(default=True, description="是否启用查询预处理")
 
 
 class ForgettingAgentConfig(BaseModel):
@@ -121,9 +143,10 @@ class WebUISettings(BaseModel):
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
     session_manager: SessionManagerConfig = Field(default_factory=SessionManagerConfig)
-    recall_engine: RecallEngineConfig = Field(default_factory=RecallEngineConfig) 
+    recall_engine: RecallEngineConfig = Field(default_factory=RecallEngineConfig)
     reflection_engine: ReflectionEngineConfig = Field(default_factory=ReflectionEngineConfig)
     sparse_retriever: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
+    dense_retriever: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
     forgetting_agent: ForgettingAgentConfig = Field(default_factory=ForgettingAgentConfig)
     filtering_settings: FilteringConfig = Field(default_factory=FilteringConfig)
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)

@@ -191,15 +191,27 @@ class LivingMemoryPlugin(Star):
             await self.db.initialize()
             logger.info(f"数据库已初始化。数据目录: {data_dir}")
 
-            self.faiss_manager = FaissManager(self.db)
-
-            # 2.5. 初始化稀疏检索器
+            # 2.5. 初始化稀疏检索器（带停用词管理）
             sparse_config = self.config.get("sparse_retriever", {})
             if sparse_config.get("enabled", True):
                 self.sparse_retriever = SparseRetriever(db_path, sparse_config)
                 await self.sparse_retriever.initialize()
             else:
                 self.sparse_retriever = None
+
+            # 2.6. 初始化 FaissManager（传入 sparse_retriever 用于文档同步）
+            self.faiss_manager = FaissManager(
+                self.db,
+                sparse_retriever=self.sparse_retriever,
+                config=self.config
+            )
+
+            # 2.7. 共享停用词管理器（如果稀疏检索器已初始化）
+            if self.sparse_retriever and self.sparse_retriever.stopwords_manager:
+                await self.faiss_manager.initialize_stopwords(
+                    self.sparse_retriever.stopwords_manager
+                )
+                logger.info("✅ FaissManager 已共享停用词管理器")
 
             # 3. 初始化三大核心引擎
             self.recall_engine = RecallEngine(

@@ -13,6 +13,13 @@ from datetime import datetime
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB, Result
 from astrbot.api import logger
 from ..core.utils import safe_parse_metadata, safe_serialize_metadata, validate_timestamp
+from ..core.utils.stopwords_manager import StopwordsManager
+
+try:
+    import jieba
+    JIEBA_AVAILABLE = True
+except ImportError:
+    JIEBA_AVAILABLE = False
 
 class DateTimeEncoder(json.JSONEncoder):
     """自定义 JSON 编码器，用于处理 datetime 对象"""
@@ -28,15 +35,41 @@ class FaissManager:
     包括重要性、新近度和访问时间的管理。
     """
 
-    def __init__(self, db: FaissVecDB):
+    def __init__(
+        self,
+        db: FaissVecDB,
+        sparse_retriever: Optional[Any] = None,
+        config: Optional[Dict[str, Any]] = None
+    ):
         """
         初始化 FaissManager。
 
         Args:
             db (FaissVecDB): 已经实例化的 FaissVecDB 对象。
+            sparse_retriever: 稀疏检索器实例（用于文档同步）
+            config: 配置字典
         """
         self.db = db
         self.datetime_encoder = DateTimeEncoder()
+        self.sparse_retriever = sparse_retriever
+
+        # 稠密检索预处理配置
+        self.config = config or {}
+        dense_config = self.config.get("dense_retriever", {})
+        self.enable_query_preprocessing = dense_config.get("enable_query_preprocessing", True)
+        self.stopwords_manager: Optional[StopwordsManager] = None
+
+        logger.debug(f"FaissManager 初始化: 查询预处理={'启用' if self.enable_query_preprocessing else '禁用'}")
+
+    async def initialize_stopwords(self, stopwords_manager: StopwordsManager):
+        """
+        设置停用词管理器（由插件主类调用）
+
+        Args:
+            stopwords_manager: 停用词管理器实例
+        """
+        self.stopwords_manager = stopwords_manager
+        logger.info(f"FaissManager 已设置停用词管理器")
 
     async def add_memory(
         self,
@@ -99,6 +132,15 @@ class FaissManager:
 
             inserted_id = await self.db.insert(content=content, metadata=serialized_metadata)
             logger.info(f"✅ 成功添加记忆 ID={inserted_id}, 内容长度={len(content)}, 重要性={importance:.3f}")
+
+            # 同步到稀疏检索索引
+            if self.sparse_retriever:
+                try:
+                    await self.sparse_retriever.add_document(inserted_id, content)
+                    logger.debug(f"已同步到稀疏索引: ID={inserted_id}")
+                except Exception as e:
+                    logger.warning(f"同步到稀疏索引失败: {e}")
+
             return inserted_id
 
         except Exception as e:
@@ -108,6 +150,61 @@ class FaissManager:
             )
             logger.error(f"  失败上下文: content_len={len(content)}, importance={importance}, session={session_id}")
             raise
+
+    def _preprocess_query(self, query: str) -> str:
+        """
+        预处理查询文本（用于稠密检索）
+
+        Args:
+            query: 原始查询
+
+        Returns:
+            str: 预处理后的查询
+        """
+        if not self.enable_query_preprocessing:
+            return query
+
+        if not query or not query.strip():
+            return query
+
+        # 1. 移除多余空白
+        text = " ".join(query.split())
+
+        # 2. 中文分词
+        if JIEBA_AVAILABLE:
+            if any('\u4e00' <= char <= '\u9fff' for char in text):
+                tokens = list(jieba.cut(text))  # 使用普通分词，不是搜索引擎模式
+            else:
+                tokens = text.split()
+        else:
+            tokens = text.split()
+
+        # 3. 去除停用词
+        if self.stopwords_manager:
+            filtered_tokens = []
+            for token in tokens:
+                # 跳过空token和纯标点
+                if not token or token.isspace():
+                    continue
+                if all(not c.isalnum() for c in token):
+                    continue
+                # 跳过停用词
+                if not self.stopwords_manager.is_stopword(token):
+                    filtered_tokens.append(token)
+            tokens = filtered_tokens
+        else:
+            tokens = [
+                t for t in tokens
+                if t and not t.isspace() and any(c.isalnum() for c in t)
+            ]
+
+        # 4. 重组为字符串
+        processed = " ".join(tokens)
+
+        if processed != query:
+            logger.debug(f"查询预处理: '{query[:50]}...' -> '{processed[:50]}...'")
+
+        return processed if processed else query  # 如果处理后为空，返回原查询
 
     async def search_memory(
         self,
@@ -128,7 +225,10 @@ class FaissManager:
         Returns:
             List[Result]: 检索到的记忆列表。
         """
-        logger.debug(f"搜索记忆: query='{query[:50]}...', k={k}, session={session_id or '无'}, persona={persona_id or '无'}")
+        # 预处理查询
+        processed_query = self._preprocess_query(query)
+
+        logger.debug(f"搜索记忆: query='{processed_query[:50]}...', k={k}, session={session_id or '无'}, persona={persona_id or '无'}")
 
         try:
             metadata_filters = {}
@@ -142,7 +242,7 @@ class FaissManager:
 
             # 从数据库检索，fetch_k 可以设置得比 k 大，以便有更多结果用于后续处理
             results = await self.db.retrieve(
-                query=query, k=k, fetch_k=k * 2, metadata_filters=metadata_filters
+                query=processed_query, k=k, fetch_k=k * 2, metadata_filters=metadata_filters
             )
 
             logger.debug(f"  检索返回 {len(results)} 条结果")
@@ -377,6 +477,15 @@ class FaissManager:
             await self.db.document_storage.connection.commit()
             logger.info(f"成功删除 {len(doc_ids)} 条记忆")
 
+            # 步骤4: 从稀疏索引删除
+            if self.sparse_retriever:
+                try:
+                    for doc_id in doc_ids:
+                        await self.sparse_retriever.delete_document(doc_id)
+                    logger.debug(f"已从稀疏索引删除 {len(doc_ids)} 条记忆")
+                except Exception as sparse_error:
+                    logger.warning(f"从稀疏索引删除失败: {sparse_error}")
+
         except Exception as e:
             logger.error(f"删除记忆时发生错误: {e}", exc_info=True)
 
@@ -499,6 +608,14 @@ class FaissManager:
                 await self.db.embedding_storage.save_index()
 
                 updated_fields.append("content")
+
+                # 同步更新稀疏索引
+                if self.sparse_retriever and content:
+                    try:
+                        await self.sparse_retriever.update_document(doc_id, content)
+                        logger.debug(f"已同步更新稀疏索引: ID={doc_id}")
+                    except Exception as e:
+                        logger.warning(f"同步更新稀疏索引失败: {e}")
             
             # 2. 更新元数据字段
             if importance is not None and importance != original_metadata.get("importance"):

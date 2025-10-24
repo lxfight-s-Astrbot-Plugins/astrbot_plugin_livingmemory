@@ -6,12 +6,14 @@
 import json
 import sqlite3
 import math
-from typing import List, Dict, Any, Optional, Tuple
+import re
+from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass
 import asyncio
 import aiosqlite
 
 from astrbot.api import logger
+from ..utils.stopwords_manager import StopwordsManager
 
 try:
     import jieba
@@ -32,10 +34,12 @@ class SparseResult:
 
 class FTSManager:
     """FTS5 索引管理器"""
-    
-    def __init__(self, db_path: str):
+
+    def __init__(self, db_path: str, stopwords_manager: Optional[StopwordsManager] = None):
         self.db_path = db_path
         self.fts_table_name = "documents_fts"
+        self.stopwords_manager = stopwords_manager
+        self.use_stopwords = stopwords_manager is not None
         
     async def initialize(self):
         """初始化 FTS5 索引"""
@@ -56,44 +60,125 @@ class FTSManager:
             logger.info(f"FTS5 index initialized: {self.fts_table_name}")
     
     async def _create_triggers(self, db: aiosqlite.Connection):
-        """创建数据同步触发器"""
-        # 插入触发器
-        await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_ai 
-            AFTER INSERT ON documents BEGIN
-                INSERT INTO {self.fts_table_name}(doc_id, content) 
-                VALUES (new.id, new.text);
-            END;
-        """)
-        
-        # 删除触发器
-        await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_ad 
-            AFTER DELETE ON documents BEGIN
-                DELETE FROM {self.fts_table_name} WHERE doc_id = old.id;
-            END;
-        """)
-        
-        # 更新触发器
-        await db.execute(f"""
-            CREATE TRIGGER IF NOT EXISTS documents_au 
-            AFTER UPDATE ON documents BEGIN
-                DELETE FROM {self.fts_table_name} WHERE doc_id = old.id;
-                INSERT INTO {self.fts_table_name}(doc_id, content) 
-                VALUES (new.id, new.text);
-            END;
-        """)
+        """创建数据同步触发器（已移除 - 改为手动插入以支持预处理）"""
+        # 注意：触发器已移除，改为在 SparseRetriever.add_document() 中手动同步
+        # 这样可以在插入前进行分词和停用词过滤
+        pass
     
     async def rebuild_index(self):
         """重建索引"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(f"DELETE FROM {self.fts_table_name}")
-            await db.execute(f"""
-                INSERT INTO {self.fts_table_name}(doc_id, content)
-                SELECT id, text FROM documents
-            """)
+            # 注意：需要手动同步，因为触发器已移除
+            # 这个方法应该由 SparseRetriever 调用
             await db.commit()
-            logger.info("FTS index rebuilt")
+            logger.info("FTS index cleared (需要手动重新索引所有文档)")
+
+    def preprocess_text(self, text: str) -> str:
+        """
+        预处理文本：分词 + 停用词过滤
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            str: 预处理后的文本（空格分隔的tokens）
+        """
+        if not text or not text.strip():
+            return ""
+
+        # 1. 移除多余空白
+        text = " ".join(text.split())
+
+        # 2. 中文分词
+        if JIEBA_AVAILABLE:
+            # 检查是否包含中文
+            if any('\u4e00' <= char <= '\u9fff' for char in text):
+                tokens = list(jieba.cut_for_search(text))
+            else:
+                # 非中文，按空格分词
+                tokens = text.split()
+        else:
+            tokens = text.split()
+
+        # 3. 去除停用词和标点
+        if self.use_stopwords and self.stopwords_manager:
+            filtered_tokens = []
+            for token in tokens:
+                # 跳过空token
+                if not token or token.isspace():
+                    continue
+                # 跳过纯标点
+                if all(not c.isalnum() for c in token):
+                    continue
+                # 跳过停用词
+                if not self.stopwords_manager.is_stopword(token):
+                    filtered_tokens.append(token)
+            tokens = filtered_tokens
+        else:
+            # 即使不用停用词，也要过滤空白和纯标点
+            tokens = [
+                t for t in tokens
+                if t and not t.isspace() and any(c.isalnum() for c in t)
+            ]
+
+        # 4. 返回空格分隔的tokens
+        return " ".join(tokens)
+
+    async def add_document(self, doc_id: int, content: str):
+        """
+        添加单个文档到 FTS 索引
+
+        Args:
+            doc_id: 文档 ID
+            content: 文档内容
+        """
+        processed_content = self.preprocess_text(content)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                f"INSERT INTO {self.fts_table_name}(doc_id, content) VALUES (?, ?)",
+                (doc_id, processed_content)
+            )
+            await db.commit()
+            logger.debug(f"FTS文档已添加: ID={doc_id}, 原始长度={len(content)}, 处理后={len(processed_content)}")
+
+    async def update_document(self, doc_id: int, content: str):
+        """
+        更新文档内容
+
+        Args:
+            doc_id: 文档 ID
+            content: 新内容
+        """
+        processed_content = self.preprocess_text(content)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                f"DELETE FROM {self.fts_table_name} WHERE doc_id = ?",
+                (doc_id,)
+            )
+            await db.execute(
+                f"INSERT INTO {self.fts_table_name}(doc_id, content) VALUES (?, ?)",
+                (doc_id, processed_content)
+            )
+            await db.commit()
+            logger.debug(f"FTS文档已更新: ID={doc_id}")
+
+    async def delete_document(self, doc_id: int):
+        """
+        删除文档
+
+        Args:
+            doc_id: 文档 ID
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                f"DELETE FROM {self.fts_table_name} WHERE doc_id = ?",
+                (doc_id,)
+            )
+            await db.commit()
+            logger.debug(f"FTS文档已删除: ID={doc_id}")
     
     async def search(self, query: str, limit: int = 50) -> List[Tuple[int, float]]:
         """执行 BM25 搜索"""
@@ -117,17 +202,28 @@ class FTSManager:
 
 class SparseRetriever:
     """稀疏检索器"""
-    
+
     def __init__(self, db_path: str, config: Dict[str, Any] = None):
         self.db_path = db_path
         self.config = config or {}
-        self.fts_manager = FTSManager(db_path)
         self.enabled = self.config.get("enabled", True)
         self.use_chinese_tokenizer = self.config.get("use_chinese_tokenizer", JIEBA_AVAILABLE)
+
+        # 停用词配置
+        self.enable_stopwords = self.config.get("enable_stopwords_filtering", True)
+        self.stopwords_source = self.config.get("stopwords_source", "hit")
+        self.custom_stopwords = self.config.get("custom_stopwords", [])
+        self.stopwords_manager: Optional[StopwordsManager] = None
+
+        # 初始化 FTS 管理器（稍后会设置 stopwords_manager）
+        self.fts_manager: Optional[FTSManager] = None
 
         logger.info("SparseRetriever 初始化")
         logger.info(f"  启用状态: {'是' if self.enabled else '否'}")
         logger.info(f"  中文分词: {'是' if self.use_chinese_tokenizer else '否'} (jieba {'可用' if JIEBA_AVAILABLE else '不可用'})")
+        logger.info(f"  停用词过滤: {'是' if self.enable_stopwords else '否'}")
+        logger.info(f"  停用词来源: {self.stopwords_source}")
+        logger.info(f"  自定义停用词: {len(self.custom_stopwords)} 个")
         logger.info(f"  数据库路径: {db_path}")
         
     async def initialize(self):
@@ -139,10 +235,27 @@ class SparseRetriever:
         logger.info("开始初始化稀疏检索器...")
 
         try:
+            # 1. 初始化停用词管理器
+            if self.enable_stopwords:
+                logger.info("初始化停用词管理器...")
+                self.stopwords_manager = StopwordsManager()
+                await self.stopwords_manager.load_stopwords(
+                    source=self.stopwords_source,
+                    custom_words=self.custom_stopwords,
+                    auto_download=True
+                )
+                logger.info(f"✅ 停用词管理器初始化成功，共 {len(self.stopwords_manager.stopwords)} 个停用词")
+            else:
+                logger.info("停用词过滤已禁用")
+                self.stopwords_manager = None
+
+            # 2. 初始化 FTS 管理器
+            self.fts_manager = FTSManager(self.db_path, self.stopwords_manager)
             await self.fts_manager.initialize()
             logger.info("✅ FTS5 索引初始化成功")
+
         except Exception as e:
-            logger.error(f"❌ FTS5 索引初始化失败: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"❌ 稀疏检索器初始化失败: {type(e).__name__}: {e}", exc_info=True)
             raise
 
         # 如果启用中文分词，初始化 jieba
@@ -163,26 +276,19 @@ class SparseRetriever:
         Returns:
             str: 处理后的安全查询字符串
         """
-        query = query.strip()
+        if not query or not query.strip():
+            return ""
 
-        # 中文分词
-        if self.use_chinese_tokenizer and JIEBA_AVAILABLE:
-            # 检查是否包含中文
-            if any('\u4e00' <= char <= '\u9fff' for char in query):
-                tokens = jieba.cut_for_search(query)
-                query = " ".join(tokens)
+        # 使用 FTSManager 的预处理方法
+        if self.fts_manager:
+            processed = self.fts_manager.preprocess_text(query)
+        else:
+            processed = query.strip()
 
         # FTS5 安全转义: 双引号需要转义为两个双引号
-        # 移除可能导致语法错误的特殊FTS5操作符
-        query = query.replace('"', '""')  # FTS5转义规则
+        processed = processed.replace('"', '""')
 
-        # 移除可能的FTS5特殊字符和操作符
-        # FTS5特殊字符: * (通配符), ^ (列过滤), NEAR, AND, OR, NOT
-        # 为了安全，我们将查询作为短语搜索，禁用这些操作符
-        query = query.replace('*', ' ')  # 移除通配符
-        query = query.replace('^', ' ')  # 移除列过滤符
-
-        return query
+        return processed
     
     async def search(
         self,
@@ -304,8 +410,46 @@ class SparseRetriever:
         
         return True
     
+    async def add_document(self, doc_id: int, content: str):
+        """
+        添加文档到 FTS 索引
+
+        Args:
+            doc_id: 文档 ID
+            content: 文档内容
+        """
+        if not self.enabled or not self.fts_manager:
+            return
+
+        await self.fts_manager.add_document(doc_id, content)
+
+    async def update_document(self, doc_id: int, content: str):
+        """
+        更新 FTS 索引中的文档
+
+        Args:
+            doc_id: 文档 ID
+            content: 新内容
+        """
+        if not self.enabled or not self.fts_manager:
+            return
+
+        await self.fts_manager.update_document(doc_id, content)
+
+    async def delete_document(self, doc_id: int):
+        """
+        从 FTS 索引删除文档
+
+        Args:
+            doc_id: 文档 ID
+        """
+        if not self.enabled or not self.fts_manager:
+            return
+
+        await self.fts_manager.delete_document(doc_id)
+
     async def rebuild_index(self):
-        """重建索引"""
+        """重建索引（从 documents 表同步所有数据）"""
         if not self.enabled:
             logger.warning("稀疏检索器未启用，无法重建索引")
             return
@@ -313,8 +457,23 @@ class SparseRetriever:
         logger.info("🔄 开始重建 FTS5 索引...")
 
         try:
+            # 1. 清空现有索引
             await self.fts_manager.rebuild_index()
-            logger.info("✅ FTS5 索引重建成功")
+
+            # 2. 从 documents 表重新加载所有数据
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute("SELECT id, text FROM documents")
+                rows = await cursor.fetchall()
+
+                logger.info(f"找到 {len(rows)} 个文档需要索引")
+
+                # 3. 批量添加文档
+                for row in rows:
+                    doc_id, content = row
+                    await self.fts_manager.add_document(doc_id, content)
+
+            logger.info(f"✅ FTS5 索引重建成功，已索引 {len(rows)} 个文档")
+
         except Exception as e:
             logger.error(
                 f"❌ 重建 FTS5 索引失败: {type(e).__name__}: {e}",
