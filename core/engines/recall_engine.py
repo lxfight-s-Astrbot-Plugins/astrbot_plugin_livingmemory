@@ -48,6 +48,24 @@ class RecallEngine:
         logger.info(f"  默认返回数量: {top_k}")
         logger.info(f"  融合策略: {fusion_strategy}")
         logger.info(f"  稀疏检索器: {'已启用' if sparse_retriever else '未启用'}")
+    def _is_dense_available(self) -> bool:
+        """
+        检查密集检索是否可用
+        
+        Returns:
+            bool: 密集检索是否可用
+        """
+        return self.faiss_manager is not None and self.faiss_manager.index.ntotal > 0
+
+    def _is_sparse_available(self) -> bool:
+        """
+        检查稀疏检索是否可用
+        
+        Returns:
+            bool: 稀疏检索是否可用
+        """
+        return self.sparse_retriever is not None
+
 
     async def recall(
         self,
@@ -141,7 +159,7 @@ class RecallEngine:
             # 等待两个检索完成
             dense_results, sparse_results = await asyncio.gather(dense_task, sparse_task, return_exceptions=True)
 
-            # 处理异常
+            # 处理异常并实现自动退化机制
             if isinstance(dense_results, Exception):
                 logger.error(f"❌ 密集检索失败: {type(dense_results).__name__}: {dense_results}")
                 dense_results = []
@@ -154,9 +172,16 @@ class RecallEngine:
             else:
                 logger.debug(f"  稀疏检索返回: {len(sparse_results)} 条结果")
 
+            # 自动退化机制：当某一检索器不可用时，自动降级到另一种检索模式
             if not dense_results and not sparse_results:
                 logger.warning("⚠️ 混合检索两路均无结果")
                 return []
+            elif not dense_results and sparse_results:
+                logger.warning(f"⚠️ 密集检索不可用，自动退化为纯稀疏检索")
+                return await self._sparse_search(query, session_id, persona_id, k)
+            elif dense_results and not sparse_results:
+                logger.warning(f"⚠️ 稀疏检索不可用，自动退化为纯密集检索")
+                return await self._dense_search(context, query, session_id, persona_id, k)
 
             # 融合结果
             logger.debug(f"  开始融合结果，策略: {self.result_fusion.strategy}")

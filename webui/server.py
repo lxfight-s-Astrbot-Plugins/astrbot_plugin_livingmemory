@@ -2,6 +2,70 @@
 """
 server.py - LivingMemory WebUI backend
 Provides authentication, memory browsing, detail view and bulk deletion APIs built on FastAPI.
+
+WebUI 功能列表:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 记忆管理:
+  - 查看记忆列表（分页、筛选、搜索）
+  - 查看记忆详情（完整元数据和JSON）
+  - 编辑记忆（内容、重要性、类型、状态）
+  - 删除记忆（单个或批量删除）
+  - 核爆清除（延迟确认机制）
+
+⚙️ 系统管理:
+  - 触发遗忘代理（手动清理低重要性记忆）
+  - 重建稀疏索引（BM25索引重建）
+  - 会话管理（查看活跃会话列表）
+
+🛠️ 调试工具:
+  - 检索测试（测试Dense/Sparse/Hybrid模式）
+  - 融合策略对比（对比多种融合算法效果）
+  - 记忆统计分析（分布统计和趋势分析）
+
+📊 数据展示:
+  - 实时统计（总记忆数、状态分布、活跃会话）
+  - 分页浏览（支持自定义每页数量）
+  - 关键词搜索（支持memory_id和内容搜索）
+  - 状态筛选（活跃/已归档/已删除）
+
+🔐 安全特性:
+  - 密码认证（入口密码保护）
+  - 会话管理（自动超时和清理）
+  - 请求频率限制（防暴力破解）
+  - Token有效期管理（绝对过期+活动超时）
+
+API端点说明:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+认证相关:
+  POST   /api/login                    - 用户登录
+  POST   /api/logout                   - 用户登出
+  GET    /api/health                   - 健康检查
+
+记忆管理:
+  GET    /api/memories                 - 获取记忆列表（支持分页、筛选、搜索）
+  GET    /api/memories/{memory_id}     - 获取记忆详情
+  PUT    /api/memories/{memory_id}     - 更新记忆字段
+  DELETE /api/memories                 - 批量删除记忆
+  POST   /api/memories/nuke            - 调度核爆任务
+  GET    /api/memories/nuke            - 获取核爆状态
+  DELETE /api/memories/nuke/{op_id}    - 取消核爆任务
+
+系统管理:
+  GET    /api/stats                           - 获取统计信息
+  POST   /api/admin/forgetting-agent/trigger  - 手动触发遗忘代理
+  POST   /api/admin/sparse-index/rebuild      - 重建稀疏索引
+  GET    /api/admin/sessions                  - 获取会话列表
+
+调试工具:
+  POST   /api/debug/search-test          - 测试检索功能
+  POST   /api/debug/fusion-comparison    - 对比融合策略
+  GET    /api/debug/memory-analysis      - 分析记忆统计
+
+注意事项:
+  - 所有API（除login和health）都需要Bearer Token认证
+  - Token有24小时绝对过期时间和可配置的活动超时时间
+  - 核爆功能仅为视觉效果，不会真实删除数据（保护用户数据安全）
+  - 编辑记忆会自动记录更新历史（时间、字段、原值、新值、原因）
 """
 
 

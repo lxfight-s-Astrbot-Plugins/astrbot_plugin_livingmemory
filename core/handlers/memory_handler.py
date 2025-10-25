@@ -25,7 +25,10 @@ class MemoryHandler(BaseHandler):
         self.faiss_manager = faiss_manager
 
     async def edit_memory(self, memory_id: str, field: str, value: str, reason: str = "") -> Dict[str, Any]:
-        """编辑记忆内容或元数据"""
+        """编辑记忆内容或元数据
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem edit 已废弃
+        """
         if not self.faiss_manager:
             return self.create_response(False, "记忆库尚未初始化")
 
@@ -97,7 +100,10 @@ class MemoryHandler(BaseHandler):
             return self.create_response(False, f"编辑记忆时发生错误: {e}")
 
     async def get_memory_details(self, memory_id: str) -> Dict[str, Any]:
-        """获取记忆详细信息"""
+        """获取记忆详细信息
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem info 已废弃
+        """
         if not self.faiss_manager:
             return self.create_response(False, "记忆库尚未初始化")
 
@@ -143,6 +149,8 @@ class MemoryHandler(BaseHandler):
     async def get_memory_info(self, memory_id: str, show_edit_guide: bool = True,
                              full_history: bool = False) -> Dict[str, Any]:
         """获取记忆完整信息
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem info 已废弃
 
         参数:
             memory_id: 记忆 ID

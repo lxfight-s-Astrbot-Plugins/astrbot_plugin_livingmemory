@@ -62,7 +62,10 @@ class SearchHandler(BaseHandler):
             return self.create_response(False, f"搜索记忆时发生错误: {e}")
 
     async def test_sparse_search(self, query: str, k: int = 5) -> Dict[str, Any]:
-        """测试稀疏检索功能"""
+        """测试稀疏检索功能
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem sparse_test 已废弃
+        """
         if not self.sparse_retriever:
             return self.create_response(False, "稀疏检索器未启用")
 
@@ -99,7 +102,10 @@ class SearchHandler(BaseHandler):
             return self.create_response(False, f"稀疏检索测试失败: {e}")
 
     async def rebuild_sparse_index(self) -> Dict[str, Any]:
-        """重建稀疏检索索引"""
+        """重建稀疏检索索引
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem sparse_rebuild 已废弃
+        """
         if not self.sparse_retriever:
             return self.create_response(False, "稀疏检索器未启用")
 

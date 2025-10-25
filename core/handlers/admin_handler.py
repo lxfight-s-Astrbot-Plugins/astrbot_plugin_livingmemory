@@ -47,7 +47,10 @@ class AdminHandler(BaseHandler):
             return self.create_response(False, f"删除记忆时发生错误: {e}")
 
     async def run_forgetting_agent(self) -> Dict[str, Any]:
-        """手动触发遗忘代理"""
+        """手动触发遗忘代理
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem run_forgetting_agent 已废弃
+        """
         if not self.forgetting_agent:
             return self.create_response(False, "遗忘代理尚未初始化")
 
@@ -59,7 +62,13 @@ class AdminHandler(BaseHandler):
             return self.create_response(False, f"调用遗忘代理失败: {e}")
 
     async def set_search_mode(self, mode: str) -> Dict[str, Any]:
-        """设置检索模式"""
+        """设置检索模式
+        
+        注意: 此方法仅供 WebUI 使用，命令行指令 /lmem search_mode 已废弃
+        
+        推荐使用混合检索模式(hybrid)，支持自动退化机制。
+        当某一检索器不可用时，系统会自动降级到可用的检索模式。
+        """
         valid_modes = ["hybrid", "dense", "sparse"]
         if mode not in valid_modes:
             return self.create_response(False, f"无效的模式,请使用: {', '.join(valid_modes)}")
@@ -84,10 +93,22 @@ class AdminHandler(BaseHandler):
         else:
             logger.warning("RecallEngine 尚未初始化,仅更新配置")
 
+        # 根据模式提供不同的提示信息
+        if mode == "hybrid":
+            mode_tip = (
+                "💡 混合检索模式已启用，支持自动退化机制：\n"
+                "  • 当密集检索不可用时，自动降级为纯稀疏检索\n"
+                "  • 当稀疏检索不可用时，自动降级为纯密集检索\n"
+                "  • 两者都可用时，使用混合检索并融合结果"
+            )
+        else:
+            mode_tip = f"💡 注意: 推荐使用混合检索模式以获得更好的检索效果和容错能力"
+
         return self.create_response(
             True,
             f"检索模式已从 '{old_mode}' 更新为: {mode}\n"
-            f"💡 注意: 此更改仅在当前会话有效,重启后将恢复为配置文件中的设置"
+            f"{mode_tip}\n\n"
+            f"⚠️ 此更改仅在当前会话有效,重启后将恢复为配置文件中的设置"
         )
 
     async def get_config_summary(self, action: str = "show") -> Dict[str, Any]:

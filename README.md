@@ -243,16 +243,30 @@ recall_engine:
 
 插件在后台自动运行，提供精简的命令行接口和完整的 WebUI 管理界面：
 
-### 📊 核心命令（推荐使用）
+### 📊 核心命令（9个保留指令）
+
+#### 📊 信息查询
 | 命令 | 参数 | 描述 |
 | :--- | :--- | :--- |
-| `/lmem status` | - | 📈 查看记忆库状态和统计信息 |
-| `/lmem search` | `<query> [k=3]` | 🔍 手动搜索记忆，支持详细信息展示 |
-| `/lmem forget` | `<memory_id>` | 🗑️ 快速删除指定ID的记忆 |
-| `/lmem webui` | - | 🌐 显示 WebUI 访问信息和状态 |
-| `/lmem help` | - | ❓ 显示帮助信息和 WebUI 引导 |
+| `/lmem status` | - | 📈 查看记忆库状态 |
+| `/lmem search` | `<query> [k=3]` | 🔍 搜索记忆(k为返回数量,默认3) |
+| `/lmem config` | `[show\|validate]` | 📋 查看或验证配置 |
 
-### 🎯 高级功能（建议使用 WebUI）
+#### 🔧 系统管理
+| 命令 | 参数 | 描述 |
+| :--- | :--- | :--- |
+| `/lmem forget` | `<memory_id>` | 🗑️ 删除指定记忆 |
+| `/lmem migrate` | `[status\|run\|info]` | 🔄 数据库迁移管理 |
+| `/lmem fusion` | - | 🎯 查看当前融合策略配置 |
+| `/lmem test_fusion` | `<query> [k=5]` | 🧪 测试融合策略效果 |
+
+#### 🌐 Web界面
+| 命令 | 参数 | 描述 |
+| :--- | :--- | :--- |
+| `/lmem webui` | - | 🌐 查看WebUI访问信息 |
+| `/lmem help` | - | ❓ 显示帮助信息 |
+
+### 🎯 高级功能（推荐使用 WebUI）
 以下功能推荐在 WebUI 中使用，提供更好的可视化体验：
 
 **记忆管理** → WebUI "记忆管理" 标签页
@@ -275,38 +289,32 @@ recall_engine:
 - 📊 对比多种融合策略性能
 - 📈 分析记忆统计分布
 
-### ⚙️ 命令行管理（高级用户）
-如果您更喜欢命令行，以下命令仍然可用：
-
-| 命令 | 参数 | 描述 |
-| :--- | :--- | :--- |
-| `/lmem edit` | `<id> <field> <value> [reason]` | ✏️ 编辑记忆字段 |
-| `/lmem run_forgetting_agent` | - | 🔄 手动触发遗忘代理 |
-| `/lmem sparse_rebuild` | - | 🏗️ 重建稀疏索引 |
-| `/lmem sparse_test` | `<query> [k=5]` | ⚡ 测试稀疏检索 |
-| `/lmem config` | `[show\|validate]` | 📋 显示或验证配置 |
-| `/lmem search_mode` | `<mode>` | 🔄 切换检索模式 |
-| `/lmem fusion` | `[strategy] [param=value]` | 🎯 管理融合策略 |
-| `/lmem test_fusion` | `<query> [k=5]` | 🧪 测试融合策略 |
-
-#### 命令示例
+### 💡 命令示例
 ```bash
-# 快速搜索
+# 查看记忆库状态
+/lmem status
+
+# 搜索记忆
 /lmem search "用户的兴趣爱好" 5
 
-# 编辑记忆
-/lmem edit 123 content 这是新的记忆内容 修正错误信息
-/lmem edit 123 importance 0.9 提高重要性
+# 删除记忆
+/lmem forget 123
 
-# 切换检索模式
-/lmem search_mode hybrid
+# 查看配置
+/lmem config show
 
-# 调整融合策略
-/lmem fusion hybrid_rrf
-/lmem fusion weighted dense_weight=0.8
+# 验证配置
+/lmem config validate
+
+# 测试融合策略
+/lmem test_fusion "测试查询" 5
+
+# 数据库迁移
+/lmem migrate status
+/lmem migrate run
 ```
 
-> 💡 **提示**：大多数操作在 WebUI 中更直观和易用，建议优先使用 WebUI 界面！
+> 💡 **提示**：命令行适合快速查询，WebUI 适合深度管理。更多高级功能（记忆编辑、详细信息、系统设置等）请使用 WebUI 界面！
 
 </details>
 

@@ -108,12 +108,12 @@
       },
       "retrieval_mode": {
         "description": "检索模式",
-        "hint": "'dense' - 纯密集检索；'sparse' - 纯稀疏检索；'hybrid' - 混合检索。",
+        "hint": "'hybrid' - 混合检索(默认,自动退化)；'dense' - 纯密集检索；'sparse' - 纯稀疏检索。混合模式在某一检索器不可用时会自动退化到可用的检索模式。",
         "type": "string",
         "options": [
+          "hybrid",
           "dense",
-          "sparse",
-          "hybrid"
+          "sparse"
         ],
         "default": "hybrid"
       },
@@ -139,67 +139,14 @@
   },
   "fusion": {
     "description": "结果融合配置",
-    "hint": "混合检索时的结果融合策略",
+    "hint": "混合检索时的结果融合策略，当前固定使用RRF策略",
     "type": "object",
     "items": {
-      "strategy": {
-        "description": "融合策略",
-        "hint": "选择混合检索的结果融合方法",
-        "type": "string",
-        "options": [
-          "rrf",
-          "hybrid_rrf",
-          "weighted",
-          "convex",
-          "interleave",
-          "rank_fusion",
-          "score_fusion",
-          "cascade",
-          "adaptive"
-        ],
-        "default": "rrf"
-      },
       "rrf_k": {
         "description": "RRF参数k",
-        "hint": "Reciprocal Rank Fusion 中的参数 k，较小值更重视靠前的结果。",
+        "hint": "Reciprocal Rank Fusion 中的参数 k，较小值更重视靠前的结果。推荐范围: 30-120",
         "type": "int",
         "default": 60
-      },
-      "dense_weight": {
-        "description": "密集检索权重",
-        "hint": "密集向量检索在融合中的权重 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.7
-      },
-      "sparse_weight": {
-        "description": "稀疏检索权重",
-        "hint": "稀疏关键词检索在融合中的权重 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.3
-      },
-      "convex_lambda": {
-        "description": "凸组合参数λ",
-        "hint": "凸组合融合中的参数λ，控制密集和稀疏检索的混合比例 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.5
-      },
-      "interleave_ratio": {
-        "description": "交替融合比例",
-        "hint": "交替融合中密集结果所占的比例 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.5
-      },
-      "rank_bias_factor": {
-        "description": "排序偏置因子",
-        "hint": "在两个排序列表中都出现的文档获得的额外加分 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.1
-      },
-      "diversity_bonus": {
-        "description": "多样性奖励",
-        "hint": "鼓励结果多样性的奖励因子 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.1
       }
     }
   },

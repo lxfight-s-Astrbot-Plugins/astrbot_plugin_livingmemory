@@ -627,182 +627,6 @@ class LivingMemoryPlugin(Star):
         result = await self.admin_handler.delete_memory(doc_id)
         yield event.plain_result(result["message"])
 
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("run_forgetting_agent")
-    @deprecated("请使用 WebUI 系统管理页面", version="1.4.0")
-    @handle_command_errors
-    async def run_forgetting_agent(self, event: AstrMessageEvent):
-        """[管理员] 手动触发一次遗忘代理的清理任务（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的系统管理页面。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "系统管理页面",
-            [
-                "实时显示清理进度",
-                "查看上次运行时间和结果",
-                "配置遗忘策略参数",
-                "可视化衰减曲线"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("sparse_rebuild")
-    @deprecated("请使用 WebUI 系统管理页面", version="1.4.0")
-    @handle_command_errors
-    async def lmem_sparse_rebuild(self, event: AstrMessageEvent):
-        """[管理员] 重建稀疏检索索引（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的系统管理页面。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "系统管理页面",
-            [
-                "实时显示重建进度",
-                "查看索引状态和文档数",
-                "查看最后更新时间",
-                "批量索引管理操作"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("search_mode")
-    @deprecated("请使用 WebUI 配置页面", version="1.4.0")
-    @handle_command_errors
-    async def lmem_search_mode(self, event: AstrMessageEvent):
-        """[管理员] 设置检索模式（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的配置页面。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "配置页面",
-            [
-                "可视化选择检索模式",
-                "调整 Top-K 参数",
-                "配置召回策略",
-                "实时查看配置效果"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("sparse_test")
-    @deprecated("请使用 WebUI 调试工具页面", version="1.4.0")
-    @handle_command_errors
-    async def lmem_sparse_test(self, event: AstrMessageEvent):
-        """[管理员] 测试稀疏检索功能（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的调试工具页面。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "调试工具页面",
-            [
-                "多模式并排对比",
-                "性能指标分析",
-                "结果差异高亮",
-                "可视化性能图表"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("edit")
-    @deprecated("请使用 WebUI 进行记忆编辑操作", version="1.4.0")
-    @handle_command_errors
-    async def lmem_edit(self, event: AstrMessageEvent):
-        """[管理员] 编辑记忆内容或元数据（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的记忆编辑功能。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "记忆编辑页面",
-            [
-                "可视化表单，支持实时验证",
-                "查看完整的更新历史记录",
-                "批量编辑多条记忆",
-                "支持更丰富的字段编辑"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("info")
-    @deprecated("请使用 WebUI 查看记忆详情", version="1.4.0")
-    @handle_command_errors
-    async def lmem_info(self, event: AstrMessageEvent):
-        """[管理员] 查看记忆详细信息（已废弃）。
-
-        此命令已废弃，请使用 WebUI 的记忆详情页。
-        使用 /lmem webui 查看访问地址。
-        """
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
-            return
-
-        message = self._build_deprecation_message(
-            "记忆详情页",
-            [
-                "可视化展示记忆完整信息",
-                "查看更新历史和时间线",
-                "直接编辑记忆内容",
-                "查看关联记忆和社区信息"
-            ]
-        )
-        yield event.plain_result(message)
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("update")
-    @deprecated("/lmem info", version="1.4.0")
-    @handle_command_errors
-    @require_handlers("memory_handler")
-    async def lmem_update(self, event: AstrMessageEvent, memory_id: str):
-        """[管理员] 查看记忆详细信息并提供编辑指引。（已废弃，请使用 /lmem info）
-
-        用法: /lmem update <id>
-
-        显示记忆的完整信息，并指引如何使用编辑命令。
-        """
-        # 内部调用新命令
-        async for result in self.lmem_info(event, memory_id, full=False):
-            yield result
-
-    @permission_type(PermissionType.ADMIN)
-    @lmem_group.command("history")
-    @deprecated("/lmem info <id> --full", version="1.4.0")
-    @handle_command_errors
-    @require_handlers("memory_handler")
-    async def lmem_history(self, event: AstrMessageEvent, memory_id: str):
-        """[管理员] 查看记忆的更新历史。（已废弃，请使用 /lmem info <id> --full）"""
-        # 内部调用新命令
-        async for result in self.lmem_info(event, memory_id, full=True):
-            yield result
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("config")
@@ -827,48 +651,28 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("fusion")
     @handle_command_errors
     @require_handlers("fusion_handler")
-    async def lmem_fusion(self, event: AstrMessageEvent, strategy: str = "show", param: str = ""):
-        """[管理员] 管理检索融合策略。
+    async def lmem_fusion(self, event: AstrMessageEvent):
+        """[管理员] 查看检索融合配置。
 
-        用法: /lmem fusion [strategy] [param=value]
+        用法: /lmem fusion
 
-        策略:
-          show - 显示当前融合配置
-          rrf - Reciprocal Rank Fusion (经典RRF)
-          hybrid_rrf - 混合RRF (动态调整参数)
-          weighted - 加权融合
-          convex - 凸组合融合
-          interleave - 交替融合
-          rank_fusion - 基于排序的融合
-          score_fusion - 基于分数的融合 (Borda Count)
-          cascade - 级联融合
-          adaptive - 自适应融合
-
-        示例:
-          /lmem fusion show
-          /lmem fusion hybrid_rrf
-          /lmem fusion convex lambda=0.6
-          /lmem fusion weighted dense_weight=0.8
+        显示当前融合配置信息。融合策略已固定为RRF (Reciprocal Rank Fusion)。
         """
-        if strategy == "show":
-            result = await self.fusion_handler.manage_fusion_strategy("show")
-            yield event.plain_result(self.fusion_handler.format_fusion_config_for_display(result))
-        else:
-            result = await self.fusion_handler.manage_fusion_strategy(strategy, param)
-            yield event.plain_result(result["message"])
+        result = await self.fusion_handler.manage_fusion_strategy("show")
+        yield event.plain_result(self.fusion_handler.format_fusion_config_for_display(result))
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("test_fusion")
     @handle_command_errors
     @require_handlers("fusion_handler")
     async def lmem_test_fusion(self, event: AstrMessageEvent, query: str, k: int = 5):
-        """[管理员] 测试不同融合策略的效果。
+        """[管理员] 测试RRF融合策略的效果。
 
         用法: /lmem test_fusion <查询> [返回数量]
 
-        这个命令会使用当前的融合策略进行搜索，并显示详细的融合过程信息。
+        这个命令会使用RRF融合策略进行搜索，并显示详细的结果信息。
         """
-        yield event.plain_result(f"🔍 测试融合策略，查询: '{query}', 返回数量: {k}")
+        yield event.plain_result(f"🔍 测试RRF融合策略，查询: '{query}', 返回数量: {k}")
         result = await self.fusion_handler.test_fusion_strategy(query, k)
         yield event.plain_result(self.fusion_handler.format_fusion_test_for_display(result))
 
@@ -1041,33 +845,36 @@ class LivingMemoryPlugin(Star):
         显示核心命令列表和 WebUI 使用指引。
         """
         message = (
-            "📚 LivingMemory 命令帮助\n"
+            "📚 Living Memory 核心指令\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "🔧 核心命令：\n"
+            "📊 信息查询:\n"
             "  /lmem status\n"
-            "    查看记忆库状态（总数、类型分布等）\n\n"
+            "    查看记忆库状态\n\n"
             "  /lmem search <query> [k]\n"
-            "    搜索记忆，k 为返回数量（默认3条）\n"
+            "    搜索记忆(k为返回数量,默认3)\n"
             "    示例: /lmem search 用户喜好 5\n\n"
+            "  /lmem config [show|validate]\n"
+            "    查看或验证配置\n\n"
+            "🔧 系统管理:\n"
             "  /lmem forget <id>\n"
-            "    删除指定ID的记忆（紧急删除）\n"
+            "    删除指定记忆\n"
             "    示例: /lmem forget 123\n\n"
-            "  /lmem webui\n"
-            "    显示 WebUI 访问信息和功能说明\n\n"
             "  /lmem migrate [status|run|info]\n"
-            "    数据库迁移管理（查看状态、执行迁移）\n\n"
+            "    数据库迁移管理\n\n"
+            "  /lmem fusion\n"
+            "    查看当前融合策略配置\n\n"
+            "  /lmem test_fusion <query> [k]\n"
+            "    测试融合策略效果\n"
+            "    示例: /lmem test_fusion 测试查询 5\n\n"
+            "🌐 Web界面:\n"
+            "  /lmem webui\n"
+            "    查看WebUI访问信息\n\n"
             "  /lmem help\n"
-            "    显示本帮助信息\n\n"
+            "    显示此帮助信息\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🌐 高级功能请使用 WebUI 控制台\n\n"
-            "使用 /lmem webui 查看 WebUI 访问地址。\n"
-            "WebUI 提供以下高级功能：\n"
-            "  • 记忆编辑和批量管理\n"
-            "  • 配置检索策略和融合算法\n"
-            "  • 测试和调试检索效果\n"
-            "  • 系统维护和索引管理\n"
-            "  • 统计分析和可视化\n\n"
-            "💡 提示：命令行适合快速查询，WebUI 适合深度管理。"
+            "💡 提示: 更多高级功能(记忆编辑、详细信息、系统设置等)\n"
+            "   请使用 WebUI 界面进行管理\n\n"
+            "使用 /lmem webui 查看访问地址"
         )
 
         yield event.plain_result(message)
