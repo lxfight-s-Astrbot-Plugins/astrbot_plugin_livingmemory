@@ -256,9 +256,19 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # WebUI暂时禁用,等待适配MemoryEngine
-            logger.info("WebUI 功能正在适配新架构,暂时禁用")
-            self.webui_server = None
+            # 导入WebUI服务器
+            from .webui.server import WebUIServer
+            
+            # 创建WebUI服务器实例
+            self.webui_server = WebUIServer(
+                memory_engine=self.memory_engine,
+                config=webui_config
+            )
+            
+            # 启动WebUI服务器
+            await self.webui_server.start()
+            
+            logger.info(f"✅ WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}")
         except Exception as e:
             logger.error(f"启动 WebUI 控制台失败: {e}", exc_info=True)
             self.webui_server = None
