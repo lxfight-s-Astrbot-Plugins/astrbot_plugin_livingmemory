@@ -7,7 +7,6 @@
 import asyncio
 import time
 import aiosqlite
-import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -364,25 +363,27 @@ class MemoryEngine:
             all_docs = await self.faiss_db.document_storage.get_documents(
                 metadata_filters={"session_id": session_id}
             )
-            
+
             # 按创建时间排序
             sorted_docs = sorted(
                 all_docs,
                 key=lambda x: x["metadata"].get("create_time", 0),
-                reverse=True
+                reverse=True,
             )
-            
+
             # 限制数量
             limited_docs = sorted_docs[:limit]
-            
+
             memories = []
             for doc in limited_docs:
-                memories.append({
-                    "id": doc["id"],
-                    "text": doc["text"],
-                    "metadata": doc["metadata"],
-                })
-            
+                memories.append(
+                    {
+                        "id": doc["id"],
+                        "text": doc["text"],
+                        "metadata": doc["metadata"],
+                    }
+                )
+
             return memories
         except Exception:
             return []
@@ -417,24 +418,24 @@ class MemoryEngine:
             all_docs = await self.faiss_db.document_storage.get_documents(
                 metadata_filters={}
             )
-            
+
             # 找到符合清理条件的记忆
             to_delete = []
             for doc in all_docs:
                 metadata = doc["metadata"]
                 create_time = metadata.get("create_time", time.time())
                 doc_importance = metadata.get("importance", 0.5)
-                
+
                 if create_time < cutoff_time and doc_importance < importance:
                     to_delete.append(doc["id"])
-            
+
             # 批量删除
             deleted_count = 0
             for memory_id in to_delete:
                 success = await self.delete_memory(memory_id)
                 if success:
                     deleted_count += 1
-            
+
             return deleted_count
         except Exception:
             return 0
@@ -456,33 +457,33 @@ class MemoryEngine:
             all_docs = await self.faiss_db.document_storage.get_documents(
                 metadata_filters={}
             )
-            
+
             stats = {}
-            
+
             # 总记忆数
             stats["total_memories"] = len(all_docs)
-            
+
             # 各会话记忆数
             session_counts = {}
             importance_sum = 0
             importance_count = 0
             oldest_time = None
             newest_time = None
-            
+
             for doc in all_docs:
                 metadata = doc["metadata"]
-                
+
                 # 统计会话
                 session_id = metadata.get("session_id")
                 if session_id:
                     session_counts[session_id] = session_counts.get(session_id, 0) + 1
-                
+
                 # 统计重要性
                 importance = metadata.get("importance")
                 if importance is not None:
                     importance_sum += importance
                     importance_count += 1
-                
+
                 # 统计时间
                 create_time = metadata.get("create_time")
                 if create_time:
@@ -490,14 +491,14 @@ class MemoryEngine:
                         oldest_time = create_time
                     if newest_time is None or create_time > newest_time:
                         newest_time = create_time
-            
+
             stats["sessions"] = session_counts
             stats["avg_importance"] = (
                 importance_sum / importance_count if importance_count > 0 else 0.0
             )
             stats["oldest_memory"] = oldest_time
             stats["newest_memory"] = newest_time
-            
+
             return stats
         except Exception:
             return {

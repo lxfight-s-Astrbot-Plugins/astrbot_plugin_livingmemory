@@ -5,4 +5,4 @@ LivingMemory核心模块
 
 from .memory_engine import MemoryEngine
 
-__all__ = ['MemoryEngine']
+__all__ = ["MemoryEngine"]

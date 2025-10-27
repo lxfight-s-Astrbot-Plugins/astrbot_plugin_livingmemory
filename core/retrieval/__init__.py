@@ -9,11 +9,11 @@ from .vector_retriever import VectorRetriever
 from .hybrid_retriever import HybridRetriever
 
 __all__ = [
-    'RRFFusion',
-    'BM25Result',
-    'VectorResult', 
-    'FusedResult',
-    'BM25Retriever',
-    'VectorRetriever',
-    'HybridRetriever',
+    "RRFFusion",
+    "BM25Result",
+    "VectorResult",
+    "FusedResult",
+    "BM25Retriever",
+    "VectorRetriever",
+    "HybridRetriever",
 ]
