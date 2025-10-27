@@ -104,3 +104,4 @@ docs/IMPLEMENTATION_PLAN.md
 docs/MEMORY_ENGINE_DESIGN.md
 test_rrf_fusion.py
 test_bm25_retriever.py
+test_vector_retriever.py
