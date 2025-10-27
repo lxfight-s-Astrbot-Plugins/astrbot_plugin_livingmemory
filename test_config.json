@@ -1,9 +1,0 @@
-{
-  "webui_settings": {
-    "enabled": true,
-    "port": 8084,
-    "host": "127.0.0.1",
-    "access_password": "test123",
-    "session_timeout": 3600
-  }
-}
