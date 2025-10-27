@@ -83,7 +83,9 @@ class MemoryStorage:
             return []
         # 安全的 SQL 构造: 使用固定模板而非 f-string
         placeholders = ",".join("?" * len(internal_ids))
-        sql = "SELECT id, memory_id, memory_data FROM memories WHERE id IN ({})".format(placeholders)
+        sql = "SELECT id, memory_id, memory_data FROM memories WHERE id IN ({})".format(
+            placeholders
+        )
         async with self.connection.execute(sql, internal_ids) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
@@ -98,7 +100,9 @@ class MemoryStorage:
             return []
         # 安全的 SQL 构造: 使用固定模板而非 f-string
         placeholders = ",".join("?" * len(memory_ids))
-        sql = "SELECT id, memory_id, memory_data FROM memories WHERE memory_id IN ({})".format(placeholders)
+        sql = "SELECT id, memory_id, memory_data FROM memories WHERE memory_id IN ({})".format(
+            placeholders
+        )
         async with self.connection.execute(sql, memory_ids) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
