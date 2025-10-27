@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from .rrf_fusion import RRFFusion, FusedResult
 from .bm25_retriever import BM25Retriever
 from .vector_retriever import VectorRetriever
+from astrbot.api import logger
 
 
 @dataclass
@@ -165,12 +166,16 @@ class HybridRetriever:
                     )
                 except Exception as be:
                     bm25_error = be
+                    logger.warning(f"BM25检索失败: {bm25_error}")
+
                 try:
                     vector_results = await self.vector_retriever.search(
                         query, k, session_id, persona_id
                     )
                 except Exception as ve:
                     vector_error = ve
+                    logger.warning(f"向量检索失败: {vector_error}")
+
             else:
                 raise e
 

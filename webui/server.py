@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 server.py - LivingMemory WebUI backend (适配MemoryEngine架构)
@@ -49,10 +48,8 @@ API端点说明:
 """
 
 import asyncio
-import json
 import secrets
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
@@ -61,7 +58,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from astrbot.api import logger
 
@@ -238,26 +234,26 @@ class WebUIServer:
 
     def _auth_dependency(self):
         """认证依赖"""
+
         async def dependency(request: Request) -> str:
             token = self._extract_token(request)
             await self._validate_token(token)
             return token
+
         return dependency
 
     async def _validate_token(self, token: str):
         """验证token有效性"""
         if not token:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="未提供认证Token"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证Token"
             )
 
         async with self._token_lock:
             token_info = self._tokens.get(token)
             if not token_info:
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token无效或已过期"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Token无效或已过期"
                 )
 
             now = time.time()
@@ -269,16 +265,14 @@ class WebUIServer:
             if now - created_at > max_lifetime:
                 self._tokens.pop(token, None)
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token已过期"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Token已过期"
                 )
 
             # 检查活动超时
             if now - last_active > self.session_timeout:
                 self._tokens.pop(token, None)
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="会话已超时"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已超时"
                 )
 
             # 更新最后活动时间
@@ -289,7 +283,7 @@ class WebUIServer:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return auth_header[7:]
-        
+
         # 也支持X-Auth-Token header
         return request.headers.get("X-Auth-Token", "")
 
@@ -342,7 +336,7 @@ class WebUIServer:
             if not await self._check_rate_limit(client_ip):
                 raise HTTPException(
                     status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="尝试次数过多，请5分钟后再试"
+                    detail="尝试次数过多，请5分钟后再试",
                 )
 
             if password != self._access_password:
@@ -361,7 +355,7 @@ class WebUIServer:
                 self._tokens[token] = {
                     "created_at": now,
                     "last_active": now,
-                    "max_lifetime": max_lifetime
+                    "max_lifetime": max_lifetime,
                 }
 
             return {"token": token, "expires_in": self.session_timeout}
@@ -382,13 +376,12 @@ class WebUIServer:
             query = request.query_params
             session_id = query.get("session_id")
             limit = min(200, max(1, int(query.get("limit", 50))))
-            
+
             try:
                 if session_id:
                     # 获取特定会话的记忆
                     memories = await self.memory_engine.get_session_memories(
-                        session_id=session_id,
-                        limit=limit
+                        session_id=session_id, limit=limit
                     )
                 else:
                     # 获取所有记忆(通过faiss_db)
@@ -399,129 +392,103 @@ class WebUIServer:
                     sorted_docs = sorted(
                         all_docs,
                         key=lambda x: x["metadata"].get("create_time", 0),
-                        reverse=True
+                        reverse=True,
                     )
                     memories = sorted_docs[:limit]
-                
+
                 return {
                     "success": True,
-                    "data": {
-                        "items": memories,
-                        "total": len(memories),
-                        "limit": limit
-                    }
+                    "data": {"items": memories, "total": len(memories), "limit": limit},
                 }
             except Exception as e:
                 logger.error(f"获取记忆列表失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 获取记忆详情
         @self._app.get("/api/memories/{memory_id}")
         async def get_memory_detail(
-            memory_id: int,
-            token: str = Depends(self._auth_dependency())
+            memory_id: int, token: str = Depends(self._auth_dependency())
         ):
             try:
                 memory = await self.memory_engine.get_memory(memory_id)
                 if not memory:
                     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
-                
-                return {
-                    "success": True,
-                    "data": memory
-                }
+
+                return {"success": True, "data": memory}
             except HTTPException:
                 raise
             except Exception as e:
                 logger.error(f"获取记忆详情失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 搜索记忆
         @self._app.post("/api/memories/search")
         async def search_memories(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency())
+            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
         ):
             query = payload.get("query", "").strip()
             if not query:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="查询内容不能为空")
-            
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail="查询内容不能为空"
+                )
+
             k = min(50, max(1, int(payload.get("k", 10))))
             session_id = payload.get("session_id")
             persona_id = payload.get("persona_id")
             try:
                 results = await self.memory_engine.search_memories(
-                    query=query,
-                    k=k,
-                    session_id=session_id,
-                    persona_id=persona_id
+                    query=query, k=k, session_id=session_id, persona_id=persona_id
                 )
-                
+
                 # 格式化结果
                 formatted_results = []
                 for result in results:
-                    formatted_results.append({
-                        "id": result.doc_id,
-                        "content": result.content,
-                        "score": result.final_score,
-                        "metadata": result.metadata
-                    })
-                
-                return {
-                    "success": True,
-                    "data": formatted_results
-                }
+                    formatted_results.append(
+                        {
+                            "id": result.doc_id,
+                            "content": result.content,
+                            "score": result.final_score,
+                            "metadata": result.metadata,
+                        }
+                    )
+
+                return {"success": True, "data": formatted_results}
             except Exception as e:
                 logger.error(f"搜索记忆失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 删除单个记忆
         @self._app.delete("/api/memories/{memory_id}")
         async def delete_memory(
-            memory_id: int,
-            token: str = Depends(self._auth_dependency())
+            memory_id: int, token: str = Depends(self._auth_dependency())
         ):
             try:
                 success = await self.memory_engine.delete_memory(memory_id)
                 if not success:
                     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
-                
-                return {
-                    "success": True,
-                    "message": f"记忆 {memory_id} 已删除"
-                }
+
+                return {"success": True, "message": f"记忆 {memory_id} 已删除"}
             except HTTPException:
                 raise
             except Exception as e:
                 logger.error(f"删除记忆失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 批量删除记忆
         @self._app.post("/api/memories/batch-delete")
         async def batch_delete_memories(
-            payload: Dict[str, Any],
-            token: str = Depends(self._auth_dependency())
+            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
         ):
             memory_ids = payload.get("memory_ids", [])
             if not memory_ids:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="需要提供记忆ID列表")
-            
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail="需要提供记忆ID列表"
+                )
+
             try:
                 deleted_count = 0
                 failed_count = 0
-                
+
                 for memory_id in memory_ids:
                     try:
                         success = await self.memory_engine.delete_memory(int(memory_id))
@@ -531,67 +498,55 @@ class WebUIServer:
                             failed_count += 1
                     except Exception:
                         failed_count += 1
-                
+
                 return {
                     "success": True,
                     "data": {
                         "deleted_count": deleted_count,
                         "failed_count": failed_count,
-                        "total": len(memory_ids)
-                    }
+                        "total": len(memory_ids),
+                    },
                 }
             except Exception as e:
                 logger.error(f"批量删除记忆失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 获取统计信息
         @self._app.get("/api/stats")
         async def get_stats(token: str = Depends(self._auth_dependency())):
             try:
                 stats = await self.memory_engine.get_statistics()
-                return {
-                    "success": True,
-                    "data": stats
-                }
+                return {"success": True, "data": stats}
             except Exception as e:
                 logger.error(f"获取统计信息失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 清理旧记忆
         @self._app.post("/api/cleanup")
         async def cleanup_memories(
             payload: Optional[Dict[str, Any]] = None,
-            token: str = Depends(self._auth_dependency())
+            token: str = Depends(self._auth_dependency()),
         ):
             payload = payload or {}
             days_threshold = payload.get("days_threshold")
             importance_threshold = payload.get("importance_threshold")
-            
+
             try:
                 deleted_count = await self.memory_engine.cleanup_old_memories(
                     days_threshold=days_threshold,
-                    importance_threshold=importance_threshold
+                    importance_threshold=importance_threshold,
                 )
-                
+
                 return {
                     "success": True,
                     "data": {
                         "deleted_count": deleted_count,
-                        "message": f"已清理 {deleted_count} 条旧记忆"
-                    }
+                        "message": f"已清理 {deleted_count} 条旧记忆",
+                    },
                 }
             except Exception as e:
                 logger.error(f"清理记忆失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 获取会话列表
         @self._app.get("/api/sessions")
@@ -599,31 +554,24 @@ class WebUIServer:
             try:
                 stats = await self.memory_engine.get_statistics()
                 sessions = stats.get("sessions", {})
-                
+
                 # 格式化为列表
                 session_list = []
                 for session_id, count in sessions.items():
-                    session_list.append({
-                        "session_id": session_id,
-                        "memory_count": count
-                    })
-                
+                    session_list.append(
+                        {"session_id": session_id, "memory_count": count}
+                    )
+
                 # 按记忆数量排序
                 session_list.sort(key=lambda x: x["memory_count"], reverse=True)
-                
+
                 return {
                     "success": True,
-                    "data": {
-                        "sessions": session_list,
-                        "total": len(session_list)
-                    }
+                    "data": {"sessions": session_list, "total": len(session_list)},
                 }
             except Exception as e:
                 logger.error(f"获取会话列表失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
+                return {"success": False, "error": str(e)}
 
         # 获取配置信息
         @self._app.get("/api/config")
@@ -635,20 +583,19 @@ class WebUIServer:
                     "memory_config": {
                         "rrf_k": self.memory_engine.config.get("rrf_k", 60),
                         "decay_rate": self.memory_engine.config.get("decay_rate", 0.01),
-                        "importance_weight": self.memory_engine.config.get("importance_weight", 1.0),
-                        "cleanup_days_threshold": self.memory_engine.config.get("cleanup_days_threshold", 30),
-                        "cleanup_importance_threshold": self.memory_engine.config.get("cleanup_importance_threshold", 0.3),
-                    }
+                        "importance_weight": self.memory_engine.config.get(
+                            "importance_weight", 1.0
+                        ),
+                        "cleanup_days_threshold": self.memory_engine.config.get(
+                            "cleanup_days_threshold", 30
+                        ),
+                        "cleanup_importance_threshold": self.memory_engine.config.get(
+                            "cleanup_importance_threshold", 0.3
+                        ),
+                    },
                 }
-                
-                return {
-                    "success": True,
-                    "data": safe_config
-                }
+
+                return {"success": True, "data": safe_config}
             except Exception as e:
                 logger.error(f"获取配置信息失败: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-                    
+                return {"success": False, "error": str(e)}

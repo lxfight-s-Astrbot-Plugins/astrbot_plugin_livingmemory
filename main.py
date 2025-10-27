@@ -26,7 +26,6 @@ from .storage.db_migration import DBMigration
 from .core.utils import (
     get_persona_id,
     format_memories_for_injection,
-    retry_on_failure,
     OperationContext,
 )
 from .core.config_validator import validate_config, merge_config_with_defaults
@@ -258,17 +257,18 @@ class LivingMemoryPlugin(Star):
         try:
             # 导入WebUI服务器
             from .webui.server import WebUIServer
-            
+
             # 创建WebUI服务器实例
             self.webui_server = WebUIServer(
-                memory_engine=self.memory_engine,
-                config=webui_config
+                memory_engine=self.memory_engine, config=webui_config
             )
-            
+
             # 启动WebUI服务器
             await self.webui_server.start()
-            
-            logger.info(f"✅ WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}")
+
+            logger.info(
+                f"✅ WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
+            )
         except Exception as e:
             logger.error(f"启动 WebUI 控制台失败: {e}", exc_info=True)
             self.webui_server = None

@@ -6,6 +6,9 @@ __pycache__/
 
 # Database files
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.index
 
 # IDE and OS files
