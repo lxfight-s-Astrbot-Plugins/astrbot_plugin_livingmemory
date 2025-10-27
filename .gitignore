@@ -100,3 +100,7 @@ ARCHITECTURE_REDESIGN_PART2.md
 test_data_layer.py
 test_text_processor.py
 test_conversation_manager.py
+docs/IMPLEMENTATION_PLAN.md
+docs/MEMORY_ENGINE_DESIGN.md
+test_rrf_fusion.py
+test_bm25_retriever.py
