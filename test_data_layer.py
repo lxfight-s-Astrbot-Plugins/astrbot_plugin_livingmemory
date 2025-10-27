@@ -7,9 +7,8 @@
 import asyncio
 import os
 import time
-from pathlib import Path
 
-from core.conversation_models import Message, Session, MemoryEvent
+from core.conversation_models import Message, MemoryEvent
 from storage.conversation_store import ConversationStore
 
 
@@ -159,4 +158,3 @@ async def test_basic_functionality():
 if __name__ == "__main__":
     print("\n运行 LivingMemory 数据层测试...\n")
     asyncio.run(test_basic_functionality())
-
