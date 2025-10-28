@@ -238,12 +238,13 @@ class MemoryEngine:
         """
         更新记忆
 
-        支持更新内容、重要性、元数据等
+        支持更新内容、重要性、元数据等。内容更新会通过删除旧记忆、创建新记忆来确保
+        向量库和BM25索引同步更新。
 
         Args:
             memory_id: 记忆ID
             updates: 更新字典,可包含:
-                - content: 新内容
+                - content: 新内容 (会触发索引重建)
                 - importance: 新重要性
                 - metadata: 元数据更新
 
@@ -255,24 +256,63 @@ class MemoryEngine:
         if not memory:
             return False
 
-        current_metadata = memory["metadata"]
+        current_metadata = memory.get("metadata", {})
 
-        # 处理内容更新
+        # 处理内容更新 (需要重建索引)
         if "content" in updates:
             new_content = updates["content"]
             if not new_content or not new_content.strip():
                 return False
 
-            # 更新documents表
-            await self.db_connection.execute(
-                "UPDATE documents SET text = ? WHERE id = ?", (new_content, memory_id)
-            )
-            await self.db_connection.commit()
+            # 内容变化时,需要重新生成向量和更新BM25索引
+            # 实现方案:删除旧记忆,创建新记忆,保持其他属性不变
+            try:
+                # 提取需要保留的信息
+                session_id = current_metadata.get("session_id")
+                persona_id = current_metadata.get("persona_id")
+                importance = current_metadata.get(
+                    "importance", updates.get("importance", 0.5)
+                )
 
-            # TODO: 需要重新生成向量和更新BM25索引
-            # 这里暂时只更新数据库,完整实现需要重建索引
+                # 构建新的元数据(保留原有数据,只更新必要字段)
+                new_metadata = current_metadata.copy()
+                new_metadata["updated_at"] = time.time()
 
-        # 处理元数据更新
+                # 1. 删除旧记忆 (同时清除BM25、向量库和documents表)
+                delete_success = await self.delete_memory(memory_id)
+                if not delete_success:
+                    from astrbot.api import logger
+
+                    logger.warning(f"删除旧记忆失败 (memory_id={memory_id})")
+
+                # 2. 创建新记忆 (会自动创建向量和BM25索引)
+                new_memory_id = await self.add_memory(
+                    content=new_content,
+                    session_id=session_id,
+                    persona_id=persona_id,
+                    importance=importance,
+                    metadata=new_metadata,
+                )
+
+                # 如果add_memory返回了新ID,更新成功
+                # 否则返回原有ID(兼容性)
+                if new_memory_id is not None:
+                    from astrbot.api import logger
+
+                    logger.info(
+                        f"记忆内容更新成功 (old_id={memory_id}, new_id={new_memory_id})"
+                    )
+                    return True
+
+                return False
+
+            except Exception as e:
+                from astrbot.api import logger
+
+                logger.error(f"更新记忆内容失败 (memory_id={memory_id}): {e}")
+                return False
+
+        # 处理非内容的元数据更新 (不需要重建索引)
         metadata_updates = {}
 
         if "importance" in updates:
@@ -298,14 +338,31 @@ class MemoryEngine:
         """
         删除记忆
 
+        从向量库、BM25索引和SQLite数据库中同时删除记录,确保三个存储层同步。
+
         Args:
             memory_id: 记忆ID
 
         Returns:
             bool: 是否删除成功
         """
-        # 通过混合检索器删除(会同时删除BM25和向量索引)
+        # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
         success = await self.hybrid_retriever.delete_memory(memory_id)
+
+        if success:
+            # 2. 同步删除SQLite documents表中的记录
+            try:
+                await self.db_connection.execute(
+                    "DELETE FROM documents WHERE id = ?", (memory_id,)
+                )
+                await self.db_connection.commit()
+            except Exception as e:
+                from astrbot.api import logger
+
+                logger.warning(
+                    f"删除documents表记录失败 (memory_id={memory_id}): {e}"
+                )
+                # 不影响总体返回值,向量库和BM25已成功删除
 
         return success
 

@@ -225,17 +225,9 @@ class DBMigration:
     ):
         """
         从版本1迁移到版本2
-        主要变更：重建FTS5索引以支持分词和停用词过滤
+        主要变更：documents表数据保留，仅更新版本号
         """
-        logger.info("📦 执行迁移步骤: v1 -> v2 (FTS5索引预处理)")
-
-        if not sparse_retriever:
-            logger.warning("⚠️ 未提供稀疏检索器，跳过FTS5索引重建")
-            return
-
-        if not sparse_retriever.enabled:
-            logger.info("ℹ️ 稀疏检索器未启用，跳过FTS5索引重建")
-            return
+        logger.info("📦 执行迁移步骤: v1 -> v2 (数据库版本升级)")
 
         try:
             # 检查是否有documents表
@@ -247,7 +239,7 @@ class DBMigration:
                 has_table = (await cursor.fetchone())[0] > 0
 
                 if not has_table:
-                    logger.info("ℹ️ 未找到documents表，跳过FTS5索引重建")
+                    logger.info("ℹ️ 未找到documents表，创建新数据库")
                     return
 
                 # 获取文档总数
@@ -255,24 +247,12 @@ class DBMigration:
                 total_docs = (await cursor.fetchone())[0]
 
                 if total_docs == 0:
-                    logger.info("ℹ️ 数据库为空，跳过FTS5索引重建")
-                    return
-
-                logger.info(f"📊 发现 {total_docs} 条文档需要重新索引")
-
-            # 重建FTS5索引
-            if progress_callback:
-                progress_callback("正在重建FTS5索引...", 0, total_docs)
-
-            await sparse_retriever.rebuild_index()
-
-            if progress_callback:
-                progress_callback("FTS5索引重建完成", total_docs, total_docs)
-
-            logger.info(f"✅ FTS5索引重建完成，共处理 {total_docs} 条文档")
+                    logger.info("ℹ️ 数据库为空，数据已保留")
+                else:
+                    logger.info(f"✅ 成功保留 {total_docs} 条现有文档数据")
 
         except Exception as e:
-            logger.error(f"❌ FTS5索引重建失败: {e}", exc_info=True)
+            logger.error(f"❌ 数据库迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> Dict[str, Any]:

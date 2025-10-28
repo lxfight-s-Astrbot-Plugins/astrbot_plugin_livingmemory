@@ -318,6 +318,8 @@ class HybridRetriever:
         更新两个索引中的元数据
 
         同时更新向量库和documents表的元数据,确保数据一致性。
+        优先级: 向量库 > documents表,向量库更新失败时返回False,
+        documents表更新失败时记录警告但不影响整体结果。
 
         Args:
             doc_id: 文档ID
@@ -330,7 +332,7 @@ class HybridRetriever:
         import json
 
         try:
-            # 1. 更新向量索引元数据(主要存储)
+            # 1. 更新向量索引元数据(主要存储) - 必须成功
             vector_success = await self.vector_retriever.update_metadata(
                 doc_id, metadata
             )
@@ -338,7 +340,7 @@ class HybridRetriever:
             if not vector_success:
                 return False
 
-            # 2. 尝试更新documents表的元数据(如果存在)
+            # 2. 尝试更新documents表的元数据(辅助存储)
             # 由于BM25检索从documents表读取元数据,我们尝试同步更新
             # 但如果documents表中没有此记录(如测试环境),不影响整体成功
             try:
@@ -360,28 +362,44 @@ class HybridRetriever:
                             (json.dumps(current_metadata), doc_id),
                         )
                         await db.commit()
-                    # 如果记录不存在,不影响整体结果(向量库已成功)
-            except Exception:
-                # SQLite更新失败不影响整体结果,因为向量库是主存储
-                pass
+                    else:
+                        # 如果documents表中没有此记录,只记录信息日志(不影响整体结果)
+                        logger.debug(
+                            f"documents表中未找到记录 (doc_id={doc_id}),只更新了向量库元数据"
+                        )
+
+            except Exception as e:
+                # SQLite更新失败时记录警告,但不影响整体结果
+                # 因为向量库是主存储,向量库已成功更新
+                logger.warning(
+                    f"更新documents表元数据失败 (doc_id={doc_id}): {e}. "
+                    f"向量库元数据已更新,但SQLite辅助表未同步"
+                )
 
             return True
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"更新元数据失败 (doc_id={doc_id}): {e}")
             return False
 
     async def delete_memory(self, doc_id: int) -> bool:
         """
-        从两个索引中删除记忆
+        从多个存储层中删除记忆
+
+        同时从向量库、BM25索引和SQLite数据库中删除记录,确保三个存储层同步。
+
+        删除优先级：向量库和BM25索引必须成功,documents表删除失败时记录警告但不影响整体结果。
 
         Args:
             doc_id: 文档ID
 
         Returns:
-            bool: 是否成功删除(两个索引都成功才返回True)
+            bool: 是否成功删除(向量库和BM25都成功即返回True)
         """
-        # 并行删除两个索引
+        import aiosqlite
+
         try:
+            # 1. 并行删除向量库和BM25索引(必须成功)
             results = await asyncio.gather(
                 self.bm25_retriever.delete_document(doc_id),
                 self.vector_retriever.delete_document(doc_id),
@@ -394,8 +412,36 @@ class HybridRetriever:
                 results[1] if not isinstance(results[1], Exception) else False
             )
 
-            # 两个都成功才算成功
-            return bm25_success and vector_success
+            # 向量库和BM25都必须成功
+            if not (bm25_success and vector_success):
+                return False
 
-        except Exception:
+            # 2. 同步删除SQLite documents表中的记录(辅助存储)
+            # 删除失败时记录警告但不影响整体结果
+            try:
+                async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
+                    cursor = await db.execute(
+                        "SELECT id FROM documents WHERE id = ?", (doc_id,)
+                    )
+                    exists = await cursor.fetchone()
+
+                    if exists:
+                        await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                        await db.commit()
+                    else:
+                        logger.debug(
+                            f"documents表中未找到记录 (doc_id={doc_id}),索引已成功删除"
+                        )
+
+            except Exception as e:
+                # documents表删除失败不影响整体结果
+                logger.warning(
+                    f"删除documents表记录失败 (doc_id={doc_id}): {e}. "
+                    f"向量库和BM25索引已删除,但SQLite辅助表未同步"
+                )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"删除记忆失败 (doc_id={doc_id}): {e}")
             return False
