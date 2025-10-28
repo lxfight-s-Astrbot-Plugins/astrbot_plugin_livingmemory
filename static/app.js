@@ -71,7 +71,11 @@
     dom.loginForm.addEventListener("submit", onLoginSubmit);
     dom.refreshButton.addEventListener("click", fetchAll);
     dom.loadAllButton.addEventListener("click", onLoadAll);
-    dom.nukeButton.addEventListener("click", onNukeClick);
+    // 暂时禁用核爆功能（API未实现）
+    // dom.nukeButton.addEventListener("click", onNukeClick);
+    dom.nukeButton.disabled = true;
+    dom.nukeButton.title = "功能暂未实现";
+    
     dom.logoutButton.addEventListener("click", logout);
     dom.prevPage.addEventListener("click", goPrevPage);
     dom.nextPage.addEventListener("click", goNextPage);
@@ -80,7 +84,7 @@
     dom.selectAll.addEventListener("change", toggleSelectAll);
     dom.deleteSelected.addEventListener("click", deleteSelectedMemories);
     dom.drawerClose.addEventListener("click", closeDetailDrawer);
-    dom.nukeCancel.addEventListener("click", onNukeCancel);
+    // dom.nukeCancel.addEventListener("click", onNukeCancel);
     dom.keywordInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -93,42 +97,49 @@
       btn.addEventListener("click", () => switchTab(btn.dataset.tab));
     });
 
-    // 记忆编辑功能
+    // 记忆编辑功能（暂未实现后端API）
     const editBtn = document.getElementById("edit-memory-btn");
-    const editModal = document.getElementById("edit-modal");
-    const modalClose = document.getElementById("modal-close");
-    const cancelEdit = document.getElementById("cancel-edit");
-    const saveEdit = document.getElementById("save-edit");
-    const editField = document.getElementById("edit-field");
+    if (editBtn) {
+      editBtn.disabled = true;
+      editBtn.title = "功能暂未实现";
+    }
 
-    if (editBtn) editBtn.addEventListener("click", openEditModal);
-    if (modalClose) modalClose.addEventListener("click", closeEditModal);
-    if (cancelEdit) cancelEdit.addEventListener("click", closeEditModal);
-    if (saveEdit) saveEdit.addEventListener("click", saveMemoryEdit);
-    if (editField) editField.addEventListener("change", onEditFieldChange);
-
-    // 系统管理功能
+    // 系统管理功能（部分API未实现）
     const triggerForgetting = document.getElementById("trigger-forgetting");
     const rebuildIndex = document.getElementById("rebuild-index");
     const loadSessions = document.getElementById("load-sessions");
 
-    if (triggerForgetting) triggerForgetting.addEventListener("click", triggerForgettingAgent);
-    if (rebuildIndex) rebuildIndex.addEventListener("click", rebuildSparseIndex);
+    if (triggerForgetting) {
+      triggerForgetting.disabled = true;
+      triggerForgetting.title = "功能暂未实现";
+    }
+    if (rebuildIndex) {
+      rebuildIndex.disabled = true;
+      rebuildIndex.title = "功能暂未实现";
+    }
     if (loadSessions) loadSessions.addEventListener("click", loadSessionsInfo);
 
-
-    // 调试工具功能
+    // 调试工具功能（API未实现）
     const runSearchTest = document.getElementById("run-search-test");
     const runFusionCompare = document.getElementById("run-fusion-compare");
     const runMemoryAnalysis = document.getElementById("run-memory-analysis");
 
-    if (runSearchTest) runSearchTest.addEventListener("click", runSearchTestFunc);
-    if (runFusionCompare) runFusionCompare.addEventListener("click", runFusionCompareFunc);
-    if (runMemoryAnalysis) runMemoryAnalysis.addEventListener("click", runMemoryAnalysisFunc);
+    if (runSearchTest) {
+      runSearchTest.disabled = true;
+      runSearchTest.title = "功能暂未实现";
+    }
+    if (runFusionCompare) {
+      runFusionCompare.disabled = true;
+      runFusionCompare.title = "功能暂未实现";
+    }
+    if (runMemoryAnalysis) {
+      runMemoryAnalysis.disabled = true;
+      runMemoryAnalysis.title = "功能暂未实现";
+    }
 
     if (state.token) {
       switchView("dashboard");
-      showToast("Session restored, loading data...");
+      showToast("会话已恢复，正在加载数据...");
       fetchAll();
     } else {
       switchView("login");
@@ -174,18 +185,28 @@
 
   async function fetchAll() {
     await Promise.all([fetchStats(), fetchMemories()]);
-    await initNukeStatus();
+    // 移除 initNukeStatus，该功能暂未实现
   }
 
   async function fetchStats() {
     try {
-      const stats = await apiRequest("/api/stats");
-      dom.stats.total.textContent = stats.total_memories ?? "--";
-      const breakdown = stats.status_breakdown || {};
-      dom.stats.active.textContent = breakdown.active ?? 0;
-      dom.stats.archived.textContent = breakdown.archived ?? 0;
-      dom.stats.deleted.textContent = breakdown.deleted ?? 0;
-      dom.stats.sessions.textContent = stats.active_sessions ?? 0;
+      const response = await apiRequest("/api/stats");
+      if (!response.success) {
+        throw new Error(response.error || "获取统计信息失败");
+      }
+      
+      const stats = response.data || {};
+      dom.stats.total.textContent = stats.total_memories ?? stats.total_count ?? "--";
+      
+      // 处理状态分布
+      const status_breakdown = stats.status_breakdown || {};
+      dom.stats.active.textContent = status_breakdown.active ?? 0;
+      dom.stats.archived.textContent = status_breakdown.archived ?? 0;
+      dom.stats.deleted.textContent = status_breakdown.deleted ?? 0;
+      
+      // 处理会话信息
+      const sessions = stats.sessions || {};
+      dom.stats.sessions.textContent = Object.keys(sessions).length || 0;
     } catch (error) {
       showToast(error.message || "无法获取统计信息", true);
     }
@@ -193,38 +214,62 @@
 
   async function fetchMemories() {
     const params = new URLSearchParams();
-    if (!state.loadAll) {
-      params.set("page", String(state.page));
-      params.set("page_size", String(state.pageSize));
-    } else {
-      params.set("all", "true");
-    }
-    if (state.filters.status && state.filters.status !== "all") {
-      params.set("status", state.filters.status);
-    }
-    if (state.filters.keyword) {
-      params.set("keyword", state.filters.keyword);
+    // 新API使用limit参数
+    const limit = state.loadAll ? 200 : state.pageSize;
+    params.set("limit", String(limit));
+    
+    // 添加会话筛选（可选）
+    if (state.filters.session_id) {
+      params.set("session_id", state.filters.session_id);
     }
 
     try {
-      const data = await apiRequest(`/api/memories?${params.toString()}`);
-      state.items = Array.isArray(data.items) ? data.items : [];
+      const response = await apiRequest(`/api/memories?${params.toString()}`);
+      if (!response.success) {
+        throw new Error(response.error || "获取记忆失败");
+      }
+
+      const data = response.data || {};
+      const rawItems = Array.isArray(data.items) ? data.items : [];
+      
+      // 转换API返回的数据格式以匹配前端期望
+      state.items = rawItems.map((item) => ({
+        memory_id: item.doc_id || item.id,
+        doc_id: item.doc_id || item.id,
+        summary: item.content || item.text || "（无内容）",
+        content: item.content || item.text,
+        memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
+        importance: item.metadata?.importance ?? 5.0,
+        status: item.metadata?.status || "active",
+        created_at: item.metadata?.create_time ? new Date(item.metadata.create_time * 1000).toLocaleString() : "--",
+        last_access: item.metadata?.last_access_time ? new Date(item.metadata.last_access_time * 1000).toLocaleString() : "--",
+        source: "storage",
+        raw: item,
+        raw_json: JSON.stringify(item, null, 2),
+      }));
+
       state.total = data.total ?? state.items.length;
-      state.hasMore = Boolean(data.has_more);
-      state.page = data.page ?? state.page;
-      if (!state.loadAll && data.page_size) {
-        state.pageSize = data.page_size;
+      state.hasMore = state.items.length >= limit;
+      
+      // 应用关键词过滤（客户端侧）
+      if (state.filters.keyword) {
+        const keyword = state.filters.keyword.toLowerCase();
+        state.items = state.items.filter((item) => 
+          item.summary?.toLowerCase().includes(keyword) ||
+          item.memory_id?.toString().includes(keyword)
+        );
       }
-      if (!state.loadAll) {
-        const totalPages = state.pageSize
-          ? Math.max(1, Math.ceil(state.total / state.pageSize))
-          : 1;
-        if (state.page > totalPages) {
-          state.page = totalPages;
-          await fetchMemories();
-          return;
-        }
+
+      // 应用状态过滤（客户端侧）
+      if (state.filters.status && state.filters.status !== "all") {
+        state.items = state.items.filter((item) => 
+          item.status === state.filters.status
+        );
       }
+
+      // 更新总数
+      state.total = state.items.length;
+
       state.selected.clear();
       dom.selectAll.checked = false;
       dom.deleteSelected.disabled = true;
@@ -232,7 +277,7 @@
       updatePagination();
     } catch (error) {
       renderEmptyTable(error.message || "加载失败");
-      showToast(error.message || "Failed to load memories", true);
+      showToast(error.message || "获取记忆失败", true);
     }
   }
 
@@ -403,34 +448,37 @@
       return;
     }
     const count = state.selected.size;
-    const confirmed = window.confirm(`Delete ${count} record(s)? This action cannot be undone.`);
+    const confirmed = window.confirm(`确定删除 ${count} 条记忆？此操作无法撤销。`);
     if (!confirmed) {
       return;
     }
 
-    const docIds = [];
     const memoryIds = [];
     state.items.forEach((item) => {
       const key = getItemKey(item);
       if (state.selected.has(key)) {
         if (item.doc_id !== null && item.doc_id !== undefined) {
-          docIds.push(item.doc_id);
-        }
-        if (item.memory_id) {
+          memoryIds.push(item.doc_id);
+        } else if (item.memory_id) {
           memoryIds.push(item.memory_id);
         }
       }
     });
 
     try {
-      await apiRequest("/api/memories", {
-        method: "DELETE",
+      const response = await apiRequest("/api/memories/batch-delete", {
+        method: "POST",
         body: {
-          doc_ids: docIds,
           memory_ids: memoryIds,
         },
       });
-      showToast(`Deleted ${count} record(s)`);
+      
+      if (!response.success) {
+        throw new Error(response.error || "删除失败");
+      }
+
+      const data = response.data || {};
+      showToast(`已删除 ${data.deleted_count || count} 条记忆`);
       state.selected.clear();
       fetchMemories();
       fetchStats();
@@ -627,7 +675,7 @@
 
     if (response.status === 401) {
       handleAuthFailure();
-      throw new Error("Session expired, please sign in again");
+      throw new Error("会话已过期，请重新登录");
     }
 
     let data;
@@ -638,11 +686,14 @@
     }
 
     if (!response.ok) {
+      // 处理HTTP错误状态码
       const message =
         (data && (data.detail || data.message || data.error)) || "请求失败";
       throw new Error(message);
     }
 
+    // API现在返回 {success: true/false, data: {...}, error: "..."} 格式
+    // 但也要兼容直接返回数据的旧格式
     return data;
   }
 
@@ -1087,33 +1138,43 @@
     const listBox = document.getElementById("sessions-list");
 
     try {
-      const result = await apiRequest("/api/admin/sessions");
+      // 使用新的 ConversationManager API
+      const response = await apiRequest("/api/conversations/recent?limit=50");
+      if (!response.success) {
+        throw new Error(response.error || "获取会话列表失败");
+      }
+
+      const data = response.data || {};
+      const sessions = data.sessions || [];
 
       infoBox.classList.remove("hidden");
-      document.getElementById("total-sessions").textContent = result.total_sessions;
-      document.getElementById("max-sessions").textContent = result.max_sessions;
-      document.getElementById("session-ttl").textContent = result.session_ttl;
+      document.getElementById("total-sessions").textContent = data.total || sessions.length;
+      // 这些字段需要从配置API获取
+      document.getElementById("max-sessions").textContent = "100"; // 默认值
+      document.getElementById("session-ttl").textContent = "3600"; // 默认值
 
-      if (result.sessions && result.sessions.length > 0) {
+      if (sessions.length > 0) {
         const html = `
           <table style="width: 100%; margin-top: 16px; border-collapse: collapse;">
             <thead>
               <tr style="background: var(--surface-alt); text-align: left;">
                 <th style="padding: 8px; border: 1px solid var(--border);">会话 ID</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">轮次</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">历史长度</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">最后访问</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">平台</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">消息数</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">参与者</th>
+                <th style="padding: 8px; border: 1px solid var(--border);">最后活跃</th>
               </tr>
             </thead>
             <tbody>
-              ${result.sessions
+              ${sessions
                 .map(
                   (s) => `
                 <tr>
                   <td style="padding: 8px; border: 1px solid var(--border); font-family: monospace;">${escapeHTML(s.session_id)}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${s.round_count}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${s.history_size}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.last_access || "--")}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.platform || "--")}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${s.message_count || 0}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${(s.participants || []).length}</td>
+                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.last_active_at || "--")}</td>
                 </tr>
               `
                 )
