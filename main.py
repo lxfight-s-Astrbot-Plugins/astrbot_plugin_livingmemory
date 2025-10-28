@@ -25,6 +25,7 @@ from .core.memory_engine import MemoryEngine
 from .storage.db_migration import DBMigration
 from .storage.conversation_store import ConversationStore
 from .core.conversation_manager import ConversationManager
+from .core.memory_processor import MemoryProcessor
 from .core.utils import (
     get_persona_id,
     format_memories_for_injection,
@@ -64,6 +65,7 @@ class LivingMemoryPlugin(Star):
         self.llm_provider: Optional[Provider] = None
         self.db: Optional[FaissVecDB] = None
         self.memory_engine: Optional[MemoryEngine] = None
+        self.memory_processor: Optional[MemoryProcessor] = None
         self.db_migration: Optional[DBMigration] = None
         self.conversation_manager: Optional[ConversationManager] = None
 
@@ -154,6 +156,10 @@ class LivingMemoryPlugin(Star):
                 session_ttl=session_config.get("session_ttl", 3600),
             )
             logger.info("✅ ConversationManager 已初始化")
+
+            # 6.6. 初始化 MemoryProcessor（记忆处理器）
+            self.memory_processor = MemoryProcessor(self.llm_provider)
+            logger.info("✅ MemoryProcessor 已初始化")
 
             # 6.5. 异步初始化 TextProcessor（加载停用词）
             if self.memory_engine and hasattr(
@@ -474,20 +480,62 @@ class LivingMemoryPlugin(Star):
                 async def storage_task():
                     async with OperationContext("记忆存储", session_id):
                         try:
-                            # 将对话历史格式化为文本
-                            conversation_text = "\n".join(
-                                [
-                                    f"{msg.role}: {msg.content}"
-                                    for msg in history_messages
-                                ]
+                            # 判断是否为群聊
+                            is_group_chat = bool(
+                                history_messages[0].group_id
+                                if history_messages
+                                else False
                             )
+
+                            # 使用 MemoryProcessor 处理对话历史,生成结构化记忆
+                            if self.memory_processor:
+                                try:
+                                    (
+                                        content,
+                                        metadata,
+                                        importance,
+                                    ) = await self.memory_processor.process_conversation(
+                                        messages=history_messages,
+                                        is_group_chat=is_group_chat,
+                                    )
+                                    logger.info(
+                                        f"[{session_id}] 已使用LLM生成结构化记忆, "
+                                        f"主题={metadata.get('topics', [])}, 重要性={importance}"
+                                    )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[{session_id}] LLM处理失败,使用降级方案: {e}"
+                                    )
+                                    # 降级方案:简单文本拼接
+                                    content = "\n".join(
+                                        [
+                                            f"{msg.role}: {msg.content}"
+                                            for msg in history_messages
+                                        ]
+                                    )
+                                    metadata = {}
+                                    importance = 0.7
+                            else:
+                                # 如果 MemoryProcessor 未初始化,使用简单文本拼接
+                                logger.warning(
+                                    f"[{session_id}] MemoryProcessor未初始化,使用简单文本拼接"
+                                )
+                                content = "\n".join(
+                                    [
+                                        f"{msg.role}: {msg.content}"
+                                        for msg in history_messages
+                                    ]
+                                )
+                                metadata = {}
+                                importance = 0.7
 
                             # 添加到记忆引擎
                             await self.memory_engine.add_memory(
-                                content=conversation_text,
+                                content=content,
                                 session_id=session_id,
                                 persona_id=persona_id,
-                                importance=0.7,  # 默认重要性
+                                importance=importance,
+                                metadata=metadata,
                             )
                             logger.info(
                                 f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息）"

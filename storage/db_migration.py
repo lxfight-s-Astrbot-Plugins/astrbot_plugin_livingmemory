@@ -241,7 +241,7 @@ class DBMigration:
             # 检查是否有documents表
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute("""
-                    SELECT COUNT(*) FROM sqlite_master 
+                    SELECT COUNT(*) FROM sqlite_master
                     WHERE type='table' AND name='documents'
                 """)
                 has_table = (await cursor.fetchone())[0] > 0
@@ -307,8 +307,8 @@ class DBMigration:
                                 "duration": row[3],
                             }
                         )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"获取迁移历史失败: {e}", exc_info=True)
 
             return {
                 "current_version": current_version,

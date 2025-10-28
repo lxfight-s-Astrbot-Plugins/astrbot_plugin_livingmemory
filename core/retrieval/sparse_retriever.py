@@ -4,12 +4,8 @@
 """
 
 import json
-import sqlite3
-import math
-import re
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
-import asyncio
 import aiosqlite
 
 from astrbot.api import logger
@@ -53,7 +49,7 @@ class FTSManager:
 
             # 创建 FTS5 虚拟表
             await db.execute(f"""
-                CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name} 
+                CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
                 USING fts5(content, doc_id, tokenize='unicode61')
             """)
 
@@ -195,8 +191,8 @@ class FTSManager:
             # 使用 BM25 算法搜索
             cursor = await db.execute(
                 f"""
-                SELECT doc_id, bm25({self.fts_table_name}) as score 
-                FROM {self.fts_table_name} 
+                SELECT doc_id, bm25({self.fts_table_name}) as score
+                FROM {self.fts_table_name}
                 WHERE {self.fts_table_name} MATCH ?
                 ORDER BY score
                 LIMIT ?
