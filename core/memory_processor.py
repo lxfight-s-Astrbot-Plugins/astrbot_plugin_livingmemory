@@ -96,24 +96,29 @@ class MemoryProcessor:
             prompt = self.private_chat_prompt.format(conversation=conversation_text)
 
         # 3. 调用LLM生成结构化记忆
+        conversation_type = "群聊" if is_group_chat else "私聊"
         try:
             logger.info(
-                f"[MemoryProcessor] 开始调用LLM分析对话，消息数={len(messages)}, 类型={'群聊' if is_group_chat else '私聊'}"
+                f"[MemoryProcessor] 准备调用 LLM，对话类型={conversation_type}, 消息数={len(messages)}"
             )
+            logger.debug(f"[MemoryProcessor] Prompt 模板长度={len(prompt)}")
             logger.debug(
                 f"[MemoryProcessor] 发送给LLM的对话内容（前500字符）:\n{conversation_text[:500]}"
             )
 
+            system_prompt = "你是一个专业的对话分析助手,擅长提取对话中的关键信息。"
+            logger.debug(f"[MemoryProcessor] System Prompt: {system_prompt}")
+
             llm_response = await self.llm_provider.text_chat(
                 prompt=prompt,
-                system_prompt="你是一个专业的对话分析助手,擅长提取对话中的关键信息。",
+                system_prompt=system_prompt,
             )
 
             logger.info(
-                f"[MemoryProcessor] LLM响应成功，响应长度={len(llm_response.completion_text)}"
+                f"[MemoryProcessor] ✅ LLM 响应成功，响应长度={len(llm_response.completion_text)}"
             )
             logger.debug(
-                f"[MemoryProcessor] LLM原始响应内容:\n{llm_response.completion_text}"
+                f"[MemoryProcessor] LLM 原始响应内容:\n{llm_response.completion_text}"
             )
 
             # 4. 解析LLM响应
@@ -129,9 +134,9 @@ class MemoryProcessor:
             importance = float(structured_data.get("importance", 0.5))
 
             logger.info(
-                f"[MemoryProcessor] 成功生成结构化记忆: 摘要={structured_data.get('summary', '')[:50]}..., "
+                f"[MemoryProcessor] ✅ 成功生成结构化记忆: 摘要={structured_data.get('summary', '')[:50]}..., "
                 f"主题={structured_data.get('topics', [])}, "
-                f"重要性={importance}, 类型={'群聊' if is_group_chat else '私聊'}"
+                f"重要性={importance}, 类型={conversation_type}"
             )
             logger.debug(
                 f"[MemoryProcessor] 生成的记忆内容（前200字符）:\n{content[:200]}"
@@ -174,20 +179,35 @@ class MemoryProcessor:
         Returns:
             解析后的字典数据
         """
+        logger.debug(f"[MemoryProcessor] 开始解析 LLM 响应，长度={len(response_text)}")
+
         try:
             # 尝试直接解析JSON
             # 先清理可能的markdown代码块标记
             cleaned_text = response_text.strip()
+            logger.debug(
+                f"[MemoryProcessor] 清理前的响应文本（前100字符）: {response_text[:100]}"
+            )
+
             if cleaned_text.startswith("```json"):
                 cleaned_text = cleaned_text[7:]
+                logger.debug("[MemoryProcessor] 移除了 ```json 标记")
             if cleaned_text.startswith("```"):
                 cleaned_text = cleaned_text[3:]
+                logger.debug("[MemoryProcessor] 移除了 ``` 标记")
             if cleaned_text.endswith("```"):
                 cleaned_text = cleaned_text[:-3]
+                logger.debug("[MemoryProcessor] 移除了结尾 ``` 标记")
             cleaned_text = cleaned_text.strip()
+
+            logger.debug(
+                f"[MemoryProcessor] 清理后准备解析的 JSON（前500字符）:\n{cleaned_text[:500]}"
+            )
 
             # 解析JSON
             data = json.loads(cleaned_text)
+            logger.info("[MemoryProcessor] JSON 解析成功")
+            logger.debug(f"[MemoryProcessor] 解析得到的字段: {list(data.keys())}")
 
             # 验证必需字段 - 简化后的字段列表
             required_fields = [
@@ -202,29 +222,56 @@ class MemoryProcessor:
 
             for field in required_fields:
                 if field not in data:
-                    logger.warning(f"LLM响应缺少字段: {field}, 使用默认值")
+                    logger.warning(
+                        f"[MemoryProcessor] LLM 响应缺少字段: {field}, 使用默认值"
+                    )
                     data[field] = self._get_default_value(field)
 
             # 数据类型校验和规范化
             data["summary"] = str(data.get("summary", ""))
+            logger.debug(f"[MemoryProcessor] 提取 summary: {data['summary'][:100]}...")
+
             data["topics"] = self._ensure_list(data.get("topics", []))[:5]
+            logger.debug(
+                f"[MemoryProcessor] 提取 topics ({len(data['topics'])} 个): {data['topics']}"
+            )
+
             data["key_facts"] = self._ensure_list(data.get("key_facts", []))[:5]
+            logger.debug(
+                f"[MemoryProcessor] 提取 key_facts ({len(data['key_facts'])} 个): {data['key_facts']}"
+            )
+
             data["sentiment"] = self._validate_sentiment(
                 data.get("sentiment", "neutral")
             )
+            logger.debug(f"[MemoryProcessor] 提取 sentiment: {data['sentiment']}")
+
             data["importance"] = self._validate_importance(data.get("importance", 0.5))
+            logger.debug(f"[MemoryProcessor] 提取 importance: {data['importance']}")
 
             if is_group_chat:
                 data["participants"] = self._ensure_list(data.get("participants", []))
+                logger.debug(
+                    f"[MemoryProcessor] 提取 participants ({len(data['participants'])} 个): {data['participants']}"
+                )
 
             return data
 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {e}, 响应内容: {response_text[:200]}")
+            logger.warning(f"[MemoryProcessor] ❌ JSON 解析失败: {e}")
+            logger.debug(
+                f"[MemoryProcessor] 解析失败的内容（前200字符）: {response_text[:200]}"
+            )
+            logger.info("[MemoryProcessor] 尝试使用正则表达式提取 JSON")
             # 尝试正则提取
             return self._extract_by_regex(response_text, is_group_chat)
         except Exception as e:
-            logger.error(f"解析LLM响应失败: {e}")
+            logger.error(
+                f"[MemoryProcessor] ❌ 解析 LLM 响应时发生异常: {e}", exc_info=True
+            )
+            logger.debug(
+                f"[MemoryProcessor] 异常发生时的响应内容: {response_text[:200]}"
+            )
             return self._get_default_structured_data(is_group_chat)
 
     def _extract_by_regex(self, text: str, is_group_chat: bool) -> Dict[str, Any]:
@@ -238,26 +285,86 @@ class MemoryProcessor:
         Returns:
             提取的结构化数据
         """
+        logger.debug("[MemoryProcessor] 开始使用正则表达式提取结构化数据")
         data = self._get_default_structured_data(is_group_chat)
 
         try:
-            # 提取summary
-            summary_match = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
-            if summary_match:
-                data["summary"] = summary_match.group(1)
+            # 先尝试找到完整的 JSON 块
+            json_matches = re.findall(
+                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL
+            )
+            logger.debug(
+                f"[MemoryProcessor] 正则匹配到 {len(json_matches)} 个可能的 JSON 块"
+            )
 
-            # 提取importance
-            importance_match = re.search(r'"importance"\s*:\s*([0-9.]+)', text)
-            if importance_match:
-                data["importance"] = float(importance_match.group(1))
+            for i, match in enumerate(json_matches):
+                logger.debug(
+                    f"[MemoryProcessor] JSON 块 #{i + 1} (前200字符): {match[:200]}..."
+                )
+                try:
+                    # 尝试解析每个匹配的块
+                    parsed = json.loads(match)
+                    if "summary" in parsed:
+                        logger.info(
+                            f"[MemoryProcessor] ✅ 成功从第 {i + 1} 个 JSON 块中解析数据"
+                        )
+                        data = parsed
+                        break
+                except json.JSONDecodeError:
+                    continue
 
-            # 提取sentiment
-            sentiment_match = re.search(r'"sentiment"\s*:\s*"(\w+)"', text)
-            if sentiment_match:
-                data["sentiment"] = sentiment_match.group(1)
+            # 如果没有找到完整的 JSON，尝试单独提取字段
+            if data == self._get_default_structured_data(is_group_chat):
+                logger.debug("[MemoryProcessor] 未找到完整 JSON，尝试提取单独字段")
+
+                # 提取summary
+                summary_match = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
+                if summary_match:
+                    data["summary"] = summary_match.group(1)
+                    logger.debug(
+                        f"[MemoryProcessor] 正则提取 summary: {data['summary'][:50]}..."
+                    )
+
+                # 提取importance
+                importance_match = re.search(r'"importance"\s*:\s*([0-9.]+)', text)
+                if importance_match:
+                    data["importance"] = float(importance_match.group(1))
+                    logger.debug(
+                        f"[MemoryProcessor] 正则提取 importance: {data['importance']}"
+                    )
+
+                # 提取sentiment
+                sentiment_match = re.search(r'"sentiment"\s*:\s*"(\w+)"', text)
+                if sentiment_match:
+                    data["sentiment"] = sentiment_match.group(1)
+                    logger.debug(
+                        f"[MemoryProcessor] 正则提取 sentiment: {data['sentiment']}"
+                    )
+
+                # 提取 topics 数组
+                topics_match = re.search(r'"topics"\s*:\s*\[(.*?)\]', text, re.DOTALL)
+                if topics_match:
+                    topics_str = topics_match.group(1)
+                    topics = re.findall(r'"([^"]+)"', topics_str)
+                    data["topics"] = topics[:5]
+                    logger.debug(f"[MemoryProcessor] 正则提取 topics: {data['topics']}")
+
+                # 提取 key_facts 数组
+                facts_match = re.search(r'"key_facts"\s*:\s*\[(.*?)\]', text, re.DOTALL)
+                if facts_match:
+                    facts_str = facts_match.group(1)
+                    facts = re.findall(r'"([^"]+)"', facts_str)
+                    data["key_facts"] = facts[:5]
+                    logger.debug(
+                        f"[MemoryProcessor] 正则提取 key_facts: {data['key_facts']}"
+                    )
+
+            logger.info(
+                f"[MemoryProcessor] 正则提取完成，提取到的字段: {list(data.keys())}"
+            )
 
         except Exception as e:
-            logger.error(f"正则提取失败: {e}")
+            logger.error(f"[MemoryProcessor] ❌ 正则提取失败: {e}", exc_info=True)
 
         return data
 

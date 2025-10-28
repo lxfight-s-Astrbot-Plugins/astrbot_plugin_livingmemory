@@ -226,7 +226,9 @@ class HybridRetriever:
             if isinstance(metadata, str):
                 try:
                     metadata = json.loads(metadata)
-                    logger.debug(f"[hybrid_retriever] 将字符串metadata转换为字典: doc_id={result.doc_id}")
+                    logger.debug(
+                        f"[hybrid_retriever] 将字符串metadata转换为字典: doc_id={result.doc_id}"
+                    )
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(
                         f"[hybrid_retriever] 解析metadata JSON失败: {e}, doc_id={result.doc_id}, "
@@ -234,7 +236,9 @@ class HybridRetriever:
                     )
                     metadata = {}
             elif metadata is None:
-                logger.debug(f"[hybrid_retriever] metadata为None, doc_id={result.doc_id}, 使用空字典")
+                logger.debug(
+                    f"[hybrid_retriever] metadata为None, doc_id={result.doc_id}, 使用空字典"
+                )
                 metadata = {}
             elif not isinstance(metadata, dict):
                 logger.warning(

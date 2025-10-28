@@ -262,6 +262,7 @@ def get_now_datetime_from_context(context: Context) -> datetime:
 def format_memories_for_injection(memories: List) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
+    添加明确的说明文本，告知 LLM 这些是历史对话记忆。
     """
     # 延迟导入避免循环依赖
     from ..constants import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
@@ -269,15 +270,24 @@ def format_memories_for_injection(memories: List) -> str:
     if not memories:
         return ""
 
-    header = f"{MEMORY_INJECTION_HEADER}\n"
-    footer = f"\n{MEMORY_INJECTION_FOOTER}"
+    # 添加更详细的说明文本
+    header = (
+        f"{MEMORY_INJECTION_HEADER}\n"
+        f"以下是从历史对话中提取的相关记忆，可以帮助你更好地理解用户的背景、偏好和过往交流内容。\n"
+        f"请参考这些记忆来提供更个性化、更连贯的回答。\n\n"
+    )
+    footer = (
+        f"\n\n"
+        f"注意：以上记忆来自历史对话，请结合当前对话上下文使用这些信息。\n"
+        f"{MEMORY_INJECTION_FOOTER}"
+    )
 
     logger.debug(
-        f"记忆注入标记: 头部='{MEMORY_INJECTION_HEADER}', 尾部='{MEMORY_INJECTION_FOOTER}'"
+        f"[format_memories_for_injection] 记忆注入标记: 头部='{MEMORY_INJECTION_HEADER}', 尾部='{MEMORY_INJECTION_FOOTER}'"
     )
 
     formatted_entries = []
-    for mem in memories:
+    for idx, mem in enumerate(memories, 1):
         try:
             # 修复：memories 传入的是字典列表，不是对象
             # 从字典中获取数据
@@ -285,11 +295,14 @@ def format_memories_for_injection(memories: List) -> str:
                 content = mem.get("content", "内容缺失")
                 score = mem.get("score", 0.0)
                 metadata = mem.get("metadata", {})
+                timestamp = mem.get("timestamp", None)
                 importance = metadata.get("importance", 0.5)
+                interaction_type = metadata.get("interaction_type", "未知")
             else:
                 # 如果是对象，尝试访问属性
                 content = getattr(mem, "content", "内容缺失")
                 score = getattr(mem, "score", 0.0)
+                timestamp = getattr(mem, "timestamp", None)
                 metadata_raw = getattr(mem, "metadata", {})
                 metadata = (
                     safe_parse_metadata(metadata_raw)
@@ -297,29 +310,61 @@ def format_memories_for_injection(memories: List) -> str:
                     else metadata_raw
                 )
                 importance = metadata.get("importance", 0.5)
+                interaction_type = metadata.get("interaction_type", "未知")
 
-            entry = f"- [重要性: {importance:.2f}, 得分: {score:.2f}] {content}"
+            # 格式化时间戳
+            time_str = ""
+            if timestamp:
+                try:
+                    from datetime import datetime
+
+                    dt = datetime.fromtimestamp(validate_timestamp(timestamp))
+                    time_str = f", 时间: {dt.strftime('%Y-%m-%d %H:%M')}"
+                except Exception:
+                    pass
+
+            # 格式化重要性等级
+            if importance >= 0.8:
+                importance_label = "高"
+            elif importance >= 0.5:
+                importance_label = "中"
+            else:
+                importance_label = "低"
+
+            # 构建格式化的记忆条目
+            entry = (
+                f"记忆 #{idx} (重要性: {importance_label}, 相关度: {score:.2f}, "
+                f"类型: {interaction_type}{time_str})\n"
+                f"{content}"
+            )
             formatted_entries.append(entry)
+
             logger.debug(
-                f"格式化记忆成功: 重要性={importance:.2f}, 得分={score:.2f}, 内容长度={len(content)}"
+                f"[format_memories_for_injection] 格式化记忆 #{idx}: 重要性={importance:.2f}, "
+                f"得分={score:.2f}, 类型={interaction_type}, 内容长度={len(content)}"
             )
         except Exception as e:
             # 如果处理失败，则跳过此条记忆
             logger.warning(
-                f"格式化记忆时出错，跳过此记忆: {e}, 记忆对象类型: {type(mem)}"
+                f"[format_memories_for_injection] 格式化记忆时出错，跳过此记忆: {e}, "
+                f"记忆对象类型: {type(mem)}"
             )
             continue
 
     if not formatted_entries:
-        logger.debug("没有记忆需要格式化，返回空字符串")
+        logger.debug("[format_memories_for_injection] 没有记忆需要格式化，返回空字符串")
         return ""
 
-    body = "\n".join(formatted_entries)
+    body = "\n\n".join(formatted_entries)
     result = f"{header}{body}{footer}"
 
+    logger.info(
+        f"[format_memories_for_injection] ✅ 记忆格式化完成: 记忆条数={len(formatted_entries)}, "
+        f"总长度={len(result)}"
+    )
     logger.debug(
-        f"记忆格式化完成: 记忆条数={len(formatted_entries)}, "
-        f"总长度={len(result)}, 包含标记={MEMORY_INJECTION_HEADER in result and MEMORY_INJECTION_FOOTER in result}"
+        f"[format_memories_for_injection] 包含标记验证: "
+        f"头部={MEMORY_INJECTION_HEADER in result}, 尾部={MEMORY_INJECTION_FOOTER in result}"
     )
 
     return result
