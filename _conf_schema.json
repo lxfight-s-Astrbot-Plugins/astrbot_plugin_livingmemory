@@ -201,5 +201,67 @@
         "default": 0.3
       }
     }
+  },
+  "sparse_retriever": {
+    "description": "稀疏检索器配置",
+    "hint": "基于 BM25 算法的稀疏检索配置，用于关键词匹配",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用稀疏检索",
+        "hint": "是否启用 BM25 稀疏检索。关闭后将只使用向量检索。",
+        "type": "bool",
+        "default": true
+      },
+      "bm25_k1": {
+        "description": "BM25 K1 参数",
+        "hint": "控制词频饱和度的参数。值越大，高频词的权重增长越慢。推荐 0.9-2.0",
+        "type": "float",
+        "default": 1.2
+      },
+      "bm25_b": {
+        "description": "BM25 B 参数",
+        "hint": "控制文档长度归一化的程度。0 表示不归一化，1 表示完全归一化。推荐 0.5-0.9",
+        "type": "float",
+        "default": 0.75
+      },
+      "use_chinese_tokenizer": {
+        "description": "使用中文分词",
+        "hint": "是否使用 jieba 进行中文分词。关闭后将使用简单的空格分词。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_stopwords_filtering": {
+        "description": "启用停用词过滤",
+        "hint": "是否过滤常见停用词（如的、了等）。可以提升检索质量。",
+        "type": "bool",
+        "default": true
+      },
+      "stopwords_source": {
+        "description": "停用词来源",
+        "hint": "选择停用词表来源。可选：hit（哈工大）、baidu（百度）、cn（自带中文）",
+        "type": "string",
+        "default": "hit"
+      },
+      "custom_stopwords": {
+        "description": "自定义停用词",
+        "hint": "额外的停用词列表，用逗号或空格分隔。会与选定的停用词表合并使用。",
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "dense_retriever": {
+    "description": "稠密检索器配置",
+    "hint": "基于向量嵌入的稠密检索配置，用于语义相似度匹配",
+    "type": "object",
+    "items": {
+      "enable_query_preprocessing": {
+        "description": "启用查询预处理",
+        "hint": "是否对查询进行预处理（如去除特殊字符等）。通常建议启用。",
+        "type": "bool",
+        "default": true
+      }
+    }
   }
 }

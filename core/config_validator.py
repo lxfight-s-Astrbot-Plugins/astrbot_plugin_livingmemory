@@ -12,9 +12,14 @@ from astrbot.api import logger
 class SessionManagerConfig(BaseModel):
     """会话管理器配置"""
 
-    max_sessions: int = Field(default=1000, ge=1, le=10000, description="最大会话数量")
+    max_sessions: int = Field(
+        default=100, ge=1, le=10000, description="最大会话缓存数量"
+    )
     session_ttl: int = Field(
         default=3600, ge=60, le=86400, description="会话生存时间（秒）"
+    )
+    context_window_size: int = Field(
+        default=50, ge=1, le=1000, description="上下文窗口大小"
     )
 
 
@@ -22,66 +27,16 @@ class RecallEngineConfig(BaseModel):
     """回忆引擎配置"""
 
     top_k: int = Field(default=5, ge=1, le=50, description="返回记忆数量")
-    recall_strategy: str = Field(
-        default="weighted", pattern="^(similarity|weighted)$", description="召回策略"
-    )
-    retrieval_mode: str = Field(
-        default="hybrid", pattern="^(hybrid|dense|sparse)$", description="检索模式"
-    )
-    similarity_weight: float = Field(
-        default=0.6, ge=0.0, le=1.0, description="相似度权重"
-    )
     importance_weight: float = Field(
-        default=0.2, ge=0.0, le=1.0, description="重要性权重"
+        default=1.0, ge=0.0, le=10.0, description="重要性权重"
     )
-    recency_weight: float = Field(default=0.2, ge=0.0, le=1.0, description="新近度权重")
-
-    @model_validator(mode="after")
-    def validate_weights_sum(self):
-        """验证权重总和接近1.0"""
-        similarity = self.similarity_weight
-        importance = self.importance_weight
-        recency = self.recency_weight
-
-        # 计算权重总和
-        total = similarity + importance + recency
-        if abs(total - 1.0) > 0.1:
-            logger.warning(f"权重总和 {total:.2f} 偏离1.0较多，可能影响检索效果")
-
-        return self
+    fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
 
 
-class FusionConfig(BaseModel):
-    """结果融合配置"""
+class FusionStrategyConfig(BaseModel):
+    """结果融合策略配置"""
 
-    strategy: str = Field(
-        default="rrf",
-        pattern="^(rrf|weighted|cascade|adaptive|convex|interleave|rank_fusion|score_fusion|hybrid_rrf)$",
-        description="融合策略",
-    )
     rrf_k: int = Field(default=60, ge=1, le=1000, description="RRF参数k")
-    dense_weight: float = Field(default=0.7, ge=0.0, le=1.0, description="密集检索权重")
-    sparse_weight: float = Field(
-        default=0.3, ge=0.0, le=1.0, description="稀疏检索权重"
-    )
-    sparse_alpha: float = Field(
-        default=1.0, ge=0.1, le=10.0, description="稀疏分数缩放"
-    )
-    sparse_epsilon: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="稀疏分数偏移"
-    )
-
-    # 新增参数
-    convex_lambda: float = Field(default=0.5, ge=0.0, le=1.0, description="凸组合参数λ")
-    interleave_ratio: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="交替融合比例"
-    )
-    rank_bias_factor: float = Field(
-        default=0.1, ge=0.0, le=1.0, description="排序偏置因子"
-    )
-    diversity_bonus: float = Field(
-        default=0.1, ge=0.0, le=1.0, description="多样性奖励"
-    )
 
 
 class ReflectionEngineConfig(BaseModel):
@@ -90,13 +45,6 @@ class ReflectionEngineConfig(BaseModel):
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
     )
-    importance_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="记忆重要性阈值"
-    )
-    event_extraction_prompt: Optional[str] = Field(
-        default=None, description="事件提取提示词"
-    )
-    evaluation_prompt: Optional[str] = Field(default=None, description="评分提示词")
 
 
 class SparseRetrieverConfig(BaseModel):
@@ -141,19 +89,11 @@ class DenseRetrieverConfig(BaseModel):
 class ForgettingAgentConfig(BaseModel):
     """遗忘代理配置"""
 
-    enabled: bool = Field(default=True, description="是否启用遗忘代理")
-    check_interval_hours: int = Field(
-        default=24, ge=1, le=168, description="检查间隔（小时）"
+    cleanup_days_threshold: int = Field(
+        default=30, ge=1, le=3650, description="清理天数阈值"
     )
-    retention_days: int = Field(default=90, ge=1, le=3650, description="记忆保留天数")
-    importance_decay_rate: float = Field(
-        default=0.005, ge=0.0, le=1.0, description="重要性衰减率"
-    )
-    importance_threshold: float = Field(
-        default=0.1, ge=0.0, le=1.0, description="删除阈值"
-    )
-    forgetting_batch_size: int = Field(
-        default=1000, ge=100, le=10000, description="批处理大小"
+    cleanup_importance_threshold: float = Field(
+        default=0.3, ge=0.0, le=1.0, description="清理重要性阈值"
     )
 
 
@@ -173,10 +113,10 @@ class ProviderConfig(BaseModel):
     llm_provider_id: Optional[str] = Field(default=None, description="LLM Provider ID")
 
 
-class TimezoneConfig(BaseModel):
-    """时区配置"""
+class ImportanceDecayConfig(BaseModel):
+    """重要性衰减配置"""
 
-    timezone: str = Field(default="Asia/Shanghai", description="时区")
+    decay_rate: float = Field(default=0.01, ge=0.0, le=1.0, description="每日衰减率")
 
 
 class MigrationSettings(BaseModel):
@@ -222,13 +162,13 @@ class LivingMemoryConfig(BaseModel):
     )
     filtering_settings: FilteringConfig = Field(default_factory=FilteringConfig)
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
-    timezone_settings: TimezoneConfig = Field(default_factory=TimezoneConfig)
     webui_settings: WebUISettings = Field(default_factory=WebUISettings)
     migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)
-
-    # 为融合配置添加嵌套支持
-    fusion: Optional[FusionConfig] = Field(
-        default_factory=FusionConfig, description="结果融合配置"
+    fusion_strategy: FusionStrategyConfig = Field(
+        default_factory=FusionStrategyConfig, description="结果融合策略配置"
+    )
+    importance_decay: ImportanceDecayConfig = Field(
+        default_factory=ImportanceDecayConfig, description="重要性衰减配置"
     )
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
