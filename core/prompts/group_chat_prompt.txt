@@ -15,14 +15,14 @@
 必须输出标准JSON,包含以下字段:
 
 ```json
-{
+{{
   "summary": "群聊摘要(1-2句话,20-60字)",
   "topics": ["主题1", "主题2"],
   "key_facts": ["事实1", "事实2"],
   "participants": ["参与者1", "参与者2"],
   "sentiment": "positive|neutral|negative",
   "importance": 0.7
-}
+}}
 ```
 
 # 重要性评分标准 (0.0-1.0)
@@ -47,14 +47,14 @@
 
 **输出**:
 ```json
-{
+{{
   "summary": "张三组织明天团建去滑雪场,李四和王五都表示参加,讨论了滑雪相关事宜",
   "topics": ["团建活动", "滑雪安排"],
   "key_facts": ["明天团建", "目的地滑雪场", "有初级道教练"],
   "participants": ["张三", "李四", "王五"],
   "sentiment": "positive",
   "importance": 0.75
-}
+}}
 ```
 
 # 注意事项
