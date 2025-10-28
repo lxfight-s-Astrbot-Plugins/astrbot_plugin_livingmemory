@@ -11,16 +11,28 @@
       <section id="login-view" class="view active">
         <div class="panel">
           <div class="panel-header">
-            <h1 class="title">LivingMemory 控制台</h1>
-            <p class="intro">请输入入口密码，以保护长期记忆数据安全</p>
+            <h1 class="title">🧠 LivingMemory</h1>
+            <p class="intro">智能记忆管理系统 · 请输入访问密码</p>
           </div>
           <form id="login-form" autocomplete="off">
-            <label for="password-input">入口密码</label>
+            <label for="username-input" class="sr-only">用户名</label>
+            <input
+              id="username-input"
+              type="text"
+              name="username"
+              autocomplete="username"
+              value="admin"
+              style="position: absolute; left: -9999px; width: 1px; height: 1px;"
+              tabindex="-1"
+              aria-hidden="true"
+            />
+            <label for="password-input">访问密码</label>
             <input
               id="password-input"
               type="password"
               name="password"
-              placeholder="请输入密码"
+              placeholder="请输入访问密码"
+              autocomplete="current-password"
               required
             />
             <button type="submit" class="primary">登录</button>
@@ -32,11 +44,11 @@
       <section id="dashboard-view" class="view">
         <header class="top-bar">
           <div class="brand">
-            <h1>LivingMemory 控制台</h1>
-            <p class="subtitle">自定义记忆数据库的可视化管理面板</p>
+            <h1>🧠 LivingMemory 管理面板</h1>
+            <p class="subtitle">长期记忆与会话管理 · 基于混合检索的智能记忆系统</p>
           </div>
           <div class="toolbar">
-            <button id="logout-button" class="ghost">退出</button>
+            <button id="logout-button" class="ghost">退出登录</button>
           </div>
         </header>
 
@@ -158,8 +170,8 @@
             <section class="card">
               <h2 class="card-title">遗忘代理</h2>
               <div class="form-group">
-                <p class="help-text">手动触发遗忘代理，清理低重要性的过期记忆</p>
-                <button id="trigger-forgetting" class="primary">运行遗忘代理</button>
+                <p class="help-text">手动触发遗忘代理，清理低重要性的过期记忆（功能开发中）</p>
+                <button id="trigger-forgetting" class="primary" disabled>运行遗忘代理</button>
                 <div id="forgetting-result" class="result-box hidden"></div>
               </div>
             </section>
@@ -167,8 +179,8 @@
             <section class="card">
               <h2 class="card-title">索引管理</h2>
               <div class="form-group">
-                <p class="help-text">重建 BM25 稀疏索引，提升检索效果</p>
-                <button id="rebuild-index" class="primary">重建稀疏索引</button>
+                <p class="help-text">重建 BM25 稀疏索引，提升检索效果（功能开发中）</p>
+                <button id="rebuild-index" class="primary" disabled>重建稀疏索引</button>
                 <div id="rebuild-result" class="result-box hidden"></div>
               </div>
             </section>
@@ -176,6 +188,7 @@
             <section class="card">
               <h2 class="card-title">会话管理</h2>
               <div class="form-group">
+                <p class="help-text">查看和管理当前活跃的对话会话</p>
                 <button id="load-sessions" class="ghost">刷新会话列表</button>
                 <div id="sessions-info" class="info-box hidden">
                   <p><strong>总会话数:</strong> <span id="total-sessions">0</span></p>
@@ -190,14 +203,24 @@
           <!-- 调试工具标签页 -->
           <div class="tab-content" data-tab="debug">
             <section class="card">
+              <h2 class="card-title">功能说明</h2>
+              <div class="form-group">
+                <p class="help-text" style="line-height: 1.8;">
+                  调试工具功能正在开发中，敬请期待。<br>
+                  计划包括：检索测试、融合策略对比、记忆统计分析等功能。
+                </p>
+              </div>
+            </section>
+
+            <section class="card">
               <h2 class="card-title">检索测试</h2>
               <div class="form-group">
                 <label for="debug-query">查询内容</label>
-                <input type="text" id="debug-query" placeholder="输入测试查询" />
+                <input type="text" id="debug-query" placeholder="输入测试查询" disabled />
               </div>
               <div class="form-group">
                 <label for="debug-mode">检索模式</label>
-                <select id="debug-mode">
+                <select id="debug-mode" disabled>
                   <option value="dense">Dense</option>
                   <option value="sparse">Sparse</option>
                   <option value="hybrid">Hybrid</option>
@@ -205,40 +228,10 @@
               </div>
               <div class="form-group">
                 <label for="debug-top-k">Top-K</label>
-                <input type="number" id="debug-top-k" min="1" max="20" value="5" />
+                <input type="number" id="debug-top-k" min="1" max="20" value="5" disabled />
               </div>
-              <button id="run-search-test" class="primary">运行测试</button>
+              <button id="run-search-test" class="primary" disabled>运行测试</button>
               <div id="search-test-result" class="result-box hidden"></div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">融合策略对比</h2>
-              <div class="form-group">
-                <label for="fusion-compare-query">查询内容</label>
-                <input type="text" id="fusion-compare-query" placeholder="输入测试查询" />
-              </div>
-              <div class="form-group">
-                <label for="fusion-compare-strategies">对比策略 (按住 Ctrl 多选)</label>
-                <select id="fusion-compare-strategies" multiple size="5">
-                  <option value="rrf" selected>RRF</option>
-                  <option value="hybrid_rrf" selected>Hybrid RRF</option>
-                  <option value="weighted" selected>Weighted</option>
-                  <option value="convex">Convex</option>
-                  <option value="interleave">Interleave</option>
-                  <option value="rank_fusion">Rank Fusion</option>
-                  <option value="score_fusion">Score Fusion</option>
-                  <option value="cascade">Cascade</option>
-                  <option value="adaptive">Adaptive</option>
-                </select>
-              </div>
-              <button id="run-fusion-compare" class="primary">运行对比</button>
-              <div id="fusion-compare-result" class="result-box hidden"></div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">记忆统计分析</h2>
-              <button id="run-memory-analysis" class="primary">运行分析</button>
-              <div id="memory-analysis-result" class="result-box hidden"></div>
             </section>
           </div>
         </main>

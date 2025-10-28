@@ -1,214 +1,135 @@
 {
-  "timezone_settings": {
-    "description": "时区设置",
-    "type": "object",
-    "items": {
-      "timezone": {
-        "description": "时区",
-        "hint": "用于生成带时区信息的时间对象，请使用 IANA 时区数据库名称，例如 'Asia/Shanghai', 'America/New_York'。",
-        "type": "string",
-        "default": "Asia/Shanghai"
-      }
-    }
-  },
   "provider_settings": {
     "description": "模型提供商设置",
+    "hint": "配置记忆系统使用的 AI 模型提供商",
     "type": "object",
     "items": {
       "embedding_provider_id": {
-        "description": "Embedding Provider ID",
-        "hint": "用于生成向量的 Embedding Provider ID。如果留空，将使用 AstrBot 的默认 Embedding Provider。",
+        "description": "向量嵌入提供商 ID",
+        "hint": "用于生成记忆向量的 Embedding Provider ID。留空则使用 AstrBot 默认配置。请在 AstrBot 后台的「LLM 配置」中查看已配置的 Embedding Provider ID（如 openai_embedding、zhipu_embedding 等）。建议使用专门的嵌入模型以获得更好的语义检索效果。",
         "type": "string",
         "default": ""
       },
       "llm_provider_id": {
-        "description": "LLM Provider ID",
-        "hint": "用于总结和评估记忆的 LLM Provider ID。如果留空，将使用 AstrBot 的默认 LLM Provider。",
+        "description": "大语言模型提供商",
+        "hint": "用于总结对话历史和评估记忆重要性的 LLM Provider。留空则使用 AstrBot 默认配置。建议使用具有较强推理能力的模型（如 GPT-4、Claude 等）。",
         "type": "string",
+        "_special": "select_provider",
         "default": ""
       }
     }
   },
   "webui_settings": {
-    "description": "Web UI 访问信息",
-    "hint": "配置插件自带的 Web 控制台，进入前需要密码验证",
+    "description": "Web 管理面板配置",
+    "hint": "配置插件自带的 Web 控制台，提供记忆和会话的可视化管理功能",
     "type": "object",
     "items": {
       "enabled": {
         "description": "启用 WebUI",
-        "hint": "是否启用插件内置的 Web 控制台",
+        "hint": "启用后可通过浏览器访问记忆管理面板。建议在需要频繁管理记忆时启用。",
         "type": "bool",
         "default": false
       },
       "host": {
         "description": "监听地址",
-        "hint": "WebUI 服务监听的主机地址",
+        "hint": "WebUI 服务监听的主机地址。使用 127.0.0.1 仅允许本地访问；使用 0.0.0.0 允许局域网访问。",
         "type": "string",
         "default": "127.0.0.1"
       },
       "port": {
         "description": "监听端口",
-        "hint": "WebUI 服务监听端口，默认 8080，可按需修改",
+        "hint": "WebUI 服务监听端口。请确保端口未被占用，避免与 AstrBot 主端口（默认 6185）冲突。",
         "type": "int",
         "default": 8080
       },
       "access_password": {
-        "description": "入口密码",
-        "hint": "访问 WebUI 时需要输入的密码，建议设置复杂度较高的密码",
+        "description": "访问密码",
+        "hint": "访问 WebUI 时需要输入的密码。强烈建议设置复杂密码以保护数据安全！留空时系统会随机生成一个密码并在日志中提示。",
         "type": "string",
+        "obvious_hint": true,
         "default": ""
       },
       "session_timeout": {
-        "description": "会话超时秒数",
-        "hint": "登录会话的有效时长，超过该时间需重新登录",
+        "description": "会话超时时间（秒）",
+        "hint": "登录会话的有效时长。超过该时间需重新登录。建议设置为 3600（1小时）。",
         "type": "int",
         "default": 3600
       }
     }
   },
   "session_manager": {
-    "description": "会话管理器设置",
-    "hint": "管理用户会话状态和内存",
+    "description": "会话管理器配置",
+    "hint": "管理用户会话状态和对话历史，支持持久化存储",
     "type": "object",
     "items": {
       "max_sessions": {
-        "description": "最大会话数量",
-        "hint": "同时维护的最大会话数量，超过此数量将清理最旧的会话。",
+        "description": "最大会话缓存数量",
+        "hint": "同时在内存中维护的最大会话数量（LRU 缓存）。超过此数量将淘汰最久未使用的会话。会话数据仍会保存到数据库。",
         "type": "int",
-        "default": 1000
+        "default": 100
       },
       "session_ttl": {
-        "description": "会话生存时间(秒)",
-        "hint": "会话的最大空闲时间，超过此时间的会话将被自动清理。",
+        "description": "会话生存时间（秒）",
+        "hint": "会话的最大空闲时间。超过此时间未活动的会话将从缓存中移除。建议设置为 3600（1小时）。",
         "type": "int",
         "default": 3600
+      },
+      "context_window_size": {
+        "description": "上下文窗口大小",
+        "hint": "传递给 LLM 的最大历史消息数量。较大的值会提供更多上下文但消耗更多 token。建议 20-100 之间。",
+        "type": "int",
+        "default": 50
       }
     }
   },
   "recall_engine": {
-    "description": "回忆引擎设置",
-    "hint": "负责智能检索记忆",
+    "description": "记忆召回引擎配置",
+    "hint": "负责智能检索和召回相关记忆",
     "type": "object",
     "items": {
       "top_k": {
         "description": "单次检索数量",
-        "hint": "单次检索返回的最相关记忆数量。",
+        "hint": "每次检索返回的最相关记忆数量。建议 3-10 之间。",
         "type": "int",
         "default": 5
       },
-      "recall_strategy": {
-        "description": "召回策略",
-        "hint": "'similarity' - 仅基于相似度；'weighted' - 综合加权。",
-        "type": "string",
-        "options": [
-          "similarity",
-          "weighted"
-        ],
-        "default": "weighted"
-      },
-      "retrieval_mode": {
-        "description": "检索模式",
-        "hint": "'hybrid' - 混合检索(默认,自动退化)；'dense' - 纯密集检索；'sparse' - 纯稀疏检索。混合模式在某一检索器不可用时会自动退化到可用的检索模式。",
-        "type": "string",
-        "options": [
-          "hybrid",
-          "dense",
-          "sparse"
-        ],
-        "default": "hybrid"
-      },
-      "similarity_weight": {
-        "description": "相关性权重",
-        "hint": "范围 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.6
-      },
-      "recency_weight": {
-        "description": "新近度权重",
-        "hint": "范围 (0.0 - 1.0)",
-        "type": "float",
-        "default": 0.2
-      },
       "importance_weight": {
-        "description": "重要性权重",
-        "hint": "范围 (0.0 - 1.0)",
+        "description": "记忆重要性权重",
+        "hint": "用于混合评分中控制记忆重要性的占比。数值越大，重要性越影响排序。",
         "type": "float",
-        "default": 0.2
+        "default": 1.0
+      },
+      "fallback_to_vector": {
+        "description": "向量检索回退",
+        "hint": "当混合/稀疏检索不可用或结果为空时，是否回退到纯向量检索。",
+        "type": "bool",
+        "default": true
       }
     }
   },
-  "fusion": {
-    "description": "结果融合配置",
-    "hint": "混合检索时的结果融合策略，当前固定使用RRF策略",
+  "importance_decay": {
+    "description": "重要性衰减设置",
+    "hint": "用于长期运行时逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
+    "type": "object",
+    "items": {
+      "decay_rate": {
+        "description": "每日衰减率",
+        "hint": "每自然日对记忆重要性进行的衰减比例。例如 0.01 表示每天降低 1%",
+        "type": "float",
+        "default": 0.01
+      }
+    }
+  },
+  "fusion_strategy": {
+    "description": "结果融合策略",
+    "hint": "用于多路检索结果的融合，目前内部固定为 RRF，仅开放 k 参数以调节融合强度",
     "type": "object",
     "items": {
       "rrf_k": {
-        "description": "RRF参数k",
-        "hint": "Reciprocal Rank Fusion 中的参数 k，较小值更重视靠前的结果。推荐范围: 30-120",
+        "description": "RRF 参数 k",
+        "hint": "Reciprocal Rank Fusion 的 k 值，越小越强调排名靠前的结果。推荐 30-120",
         "type": "int",
         "default": 60
-      }
-    }
-  },
-  "sparse_retriever": {
-    "description": "稀疏检索器设置",
-    "hint": "基于关键词的全文检索配置",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用稀疏检索",
-        "hint": "是否启用基于BM25的稀疏检索功能。",
-        "type": "bool",
-        "default": true
-      },
-      "bm25_k1": {
-        "description": "BM25 k1参数",
-        "hint": "控制词频饱和度的参数，通常在1.2-2.0之间。",
-        "type": "float",
-        "default": 1.2
-      },
-      "bm25_b": {
-        "description": "BM25 b参数",
-        "hint": "控制文档长度归一化的参数，范围0.0-1.0。",
-        "type": "float",
-        "default": 0.75
-      },
-      "use_chinese_tokenizer": {
-        "description": "使用中文分词",
-        "hint": "是否使用jieba进行中文分词处理。",
-        "type": "bool",
-        "default": true
-      },
-      "enable_stopwords_filtering": {
-        "description": "启用停用词过滤",
-        "hint": "是否在分词后去除停用词。启用后可以提高检索精度。",
-        "type": "bool",
-        "default": true
-      },
-      "stopwords_source": {
-        "description": "停用词来源",
-        "hint": "停用词表来源：hit（哈工大）、baidu（百度）、cn（通用中文）或自定义文件路径。",
-        "type": "string",
-        "default": "hit"
-      },
-      "custom_stopwords": {
-        "description": "自定义停用词",
-        "hint": "额外的停用词列表，以逗号分隔。例如：额,嗯,哦",
-        "type": "string",
-        "default": ""
-      }
-    }
-  },
-  "dense_retriever": {
-    "description": "稠密检索器设置",
-    "hint": "基于向量语义的检索配置",
-    "type": "object",
-    "items": {
-      "enable_query_preprocessing": {
-        "description": "启用查询预处理",
-        "hint": "是否对查询进行分词和停用词过滤。启用后可以提高语义检索精度。",
-        "type": "bool",
-        "default": true
       }
     }
   },
@@ -239,25 +160,7 @@
         "description": "总结触发轮次",
         "hint": "触发对话历史总结的对话轮次（一问一答为一轮）。",
         "type": "int",
-        "default": 5
-      },
-      "importance_threshold": {
-        "description": "重要性阈值",
-        "hint": "记忆重要性得分的最低阈值，低于此值的记忆将被忽略。",
-        "type": "float",
-        "default": 0.5
-      },
-      "event_extraction_prompt": {
-        "description": "事件提取提示词",
-        "hint": "指导 LLM 从对话历史中提取多个结构化记忆事件的 System Prompt。",
-        "type": "text",
-        "default": "### 角色\n你是一个善于分析和总结的AI助手。你的核心人设是从你自身的视角出发，记录与用户的互动和观察。\n\n### 指令/任务\n1.  **仔细阅读**并理解下面提供的“对话历史”。\n2.  从**你（AI）的视角**出发，提取出多个独立的、有意义的记忆事件。事件必须准确描述，参考上下文。事件必须是完整的，具有前因后果的。**不允许编造事件**，**不允许改变事件**，**详细描述事件的所有信息**\n3.  **核心要求**：\n    *   **第一人称视角**：所有事件都必须以“我”开头进行描述，例如“我告诉用户...”、“我观察到...”、“我被告知...”。\n    *   **使用具体名称**：直接使用对话中出现的人物昵称，**严禁**使用“用户”、“开发者”等通用词汇。\n    *   **记录互动者**：必须明确记录与你互动的用户名称。\n    *   **事件合并**：如果多条连续的对话构成一个完整的独立事件，应将其总结概括为一条记忆。\n4.**严禁**包含任何评分、额外的解释或说明性文字。\n    直接输出结果，不要有任何引言或总结。\n\n### 上下文\n*   在对话历史中，名为“AstrBot”的发言者就是**你自己**。\n*   记忆事件是：你与用户互动事的事件描述，详细记录谁、在何时、何地、做了什么、发生了什么。\n\n 'memory_content' 字段必须包含完整的事件描述，不能省略任何细节。\n\n单个系列事件必须详细记录在一个memory_content 中，形成完整的具有前因后果的事件记忆。\n\n"
-      },
-      "evaluation_prompt": {
-        "description": "评估提示词",
-        "hint": "指导 LLM 评估单个记忆事件重要性的 System Prompt。必须返回一个 0.0 到 1.0 之间的浮点数。",
-        "type": "text",
-        "default": "### 角色\n你是一个专门评估记忆价值的AI分析模型。你的判断标准是该记忆对于与特定用户构建长期、个性化、有上下文的对话有多大的帮助。\n\n### 指令/任务\n1.  **评估核心价值**：仔细阅读“记忆内容”，评估其对于未来对话的长期参考价值。\n2.  **输出分数**：给出一个介于 0.0 到 1.0 之间的浮点数分数。\n3.  **格式要求**：**只返回数字**，严禁包含任何额外的文本、解释或理由。\n\n### 上下文\n评分时，请参考以下价值标尺：\n*   **高价值 (0.8 - 1.0)**：包含用户的核心身份信息、明确且长期的个人偏好/厌恶、设定的目标、重要的关系或事实。这些信息几乎总能在未来的互动中被引用。\n    *   例如：用户的昵称、职业、关键兴趣点、对AI的称呼、重要的人生目标。\n*   **中等价值 (0.4 - 0.7)**：包含用户的具体建议、功能请求、对某事的观点或一次性的重要问题。这些信息在短期内或特定话题下很有用，但可能随着时间推移或问题解决而失去价值。\n    *   例如：对某个功能的反馈、对特定新闻事件的看法、报告了一个具体的bug。\n*   **低价值 (0.1 - 0.3)**：包含短暂的情绪表达、日常问候、或非常具体且不太可能重复的上下文。这些信息很少有再次利用的机会。\n    *   例如：一次性的惊叹、害怕的反应、普通的“你好”、“晚安”。\n*   **无价值 (0.0)**：信息完全是瞬时的、无关紧要的，或者不包含任何关于用户本人的可复用信息。\n    *   例如：观察到另一个机器人说了话、对一句无法理解的话的默认回应。\n\n### 问题\n请评估以下“记忆内容”的重要性，对于未来的对话有多大的参考价值？\n\n---\n\n**记忆内容**：\n{memory_content}\n\n"
+        "default": 10
       }
     }
   },
@@ -285,41 +188,79 @@
     "hint": "负责模拟遗忘，清理陈旧记忆",
     "type": "object",
     "items": {
+      "cleanup_days_threshold": {
+        "description": "清理天数阈值",
+        "hint": "超过该天数的旧记忆将进入清理候选集合。",
+        "type": "int",
+        "default": 30
+      },
+      "cleanup_importance_threshold": {
+        "description": "清理重要性阈值",
+        "hint": "重要性低于该阈值的旧记忆将被删除。",
+        "type": "float",
+        "default": 0.3
+      }
+    }
+  },
+  "sparse_retriever": {
+    "description": "稀疏检索器配置",
+    "hint": "基于 BM25 算法的稀疏检索配置，用于关键词匹配",
+    "type": "object",
+    "items": {
       "enabled": {
-        "description": "启用自动遗忘",
-        "hint": "是否启用自动遗忘机制。",
+        "description": "启用稀疏检索",
+        "hint": "是否启用 BM25 稀疏检索。关闭后将只使用向量检索。",
         "type": "bool",
         "default": true
       },
-      "check_interval_hours": {
-        "description": "检查间隔(小时)",
-        "hint": "遗忘代理每隔多少小时运行一次。",
-        "type": "int",
-        "default": 24
-      },
-      "retention_days": {
-        "description": "记忆保留天数",
-        "hint": "记忆无条件保留的最长天数。超过此天数的记忆将可能被遗忘。",
-        "type": "int",
-        "default": 90
-      },
-      "importance_decay_rate": {
-        "description": "重要性衰减率",
-        "hint": "重要性得分每天衰减的速率。例如 0.01 代表每天降低 1%。",
+      "bm25_k1": {
+        "description": "BM25 K1 参数",
+        "hint": "控制词频饱和度的参数。值越大，高频词的权重增长越慢。推荐 0.9-2.0",
         "type": "float",
-        "default": 0.005
+        "default": 1.2
       },
-      "importance_threshold": {
-        "description": "遗忘重要性阈值",
-        "hint": "重要性低于此阈值的陈旧记忆将被删除。",
+      "bm25_b": {
+        "description": "BM25 B 参数",
+        "hint": "控制文档长度归一化的程度。0 表示不归一化，1 表示完全归一化。推荐 0.5-0.9",
         "type": "float",
-        "default": 0.1
+        "default": 0.75
       },
-      "forgetting_batch_size": {
-        "description": "批处理大小",
-        "hint": "遗忘代理每批处理的记忆数量，避免一次性加载过多数据。",
-        "type": "int",
-        "default": 1000
+      "use_chinese_tokenizer": {
+        "description": "使用中文分词",
+        "hint": "是否使用 jieba 进行中文分词。关闭后将使用简单的空格分词。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_stopwords_filtering": {
+        "description": "启用停用词过滤",
+        "hint": "是否过滤常见停用词（如的、了等）。可以提升检索质量。",
+        "type": "bool",
+        "default": true
+      },
+      "stopwords_source": {
+        "description": "停用词来源",
+        "hint": "选择停用词表来源。可选：hit（哈工大）、baidu（百度）、cn（自带中文）",
+        "type": "string",
+        "default": "hit"
+      },
+      "custom_stopwords": {
+        "description": "自定义停用词",
+        "hint": "额外的停用词列表，用逗号或空格分隔。会与选定的停用词表合并使用。",
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "dense_retriever": {
+    "description": "稠密检索器配置",
+    "hint": "基于向量嵌入的稠密检索配置，用于语义相似度匹配",
+    "type": "object",
+    "items": {
+      "enable_query_preprocessing": {
+        "description": "启用查询预处理",
+        "hint": "是否对查询进行预处理（如去除特殊字符等）。通常建议启用。",
+        "type": "bool",
+        "default": true
       }
     }
   }

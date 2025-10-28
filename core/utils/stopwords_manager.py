@@ -3,7 +3,6 @@
 停用词管理器 - 自动下载和管理停用词表
 """
 
-import os
 import aiohttp
 import asyncio
 from typing import Set, Optional
@@ -27,14 +26,24 @@ class StopwordsManager:
         "hit": "https://gitee.com/mirrors/stopwords/raw/master/stopwords_hit.txt",
     }
 
-    def __init__(self, stopwords_dir: str = "data/resources"):
+    def __init__(
+        self,
+        stopwords_dir: Optional[str] = None,
+    ):
         """
         初始化停用词管理器
 
         Args:
-            stopwords_dir: 停用词文件存储目录
+            stopwords_dir: 停用词文件存储目录（可选，如果未提供则使用临时目录）
         """
-        self.stopwords_dir = Path(stopwords_dir)
+        if stopwords_dir:
+            self.stopwords_dir = Path(stopwords_dir)
+        else:
+            # 使用临时目录作为后备方案
+            import tempfile
+
+            self.stopwords_dir = Path(tempfile.gettempdir()) / "astrbot_stopwords"
+
         self.stopwords_dir.mkdir(parents=True, exist_ok=True)
         self.stopwords: Set[str] = set()
         self.custom_stopwords: Set[str] = set()
@@ -43,7 +52,7 @@ class StopwordsManager:
         self,
         source: str = "hit",
         custom_words: Optional[list] = None,
-        auto_download: bool = True
+        auto_download: bool = True,
     ) -> Set[str]:
         """
         加载停用词表
@@ -118,13 +127,15 @@ class StopwordsManager:
 
         # 如果失败，尝试备用 URL
         if not success and source in self.FALLBACK_URLS:
-            logger.info(f"主 URL 下载失败，尝试备用 URL...")
+            logger.info("主 URL 下载失败，尝试备用 URL...")
             fallback_url = self.FALLBACK_URLS[source]
             success = await self._download_from_url(fallback_url, filepath)
 
         return success
 
-    async def _download_from_url(self, url: str, filepath: Path, timeout: int = 30) -> bool:
+    async def _download_from_url(
+        self, url: str, filepath: Path, timeout: int = 30
+    ) -> bool:
         """
         从 URL 下载文件
 
@@ -140,12 +151,14 @@ class StopwordsManager:
             logger.debug(f"正在从 {url} 下载...")
 
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as response:
                     if response.status == 200:
-                        content = await response.text(encoding='utf-8')
+                        content = await response.text(encoding="utf-8")
 
                         # 保存到文件
-                        with open(filepath, 'w', encoding='utf-8') as f:
+                        with open(filepath, "w", encoding="utf-8") as f:
                             f.write(content)
 
                         logger.info(f"✅ 停用词表下载成功: {filepath}")
@@ -172,11 +185,11 @@ class StopwordsManager:
             Set[str]: 停用词集合
         """
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 stopwords = set()
                 for line in f:
                     word = line.strip()
-                    if word and not word.startswith('#'):  # 跳过空行和注释
+                    if word and not word.startswith("#"):  # 跳过空行和注释
                         stopwords.add(word)
 
             logger.debug(f"从文件加载停用词: {filepath}, 共 {len(stopwords)} 个")
@@ -196,38 +209,155 @@ class StopwordsManager:
         # 精简的核心停用词列表
         builtin = {
             # 代词
-            "我", "你", "他", "她", "它", "我们", "你们", "他们", "她们", "它们",
-            "自己", "自家", "咱", "咱们", "这", "那", "这个", "那个", "这些", "那些",
-
+            "我",
+            "你",
+            "他",
+            "她",
+            "它",
+            "我们",
+            "你们",
+            "他们",
+            "她们",
+            "它们",
+            "自己",
+            "自家",
+            "咱",
+            "咱们",
+            "这",
+            "那",
+            "这个",
+            "那个",
+            "这些",
+            "那些",
             # 助词
-            "的", "了", "着", "过", "地", "得", "呢", "吗", "吧", "啊", "呀",
-
+            "的",
+            "了",
+            "着",
+            "过",
+            "地",
+            "得",
+            "呢",
+            "吗",
+            "吧",
+            "啊",
+            "呀",
             # 连词
-            "和", "与", "及", "以及", "或", "或者", "还是", "而", "且", "并",
-            "但", "但是", "然而", "可是", "不过", "而且", "并且",
-
+            "和",
+            "与",
+            "及",
+            "以及",
+            "或",
+            "或者",
+            "还是",
+            "而",
+            "且",
+            "并",
+            "但",
+            "但是",
+            "然而",
+            "可是",
+            "不过",
+            "而且",
+            "并且",
             # 介词
-            "在", "从", "向", "往", "到", "由", "为", "对", "关于", "按照",
-            "根据", "通过", "经过", "沿着", "朝", "通过",
-
+            "在",
+            "从",
+            "向",
+            "往",
+            "到",
+            "由",
+            "为",
+            "对",
+            "关于",
+            "按照",
+            "根据",
+            "通过",
+            "经过",
+            "沿着",
+            "朝",
+            "通过",
             # 副词
-            "很", "太", "非常", "极", "十分", "最", "更", "挺", "特别", "尤其",
-            "都", "也", "还", "再", "又", "就", "才", "已", "曾", "已经",
-            "正在", "将", "将要", "总是", "一直", "从来",
-
+            "很",
+            "太",
+            "非常",
+            "极",
+            "十分",
+            "最",
+            "更",
+            "挺",
+            "特别",
+            "尤其",
+            "都",
+            "也",
+            "还",
+            "再",
+            "又",
+            "就",
+            "才",
+            "已",
+            "曾",
+            "已经",
+            "正在",
+            "将",
+            "将要",
+            "总是",
+            "一直",
+            "从来",
             # 量词
-            "个", "只", "件", "条", "张", "把", "块", "片", "次", "遍",
-            "些", "点", "下", "回", "趟",
-
+            "个",
+            "只",
+            "件",
+            "条",
+            "张",
+            "把",
+            "块",
+            "片",
+            "次",
+            "遍",
+            "些",
+            "点",
+            "下",
+            "回",
+            "趟",
             # 叹词
-            "哦", "啊", "呀", "哎", "唉", "嗯", "哼", "嘿",
-
+            "哦",
+            "啊",
+            "呀",
+            "哎",
+            "唉",
+            "嗯",
+            "哼",
+            "嘿",
             # 其他虚词
-            "是", "有", "没", "没有", "不", "没", "别", "莫", "等", "等等",
-            "之", "所", "其", "此", "于", "让", "被", "把", "给",
-
+            "是",
+            "有",
+            "没",
+            "没有",
+            "不",
+            "没",
+            "别",
+            "莫",
+            "等",
+            "等等",
+            "之",
+            "所",
+            "其",
+            "此",
+            "于",
+            "让",
+            "被",
+            "把",
+            "给",
             # 标点和符号（处理后的）
-            "、", "，", "。", "！", "？", "；", "：", "……", "—",
+            "、",
+            "，",
+            "。",
+            "！",
+            "？",
+            "；",
+            "：",
+            "……",
+            "—",
         }
 
         logger.warning(f"使用内置停用词表（后备方案），共 {len(builtin)} 个词")
@@ -293,7 +423,7 @@ class StopwordsManager:
             filepath = self.stopwords_dir / "custom_stopwords.txt"
 
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 for word in sorted(self.custom_stopwords):
                     f.write(f"{word}\n")
 
@@ -301,6 +431,49 @@ class StopwordsManager:
 
         except Exception as e:
             logger.error(f"保存自定义停用词失败: {e}")
+
+    async def get_stopwords(self, source: str = "hit") -> Optional[str]:
+        """
+        确保本地存在可用的停用词文件并返回其路径。
+
+        优先返回缓存/已下载文件；如未找到，会尝试下载；
+        若下载失败，则写入内置后备停用词到本地并返回路径。
+
+        Args:
+            source: 停用词来源 ("hit"/"baidu"/"cn")
+
+        Returns:
+            停用词文件的绝对路径字符串；若发生异常则返回 None。
+        """
+        try:
+            filename = f"stopwords_{source}.txt"
+            filepath = self.stopwords_dir / filename
+
+            # 已存在，直接返回
+            if filepath.exists():
+                return str(filepath)
+
+            # 尝试下载
+            downloaded = await self._download_stopwords(source, filepath)
+            if downloaded and filepath.exists():
+                return str(filepath)
+
+            # 下载失败：写入内置后备停用词
+            builtin = self._get_builtin_stopwords()
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    for w in sorted(builtin):
+                        f.write(f"{w}\n")
+                logger.warning(
+                    f"未能下载 {source} 停用词，已写入内置后备停用词到: {filepath}"
+                )
+                return str(filepath)
+            except Exception as e:
+                logger.error(f"写入内置停用词失败: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"获取停用词文件失败: {e}")
+            return None
 
 
 # 全局单例
