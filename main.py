@@ -23,6 +23,8 @@ from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 # 插件内部模块
 from .core.memory_engine import MemoryEngine
 from .storage.db_migration import DBMigration
+from .storage.conversation_store import ConversationStore
+from .core.conversation_manager import ConversationManager
 from .core.utils import (
     get_persona_id,
     format_memories_for_injection,
@@ -30,62 +32,6 @@ from .core.utils import (
 )
 from .core.config_validator import validate_config, merge_config_with_defaults
 from .webui import WebUIServer
-
-
-# 会话管理器类
-class SessionManager:
-    def __init__(self, max_sessions: int = 1000, session_ttl: int = 3600):
-        """
-        Args:
-            max_sessions: 最大会话数量
-            session_ttl: 会话生存时间（秒）
-        """
-        self._sessions: Dict[str, Dict[str, Any]] = {}
-        self._access_times: Dict[str, float] = {}
-        self.max_sessions = max_sessions
-        self.session_ttl = session_ttl
-
-    def get_session(self, session_id: str) -> Dict[str, Any]:
-        """获取会话数据，如果不存在则创建"""
-        current_time = time.time()
-        self._cleanup_expired_sessions(current_time)
-
-        if session_id not in self._sessions:
-            self._sessions[session_id] = {"history": [], "round_count": 0}
-
-        self._access_times[session_id] = current_time
-        return self._sessions[session_id]
-
-    def _cleanup_expired_sessions(self, current_time: float):
-        """清理过期的会话"""
-        expired_sessions = []
-        for session_id, last_access in self._access_times.items():
-            if current_time - last_access > self.session_ttl:
-                expired_sessions.append(session_id)
-
-        for session_id in expired_sessions:
-            self._sessions.pop(session_id, None)
-            self._access_times.pop(session_id, None)
-
-        if len(self._sessions) > self.max_sessions:
-            sorted_sessions = sorted(self._access_times.items(), key=lambda x: x[1])
-            sessions_to_remove = sorted_sessions[
-                : len(self._sessions) - self.max_sessions
-            ]
-
-            for session_id, _ in sessions_to_remove:
-                self._sessions.pop(session_id, None)
-                self._access_times.pop(session_id, None)
-
-    def reset_session(self, session_id: str):
-        """重置指定会话"""
-        if session_id in self._sessions:
-            self._sessions[session_id] = {"history": [], "round_count": 0}
-            self._access_times[session_id] = time.time()
-
-    def get_session_count(self) -> int:
-        """获取当前会话数量"""
-        return len(self._sessions)
 
 
 @register(
@@ -119,17 +65,11 @@ class LivingMemoryPlugin(Star):
         self.db: Optional[FaissVecDB] = None
         self.memory_engine: Optional[MemoryEngine] = None
         self.db_migration: Optional[DBMigration] = None
+        self.conversation_manager: Optional[ConversationManager] = None
 
         # 初始化状态标记
         self._initialization_complete = False
         self._initialization_lock = asyncio.Lock()
-
-        # 会话管理器
-        session_config = self.config.get("session_manager", {})
-        self.session_manager = SessionManager(
-            max_sessions=session_config.get("max_sessions", 1000),
-            session_ttl=session_config.get("session_ttl", 3600),
-        )
 
         # WebUI 服务句柄
         self.webui_server: Optional[WebUIServer] = None
@@ -196,7 +136,21 @@ class LivingMemoryPlugin(Star):
             await self.memory_engine.initialize()
             logger.info("✅ MemoryEngine 已初始化")
 
-            # 6. 启动 WebUI（如启用）
+            # 6. 初始化 ConversationManager（高级会话管理器）
+            conversation_db_path = os.path.join(data_dir, "conversations.db")
+            conversation_store = ConversationStore(conversation_db_path)
+            await conversation_store.initialize()
+
+            session_config = self.config.get("session_manager", {})
+            self.conversation_manager = ConversationManager(
+                store=conversation_store,
+                max_cache_size=session_config.get("max_sessions", 100),
+                context_window_size=session_config.get("context_window_size", 50),
+                session_ttl=session_config.get("session_ttl", 3600),
+            )
+            logger.info("✅ ConversationManager 已初始化")
+
+            # 7. 启动 WebUI（如启用）
             await self._start_webui()
 
             # 标记初始化完成
@@ -401,9 +355,13 @@ class LivingMemoryPlugin(Star):
                         f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆。"
                     )
 
-                # 管理会话历史
-                session_data = self.session_manager.get_session(session_id)
-                session_data["history"].append({"role": "user", "content": req.prompt})
+                # 使用 ConversationManager 添加用户消息
+                if self.conversation_manager:
+                    await self.conversation_manager.add_message_from_event(
+                        event=event,
+                        role="user",
+                        content=req.prompt,
+                    )
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
@@ -417,8 +375,12 @@ class LivingMemoryPlugin(Star):
             logger.warning("插件未完成初始化，跳过记忆反思。")
             return
 
-        if not self.memory_engine or resp.role != "assistant":
-            logger.debug("记忆引擎尚未初始化或响应不是助手角色，跳过反思。")
+        if (
+            not self.memory_engine
+            or not self.conversation_manager
+            or resp.role != "assistant"
+        ):
+            logger.debug("记忆引擎或会话管理器尚未初始化，跳过反思。")
             return
 
         try:
@@ -430,41 +392,51 @@ class LivingMemoryPlugin(Star):
             if not session_id:
                 return
 
-            # 添加助手响应到历史并增加轮次计数
-            current_session = self.session_manager.get_session(session_id)
-            current_session["history"].append(
-                {"role": "assistant", "content": resp.completion_text}
+            # 使用 ConversationManager 添加助手响应
+            await self.conversation_manager.add_message_from_event(
+                event=event,
+                role="assistant",
+                content=resp.completion_text,
             )
-            current_session["round_count"] += 1
+
+            # 获取会话信息
+            session_info = await self.conversation_manager.get_session_info(session_id)
+            if not session_info:
+                return
 
             # 检查是否满足总结条件
             trigger_rounds = self.config.get("reflection_engine", {}).get(
                 "summary_trigger_rounds", 10
             )
+
+            # 使用消息计数判断是否需要反思（每N条消息反思一次）
+            message_count = session_info.message_count
             logger.debug(
-                f"[{session_id}] 当前轮次: {current_session['round_count']}, 触发轮次: {trigger_rounds}"
+                f"[{session_id}] 当前消息数: {message_count}, 触发阈值: {trigger_rounds}"
             )
 
-            if current_session["round_count"] >= trigger_rounds:
+            # 每达到 trigger_rounds 的倍数时进行反思
+            if message_count >= trigger_rounds and message_count % trigger_rounds == 0:
                 logger.info(
-                    f"[{session_id}] 对话达到 {trigger_rounds} 轮，启动反思任务。"
+                    f"[{session_id}] 对话消息数达到 {message_count}，启动反思任务。"
                 )
 
-                history_to_reflect = list(current_session["history"])
-                # 重置会话
-                self.session_manager.reset_session(session_id)
+                # 获取需要反思的消息历史
+                history_messages = await self.conversation_manager.get_messages(
+                    session_id=session_id, limit=trigger_rounds, use_cache=True
+                )
 
                 persona_id = await get_persona_id(self.context, event)
 
-                # 创建后台任务进行存储(简化版,直接存储对话摘要)
+                # 创建后台任务进行存储
                 async def storage_task():
                     async with OperationContext("记忆存储", session_id):
                         try:
-                            # 将对话历史合并为文本
+                            # 将对话历史格式化为文本
                             conversation_text = "\n".join(
                                 [
-                                    f"{msg['role']}: {msg['content']}"
-                                    for msg in history_to_reflect
+                                    f"{msg.role}: {msg.content}"
+                                    for msg in history_messages
                                 ]
                             )
 
@@ -475,7 +447,9 @@ class LivingMemoryPlugin(Star):
                                 persona_id=persona_id,
                                 importance=0.7,  # 默认重要性
                             )
-                            logger.info(f"[{session_id}] 成功存储对话记忆")
+                            logger.info(
+                                f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息）"
+                            )
                         except Exception as e:
                             logger.error(
                                 f"[{session_id}] 存储记忆失败: {e}", exc_info=True
@@ -484,6 +458,7 @@ class LivingMemoryPlugin(Star):
                 asyncio.create_task(storage_task())
 
         except Exception as e:
+            logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
             logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
 
     # --- 命令处理 ---
@@ -673,6 +648,12 @@ class LivingMemoryPlugin(Star):
         """插件停止时的清理逻辑"""
         logger.info("LivingMemory 插件正在停止...")
         await self._stop_webui()
+
+        # 关闭 ConversationManager（会自动关闭 ConversationStore）
+        if self.conversation_manager and self.conversation_manager.store:
+            await self.conversation_manager.store.close()
+            logger.info("✅ ConversationManager 已关闭")
+
         if self.memory_engine:
             await self.memory_engine.close()
         if self.db:
