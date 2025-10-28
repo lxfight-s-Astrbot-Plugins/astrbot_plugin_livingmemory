@@ -108,6 +108,10 @@ class LivingMemoryPlugin(Star):
                 await self._check_and_migrate_database()
 
             # 5. 初始化MemoryEngine（新的统一记忆引擎）
+            # 创建停用词目录
+            stopwords_dir = os.path.join(data_dir, "stopwords")
+            os.makedirs(stopwords_dir, exist_ok=True)
+
             memory_engine_config = {
                 "rrf_k": self.config.get("fusion_strategy", {}).get("rrf_k", 60),
                 "decay_rate": self.config.get("importance_decay", {}).get(
@@ -125,6 +129,7 @@ class LivingMemoryPlugin(Star):
                 "cleanup_importance_threshold": self.config.get(
                     "forgetting_agent", {}
                 ).get("cleanup_importance_threshold", 0.3),
+                "stopwords_path": stopwords_dir,  # 传递停用词目录
             }
 
             self.memory_engine = MemoryEngine(
@@ -149,6 +154,13 @@ class LivingMemoryPlugin(Star):
                 session_ttl=session_config.get("session_ttl", 3600),
             )
             logger.info("✅ ConversationManager 已初始化")
+
+            # 6.5. 异步初始化 TextProcessor（加载停用词）
+            if self.memory_engine and hasattr(
+                self.memory_engine.text_processor, "async_init"
+            ):
+                await self.memory_engine.text_processor.async_init()
+                logger.info("✅ TextProcessor 停用词已加载")
 
             # 7. 启动 WebUI（如启用）
             await self._start_webui()
@@ -212,9 +224,11 @@ class LivingMemoryPlugin(Star):
             # 导入WebUI服务器
             from .webui.server import WebUIServer
 
-            # 创建WebUI服务器实例
+            # 创建WebUI服务器实例（传递 ConversationManager）
             self.webui_server = WebUIServer(
-                memory_engine=self.memory_engine, config=webui_config
+                memory_engine=self.memory_engine,
+                config=webui_config,
+                conversation_manager=self.conversation_manager,
             )
 
             # 启动WebUI服务器

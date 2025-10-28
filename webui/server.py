@@ -64,10 +64,12 @@ from astrbot.api import logger
 
 class WebUIServer:
     """
-    WebUI服务器 - 基于MemoryEngine架构
+    WebUI服务器 - 基于MemoryEngine和ConversationManager架构
     """
 
-    def __init__(self, memory_engine, config: Dict[str, Any]):
+    def __init__(
+        self, memory_engine, config: Dict[str, Any], conversation_manager=None
+    ):
         """
         初始化WebUI服务器
 
@@ -78,8 +80,10 @@ class WebUIServer:
                 - port: 监听端口
                 - access_password: 访问密码
                 - session_timeout: 会话超时时间
+            conversation_manager: ConversationManager实例(可选)
         """
         self.memory_engine = memory_engine
+        self.conversation_manager = conversation_manager
         self.config = config
 
         self.host = str(config.get("host", "127.0.0.1"))
@@ -598,4 +602,281 @@ class WebUIServer:
                 return {"success": True, "data": safe_config}
             except Exception as e:
                 logger.error(f"获取配置信息失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # ==================== 会话管理 API (ConversationManager) ====================
+
+        # 获取会话详情
+        @self._app.get("/api/conversations/{session_id}")
+        async def get_conversation_detail(
+            session_id: str, token: str = Depends(self._auth_dependency())
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                session_info = await self.conversation_manager.get_session_info(
+                    session_id
+                )
+                if not session_info:
+                    raise HTTPException(
+                        status.HTTP_404_NOT_FOUND, detail="会话不存在"
+                    )
+
+                return {
+                    "success": True,
+                    "data": {
+                        "session_id": session_info.session_id,
+                        "platform": session_info.platform,
+                        "created_at": session_info.created_at,
+                        "last_active_at": session_info.last_active_at,
+                        "message_count": session_info.message_count,
+                        "participants": session_info.participants,
+                        "metadata": session_info.metadata,
+                    },
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取会话详情失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 获取会话消息列表
+        @self._app.get("/api/conversations/{session_id}/messages")
+        async def get_conversation_messages(
+            session_id: str,
+            request: Request,
+            token: str = Depends(self._auth_dependency()),
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                query = request.query_params
+                limit = min(200, max(1, int(query.get("limit", 50))))
+                sender_id = query.get("sender_id")  # 可选的发送者过滤
+
+                messages = await self.conversation_manager.get_messages(
+                    session_id=session_id, limit=limit, sender_id=sender_id
+                )
+
+                # 格式化消息列表
+                formatted_messages = [
+                    {
+                        "id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "sender_id": msg.sender_id,
+                        "sender_name": msg.sender_name,
+                        "group_id": msg.group_id,
+                        "platform": msg.platform,
+                        "timestamp": msg.timestamp,
+                        "metadata": msg.metadata,
+                    }
+                    for msg in messages
+                ]
+
+                return {
+                    "success": True,
+                    "data": {"messages": formatted_messages, "total": len(messages)},
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取会话消息失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 获取会话上下文（LLM格式）
+        @self._app.get("/api/conversations/{session_id}/context")
+        async def get_conversation_context(
+            session_id: str,
+            request: Request,
+            token: str = Depends(self._auth_dependency()),
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                query = request.query_params
+                max_messages = int(query.get("max_messages", 50))
+                sender_id = query.get("sender_id")
+                format_for_llm = query.get("format_for_llm", "true").lower() == "true"
+
+                context = await self.conversation_manager.get_context(
+                    session_id=session_id,
+                    max_messages=max_messages,
+                    sender_id=sender_id,
+                    format_for_llm=format_for_llm,
+                )
+
+                return {"success": True, "data": {"context": context}}
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取会话上下文失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 搜索会话消息
+        @self._app.post("/api/conversations/{session_id}/search")
+        async def search_conversation_messages(
+            session_id: str,
+            payload: Dict[str, Any],
+            token: str = Depends(self._auth_dependency()),
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            keyword = payload.get("keyword", "").strip()
+            if not keyword:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail="关键词不能为空"
+                )
+
+            limit = min(100, max(1, int(payload.get("limit", 20))))
+
+            try:
+                messages = await self.conversation_manager.store.search_messages(
+                    session_id=session_id, keyword=keyword, limit=limit
+                )
+
+                # 格式化消息列表
+                formatted_messages = [
+                    {
+                        "id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "sender_id": msg.sender_id,
+                        "sender_name": msg.sender_name,
+                        "timestamp": msg.timestamp,
+                    }
+                    for msg in messages
+                ]
+
+                return {
+                    "success": True,
+                    "data": {"messages": formatted_messages, "total": len(messages)},
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"搜索会话消息失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 清空会话历史
+        @self._app.delete("/api/conversations/{session_id}/messages")
+        async def clear_conversation_history(
+            session_id: str, token: str = Depends(self._auth_dependency())
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                await self.conversation_manager.clear_session(session_id)
+                return {
+                    "success": True,
+                    "message": f"会话 {session_id} 的历史已清空",
+                }
+            except Exception as e:
+                logger.error(f"清空会话历史失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 获取最近活跃的会话
+        @self._app.get("/api/conversations/recent")
+        async def get_recent_conversations(
+            request: Request, token: str = Depends(self._auth_dependency())
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                query = request.query_params
+                limit = min(100, max(1, int(query.get("limit", 10))))
+
+                sessions = await self.conversation_manager.get_recent_sessions(limit)
+
+                # 格式化会话列表
+                formatted_sessions = [
+                    {
+                        "session_id": session.session_id,
+                        "platform": session.platform,
+                        "created_at": session.created_at,
+                        "last_active_at": session.last_active_at,
+                        "message_count": session.message_count,
+                        "participants": session.participants,
+                    }
+                    for session in sessions
+                ]
+
+                return {
+                    "success": True,
+                    "data": {
+                        "sessions": formatted_sessions,
+                        "total": len(formatted_sessions),
+                    },
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取最近会话失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 获取会话统计信息
+        @self._app.get("/api/conversations/{session_id}/stats")
+        async def get_conversation_stats(
+            session_id: str, token: str = Depends(self._auth_dependency())
+        ):
+            if not self.conversation_manager:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="会话管理功能未启用",
+                )
+
+            try:
+                # 获取会话信息
+                session_info = await self.conversation_manager.get_session_info(
+                    session_id
+                )
+                if not session_info:
+                    raise HTTPException(
+                        status.HTTP_404_NOT_FOUND, detail="会话不存在"
+                    )
+
+                # 获取用户消息统计
+                user_stats = await self.conversation_manager.store.get_user_message_stats(
+                    session_id
+                )
+
+                return {
+                    "success": True,
+                    "data": {
+                        "session_id": session_id,
+                        "total_messages": session_info.message_count,
+                        "user_stats": user_stats,
+                        "participants_count": len(session_info.participants),
+                        "created_at": session_info.created_at,
+                        "last_active_at": session_info.last_active_at,
+                    },
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取会话统计失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}

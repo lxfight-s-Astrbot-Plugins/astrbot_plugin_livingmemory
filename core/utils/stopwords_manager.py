@@ -28,15 +28,22 @@ class StopwordsManager:
 
     def __init__(
         self,
-        stopwords_dir: str = "data/plugin_data/astrbot_plugin_livingmemory/stopwords",
+        stopwords_dir: Optional[str] = None,
     ):
         """
         初始化停用词管理器
 
         Args:
-            stopwords_dir: 停用词文件存储目录
+            stopwords_dir: 停用词文件存储目录（可选，如果未提供则使用临时目录）
         """
-        self.stopwords_dir = Path(stopwords_dir)
+        if stopwords_dir:
+            self.stopwords_dir = Path(stopwords_dir)
+        else:
+            # 使用临时目录作为后备方案
+            import tempfile
+
+            self.stopwords_dir = Path(tempfile.gettempdir()) / "astrbot_stopwords"
+
         self.stopwords_dir.mkdir(parents=True, exist_ok=True)
         self.stopwords: Set[str] = set()
         self.custom_stopwords: Set[str] = set()

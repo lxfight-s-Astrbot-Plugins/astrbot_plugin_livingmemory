@@ -282,15 +282,17 @@ class TextProcessor:
         "上来",
     }
 
-    def __init__(self, stopwords_path: Optional[str] = None):
+    def __init__(self, stopwords_dir: Optional[str] = None):
         """
         初始化文本处理器
 
         Args:
-            stopwords_path: 停用词文件路径,如果为None则使用默认停用词
+            stopwords_dir: 停用词目录路径(将被传递给StopwordsManager),
+                          如果为None则使用默认停用词
         """
         self.stopwords: Set[str] = set()
         self.custom_words: Set[str] = set()
+        self.stopwords_dir = stopwords_dir  # 保存目录路径
 
         # 检查 jieba 是否可用
         if not JIEBA_AVAILABLE:
@@ -301,12 +303,22 @@ class TextProcessor:
                 UserWarning,
             )
 
-        # 加载停用词
-        if stopwords_path:
-            self.load_stopwords(stopwords_path)
-        else:
-            # 使用默认停用词
-            self.stopwords = self.DEFAULT_STOPWORDS.copy()
+        # 使用默认停用词(StopwordsManager 将在需要时异步加载)
+        self.stopwords = self.DEFAULT_STOPWORDS.copy()
+
+    async def async_init(self) -> None:
+        """
+        异步初始化，加载停用词文件
+
+        如果提供了 stopwords_dir，则使用 StopwordsManager 下载停用词
+        """
+        if self.stopwords_dir:
+            from .utils.stopwords_manager import StopwordsManager
+
+            manager = StopwordsManager(self.stopwords_dir)
+            stopwords_path = await manager.get_stopwords()
+            if stopwords_path:
+                self.load_stopwords(stopwords_path)
 
     def tokenize(self, text: str, remove_stopwords: bool = True) -> List[str]:
         """
