@@ -383,8 +383,10 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
         """[事件钩子] 在 LLM 响应后，检查是否需要进行反思和记忆存储"""
-        logger.debug(f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}")
-        
+        logger.debug(
+            f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
+        )
+
         if not await self._wait_for_initialization():
             logger.warning("插件未完成初始化，跳过记忆反思。")
             return
@@ -419,9 +421,13 @@ class LivingMemoryPlugin(Star):
 
             # 获取会话信息
             session_info = await self.conversation_manager.get_session_info(session_id)
-            logger.debug(f"[DEBUG-Reflection] [{session_id}] session_info: {session_info}")
+            logger.debug(
+                f"[DEBUG-Reflection] [{session_id}] session_info: {session_info}"
+            )
             if not session_info:
-                logger.warning(f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思")
+                logger.warning(
+                    f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思"
+                )
                 return
 
             # 检查是否满足总结条件
@@ -437,7 +443,7 @@ class LivingMemoryPlugin(Star):
             # 例如：trigger_rounds=5 表示每5轮对话触发，即每10条消息触发
             message_count = session_info.message_count
             conversation_rounds = message_count // 2  # 计算对话轮数
-            
+
             logger.info(
                 f"[DEBUG-Reflection] [{session_id}] 当前消息数: {message_count}, "
                 f"对话轮数: {conversation_rounds}, 触发阈值(轮数): {trigger_rounds}"
@@ -449,7 +455,10 @@ class LivingMemoryPlugin(Star):
             )
 
             # 每达到 trigger_rounds 轮对话的倍数时进行反思
-            if conversation_rounds >= trigger_rounds and conversation_rounds % trigger_rounds == 0:
+            if (
+                conversation_rounds >= trigger_rounds
+                and conversation_rounds % trigger_rounds == 0
+            ):
                 logger.info(
                     f"[{session_id}] 对话消息数达到 {message_count}，启动反思任务。"
                 )
@@ -678,7 +687,10 @@ class LivingMemoryPlugin(Star):
                 logger.info("正在停止 WebUI 服务器...")
 
                 # 停止定期清理任务
-                if hasattr(self.webui_server, "_cleanup_task") and self.webui_server._cleanup_task:
+                if (
+                    hasattr(self.webui_server, "_cleanup_task")
+                    and self.webui_server._cleanup_task
+                ):
                     if not self.webui_server._cleanup_task.done():
                         self.webui_server._cleanup_task.cancel()
                         try:
@@ -690,7 +702,10 @@ class LivingMemoryPlugin(Star):
                 if hasattr(self.webui_server, "_server") and self.webui_server._server:
                     self.webui_server._server.should_exit = True
 
-                if hasattr(self.webui_server, "_server_task") and self.webui_server._server_task:
+                if (
+                    hasattr(self.webui_server, "_server_task")
+                    and self.webui_server._server_task
+                ):
                     try:
                         await self.webui_server._server_task
                     except (asyncio.CancelledError, KeyboardInterrupt, Exception):

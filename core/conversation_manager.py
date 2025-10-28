@@ -109,7 +109,11 @@ class ConversationManager:
                 group_id = session_id  # 群聊时session_id即为group_id
 
         # 获取平台名称（字符串）
-        platform = event.get_platform_name() if hasattr(event, "get_platform_name") else "unknown"
+        platform = (
+            event.get_platform_name()
+            if hasattr(event, "get_platform_name")
+            else "unknown"
+        )
 
         return await self.add_message(
             session_id=session_id,
@@ -176,7 +180,7 @@ class ConversationManager:
             f"[ConversationManager] 添加消息: session={session_id}, "
             f"role={role}, sender={sender_id}"
         )
-        
+
         # 添加后获取最新的消息统计
         session_info = await self.store.get_session(session_id)
         if session_info:

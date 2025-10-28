@@ -413,7 +413,9 @@ class WebUIServer:
                     # 按创建时间排序
                     sorted_docs = sorted(
                         all_docs,
-                        key=lambda x: x["metadata"].get("create_time", 0) if isinstance(x["metadata"], dict) else 0,
+                        key=lambda x: x["metadata"].get("create_time", 0)
+                        if isinstance(x["metadata"], dict)
+                        else 0,
                         reverse=True,
                     )
                     memories = sorted_docs[:limit]
@@ -640,9 +642,7 @@ class WebUIServer:
                     session_id
                 )
                 if not session_info:
-                    raise HTTPException(
-                        status.HTTP_404_NOT_FOUND, detail="会话不存在"
-                    )
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在")
 
                 return {
                     "success": True,
@@ -873,13 +873,13 @@ class WebUIServer:
                     session_id
                 )
                 if not session_info:
-                    raise HTTPException(
-                        status.HTTP_404_NOT_FOUND, detail="会话不存在"
-                    )
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在")
 
                 # 获取用户消息统计
-                user_stats = await self.conversation_manager.store.get_user_message_stats(
-                    session_id
+                user_stats = (
+                    await self.conversation_manager.store.get_user_message_stats(
+                        session_id
+                    )
                 )
 
                 return {

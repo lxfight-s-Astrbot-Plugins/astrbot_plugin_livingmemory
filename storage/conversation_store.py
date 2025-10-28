@@ -124,12 +124,14 @@ class ConversationStore:
             Session: 创建的会话对象
         """
         now = time.time()
-        
+
         # 确保 platform 是字符串类型
         if not isinstance(platform, str):
             # 如果是 PlatformMetadata 对象，提取 name 属性
             platform = getattr(platform, "name", str(platform))
-            logger.warning(f"[create_session] platform 参数不是字符串类型，已自动转换为: {platform}")
+            logger.warning(
+                f"[create_session] platform 参数不是字符串类型，已自动转换为: {platform}"
+            )
 
         cursor = await self.connection.execute(
             """
