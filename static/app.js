@@ -139,8 +139,18 @@
 
     if (state.token) {
       switchView("dashboard");
-      showToast("会话已恢复，正在加载数据...");
-      fetchAll();
+      showToast("会话已恢复，正在验证...");
+      // 先验证 token 是否有效，再加载数据
+      fetchStats()
+        .then(() => {
+          showToast("验证成功，正在加载数据...");
+          return fetchMemories();
+        })
+        .catch((error) => {
+          // Token 无效，清除并返回登录页
+          console.warn("Token 验证失败:", error.message);
+          handleAuthFailure();
+        });
     } else {
       switchView("login");
     }

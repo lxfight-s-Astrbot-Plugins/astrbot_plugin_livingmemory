@@ -15,12 +15,24 @@
             <p class="intro">智能记忆管理系统 · 请输入访问密码</p>
           </div>
           <form id="login-form" autocomplete="off">
+            <label for="username-input" class="sr-only">用户名</label>
+            <input
+              id="username-input"
+              type="text"
+              name="username"
+              autocomplete="username"
+              value="admin"
+              style="position: absolute; left: -9999px; width: 1px; height: 1px;"
+              tabindex="-1"
+              aria-hidden="true"
+            />
             <label for="password-input">访问密码</label>
             <input
               id="password-input"
               type="password"
               name="password"
               placeholder="请输入访问密码"
+              autocomplete="current-password"
               required
             />
             <button type="submit" class="primary">登录</button>
