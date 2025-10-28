@@ -5,10 +5,9 @@
     "type": "object",
     "items": {
       "embedding_provider_id": {
-        "description": "向量嵌入提供商",
-        "hint": "用于生成记忆向量的 Embedding Provider。留空则使用 AstrBot 默认配置。建议使用专门的嵌入模型以获得更好的语义检索效果。",
+        "description": "向量嵌入提供商 ID",
+        "hint": "用于生成记忆向量的 Embedding Provider ID。留空则使用 AstrBot 默认配置。请在 AstrBot 后台的「LLM 配置」中查看已配置的 Embedding Provider ID（如 openai_embedding、zhipu_embedding 等）。建议使用专门的嵌入模型以获得更好的语义检索效果。",
         "type": "string",
-        "_special": "select_provider",
         "default": ""
       },
       "llm_provider_id": {
