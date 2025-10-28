@@ -322,11 +322,9 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            session_id = (
-                await self.context.conversation_manager.get_curr_conversation_id(
-                    event.unified_msg_origin
-                )
-            )
+            # 修复：直接使用 event.session_id，与其他地方保持一致
+            session_id = event.session_id
+            logger.debug(f"[DEBUG-Recall] 获取到 session_id: {session_id}")
 
             async with OperationContext("记忆召回", session_id):
                 # 根据配置决定是否进行过滤
@@ -385,6 +383,8 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
         """[事件钩子] 在 LLM 响应后，检查是否需要进行反思和记忆存储"""
+        logger.debug(f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}")
+        
         if not await self._wait_for_initialization():
             logger.warning("插件未完成初始化，跳过记忆反思。")
             return
@@ -394,16 +394,19 @@ class LivingMemoryPlugin(Star):
             or not self.conversation_manager
             or resp.role != "assistant"
         ):
-            logger.debug("记忆引擎或会话管理器尚未初始化，跳过反思。")
+            logger.debug(
+                f"[DEBUG-Reflection] 跳过反思 - memory_engine={self.memory_engine is not None}, "
+                f"conversation_manager={self.conversation_manager is not None}, "
+                f"resp.role={resp.role}"
+            )
             return
 
         try:
-            session_id = (
-                await self.context.conversation_manager.get_curr_conversation_id(
-                    event.unified_msg_origin
-                )
-            )
+            # 修复：直接使用 event.session_id，与 add_message_from_event 保持一致
+            session_id = event.session_id
+            logger.debug(f"[DEBUG-Reflection] 获取到 session_id: {session_id}")
             if not session_id:
+                logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
                 return
 
             # 使用 ConversationManager 添加助手响应
@@ -412,25 +415,41 @@ class LivingMemoryPlugin(Star):
                 role="assistant",
                 content=resp.completion_text,
             )
+            logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
 
             # 获取会话信息
             session_info = await self.conversation_manager.get_session_info(session_id)
+            logger.debug(f"[DEBUG-Reflection] [{session_id}] session_info: {session_info}")
             if not session_info:
+                logger.warning(f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思")
                 return
 
             # 检查是否满足总结条件
             trigger_rounds = self.config.get("reflection_engine", {}).get(
                 "summary_trigger_rounds", 10
             )
-
-            # 使用消息计数判断是否需要反思（每N条消息反思一次）
-            message_count = session_info.message_count
-            logger.debug(
-                f"[{session_id}] 当前消息数: {message_count}, 触发阈值: {trigger_rounds}"
+            logger.info(
+                f"[DEBUG-Reflection] [{session_id}] 配置的 summary_trigger_rounds: {trigger_rounds}"
             )
 
-            # 每达到 trigger_rounds 的倍数时进行反思
-            if message_count >= trigger_rounds and message_count % trigger_rounds == 0:
+            # 修复：基于对话轮数而非消息条数触发总结
+            # 每轮对话 = 1条user消息 + 1条assistant消息 = 2条消息
+            # 例如：trigger_rounds=5 表示每5轮对话触发，即每10条消息触发
+            message_count = session_info.message_count
+            conversation_rounds = message_count // 2  # 计算对话轮数
+            
+            logger.info(
+                f"[DEBUG-Reflection] [{session_id}] 当前消息数: {message_count}, "
+                f"对话轮数: {conversation_rounds}, 触发阈值(轮数): {trigger_rounds}"
+            )
+            logger.info(
+                f"[DEBUG-Reflection] [{session_id}] 触发条件检查: "
+                f"conversation_rounds >= trigger_rounds = {conversation_rounds >= trigger_rounds}, "
+                f"conversation_rounds % trigger_rounds == 0 = {conversation_rounds % trigger_rounds == 0}"
+            )
+
+            # 每达到 trigger_rounds 轮对话的倍数时进行反思
+            if conversation_rounds >= trigger_rounds and conversation_rounds % trigger_rounds == 0:
                 logger.info(
                     f"[{session_id}] 对话消息数达到 {message_count}，启动反思任务。"
                 )
@@ -483,17 +502,8 @@ class LivingMemoryPlugin(Star):
 
     def _get_session_id(self, event: AstrMessageEvent) -> str:
         """从event获取session_id的辅助方法"""
-        try:
-            loop = asyncio.get_event_loop()
-            session_id = loop.run_until_complete(
-                self.context.conversation_manager.get_curr_conversation_id(
-                    event.unified_msg_origin
-                )
-            )
-            return session_id or "default"
-        except Exception as e:
-            logger.error(f"获取会话ID失败: {e}", exc_info=True)
-            return "default"
+        # 修复：直接使用 event.session_id，避免不一致问题
+        return event.session_id or "default"
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("status")

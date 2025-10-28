@@ -108,8 +108,8 @@ class ConversationManager:
             if is_group:
                 group_id = session_id  # 群聊时session_id即为group_id
 
-        # 获取平台
-        platform = getattr(event, "platform", "unknown")
+        # 获取平台名称（字符串）
+        platform = event.get_platform_name() if hasattr(event, "get_platform_name") else "unknown"
 
         return await self.add_message(
             session_id=session_id,
@@ -176,6 +176,13 @@ class ConversationManager:
             f"[ConversationManager] 添加消息: session={session_id}, "
             f"role={role}, sender={sender_id}"
         )
+        
+        # 添加后获取最新的消息统计
+        session_info = await self.store.get_session(session_id)
+        if session_info:
+            logger.debug(
+                f"[DEBUG-AddMessage] [{session_id}] 添加消息后，当前总消息数: {session_info.message_count}"
+            )
 
         return message
 
@@ -294,7 +301,17 @@ class ConversationManager:
         Returns:
             Session对象,不存在则返回None
         """
-        return await self.store.get_session(session_id)
+        session = await self.store.get_session(session_id)
+        if session:
+            logger.debug(
+                f"[DEBUG-SessionInfo] [{session_id}] 会话信息: "
+                f"message_count={session.message_count}, "
+                f"created_at={session.created_at}, "
+                f"last_active_at={session.last_active_at}"
+            )
+        else:
+            logger.warning(f"[DEBUG-SessionInfo] [{session_id}] 会话不存在")
+        return session
 
     async def get_recent_sessions(self, limit: int = 10) -> List[Session]:
         """
