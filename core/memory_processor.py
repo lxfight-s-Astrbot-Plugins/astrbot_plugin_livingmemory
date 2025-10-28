@@ -97,9 +97,23 @@ class MemoryProcessor:
 
         # 3. 调用LLM生成结构化记忆
         try:
+            logger.info(
+                f"[MemoryProcessor] 开始调用LLM分析对话，消息数={len(messages)}, 类型={'群聊' if is_group_chat else '私聊'}"
+            )
+            logger.debug(
+                f"[MemoryProcessor] 发送给LLM的对话内容（前500字符）:\n{conversation_text[:500]}"
+            )
+
             llm_response = await self.llm_provider.text_chat(
                 prompt=prompt,
                 system_prompt="你是一个专业的对话分析助手,擅长提取对话中的关键信息。",
+            )
+
+            logger.info(
+                f"[MemoryProcessor] LLM响应成功，响应长度={len(llm_response.completion_text)}"
+            )
+            logger.debug(
+                f"[MemoryProcessor] LLM原始响应内容:\n{llm_response.completion_text}"
             )
 
             # 4. 解析LLM响应
@@ -115,14 +129,18 @@ class MemoryProcessor:
             importance = float(structured_data.get("importance", 0.5))
 
             logger.info(
-                f"成功生成结构化记忆: 主题={structured_data.get('topics', [])}, "
+                f"[MemoryProcessor] 成功生成结构化记忆: 摘要={structured_data.get('summary', '')[:50]}..., "
+                f"主题={structured_data.get('topics', [])}, "
                 f"重要性={importance}, 类型={'群聊' if is_group_chat else '私聊'}"
+            )
+            logger.debug(
+                f"[MemoryProcessor] 生成的记忆内容（前200字符）:\n{content[:200]}"
             )
 
             return content, metadata, importance
 
         except Exception as e:
-            logger.error(f"处理对话历史失败: {e}", exc_info=True)
+            logger.error(f"[MemoryProcessor] 处理对话历史失败: {e}", exc_info=True)
             # 降级处理:使用简单的文本拼接
             return self._create_fallback_memory(conversation_text, is_group_chat)
 

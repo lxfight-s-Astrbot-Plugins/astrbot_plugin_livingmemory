@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 import math
 import time
 from typing import List, Dict, Any, Optional
@@ -220,7 +221,27 @@ class HybridRetriever:
         hybrid_results = []
 
         for result in fused_results:
+            # 安全解析metadata，确保它是字典类型
             metadata = result.metadata
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                    logger.debug(f"[hybrid_retriever] 将字符串metadata转换为字典: doc_id={result.doc_id}")
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(
+                        f"[hybrid_retriever] 解析metadata JSON失败: {e}, doc_id={result.doc_id}, "
+                        f"metadata类型={type(metadata)}, 使用空字典"
+                    )
+                    metadata = {}
+            elif metadata is None:
+                logger.debug(f"[hybrid_retriever] metadata为None, doc_id={result.doc_id}, 使用空字典")
+                metadata = {}
+            elif not isinstance(metadata, dict):
+                logger.warning(
+                    f"[hybrid_retriever] metadata类型不支持: {type(metadata)}, doc_id={result.doc_id}, "
+                    f"使用空字典"
+                )
+                metadata = {}
 
             # 获取重要性(默认0.5)
             importance = metadata.get("importance", 0.5)

@@ -14,6 +14,7 @@
 from typing import List, Optional, Dict, Any
 from collections import OrderedDict
 import time
+import json
 
 from ..storage.conversation_store import ConversationStore
 from ..core.conversation_models import Message, Session
@@ -413,6 +414,88 @@ class ConversationManager:
         """
         while len(self._cache) > self.max_cache_size:
             self._cache.popitem(last=False)
+
+    async def get_messages_range(
+        self, session_id: str, start_index: int = 0, end_index: Optional[int] = None
+    ) -> List[Message]:
+        """
+        获取指定范围的消息（用于滑动窗口总结）
+
+        Args:
+            session_id: 会话ID
+            start_index: 起始消息索引（从0开始，包含）
+            end_index: 结束消息索引（不包含），None表示到最后
+
+        Returns:
+            Message对象列表
+        """
+        # 获取所有消息
+        all_messages = await self.store.get_messages(
+            session_id=session_id,
+            limit=10000,  # 使用足够大的limit
+        )
+
+        # 应用索引切片
+        if end_index is None:
+            return all_messages[start_index:]
+        else:
+            return all_messages[start_index:end_index]
+
+    async def update_session_metadata(
+        self, session_id: str, key: str, value: Any
+    ) -> None:
+        """
+        更新会话元数据
+
+        Args:
+            session_id: 会话ID
+            key: 元数据键
+            value: 元数据值
+        """
+        session = await self.store.get_session(session_id)
+        if not session:
+            logger.warning(
+                f"[ConversationManager] 会话 {session_id} 不存在，无法更新元数据"
+            )
+            return
+
+        # 更新元数据
+        session.metadata[key] = value
+
+        # 保存到数据库
+        await self.store.connection.execute(
+            """
+            UPDATE sessions
+            SET metadata = ?
+            WHERE session_id = ?
+        """,
+            (json.dumps(session.metadata, ensure_ascii=False), session_id),
+        )
+        await self.store.connection.commit()
+
+        logger.debug(
+            f"[ConversationManager] 更新会话元数据: {session_id}, {key}={value}"
+        )
+
+    async def get_session_metadata(
+        self, session_id: str, key: str, default: Any = None
+    ) -> Any:
+        """
+        获取会话元数据
+
+        Args:
+            session_id: 会话ID
+            key: 元数据键
+            default: 默认值
+
+        Returns:
+            元数据值，不存在则返回default
+        """
+        session = await self.store.get_session(session_id)
+        if not session:
+            return default
+
+        return session.metadata.get(key, default)
 
 
 def create_conversation_manager(

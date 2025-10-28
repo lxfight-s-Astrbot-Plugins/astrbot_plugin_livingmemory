@@ -348,6 +348,10 @@ class LivingMemoryPlugin(Star):
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # 使用 MemoryEngine 进行智能回忆
+                logger.info(
+                    f"[{session_id}] 开始记忆召回，查询='{req.prompt[:50]}...'，top_k={self.config.get('recall_engine', {}).get('top_k', 5)}"
+                )
+
                 recalled_memories = await self.memory_engine.search_memories(
                     query=req.prompt,
                     k=self.config.get("recall_engine", {}).get("top_k", 5),
@@ -356,6 +360,10 @@ class LivingMemoryPlugin(Star):
                 )
 
                 if recalled_memories:
+                    logger.info(
+                        f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆"
+                    )
+
                     # 格式化并注入记忆
                     memory_list = [
                         {
@@ -367,11 +375,29 @@ class LivingMemoryPlugin(Star):
                         }
                         for mem in recalled_memories
                     ]
+
+                    # 输出详细的记忆信息
+                    for i, mem in enumerate(recalled_memories, 1):
+                        logger.debug(
+                            f"[{session_id}] 记忆 #{i}: 得分={mem.final_score:.3f}, "
+                            f"重要性={mem.metadata.get('importance', 0.5):.2f}, "
+                            f"内容={mem.content[:100]}..."
+                        )
+
                     memory_str = format_memories_for_injection(memory_list)
+                    logger.info(
+                        f"[{session_id}] 格式化后的记忆字符串长度={len(memory_str)}"
+                    )
+                    logger.debug(
+                        f"[{session_id}] 注入的记忆内容（前500字符）:\n{memory_str[:500]}"
+                    )
+
                     req.system_prompt = memory_str + "\n" + req.system_prompt
                     logger.info(
-                        f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆。"
+                        f"[{session_id}] ✅ 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
                     )
+                else:
+                    logger.info(f"[{session_id}] 未找到相关记忆")
 
                 # 使用 ConversationManager 添加用户消息
                 if self.conversation_manager:
@@ -466,12 +492,52 @@ class LivingMemoryPlugin(Star):
                 and conversation_rounds % trigger_rounds == 0
             ):
                 logger.info(
-                    f"[{session_id}] 对话消息数达到 {message_count}，启动反思任务。"
+                    f"[{session_id}] 🔄 对话轮数达到 {conversation_rounds} 轮（消息数={message_count}），启动记忆反思任务"
                 )
 
-                # 获取需要反思的消息历史
-                history_messages = await self.conversation_manager.get_messages(
-                    session_id=session_id, limit=trigger_rounds, use_cache=True
+                # ====== 滑动窗口逻辑 ======
+                # 计算保留的上下文消息数（保留最近的2-4轮对话）
+                context_keep_rounds = max(2, trigger_rounds // 3)  # 至少保留2轮
+                context_keep_messages = context_keep_rounds * 2  # 每轮2条消息
+
+                # 获取上次总结的位置
+                last_summarized_index = (
+                    await self.conversation_manager.get_session_metadata(
+                        session_id, "last_summarized_index", 0
+                    )
+                )
+
+                # 计算本次需要总结的消息范围
+                total_messages = session_info.message_count
+                end_index = total_messages - context_keep_messages
+                start_index = last_summarized_index
+
+                logger.info(
+                    f"🔄 [{session_id}] 滑动窗口总结: "
+                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
+                    f"保留上下文 {context_keep_messages} 条（{context_keep_rounds} 轮）"
+                )
+
+                # 检查是否有足够的新消息需要总结
+                if end_index <= start_index:
+                    logger.debug(
+                        f"[{session_id}] 没有足够的新消息需要总结 "
+                        f"(start={start_index}, end={end_index})"
+                    )
+                    return
+
+                # 获取需要总结的消息
+                history_messages = await self.conversation_manager.get_messages_range(
+                    session_id=session_id, start_index=start_index, end_index=end_index
+                )
+
+                logger.info(
+                    f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结 "
+                    f"(索引 {start_index} 到 {end_index})"
+                )
+                logger.debug(
+                    f"[{session_id}] 历史消息预览: "
+                    f"{[f'{m.role}:{m.content[:30]}...' for m in history_messages[:3]]}"
                 )
 
                 persona_id = await get_persona_id(self.context, event)
@@ -487,9 +553,16 @@ class LivingMemoryPlugin(Star):
                                 else False
                             )
 
+                            logger.info(
+                                f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}"
+                            )
+
                             # 使用 MemoryProcessor 处理对话历史,生成结构化记忆
                             if self.memory_processor:
                                 try:
+                                    logger.info(
+                                        f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
+                                    )
                                     (
                                         content,
                                         metadata,
@@ -499,12 +572,18 @@ class LivingMemoryPlugin(Star):
                                         is_group_chat=is_group_chat,
                                     )
                                     logger.info(
-                                        f"[{session_id}] 已使用LLM生成结构化记忆, "
-                                        f"主题={metadata.get('topics', [])}, 重要性={importance}"
+                                        f"[{session_id}] ✅ 已使用LLM生成结构化记忆, "
+                                        f"主题={metadata.get('topics', [])}, "
+                                        f"情感={metadata.get('sentiment', 'neutral')}, "
+                                        f"重要性={importance:.2f}"
+                                    )
+                                    logger.debug(
+                                        f"[{session_id}] 记忆内容（前200字符）: {content[:200]}"
                                     )
                                 except Exception as e:
-                                    logger.warning(
-                                        f"[{session_id}] LLM处理失败,使用降级方案: {e}"
+                                    logger.error(
+                                        f"[{session_id}] ❌ LLM处理失败,使用降级方案: {e}",
+                                        exc_info=True,
                                     )
                                     # 降级方案:简单文本拼接
                                     content = "\n".join(
@@ -513,8 +592,11 @@ class LivingMemoryPlugin(Star):
                                             for msg in history_messages
                                         ]
                                     )
-                                    metadata = {}
+                                    metadata = {"fallback": True}
                                     importance = 0.7
+                                    logger.info(
+                                        f"[{session_id}] 使用降级方案，内容长度={len(content)}"
+                                    )
                             else:
                                 # 如果 MemoryProcessor 未初始化,使用简单文本拼接
                                 logger.warning(
@@ -526,10 +608,15 @@ class LivingMemoryPlugin(Star):
                                         for msg in history_messages
                                     ]
                                 )
-                                metadata = {}
+                                metadata = {"fallback": True}
                                 importance = 0.7
 
                             # 添加到记忆引擎
+                            logger.info(
+                                f"[{session_id}] 准备存储记忆: 重要性={importance:.2f}, "
+                                f"内容长度={len(content)}, metadata={list(metadata.keys())}"
+                            )
+
                             await self.memory_engine.add_memory(
                                 content=content,
                                 session_id=session_id,
@@ -537,8 +624,17 @@ class LivingMemoryPlugin(Star):
                                 importance=importance,
                                 metadata=metadata,
                             )
+
                             logger.info(
-                                f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息）"
+                                f"[{session_id}] ✅ 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
+                            )
+
+                            # 更新已总结的位置
+                            await self.conversation_manager.update_session_metadata(
+                                session_id, "last_summarized_index", end_index
+                            )
+                            logger.info(
+                                f"[{session_id}] 📌 更新滑动窗口位置: last_summarized_index = {end_index}"
                             )
                         except Exception as e:
                             logger.error(

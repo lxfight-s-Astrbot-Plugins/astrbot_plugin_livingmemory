@@ -272,29 +272,57 @@ def format_memories_for_injection(memories: List) -> str:
     header = f"{MEMORY_INJECTION_HEADER}\n"
     footer = f"\n{MEMORY_INJECTION_FOOTER}"
 
+    logger.debug(
+        f"记忆注入标记: 头部='{MEMORY_INJECTION_HEADER}', 尾部='{MEMORY_INJECTION_FOOTER}'"
+    )
+
     formatted_entries = []
     for mem in memories:
         try:
-            # 使用统一的元数据解析函数
-            metadata_raw = mem.data.get("metadata", "{}")
-            metadata = safe_parse_metadata(metadata_raw)
+            # 修复：memories 传入的是字典列表，不是对象
+            # 从字典中获取数据
+            if isinstance(mem, dict):
+                content = mem.get("content", "内容缺失")
+                score = mem.get("score", 0.0)
+                metadata = mem.get("metadata", {})
+                importance = metadata.get("importance", 0.5)
+            else:
+                # 如果是对象，尝试访问属性
+                content = getattr(mem, "content", "内容缺失")
+                score = getattr(mem, "score", 0.0)
+                metadata_raw = getattr(mem, "metadata", {})
+                metadata = (
+                    safe_parse_metadata(metadata_raw)
+                    if isinstance(metadata_raw, str)
+                    else metadata_raw
+                )
+                importance = metadata.get("importance", 0.5)
 
-            content = mem.data.get("text", "内容缺失")
-            importance = metadata.get("importance", 0.0)
-
-            entry = f"- [重要性: {importance:.2f}] {content}"
+            entry = f"- [重要性: {importance:.2f}, 得分: {score:.2f}] {content}"
             formatted_entries.append(entry)
+            logger.debug(
+                f"格式化记忆成功: 重要性={importance:.2f}, 得分={score:.2f}, 内容长度={len(content)}"
+            )
         except Exception as e:
             # 如果处理失败，则跳过此条记忆
-            logger.debug(f"格式化记忆时出错，跳过此记忆: {e}")
+            logger.warning(
+                f"格式化记忆时出错，跳过此记忆: {e}, 记忆对象类型: {type(mem)}"
+            )
             continue
 
     if not formatted_entries:
+        logger.debug("没有记忆需要格式化，返回空字符串")
         return ""
 
     body = "\n".join(formatted_entries)
+    result = f"{header}{body}{footer}"
 
-    return f"{header}{body}{footer}"
+    logger.debug(
+        f"记忆格式化完成: 记忆条数={len(formatted_entries)}, "
+        f"总长度={len(result)}, 包含标记={MEMORY_INJECTION_HEADER in result and MEMORY_INJECTION_FOOTER in result}"
+    )
+
+    return result
 
 
 __all__ = [
