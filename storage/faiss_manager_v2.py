@@ -68,14 +68,18 @@ class FaissManagerV2:
             memory.memory_id = str(uuid.uuid4())
 
         if not memory.embedding:
-            memory.embedding = await asyncio.to_thread(self.embedding_model.encode, memory.description)
+            memory.embedding = await asyncio.to_thread(
+                self.embedding_model.encode, memory.description
+            )
 
         # 1. 存入 SQLite 并获取内部 ID
         internal_id = await self.storage.add_memory(memory)
 
         # 2. 将文本向量添加到 text_vstore
         if memory.embedding:
-            await asyncio.to_thread(self.text_vstore.add, [internal_id], [memory.embedding])
+            await asyncio.to_thread(
+                self.text_vstore.add, [internal_id], [memory.embedding]
+            )
 
         # 3. 将图像向量添加到 image_vstore
         media_embeddings = [
@@ -104,13 +108,19 @@ class FaissManagerV2:
         根据查询文本智能检索最相关的记忆。
         """
         # 1a. 向量搜索
-        query_embedding = await asyncio.to_thread(self.embedding_model.encode, query_text)
+        query_embedding = await asyncio.to_thread(
+            self.embedding_model.encode, query_text
+        )
         # 召回数量可以设置得比最终需要的 k 要大，例如 k*5
-        distances, text_ids = await asyncio.to_thread(self.text_vstore.search, query_embedding, k * 5)
+        distances, text_ids = await asyncio.to_thread(
+            self.text_vstore.search, query_embedding, k * 5
+        )
 
         # 1b. 基于图的种子扩展
         # 假设 embedding_model 有提取实体的能力
-        query_entities = await asyncio.to_thread(self.embedding_model.extract_entities, query_text)
+        query_entities = await asyncio.to_thread(
+            self.embedding_model.extract_entities, query_text
+        )
         graph_ids = []
         if query_entities:
             for entity_id in query_entities:
