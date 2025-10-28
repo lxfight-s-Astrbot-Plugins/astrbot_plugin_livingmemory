@@ -15,8 +15,8 @@ from typing import List, Optional, Dict, Any
 from collections import OrderedDict
 import time
 
-from storage.conversation_store import ConversationStore
-from core.conversation_models import Message, Session
+from ..storage.conversation_store import ConversationStore
+from ..core.conversation_models import Message, Session
 from astrbot.api import logger
 
 

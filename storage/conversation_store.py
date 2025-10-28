@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from astrbot.api import logger
 
-from core.conversation_models import Message, Session, serialize_to_json
+from ..core.conversation_models import Message, Session, serialize_to_json
 
 
 class ConversationStore:

@@ -432,6 +432,49 @@ class StopwordsManager:
         except Exception as e:
             logger.error(f"保存自定义停用词失败: {e}")
 
+    async def get_stopwords(self, source: str = "hit") -> Optional[str]:
+        """
+        确保本地存在可用的停用词文件并返回其路径。
+
+        优先返回缓存/已下载文件；如未找到，会尝试下载；
+        若下载失败，则写入内置后备停用词到本地并返回路径。
+
+        Args:
+            source: 停用词来源 ("hit"/"baidu"/"cn")
+
+        Returns:
+            停用词文件的绝对路径字符串；若发生异常则返回 None。
+        """
+        try:
+            filename = f"stopwords_{source}.txt"
+            filepath = self.stopwords_dir / filename
+
+            # 已存在，直接返回
+            if filepath.exists():
+                return str(filepath)
+
+            # 尝试下载
+            downloaded = await self._download_stopwords(source, filepath)
+            if downloaded and filepath.exists():
+                return str(filepath)
+
+            # 下载失败：写入内置后备停用词
+            builtin = self._get_builtin_stopwords()
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    for w in sorted(builtin):
+                        f.write(f"{w}\n")
+                logger.warning(
+                    f"未能下载 {source} 停用词，已写入内置后备停用词到: {filepath}"
+                )
+                return str(filepath)
+            except Exception as e:
+                logger.error(f"写入内置停用词失败: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"获取停用词文件失败: {e}")
+            return None
+
 
 # 全局单例
 _stopwords_manager: Optional[StopwordsManager] = None
