@@ -44,10 +44,10 @@
       },
       "access_password": {
         "description": "访问密码",
-        "hint": "访问 WebUI 时需要输入的密码。强烈建议设置复杂密码以保护数据安全！留空则使用默认密码。",
+        "hint": "访问 WebUI 时需要输入的密码。强烈建议设置复杂密码以保护数据安全！留空时系统会随机生成一个密码并在日志中提示。",
         "type": "string",
         "obvious_hint": true,
-        "default": "livingmemory"
+        "default": ""
       },
       "session_timeout": {
         "description": "会话超时时间（秒）",

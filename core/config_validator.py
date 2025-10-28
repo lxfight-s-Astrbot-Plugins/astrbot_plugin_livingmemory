@@ -201,7 +201,7 @@ class WebUISettings(BaseModel):
     def validate_password(self):
         """启用时必须设置密码"""
         if self.enabled and not self.access_password:
-            raise ValueError("启用 WebUI 时必须设置入口密码")
+            logger.info("WebUI 未设置访问密码，将在运行时自动生成随机密码。")
         return self
 
 

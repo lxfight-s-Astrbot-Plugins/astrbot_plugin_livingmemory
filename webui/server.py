@@ -90,6 +90,14 @@ class WebUIServer:
         self.port = int(config.get("port", 8080))
         self.session_timeout = max(60, int(config.get("session_timeout", 3600)))
         self._access_password = str(config.get("access_password", "")).strip()
+        self._password_generated = False
+        if not self._access_password:
+            self._access_password = secrets.token_urlsafe(10)
+            self._password_generated = True
+            logger.info(
+                "WebUI 未设置访问密码，已自动生成随机密码: %s",
+                self._access_password,
+            )
 
         # Token管理
         self._tokens: Dict[str, Dict[str, float]] = {}
@@ -392,10 +400,20 @@ class WebUIServer:
                     all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
                         metadata_filters={}
                     )
+                    # 解析 metadata 字段（从 JSON 字符串转为字典）
+                    import json
+
+                    for doc in all_docs:
+                        if isinstance(doc.get("metadata"), str):
+                            try:
+                                doc["metadata"] = json.loads(doc["metadata"])
+                            except (json.JSONDecodeError, TypeError):
+                                doc["metadata"] = {}
+
                     # 按创建时间排序
                     sorted_docs = sorted(
                         all_docs,
-                        key=lambda x: x["metadata"].get("create_time", 0),
+                        key=lambda x: x["metadata"].get("create_time", 0) if isinstance(x["metadata"], dict) else 0,
                         reverse=True,
                     )
                     memories = sorted_docs[:limit]

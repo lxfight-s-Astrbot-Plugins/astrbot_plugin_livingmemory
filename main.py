@@ -661,15 +661,60 @@ class LivingMemoryPlugin(Star):
     async def terminate(self):
         """插件停止时的清理逻辑"""
         logger.info("LivingMemory 插件正在停止...")
-        await self._stop_webui()
+
+        # 停止并清理 WebUI 服务器
+        if self.webui_server:
+            try:
+                logger.info("正在停止 WebUI 服务器...")
+
+                # 停止定期清理任务
+                if hasattr(self.webui_server, "_cleanup_task") and self.webui_server._cleanup_task:
+                    if not self.webui_server._cleanup_task.done():
+                        self.webui_server._cleanup_task.cancel()
+                        try:
+                            await self.webui_server._cleanup_task
+                        except asyncio.CancelledError:
+                            pass
+
+                # 停止 uvicorn 服务器
+                if hasattr(self.webui_server, "_server") and self.webui_server._server:
+                    self.webui_server._server.should_exit = True
+
+                if hasattr(self.webui_server, "_server_task") and self.webui_server._server_task:
+                    try:
+                        await self.webui_server._server_task
+                    except (asyncio.CancelledError, KeyboardInterrupt, Exception):
+                        # 忽略任务取消和中断异常
+                        pass
+
+                # 清理引用
+                if hasattr(self.webui_server, "_server"):
+                    self.webui_server._server = None
+                if hasattr(self.webui_server, "_server_task"):
+                    self.webui_server._server_task = None
+                if hasattr(self.webui_server, "_cleanup_task"):
+                    self.webui_server._cleanup_task = None
+
+                self.webui_server = None
+                logger.info("✅ WebUI 服务器已停止")
+
+            except Exception as e:
+                logger.error(f"停止 WebUI 服务器时出错: {e}", exc_info=True)
+                self.webui_server = None
 
         # 关闭 ConversationManager（会自动关闭 ConversationStore）
         if self.conversation_manager and self.conversation_manager.store:
             await self.conversation_manager.store.close()
             logger.info("✅ ConversationManager 已关闭")
 
+        # 关闭 MemoryEngine
         if self.memory_engine:
             await self.memory_engine.close()
+            logger.info("✅ MemoryEngine 已关闭")
+
+        # 关闭 FaissVecDB
         if self.db:
             await self.db.close()
+            logger.info("✅ FaissVecDB 已关闭")
+
         logger.info("LivingMemory 插件已成功停止。")
