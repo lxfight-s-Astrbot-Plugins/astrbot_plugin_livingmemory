@@ -567,9 +567,7 @@ class LivingMemoryPlugin(Star):
                 )
 
                 # ====== 滑动窗口逻辑 ======
-                # 计算保留的上下文消息数（保留最近的2-4轮对话）
-                context_keep_rounds = max(2, trigger_rounds // 3)  # 至少保留2轮
-                context_keep_messages = context_keep_rounds * 2  # 每轮2条消息
+                # 不再保留上下文，而是总结所有应该总结的消息
 
                 # 获取上次总结的位置
                 last_summarized_index = (
@@ -580,13 +578,40 @@ class LivingMemoryPlugin(Star):
 
                 # 计算本次需要总结的消息范围
                 total_messages = session_info.message_count
-                end_index = total_messages - context_keep_messages
-                start_index = last_summarized_index
+
+                # end_index：总结到当前所有消息
+                end_index = total_messages
+
+                # start_index 计算：
+                # 1. 如果是第一次总结（last_summarized_index == 0），从头开始
+                # 2. 如果不是第一次，需要包含上次总结中最新的20%轮次作为上下文
+                if last_summarized_index == 0:
+                    # 第一次总结：从头开始
+                    start_index = 0
+                    context_rounds_added = 0
+                else:
+                    # 计算上次总结了多少轮对话
+                    last_summarized_messages = last_summarized_index
+                    last_summarized_rounds = last_summarized_messages // 2
+
+                    # 计算需要重叠的轮数（上次总结的20%，至少1轮）
+                    overlap_rounds = max(1, int(last_summarized_rounds * 0.2))
+                    overlap_messages = overlap_rounds * 2
+
+                    # start_index 从上次总结位置向前回溯 overlap_messages 条
+                    start_index = max(0, last_summarized_index - overlap_messages)
+                    context_rounds_added = overlap_rounds
+
+                # 计算本次将要总结的轮数
+                messages_to_summarize = end_index - start_index
+                rounds_to_summarize = messages_to_summarize // 2
 
                 logger.info(
                     f" [{session_id}] 滑动窗口总结: "
                     f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
-                    f"保留上下文 {context_keep_messages} 条（{context_keep_rounds} 轮）"
+                    f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息），"
+                    f"其中包含上次最新的 {context_rounds_added} 轮作为上下文，"
+                    f"上次总结位置 {last_summarized_index}"
                 )
 
                 # 检查是否有足够的新消息需要总结
@@ -594,6 +619,16 @@ class LivingMemoryPlugin(Star):
                     logger.debug(
                         f"[{session_id}] 没有足够的新消息需要总结 "
                         f"(start={start_index}, end={end_index})"
+                    )
+                    return
+
+                # 确保至少有 trigger_rounds 轮的新消息
+                new_messages = end_index - last_summarized_index
+                new_rounds = new_messages // 2
+                if new_rounds < trigger_rounds:
+                    logger.debug(
+                        f"[{session_id}] 新消息不足 {trigger_rounds} 轮 "
+                        f"(当前仅 {new_rounds} 轮)"
                     )
                     return
 
