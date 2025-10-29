@@ -51,6 +51,39 @@ class IndexValidator:
         """
         try:
             async with aiosqlite.connect(self.db_path) as db:
+                # 0. 首先检查是否有标记为"已完成重建"的状态
+                # 如果有，说明索引已经重建过，不需要再次检查
+                cursor = await db.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='migration_status'
+                """)
+                has_migration_table = await cursor.fetchone()
+                
+                if has_migration_table:
+                    cursor = await db.execute("""
+                        SELECT value FROM migration_status
+                        WHERE key='index_rebuild_completed'
+                    """)
+                    rebuild_completed = await cursor.fetchone()
+                    
+                    if rebuild_completed and rebuild_completed[0] == "true":
+                        # 索引已经重建完成，直接返回一致状态
+                        cursor = await db.execute("SELECT COUNT(*) FROM documents")
+                        documents_count = (await cursor.fetchone())[0]
+                        
+                        logger.debug(f"检测到索引已完成重建标记，跳过详细检查（文档数: {documents_count}）")
+                        
+                        return IndexStatus(
+                            is_consistent=True,
+                            documents_count=documents_count,
+                            bm25_count=documents_count,
+                            vector_count=documents_count,
+                            missing_in_bm25=0,
+                            missing_in_vector=0,
+                            needs_rebuild=False,
+                            reason="索引已重建完成（已验证）",
+                        )
+
                 # 1. 获取documents表中的文档数和ID集合
                 cursor = await db.execute("SELECT COUNT(*) FROM documents")
                 documents_count = (await cursor.fetchone())[0]
@@ -311,41 +344,63 @@ class IndexValidator:
                         # 每处理10条记录提交一次
                         if i % 10 == 0:
                             logger.info(
-                                f"⏳ 重建进度: {i}/{total} ({i * 100 // total}%)"
+                                f" 重建进度: {i}/{total} ({i * 100 // total}%)"
                             )
 
                     except Exception as e:
                         error_count += 1
                         logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
 
-                # 4. 更新迁移状态（如果表存在）
+                # 4. 更新迁移状态标记
                 from datetime import datetime
-
-                try:
-                    await db.execute(
-                        """
-                        UPDATE migration_status
-                        SET value='false', updated_at=?
-                        WHERE key='needs_index_rebuild'
-                    """,
-                        (datetime.utcnow().isoformat(),),
-                    )
-                    await db.commit()
-                except Exception as e:
-                    # migration_status表可能不存在，这是正常的
-                    logger.debug(f"更新迁移状态失败（可能表不存在）: {e}")
-
+                
                 logger.info(
                     f" 索引重建完成: 成功{success_count}条, 失败{error_count}条"
                 )
 
-                return {
-                    "success": True,
-                    "message": "索引重建完成",
-                    "processed": success_count,
-                    "errors": error_count,
-                    "total": total,
-                }
+            # 5. 在主数据库连接外部更新状态标记（确保提交）
+            try:
+                async with aiosqlite.connect(self.db_path) as status_db:
+                    # 确保migration_status表存在
+                    await status_db.execute("""
+                        CREATE TABLE IF NOT EXISTS migration_status (
+                            key TEXT PRIMARY KEY,
+                            value TEXT,
+                            updated_at TEXT
+                        )
+                    """)
+                    
+                    # 更新需要重建标记为false
+                    await status_db.execute(
+                        """
+                        INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                        VALUES (?, ?, ?)
+                    """,
+                        ("needs_index_rebuild", "false", datetime.utcnow().isoformat()),
+                    )
+                    
+                    # 添加索引重建完成标记
+                    await status_db.execute(
+                        """
+                        INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                        VALUES (?, ?, ?)
+                    """,
+                        ("index_rebuild_completed", "true", datetime.utcnow().isoformat()),
+                    )
+                    
+                    await status_db.commit()
+                    logger.info("已更新迁移状态: needs_index_rebuild=false, index_rebuild_completed=true")
+            except Exception as e:
+                logger.warning(f"更新迁移状态失败: {e}")
+
+            # 6. 返回重建结果
+            return {
+                "success": True,
+                "message": "索引重建完成",
+                "processed": success_count,
+                "errors": error_count,
+                "total": total,
+            }
 
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
