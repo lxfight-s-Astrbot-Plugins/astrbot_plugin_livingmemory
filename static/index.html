@@ -55,6 +55,7 @@
         <!-- 标签页导航 -->
         <nav class="tabs-nav">
           <button class="tab-btn active" data-tab="memories">记忆管理</button>
+          <button class="tab-btn" data-tab="recall-test">召回测试</button>
         </nav>
 
         <div id="nuke-banner" class="nuke-banner hidden" role="alert">
@@ -161,6 +162,72 @@
               </select>
             </div>
           </section>
+          </div>
+
+          <!-- 召回测试标签页 -->
+          <div class="tab-content" data-tab="recall-test">
+            <div class="tab-toolbar">
+              <button id="recall-clear-btn" class="ghost">清空结果</button>
+            </div>
+
+            <section class="card recall-card">
+              <h3>记忆召回功能测试</h3>
+              <p class="subtitle">输入查询语句，测试混合检索引擎的召回能力</p>
+
+              <div class="recall-form">
+                <div class="form-group">
+                  <label for="recall-query">查询内容</label>
+                  <textarea
+                    id="recall-query"
+                    placeholder="输入你的查询语句，系统将使用混合检索（BM25+向量相似度）进行召回"
+                    rows="3"
+                  ></textarea>
+                </div>
+
+                <div class="form-group">
+                  <label for="recall-k">返回数量</label>
+                  <input
+                    type="number"
+                    id="recall-k"
+                    min="1"
+                    max="50"
+                    value="5"
+                    placeholder="返回的记忆数量"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label for="recall-session-id">会话 ID (可选)</label>
+                  <input
+                    type="text"
+                    id="recall-session-id"
+                    placeholder="输入会话 ID 以过滤特定会话的记忆（支持多种格式）"
+                  />
+                </div>
+
+                <button id="recall-search-btn" class="primary">执行召回</button>
+              </div>
+            </section>
+
+            <section class="card recall-results-card">
+              <h3>召回结果</h3>
+              <div id="recall-stats" class="recall-stats hidden">
+                <div class="stat">
+                  <span class="label">召回数量</span>
+                  <span class="value" id="recall-count">0</span>
+                </div>
+                <div class="stat">
+                  <span class="label">查询耗时</span>
+                  <span class="value" id="recall-time">--</span>
+                </div>
+              </div>
+
+              <div id="recall-results" class="recall-results">
+                <div class="empty-state">
+                  <p>暂无召回结果 · 请输入查询内容并执行召回</p>
+                </div>
+              </div>
+            </section>
           </div>
         </main>
       </section>

@@ -68,7 +68,11 @@ class WebUIServer:
     """
 
     def __init__(
-        self, memory_engine, config: Dict[str, Any], conversation_manager=None
+        self,
+        memory_engine,
+        config: Dict[str, Any],
+        conversation_manager=None,
+        index_validator=None,
     ):
         """
         初始化WebUI服务器
@@ -81,9 +85,11 @@ class WebUIServer:
                 - access_password: 访问密码
                 - session_timeout: 会话超时时间
             conversation_manager: ConversationManager实例(可选)
+            index_validator: IndexValidator实例(可选)
         """
         self.memory_engine = memory_engine
         self.conversation_manager = conversation_manager
+        self.index_validator = index_validator
         self.config = config
 
         self.host = str(config.get("host", "127.0.0.1"))
@@ -544,7 +550,8 @@ class WebUIServer:
                         value = value / 10.0
                     except (ValueError, TypeError):
                         raise HTTPException(
-                            status.HTTP_400_BAD_REQUEST, detail="重要性必须是 0-10 之间的数字"
+                            status.HTTP_400_BAD_REQUEST,
+                            detail="重要性必须是 0-10 之间的数字",
                         )
                     updates["importance"] = value
 
@@ -607,7 +614,9 @@ class WebUIServer:
                 failed_count = 0
                 failed_ids = []  # 记录失败的 ID 用于诊断
 
-                logger.info(f"[批量删除] 准备删除 {len(memory_ids)} 条记忆: {memory_ids}")
+                logger.info(
+                    f"[批量删除] 准备删除 {len(memory_ids)} 条记忆: {memory_ids}"
+                )
 
                 for memory_id in memory_ids:
                     try:
@@ -622,15 +631,22 @@ class WebUIServer:
                         else:
                             failed_count += 1
                             failed_ids.append(mid)
-                            logger.warning(f"[批量删除] ❌ 删除失败 memory_id={mid} (引擎返回False)")
+                            logger.warning(
+                                f"[批量删除] ❌ 删除失败 memory_id={mid} (引擎返回False)"
+                            )
                     except ValueError as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
-                        logger.error(f"[批量删除] ❌ memory_id 格式错误 '{memory_id}': {e}")
+                        logger.error(
+                            f"[批量删除] ❌ memory_id 格式错误 '{memory_id}': {e}"
+                        )
                     except Exception as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
-                        logger.error(f"[批量删除] ❌ 删除异常 memory_id={memory_id}: {e}", exc_info=True)
+                        logger.error(
+                            f"[批量删除] ❌ 删除异常 memory_id={memory_id}: {e}",
+                            exc_info=True,
+                        )
 
                 logger.info(
                     f"[批量删除] 完成 - 成功: {deleted_count}, 失败: {failed_count}, "
@@ -687,6 +703,90 @@ class WebUIServer:
                 logger.error(f"清理记忆失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
+        # 召回测试 API
+        @self._app.post("/api/recall/test")
+        async def test_recall(
+            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
+        ):
+            """
+            测试记忆召回功能
+
+            参数:
+                query: 查询内容 (必需)
+                k: 返回的记忆数量，默认 5 (可选)
+                session_id: 会话 ID 过滤，支持多种格式 (可选)
+
+            返回:
+                包含召回的记忆列表、执行耗时等信息
+            """
+            query = payload.get("query", "").strip()
+            if not query:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail="查询内容不能为空"
+                )
+
+            k = min(50, max(1, int(payload.get("k", 5))))
+            session_id = payload.get("session_id")  # 可选的会话过滤
+
+            try:
+                import time
+
+                # 记录开始时间
+                start_time = time.time()
+
+                logger.info(
+                    f"[召回测试] 开始执行：query='{query[:50]}...', k={k}, session_id={session_id}"
+                )
+
+                # 执行召回
+                results = await self.memory_engine.search_memories(
+                    query=query, k=k, session_id=session_id, persona_id=None
+                )
+
+                # 计算耗时（毫秒）
+                elapsed_time = (time.time() - start_time) * 1000
+
+                logger.info(
+                    f"[召回测试] 完成：返回 {len(results)} 条结果，耗时 {elapsed_time:.2f}ms"
+                )
+
+                # 格式化结果，包含详细信息
+                formatted_results = []
+                for result in results:
+                    formatted_results.append(
+                        {
+                            "memory_id": result.doc_id,
+                            "content": result.content,
+                            "similarity_score": round(result.final_score, 4),
+                            "score_percentage": round(result.final_score * 100, 2),
+                            "metadata": {
+                                "session_id": result.metadata.get("session_id"),
+                                "persona_id": result.metadata.get("persona_id"),
+                                "importance": result.metadata.get("importance", 0.5),
+                                "memory_type": result.metadata.get(
+                                    "memory_type", "GENERAL"
+                                ),
+                                "status": result.metadata.get("status", "active"),
+                                "create_time": result.metadata.get("create_time"),
+                            },
+                        }
+                    )
+
+                return {
+                    "success": True,
+                    "data": {
+                        "results": formatted_results,
+                        "total": len(formatted_results),
+                        "query": query,
+                        "k": k,
+                        "session_id_filter": session_id,
+                        "elapsed_time_ms": round(elapsed_time, 2),
+                    },
+                }
+            except Exception as e:
+                logger.error(f"召回测试失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
         # 获取会话列表
         @self._app.get("/api/sessions")
         async def get_sessions(token: str = Depends(self._auth_dependency())):
@@ -737,6 +837,78 @@ class WebUIServer:
                 return {"success": True, "data": safe_config}
             except Exception as e:
                 logger.error(f"获取配置信息失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 检查索引重建状态
+        @self._app.get("/api/migration/index-status")
+        async def check_index_status(token: str = Depends(self._auth_dependency())):
+            """检查索引一致性状态"""
+            try:
+                if not self.index_validator:
+                    return {
+                        "success": True,
+                        "data": {
+                            "is_consistent": True,
+                            "needs_rebuild": False,
+                            "message": "索引验证器未初始化，跳过检查",
+                        },
+                    }
+
+                # 检查索引一致性
+                status = await self.index_validator.check_consistency()
+
+                return {
+                    "success": True,
+                    "data": {
+                        "is_consistent": status.is_consistent,
+                        "needs_rebuild": status.needs_rebuild,
+                        "documents_count": status.documents_count,
+                        "bm25_count": status.bm25_count,
+                        "vector_count": status.vector_count,
+                        "missing_in_bm25": status.missing_in_bm25,
+                        "missing_in_vector": status.missing_in_vector,
+                        "message": status.reason,
+                    },
+                }
+
+            except Exception as e:
+                logger.error(f"检查索引状态失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        # 重建索引
+        @self._app.post("/api/migration/rebuild-index")
+        async def rebuild_index(token: str = Depends(self._auth_dependency())):
+            """重建索引（使用IndexValidator）"""
+            try:
+                if not self.index_validator:
+                    return {"success": False, "error": "索引验证器未初始化"}
+
+                logger.info("[WebUI] 开始手动重建索引")
+
+                # 使用IndexValidator重建索引
+                result = await self.index_validator.rebuild_indexes(self.memory_engine)
+
+                if result["success"]:
+                    logger.info(
+                        f"[WebUI] 索引重建完成 - 成功: {result['processed']}, 失败: {result['errors']}"
+                    )
+                    return {
+                        "success": True,
+                        "data": {
+                            "message": f"索引重建完成！成功: {result['processed']} 条，失败: {result['errors']} 条",
+                            "processed": result.get("total", result["processed"]),
+                            "success_count": result["processed"],
+                            "error_count": result["errors"],
+                        },
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("message", "未知错误"),
+                    }
+
+            except Exception as e:
+                logger.error(f"[WebUI] 索引重建失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
         # ==================== 会话管理 API (ConversationManager) ====================

@@ -23,6 +23,14 @@
     searchTimeout: null, // 用于防抖搜索
   };
 
+  // 简单的日志记录器
+  const logger = {
+    error: (...args) => console.error(...args),
+    warn: (...args) => console.warn(...args),
+    info: (...args) => console.info(...args),
+    debug: (...args) => console.debug(...args),
+  };
+
   const dom = {
     loginView: document.getElementById("login-view"),
     dashboardView: document.getElementById("dashboard-view"),
@@ -137,6 +145,22 @@
     }
     if (saveEditBtn) {
       saveEditBtn.addEventListener("click", saveMemoryEdit);
+    }
+
+    // 标签页切换
+    const tabButtons = document.querySelectorAll(".tab-btn");
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", onTabClick);
+    });
+
+    // 召回测试功能
+    const recallSearchBtn = document.getElementById("recall-search-btn");
+    const recallClearBtn = document.getElementById("recall-clear-btn");
+    if (recallSearchBtn) {
+      recallSearchBtn.addEventListener("click", performRecallTest);
+    }
+    if (recallClearBtn) {
+      recallClearBtn.addEventListener("click", clearRecallResults);
     }
 
     if (state.token) {
@@ -1181,6 +1205,168 @@
     dom.detail.access.textContent = item.last_access || "--";
     dom.detail.json.textContent = item.raw_json || JSON.stringify(item.raw, null, 2);
     dom.drawer.classList.remove("hidden");
+  }
+
+  // ============================================
+  // 标签页切换功能
+  // ============================================
+
+  function onTabClick(event) {
+    const tabName = event.target.dataset.tab;
+    if (!tabName) return;
+
+    // 更新状态
+    state.currentTab = tabName;
+
+    // 更新标签页按钮状态
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === tabName);
+    });
+
+    // 更新内容显示
+    document.querySelectorAll(".tab-content").forEach((content) => {
+      content.classList.toggle("active", content.dataset.tab === tabName);
+    });
+  }
+
+  // ============================================
+  // 召回测试功能
+  // ============================================
+
+  async function performRecallTest() {
+    const query = document.getElementById("recall-query").value.trim();
+    const k = parseInt(document.getElementById("recall-k").value) || 5;
+    const session_id = document.getElementById("recall-session-id").value.trim() || null;
+
+    if (!query) {
+      showToast("请输入查询内容", true);
+      return;
+    }
+
+    const recallSearchBtn = document.getElementById("recall-search-btn");
+    recallSearchBtn.disabled = true;
+    recallSearchBtn.textContent = "执行中...";
+
+    try {
+      const payload = {
+        query,
+        k,
+      };
+
+      if (session_id) {
+        payload.session_id = session_id;
+      }
+
+      const startTime = performance.now();
+      const response = await apiRequest("/api/recall/test", {
+        method: "POST",
+        body: payload,
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || "召回失败");
+      }
+
+      const data = response.data;
+      displayRecallResults(data);
+      showToast(`成功召回 ${data.total} 条记忆`);
+    } catch (error) {
+      logger.error("[召回测试失败]", error.message);
+      showToast(error.message || "召回失败", true);
+    } finally {
+      recallSearchBtn.disabled = false;
+      recallSearchBtn.textContent = "执行召回";
+    }
+  }
+
+  function displayRecallResults(data) {
+    const resultsContainer = document.getElementById("recall-results");
+    const statsContainer = document.getElementById("recall-stats");
+
+    // 更新统计信息
+    if (data.total > 0) {
+      document.getElementById("recall-count").textContent = data.total;
+      document.getElementById("recall-time").textContent = `${data.elapsed_time_ms.toFixed(2)}ms`;
+      statsContainer.classList.remove("hidden");
+    } else {
+      statsContainer.classList.add("hidden");
+    }
+
+    // 清空结果容器
+    resultsContainer.innerHTML = "";
+
+    if (data.total === 0) {
+      resultsContainer.innerHTML =
+        '<div class="empty-state"><p>未找到匹配的记忆</p></div>';
+      return;
+    }
+
+    // 构建结果卡片
+    const resultsHTML = data.results
+      .map((result, index) => {
+        const scorePercentage = result.score_percentage;
+        const scoreColor = getScoreColor(scorePercentage);
+
+        return `
+          <div class="recall-result-card">
+            <div class="result-header">
+              <h4>结果 #${index + 1}</h4>
+              <span class="score-badge ${scoreColor}">
+                ${scorePercentage.toFixed(1)}%
+              </span>
+            </div>
+
+            <div class="result-content">
+              <p class="content-text">${escapeHTML(result.content)}</p>
+            </div>
+
+            <div class="result-metadata">
+              <div class="meta-item">
+                <span class="meta-label">记忆 ID:</span>
+                <span class="meta-value mono">${result.memory_id}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">相似度得分:</span>
+                <span class="meta-value">${result.similarity_score}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">会话 UUID:</span>
+                <span class="meta-value mono">${result.metadata.session_id || "--"}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">重要性:</span>
+                <span class="meta-value">${(result.metadata.importance * 10).toFixed(1)}/10</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">类型:</span>
+                <span class="meta-value">${result.metadata.memory_type}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">状态:</span>
+                <span class="meta-value">${formatStatus(result.metadata.status)}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    resultsContainer.innerHTML = resultsHTML;
+  }
+
+  function getScoreColor(percentage) {
+    if (percentage >= 80) return "score-high";
+    if (percentage >= 60) return "score-medium";
+    if (percentage >= 40) return "score-low";
+    return "score-very-low";
+  }
+
+  function clearRecallResults() {
+    document.getElementById("recall-query").value = "";
+    document.getElementById("recall-session-id").value = "";
+    document.getElementById("recall-results").innerHTML =
+      '<div class="empty-state"><p>暂无召回结果 · 请输入查询内容并执行召回</p></div>';
+    document.getElementById("recall-stats").classList.add("hidden");
   }
 
   // ============================================

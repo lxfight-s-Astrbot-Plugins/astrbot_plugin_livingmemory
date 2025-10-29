@@ -1023,7 +1023,7 @@ tbody tr.selected {
 }
 
 .tab-content {
-  display: block;
+  display: none;
   padding: 24px;
 }
 
@@ -1257,4 +1257,217 @@ tbody tr.selected {
   input, select, button {
     font-size: 16px;
   }
+}
+
+/* ============================================
+   召回测试功能样式
+   ============================================ */
+
+.recall-card h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.recall-card .subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.recall-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.recall-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recall-form label {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.recall-form textarea,
+.recall-form input[type="text"],
+.recall-form input[type="number"] {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.recall-form textarea:focus,
+.recall-form input[type="text"]:focus,
+.recall-form input[type="number"]:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.recall-form button {
+  align-self: flex-start;
+  padding: 10px 20px;
+  margin-top: 8px;
+}
+
+.recall-results-card h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.recall-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--surface-alt);
+  border-radius: 6px;
+}
+
+.recall-stats.hidden {
+  display: none;
+}
+
+.recall-stats .stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recall-stats .label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.recall-stats .value {
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.recall-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recall-result-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface);
+  transition: all 0.2s;
+}
+
+.recall-result-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.score-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+}
+
+.score-badge.score-high {
+  background: #22c55e;
+}
+
+.score-badge.score-medium {
+  background: #f59e0b;
+}
+
+.score-badge.score-low {
+  background: #ef4444;
+}
+
+.score-badge.score-very-low {
+  background: #6b7280;
+}
+
+.result-content {
+  margin-bottom: 12px;
+}
+
+.content-text {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.result-metadata {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+
+.meta-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.meta-value {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.meta-value.mono {
+  font-family: "Monaco", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
 }

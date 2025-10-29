@@ -225,9 +225,9 @@ class DBMigration:
     ):
         """
         从版本1迁移到版本2
-        主要变更：documents表数据保留，仅更新版本号
+        主要变更：重建BM25索引和向量索引以支持新的检索架构
         """
-        logger.info("📦 执行迁移步骤: v1 -> v2 (数据库版本升级)")
+        logger.info("📦 执行迁移步骤: v1 -> v2 (重建索引)")
 
         try:
             # 检查是否有documents表
@@ -247,9 +247,52 @@ class DBMigration:
                 total_docs = (await cursor.fetchone())[0]
 
                 if total_docs == 0:
-                    logger.info("ℹ️ 数据库为空，数据已保留")
-                else:
-                    logger.info(f"✅ 成功保留 {total_docs} 条现有文档数据")
+                    logger.info("ℹ️ 数据库为空，无需重建索引")
+                    return
+
+                logger.info(f"📊 发现 {total_docs} 条v1版本数据，开始重建索引...")
+
+                # 获取所有文档数据
+                cursor = await db.execute("SELECT id, text, metadata FROM documents")
+                await cursor.fetchall()
+
+            # 重建索引需要在插件初始化完成后进行
+            # 这里只记录需要重建的标记，实际重建在插件启动时处理
+            logger.warning(f"⚠️ 检测到 {total_docs} 条v1迁移数据需要重建索引")
+            logger.warning(
+                "📌 请在插件初始化完成后，使用 WebUI 的「数据迁移」功能或执行以下命令："
+            )
+            logger.warning("   /lmem rebuild-index")
+            logger.info(f"✅ 数据库迁移完成（{total_docs} 条文档已保留在documents表）")
+
+            # 创建迁移状态标记
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS migration_status (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TEXT
+                    )
+                """)
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                """,
+                    ("needs_index_rebuild", "true", datetime.utcnow().isoformat()),
+                )
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                """,
+                    (
+                        "pending_documents_count",
+                        str(total_docs),
+                        datetime.utcnow().isoformat(),
+                    ),
+                )
+                await db.commit()
 
         except Exception as e:
             logger.error(f"❌ 数据库迁移失败: {e}", exc_info=True)

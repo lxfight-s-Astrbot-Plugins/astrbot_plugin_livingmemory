@@ -133,6 +133,12 @@ class HybridRetriever:
         if not query or not query.strip():
             return []
 
+        from astrbot.api import logger as astr_logger
+
+        astr_logger.info(
+            f"[hybrid_retriever.search] 开始执行: query='{query[:50]}...', k={k}, session_id={session_id}, persona_id={persona_id}"
+        )
+
         # 1. 并行执行两路检索
         bm25_results = None
         vector_results = None
@@ -141,6 +147,7 @@ class HybridRetriever:
 
         try:
             # 使用asyncio.gather并行执行
+            astr_logger.debug("[hybrid_retriever.search] 开始并行执行BM25和向量检索")
             results = await asyncio.gather(
                 self.bm25_retriever.search(query, k, session_id, persona_id),
                 self.vector_retriever.search(query, k, session_id, persona_id),
@@ -150,13 +157,25 @@ class HybridRetriever:
             # 检查结果
             if isinstance(results[0], Exception):
                 bm25_error = results[0]
+                astr_logger.error(
+                    f"[hybrid_retriever.search] BM25检索异常: {bm25_error}"
+                )
             else:
                 bm25_results = results[0]
+                astr_logger.info(
+                    f"[hybrid_retriever.search] BM25检索完成: {len(bm25_results)} 条结果"
+                )
 
             if isinstance(results[1], Exception):
                 vector_error = results[1]
+                astr_logger.error(
+                    f"[hybrid_retriever.search] 向量检索异常: {vector_error}"
+                )
             else:
                 vector_results = results[1]
+                astr_logger.info(
+                    f"[hybrid_retriever.search] 向量检索完成: {len(vector_results)} 条结果"
+                )
 
         except Exception as e:
             # 如果整体失败,尝试单独执行
@@ -426,7 +445,9 @@ class HybridRetriever:
                     exists = await cursor.fetchone()
 
                     if exists:
-                        await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                        await db.execute(
+                            "DELETE FROM documents WHERE id = ?", (doc_id,)
+                        )
                         await db.commit()
                     else:
                         logger.debug(

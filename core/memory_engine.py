@@ -35,11 +35,11 @@ def _extract_session_uuid(session_id: Optional[str]) -> Optional[str]:
         return None
 
     # 尝试按新版本格式分割（冒号或感叹号分隔）
-    if ':' in session_id:
-        parts = session_id.split(':')
+    if ":" in session_id:
+        parts = session_id.split(":")
         return parts[-1]  # 返回最后一部分（UUID）
-    elif '!' in session_id:
-        parts = session_id.split('!')
+    elif "!" in session_id:
+        parts = session_id.split("!")
         return parts[-1]  # 返回最后一部分（UUID）
 
     # 已经是 UUID 格式，直接返回
@@ -227,13 +227,38 @@ class MemoryEngine:
             return []
 
         # 提取 UUID 用于过滤,确保兼容多种 session_id 格式
+        original_session_id = session_id
+        original_persona_id = persona_id
+
         if session_id:
             session_id = _extract_session_uuid(session_id)
+            from astrbot.api import logger as astr_logger
+
+            astr_logger.debug(
+                f"[search_memories] session_id: '{original_session_id}' -> '{session_id}'"
+            )
         if persona_id:
             persona_id = _extract_session_uuid(persona_id)
+            from astrbot.api import logger as astr_logger
+
+            astr_logger.debug(
+                f"[search_memories] persona_id: '{original_persona_id}' -> '{persona_id}'"
+            )
+
+        from astrbot.api import logger as astr_logger
+
+        astr_logger.info(
+            f"[search_memories] 开始混合检索: query='{query[:50]}...', k={k}, session_id={session_id}, persona_id={persona_id}"
+        )
 
         # 执行混合检索
         results = await self.hybrid_retriever.search(query, k, session_id, persona_id)
+
+        astr_logger.info(f"[search_memories] 混合检索完成: 返回 {len(results)} 条结果")
+        for i, result in enumerate(results, 1):
+            astr_logger.debug(
+                f"[search_memories] 结果{i}: doc_id={result.doc_id}, score={result.final_score:.4f}, session_id={result.metadata.get('session_id')}"
+            )
 
         # 异步更新访问时间(不阻塞返回)
         for result in results:
@@ -394,9 +419,7 @@ class MemoryEngine:
             except Exception as e:
                 from astrbot.api import logger
 
-                logger.warning(
-                    f"删除documents表记录失败 (memory_id={memory_id}): {e}"
-                )
+                logger.warning(f"删除documents表记录失败 (memory_id={memory_id}): {e}")
                 # 不影响总体返回值,向量库和BM25已成功删除
 
         return success
@@ -522,6 +545,7 @@ class MemoryEngine:
                 if isinstance(metadata, str):
                     try:
                         import json
+
                         metadata = json.loads(metadata)
                     except (json.JSONDecodeError, TypeError):
                         metadata = {}
@@ -591,6 +615,7 @@ class MemoryEngine:
                 if isinstance(metadata, str):
                     try:
                         import json
+
                         metadata = json.loads(metadata)
                     except (json.JSONDecodeError, TypeError):
                         metadata = {}
@@ -602,7 +627,9 @@ class MemoryEngine:
                 if session_id:
                     session_uuid = _extract_session_uuid(session_id)
                     if session_uuid:
-                        session_counts[session_uuid] = session_counts.get(session_uuid, 0) + 1
+                        session_counts[session_uuid] = (
+                            session_counts.get(session_uuid, 0) + 1
+                        )
 
                 # 统计状态（默认 active）
                 status = metadata.get("status", "active")
@@ -645,6 +672,7 @@ class MemoryEngine:
             return stats
         except Exception as e:
             from astrbot.api import logger
+
             logger.error(f"获取统计信息失败: {e}", exc_info=True)
             return {
                 "total_memories": 0,

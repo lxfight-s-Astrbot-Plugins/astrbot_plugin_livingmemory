@@ -10,8 +10,6 @@ from typing import List, Dict, Any, Optional
 import aiosqlite
 
 from ..text_processor import TextProcessor
-from .. import memory_engine as memory_engine_module
-
 
 @dataclass
 class BM25Result:
@@ -181,16 +179,14 @@ class BM25Retriever:
                 doc = docs[doc_id]
                 metadata = doc["metadata"]
 
-                # 应用过滤器 - 使用 UUID 提取确保格式兼容
-                if session_id:
+                # 应用过滤器 - session_id和persona_id已经被_extract_session_uuid处理，直接比较
+                if session_id is not None:
                     stored_session_id = metadata.get("session_id")
-                    stored_uuid = memory_engine_module._extract_session_uuid(stored_session_id) if stored_session_id else None
-                    if stored_uuid != session_id:
+                    if stored_session_id != session_id:
                         continue
-                if persona_id:
+                if persona_id is not None:
                     stored_persona_id = metadata.get("persona_id")
-                    stored_uuid = memory_engine_module._extract_session_uuid(stored_persona_id) if stored_persona_id else None
-                    if stored_uuid != persona_id:
+                    if stored_persona_id != persona_id:
                         continue
 
                 results.append(

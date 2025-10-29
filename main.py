@@ -26,6 +26,7 @@ from .storage.db_migration import DBMigration
 from .storage.conversation_store import ConversationStore
 from .core.conversation_manager import ConversationManager
 from .core.memory_processor import MemoryProcessor
+from .core.index_validator import IndexValidator
 from .core.utils import (
     get_persona_id,
     format_memories_for_injection,
@@ -68,6 +69,7 @@ class LivingMemoryPlugin(Star):
         self.memory_processor: Optional[MemoryProcessor] = None
         self.db_migration: Optional[DBMigration] = None
         self.conversation_manager: Optional[ConversationManager] = None
+        self.index_validator: Optional[IndexValidator] = None
 
         # 初始化状态标记
         self._initialization_complete = False
@@ -161,6 +163,10 @@ class LivingMemoryPlugin(Star):
             self.memory_processor = MemoryProcessor(self.llm_provider)
             logger.info("✅ MemoryProcessor 已初始化")
 
+            # 6.7. 初始化索引验证器并自动重建索引
+            self.index_validator = IndexValidator(db_path, self.db)
+            await self._auto_rebuild_index_if_needed()
+
             # 6.5. 异步初始化 TextProcessor（加载停用词）
             if self.memory_engine and hasattr(
                 self.memory_engine.text_processor, "async_init"
@@ -218,6 +224,58 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
 
+    async def _auto_rebuild_index_if_needed(self):
+        """自动检查并重建索引（如果需要）"""
+        try:
+            if not self.index_validator or not self.memory_engine:
+                return
+
+            # 1. 检查v1迁移状态
+            (
+                needs_migration_rebuild,
+                pending_count,
+            ) = await self.index_validator.get_migration_status()
+
+            if needs_migration_rebuild:
+                logger.info(
+                    f"🔧 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）"
+                )
+                logger.info("⏳ 开始自动重建索引...")
+
+                result = await self.index_validator.rebuild_indexes(self.memory_engine)
+
+                if result["success"]:
+                    logger.info(
+                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                    )
+                else:
+                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+                return
+
+            # 2. 检查索引一致性
+            status = await self.index_validator.check_consistency()
+
+            if not status.is_consistent and status.needs_rebuild:
+                logger.warning(f"⚠️ 检测到索引不一致: {status.reason}")
+                logger.info(
+                    f"📊 Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
+                )
+                logger.info("⏳ 开始自动重建索引...")
+
+                result = await self.index_validator.rebuild_indexes(self.memory_engine)
+
+                if result["success"]:
+                    logger.info(
+                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                    )
+                else:
+                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+            else:
+                logger.info(f"✅ 索引一致性检查通过: {status.reason}")
+
+        except Exception as e:
+            logger.error(f"自动重建索引失败: {e}", exc_info=True)
+
     async def _start_webui(self):
         """根据配置启动 WebUI 控制台"""
         webui_config = self.config.get("webui_settings", {})
@@ -230,11 +288,12 @@ class LivingMemoryPlugin(Star):
             # 导入WebUI服务器
             from .webui.server import WebUIServer
 
-            # 创建WebUI服务器实例（传递 ConversationManager）
+            # 创建WebUI服务器实例（传递 ConversationManager 和 IndexValidator）
             self.webui_server = WebUIServer(
                 memory_engine=self.memory_engine,
                 config=webui_config,
                 conversation_manager=self.conversation_manager,
+                index_validator=self.index_validator,
             )
 
             # 启动WebUI服务器
@@ -799,6 +858,60 @@ class LivingMemoryPlugin(Star):
         yield event.plain_result(message)
 
     @permission_type(PermissionType.ADMIN)
+    @lmem_group.command("rebuild-index")
+    async def lmem_rebuild_index(self, event: AstrMessageEvent):
+        """[管理员] 手动重建索引"""
+        if not await self._wait_for_initialization():
+            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+            return
+
+        if not self.memory_engine or not self.index_validator:
+            yield event.plain_result("❌ 记忆引擎或索引验证器未初始化")
+            return
+
+        try:
+            yield event.plain_result("🔧 开始检查索引状态...")
+
+            # 检查索引一致性
+            status = await self.index_validator.check_consistency()
+
+            if status.is_consistent and not status.needs_rebuild:
+                yield event.plain_result(f"✅ 索引状态正常: {status.reason}")
+                return
+
+            # 显示当前状态
+            status_msg = f"""📊 当前索引状态:
+• Documents表: {status.documents_count} 条
+• BM25索引: {status.bm25_count} 条
+• 向量索引: {status.vector_count} 条
+• 问题: {status.reason}
+
+开始重建索引..."""
+            yield event.plain_result(status_msg)
+
+            # 执行重建
+            result = await self.index_validator.rebuild_indexes(self.memory_engine)
+
+            if result["success"]:
+                result_msg = f"""✅ 索引重建完成！
+
+📊 处理结果:
+• 成功: {result["processed"]} 条
+• 失败: {result["errors"]} 条
+• 总计: {result["total"]} 条
+
+现在可以正常使用召回功能了！"""
+                yield event.plain_result(result_msg)
+            else:
+                yield event.plain_result(
+                    f"❌ 重建失败: {result.get('message', '未知错误')}"
+                )
+
+        except Exception as e:
+            logger.error(f"重建索引失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 重建索引失败: {str(e)}")
+
+    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("help")
     async def lmem_help(self, event: AstrMessageEvent):
         """[管理员] 显示帮助信息"""
@@ -808,6 +921,7 @@ class LivingMemoryPlugin(Star):
 /lmem status              查看系统状态
 /lmem search <关键词> [数量]  搜索记忆(默认5条)
 /lmem forget <ID>          删除指定记忆
+/lmem rebuild-index       重建v1迁移数据索引
 /lmem webui               打开WebUI管理界面
 /lmem help                显示此帮助
 
@@ -816,6 +930,7 @@ class LivingMemoryPlugin(Star):
 • 复杂管理使用 WebUI 界面
 • 记忆会自动保存对话内容
 • 使用 forget 删除敏感信息
+• v1迁移后需执行 rebuild-index
 
 📚 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
 
