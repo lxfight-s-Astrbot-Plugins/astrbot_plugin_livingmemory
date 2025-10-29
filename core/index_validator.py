@@ -58,21 +58,23 @@ class IndexValidator:
                     WHERE type='table' AND name='migration_status'
                 """)
                 has_migration_table = await cursor.fetchone()
-                
+
                 if has_migration_table:
                     cursor = await db.execute("""
                         SELECT value FROM migration_status
                         WHERE key='index_rebuild_completed'
                     """)
                     rebuild_completed = await cursor.fetchone()
-                    
+
                     if rebuild_completed and rebuild_completed[0] == "true":
                         # 索引已经重建完成，直接返回一致状态
                         cursor = await db.execute("SELECT COUNT(*) FROM documents")
                         documents_count = (await cursor.fetchone())[0]
-                        
-                        logger.debug(f"检测到索引已完成重建标记，跳过详细检查（文档数: {documents_count}）")
-                        
+
+                        logger.debug(
+                            f"检测到索引已完成重建标记，跳过详细检查（文档数: {documents_count}）"
+                        )
+
                         return IndexStatus(
                             is_consistent=True,
                             documents_count=documents_count,
@@ -343,9 +345,7 @@ class IndexValidator:
 
                         # 每处理10条记录提交一次
                         if i % 10 == 0:
-                            logger.info(
-                                f" 重建进度: {i}/{total} ({i * 100 // total}%)"
-                            )
+                            logger.info(f" 重建进度: {i}/{total} ({i * 100 // total}%)")
 
                     except Exception as e:
                         error_count += 1
@@ -353,7 +353,7 @@ class IndexValidator:
 
                 # 4. 更新迁移状态标记
                 from datetime import datetime
-                
+
                 logger.info(
                     f" 索引重建完成: 成功{success_count}条, 失败{error_count}条"
                 )
@@ -369,7 +369,7 @@ class IndexValidator:
                             updated_at TEXT
                         )
                     """)
-                    
+
                     # 更新需要重建标记为false
                     await status_db.execute(
                         """
@@ -378,18 +378,24 @@ class IndexValidator:
                     """,
                         ("needs_index_rebuild", "false", datetime.utcnow().isoformat()),
                     )
-                    
+
                     # 添加索引重建完成标记
                     await status_db.execute(
                         """
                         INSERT OR REPLACE INTO migration_status (key, value, updated_at)
                         VALUES (?, ?, ?)
                     """,
-                        ("index_rebuild_completed", "true", datetime.utcnow().isoformat()),
+                        (
+                            "index_rebuild_completed",
+                            "true",
+                            datetime.utcnow().isoformat(),
+                        ),
                     )
-                    
+
                     await status_db.commit()
-                    logger.info("已更新迁移状态: needs_index_rebuild=false, index_rebuild_completed=true")
+                    logger.info(
+                        "已更新迁移状态: needs_index_rebuild=false, index_rebuild_completed=true"
+                    )
             except Exception as e:
                 logger.warning(f"更新迁移状态失败: {e}")
 
