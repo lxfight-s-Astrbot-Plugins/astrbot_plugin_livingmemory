@@ -62,7 +62,7 @@
 如果您从 v1.4.0-1.4.2 版本升级，旧数据可能无法自动迁移。手动恢复步骤：
 
 1. 找到备份文件：`data/plugin_data/astrbot_plugin_livingmemory/backups/livingmemory_backup_<时间戳>.db`
-2. 将该文件移动到：`data/plugins/astrbot_plugin_livingmemory/`
+2. 将该文件移动到：`data/plugin_data/astrbot_plugin_livingmemory/`
 3. 重命名为：`livingmemory.db`
 4. 重载插件，系统会自动加载和处理数据
 
