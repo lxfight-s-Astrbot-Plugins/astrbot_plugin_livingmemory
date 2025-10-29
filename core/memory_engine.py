@@ -174,8 +174,8 @@ class MemoryEngine:
 
         Args:
             content: 记忆内容
-            session_id: 会话ID
-            persona_id: 人格ID
+            session_id: 会话ID(支持多种格式,自动提取UUID)
+            persona_id: 人格ID(支持多种格式,自动提取UUID)
             importance: 重要性(0-1)
             metadata: 额外元数据
 
@@ -185,11 +185,11 @@ class MemoryEngine:
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
 
-        # 准备完整元数据
+        # 准备完整元数据 - 规范化 session_id 和 persona_id
         current_time = time.time()
         full_metadata = {
-            "session_id": session_id,
-            "persona_id": persona_id,
+            "session_id": _extract_session_uuid(session_id) if session_id else None,
+            "persona_id": _extract_session_uuid(persona_id) if persona_id else None,
             "importance": max(0.0, min(1.0, importance)),  # 限制在0-1范围
             "create_time": current_time,
             "last_access_time": current_time,
@@ -217,14 +217,20 @@ class MemoryEngine:
         Args:
             query: 查询字符串
             k: 返回数量
-            session_id: 会话ID过滤(可选)
-            persona_id: 人格ID过滤(可选)
+            session_id: 会话ID过滤(可选,支持多种格式)
+            persona_id: 人格ID过滤(可选,支持多种格式)
 
         Returns:
             List[HybridResult]: 检索结果列表
         """
         if not query or not query.strip():
             return []
+
+        # 提取 UUID 用于过滤,确保兼容多种 session_id 格式
+        if session_id:
+            session_id = _extract_session_uuid(session_id)
+        if persona_id:
+            persona_id = _extract_session_uuid(persona_id)
 
         # 执行混合检索
         results = await self.hybrid_retriever.search(query, k, session_id, persona_id)
@@ -438,16 +444,19 @@ class MemoryEngine:
         获取会话的所有记忆
 
         Args:
-            session_id: 会话ID
+            session_id: 会话ID(支持多种格式,自动提取UUID)
             limit: 限制数量
 
         Returns:
             List[Dict]: 记忆列表
         """
+        # 规范化 session_id - 提取 UUID
+        normalized_session_id = _extract_session_uuid(session_id)
+
         # 从faiss_db的document_storage获取所有文档并过滤
         try:
             all_docs = await self.faiss_db.document_storage.get_documents(
-                metadata_filters={"session_id": session_id}
+                metadata_filters={"session_id": normalized_session_id}
             )
 
             # 按创建时间排序

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from ..text_processor import TextProcessor
+from .. import memory_engine as memory_engine_module
 
 
 @dataclass
@@ -129,12 +130,18 @@ class VectorRetriever:
                 # 如果预处理后为空,使用原始查询
                 processed_query = query
 
-        # 构建元数据过滤器
+        # 构建元数据过滤器 - 提取 UUID 确保格式兼容
         metadata_filters = {}
         if session_id is not None:
-            metadata_filters["session_id"] = session_id
+            # 提取 UUID 用于精确匹配
+            session_uuid = memory_engine_module._extract_session_uuid(session_id)
+            if session_uuid:
+                metadata_filters["session_id"] = session_uuid
         if persona_id is not None:
-            metadata_filters["persona_id"] = persona_id
+            # 提取 UUID 用于精确匹配
+            persona_uuid = memory_engine_module._extract_session_uuid(persona_id)
+            if persona_uuid:
+                metadata_filters["persona_id"] = persona_uuid
 
         # 执行向量检索
         # fetch_k设置为k*2以确保过滤后有足够的结果
