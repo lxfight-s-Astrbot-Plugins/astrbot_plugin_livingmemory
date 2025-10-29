@@ -213,11 +213,11 @@ class IndexValidator:
             Dict: 重建结果
         """
         try:
-            logger.info("🔧 开始重建索引...")
+            logger.info(" 开始重建索引...")
 
             async with aiosqlite.connect(self.db_path) as db:
                 # 1. 先读取所有文档到内存（在清空前）
-                logger.info("📥 读取documents表数据...")
+                logger.info(" 读取documents表数据...")
                 cursor = await db.execute(
                     "SELECT id, text, metadata FROM documents ORDER BY id"
                 )
@@ -232,10 +232,10 @@ class IndexValidator:
                     }
 
                 total = len(documents)
-                logger.info(f"📊 找到 {total} 条文档需要重建索引")
+                logger.info(f" 找到 {total} 条文档需要重建索引")
 
                 # 2. 清空所有存储（documents表、BM25索引、向量索引）
-                logger.info("🗑️ 清空documents表、BM25索引和向量索引...")
+                logger.info("️ 清空documents表、BM25索引和向量索引...")
 
                 # 清空BM25索引
                 try:
@@ -264,7 +264,7 @@ class IndexValidator:
                 except Exception as e:
                     logger.warning(f"清空Faiss索引时出错: {e}")
 
-                logger.info("✅ 所有存储已清空")
+                logger.info(" 所有存储已清空")
 
                 # 3. 重建所有存储（documents表 + 索引）
                 success_count = 0
@@ -336,7 +336,7 @@ class IndexValidator:
                     logger.debug(f"更新迁移状态失败（可能表不存在）: {e}")
 
                 logger.info(
-                    f"✅ 索引重建完成: 成功{success_count}条, 失败{error_count}条"
+                    f" 索引重建完成: 成功{success_count}条, 失败{error_count}条"
                 )
 
                 return {

@@ -103,7 +103,7 @@ class StopwordsManager:
             self.stopwords.update(self.custom_stopwords)
             logger.info(f"添加自定义停用词: {len(custom_words)} 个")
 
-        logger.info(f"✅ 停用词表加载完成，共 {len(self.stopwords)} 个词")
+        logger.info(f" 停用词表加载完成，共 {len(self.stopwords)} 个词")
         return self.stopwords
 
     async def _download_stopwords(self, source: str, filepath: Path) -> bool:
@@ -161,7 +161,7 @@ class StopwordsManager:
                         with open(filepath, "w", encoding="utf-8") as f:
                             f.write(content)
 
-                        logger.info(f"✅ 停用词表下载成功: {filepath}")
+                        logger.info(f" 停用词表下载成功: {filepath}")
                         return True
                     else:
                         logger.error(f"下载失败，HTTP 状态码: {response.status}")

@@ -11,6 +11,7 @@ import aiosqlite
 
 from ..text_processor import TextProcessor
 
+
 @dataclass
 class BM25Result:
     """BM25检索结果"""

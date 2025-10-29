@@ -91,7 +91,7 @@ class DBMigration:
                     )
                 """)
                 await db.commit()
-                logger.info("✅ 版本管理表初始化完成")
+                logger.info(" 版本管理表初始化完成")
         except Exception as e:
             logger.error(f"初始化版本表失败: {e}", exc_info=True)
             raise
@@ -117,7 +117,7 @@ class DBMigration:
                     (version, description, datetime.utcnow().isoformat(), duration),
                 )
                 await db.commit()
-                logger.info(f"✅ 数据库版本已更新至: {version}")
+                logger.info(f" 数据库版本已更新至: {version}")
         except Exception as e:
             logger.error(f"设置数据库版本失败: {e}", exc_info=True)
             raise
@@ -134,10 +134,10 @@ class DBMigration:
 
         if needs_migration:
             logger.warning(
-                f"⚠️ 数据库需要迁移: v{current_version} -> v{self.CURRENT_VERSION}"
+                f"️ 数据库需要迁移: v{current_version} -> v{self.CURRENT_VERSION}"
             )
         else:
-            logger.info(f"✅ 数据库版本最新: v{current_version}")
+            logger.info(f" 数据库版本最新: v{current_version}")
 
         return needs_migration
 
@@ -176,7 +176,7 @@ class DBMigration:
                     }
 
                 logger.info(
-                    f"🔄 开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
+                    f" 开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
                 )
 
                 # 执行迁移步骤
@@ -200,7 +200,7 @@ class DBMigration:
                     duration,
                 )
 
-                logger.info(f"✅ 数据库迁移成功完成，耗时: {duration:.2f}秒")
+                logger.info(f" 数据库迁移成功完成，耗时: {duration:.2f}秒")
 
                 return {
                     "success": True,
@@ -211,7 +211,7 @@ class DBMigration:
                 }
 
             except Exception as e:
-                logger.error(f"❌ 数据库迁移失败: {e}", exc_info=True)
+                logger.error(f" 数据库迁移失败: {e}", exc_info=True)
                 return {
                     "success": False,
                     "message": f"数据库迁移失败: {str(e)}",
@@ -227,7 +227,7 @@ class DBMigration:
         从版本1迁移到版本2
         主要变更：重建BM25索引和向量索引以支持新的检索架构
         """
-        logger.info("📦 执行迁移步骤: v1 -> v2 (重建索引)")
+        logger.info(" 执行迁移步骤: v1 -> v2 (重建索引)")
 
         try:
             # 检查是否有documents表
@@ -250,7 +250,7 @@ class DBMigration:
                     logger.info("ℹ️ 数据库为空，无需重建索引")
                     return
 
-                logger.info(f"📊 发现 {total_docs} 条v1版本数据，开始重建索引...")
+                logger.info(f" 发现 {total_docs} 条v1版本数据，开始重建索引...")
 
                 # 获取所有文档数据
                 cursor = await db.execute("SELECT id, text, metadata FROM documents")
@@ -258,12 +258,12 @@ class DBMigration:
 
             # 重建索引需要在插件初始化完成后进行
             # 这里只记录需要重建的标记，实际重建在插件启动时处理
-            logger.warning(f"⚠️ 检测到 {total_docs} 条v1迁移数据需要重建索引")
+            logger.warning(f"️ 检测到 {total_docs} 条v1迁移数据需要重建索引")
             logger.warning(
-                "📌 请在插件初始化完成后，使用 WebUI 的「数据迁移」功能或执行以下命令："
+                " 请在插件初始化完成后，使用 WebUI 的「数据迁移」功能或执行以下命令："
             )
             logger.warning("   /lmem rebuild-index")
-            logger.info(f"✅ 数据库迁移完成（{total_docs} 条文档已保留在documents表）")
+            logger.info(f" 数据库迁移完成（{total_docs} 条文档已保留在documents表）")
 
             # 创建迁移状态标记
             async with aiosqlite.connect(self.db_path) as db:
@@ -295,7 +295,7 @@ class DBMigration:
                 await db.commit()
 
         except Exception as e:
-            logger.error(f"❌ 数据库迁移失败: {e}", exc_info=True)
+            logger.error(f" 数据库迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> Dict[str, Any]:
@@ -363,16 +363,16 @@ class DBMigration:
                 backup_dir / f"{db_path.stem}_backup_{timestamp}{db_path.suffix}"
             )
 
-            logger.info(f"🔄 正在创建数据库备份: {backup_path}")
+            logger.info(f" 正在创建数据库备份: {backup_path}")
 
             # 使用SQLite的备份API
             async with aiosqlite.connect(self.db_path) as source:
                 async with aiosqlite.connect(str(backup_path)) as dest:
                     await source.backup(dest)
 
-            logger.info(f"✅ 数据库备份成功: {backup_path}")
+            logger.info(f" 数据库备份成功: {backup_path}")
             return str(backup_path)
 
         except Exception as e:
-            logger.error(f"❌ 数据库备份失败: {e}", exc_info=True)
+            logger.error(f" 数据库备份失败: {e}", exc_info=True)
             return None

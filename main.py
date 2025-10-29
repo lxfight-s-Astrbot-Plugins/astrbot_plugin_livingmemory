@@ -143,7 +143,7 @@ class LivingMemoryPlugin(Star):
                 config=memory_engine_config,
             )
             await self.memory_engine.initialize()
-            logger.info("✅ MemoryEngine 已初始化")
+            logger.info(" MemoryEngine 已初始化")
 
             # 6. 初始化 ConversationManager（高级会话管理器）
             conversation_db_path = os.path.join(data_dir, "conversations.db")
@@ -157,11 +157,11 @@ class LivingMemoryPlugin(Star):
                 context_window_size=session_config.get("context_window_size", 50),
                 session_ttl=session_config.get("session_ttl", 3600),
             )
-            logger.info("✅ ConversationManager 已初始化")
+            logger.info(" ConversationManager 已初始化")
 
             # 6.6. 初始化 MemoryProcessor（记忆处理器）
             self.memory_processor = MemoryProcessor(self.llm_provider)
-            logger.info("✅ MemoryProcessor 已初始化")
+            logger.info(" MemoryProcessor 已初始化")
 
             # 6.7. 初始化索引验证器并自动重建索引
             self.index_validator = IndexValidator(db_path, self.db)
@@ -172,7 +172,7 @@ class LivingMemoryPlugin(Star):
                 self.memory_engine.text_processor, "async_init"
             ):
                 await self.memory_engine.text_processor.async_init()
-                logger.info("✅ TextProcessor 停用词已加载")
+                logger.info(" TextProcessor 停用词已加载")
 
             # 7. 启动 WebUI（如启用）
             await self._start_webui()
@@ -197,29 +197,29 @@ class LivingMemoryPlugin(Star):
             needs_migration = await self.db_migration.needs_migration()
 
             if not needs_migration:
-                logger.info("✅ 数据库版本已是最新，无需迁移")
+                logger.info(" 数据库版本已是最新，无需迁移")
                 return
 
-            logger.info("🔄 检测到旧版本数据库，开始自动迁移...")
+            logger.info(" 检测到旧版本数据库，开始自动迁移...")
 
             migration_config = self.config.get("migration_settings", {})
 
             if migration_config.get("create_backup", True):
                 backup_path = await self.db_migration.create_backup()
                 if backup_path:
-                    logger.info(f"✅ 数据库备份已创建: {backup_path}")
+                    logger.info(f" 数据库备份已创建: {backup_path}")
                 else:
-                    logger.warning("⚠️ 数据库备份失败，但将继续迁移")
+                    logger.warning("️ 数据库备份失败，但将继续迁移")
 
             result = await self.db_migration.migrate(
                 sparse_retriever=None, progress_callback=None
             )
 
             if result.get("success"):
-                logger.info(f"✅ {result.get('message')}")
+                logger.info(f" {result.get('message')}")
                 logger.info(f"   耗时: {result.get('duration', 0):.2f}秒")
             else:
-                logger.error(f"❌ 数据库迁移失败: {result.get('message')}")
+                logger.error(f" 数据库迁移失败: {result.get('message')}")
 
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
@@ -238,40 +238,40 @@ class LivingMemoryPlugin(Star):
 
             if needs_migration_rebuild:
                 logger.info(
-                    f"🔧 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）"
+                    f" 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）"
                 )
-                logger.info("⏳ 开始自动重建索引...")
+                logger.info(" 开始自动重建索引...")
 
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
                 if result["success"]:
                     logger.info(
-                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                        f" 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
                     )
                 else:
-                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+                    logger.error(f" 索引自动重建失败: {result.get('message')}")
                 return
 
             # 2. 检查索引一致性
             status = await self.index_validator.check_consistency()
 
             if not status.is_consistent and status.needs_rebuild:
-                logger.warning(f"⚠️ 检测到索引不一致: {status.reason}")
+                logger.warning(f"️ 检测到索引不一致: {status.reason}")
                 logger.info(
-                    f"📊 Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
+                    f" Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
                 )
-                logger.info("⏳ 开始自动重建索引...")
+                logger.info(" 开始自动重建索引...")
 
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
                 if result["success"]:
                     logger.info(
-                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                        f" 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
                     )
                 else:
-                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+                    logger.error(f" 索引自动重建失败: {result.get('message')}")
             else:
-                logger.info(f"✅ 索引一致性检查通过: {status.reason}")
+                logger.info(f" 索引一致性检查通过: {status.reason}")
 
         except Exception as e:
             logger.error(f"自动重建索引失败: {e}", exc_info=True)
@@ -300,7 +300,7 @@ class LivingMemoryPlugin(Star):
             await self.webui_server.start()
 
             logger.info(
-                f"✅ WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
+                f" WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
             )
         except Exception as e:
             logger.error(f"启动 WebUI 控制台失败: {e}", exc_info=True)
@@ -325,8 +325,8 @@ class LivingMemoryPlugin(Star):
             if time.time() - start_time > timeout:
                 logger.error(f"等待 Provider 可用超时（{timeout}秒）")
                 return False
-            self._initialize_providers()   # 在等待期间重新尝试获取 Provider
-        
+            self._initialize_providers()  # 在等待期间重新尝试获取 Provider
+
         return True
 
     async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
@@ -465,7 +465,7 @@ class LivingMemoryPlugin(Star):
 
                     req.system_prompt = memory_str + "\n" + req.system_prompt
                     logger.info(
-                        f"[{session_id}] ✅ 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
+                        f"[{session_id}]  成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
                     )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
@@ -563,7 +563,7 @@ class LivingMemoryPlugin(Star):
                 and conversation_rounds % trigger_rounds == 0
             ):
                 logger.info(
-                    f"[{session_id}] 🔄 对话轮数达到 {conversation_rounds} 轮（消息数={message_count}），启动记忆反思任务"
+                    f"[{session_id}]  对话轮数达到 {conversation_rounds} 轮（消息数={message_count}），启动记忆反思任务"
                 )
 
                 # ====== 滑动窗口逻辑 ======
@@ -584,7 +584,7 @@ class LivingMemoryPlugin(Star):
                 start_index = last_summarized_index
 
                 logger.info(
-                    f"🔄 [{session_id}] 滑动窗口总结: "
+                    f" [{session_id}] 滑动窗口总结: "
                     f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
                     f"保留上下文 {context_keep_messages} 条（{context_keep_rounds} 轮）"
                 )
@@ -643,7 +643,7 @@ class LivingMemoryPlugin(Star):
                                         is_group_chat=is_group_chat,
                                     )
                                     logger.info(
-                                        f"[{session_id}] ✅ 已使用LLM生成结构化记忆, "
+                                        f"[{session_id}]  已使用LLM生成结构化记忆, "
                                         f"主题={metadata.get('topics', [])}, "
                                         f"情感={metadata.get('sentiment', 'neutral')}, "
                                         f"重要性={importance:.2f}"
@@ -653,7 +653,7 @@ class LivingMemoryPlugin(Star):
                                     )
                                 except Exception as e:
                                     logger.error(
-                                        f"[{session_id}] ❌ LLM处理失败,使用降级方案: {e}",
+                                        f"[{session_id}]  LLM处理失败,使用降级方案: {e}",
                                         exc_info=True,
                                     )
                                     # 降级方案:简单文本拼接
@@ -697,7 +697,7 @@ class LivingMemoryPlugin(Star):
                             )
 
                             logger.info(
-                                f"[{session_id}] ✅ 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
+                                f"[{session_id}]  成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
                             )
 
                             # 更新已总结的位置
@@ -705,7 +705,7 @@ class LivingMemoryPlugin(Star):
                                 session_id, "last_summarized_index", end_index
                             )
                             logger.info(
-                                f"[{session_id}] 📌 更新滑动窗口位置: last_summarized_index = {end_index}"
+                                f"[{session_id}]  更新滑动窗口位置: last_summarized_index = {end_index}"
                             )
                         except Exception as e:
                             logger.error(
@@ -738,7 +738,7 @@ class LivingMemoryPlugin(Star):
             return
 
         if not self.memory_engine:
-            yield event.plain_result("❌ 记忆引擎未初始化")
+            yield event.plain_result(" 记忆引擎未初始化")
             return
 
         try:
@@ -758,12 +758,12 @@ class LivingMemoryPlugin(Star):
 
             session_count = len(stats.get("sessions", {}))
 
-            message = f"""📊 LivingMemory 状态报告
+            message = f""" LivingMemory 状态报告
 
-🔢 总记忆数: {stats["total_memories"]}
-👥 会话数: {session_count}
+ 总记忆数: {stats["total_memories"]}
+ 会话数: {session_count}
 ⏰ 最后更新: {last_update}
-💾 数据库: {db_size:.2f} MB
+ 数据库: {db_size:.2f} MB
 
 使用 /lmem search <关键词> 搜索记忆
 使用 /lmem webui 访问管理界面"""
@@ -771,7 +771,7 @@ class LivingMemoryPlugin(Star):
             yield event.plain_result(message)
         except Exception as e:
             logger.error(f"获取状态失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 获取状态失败: {str(e)}")
+            yield event.plain_result(f" 获取状态失败: {str(e)}")
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search")
@@ -782,7 +782,7 @@ class LivingMemoryPlugin(Star):
             return
 
         if not self.memory_engine:
-            yield event.plain_result("❌ 记忆引擎未初始化")
+            yield event.plain_result(" 记忆引擎未初始化")
             return
 
         try:
@@ -792,10 +792,10 @@ class LivingMemoryPlugin(Star):
             )
 
             if not results:
-                yield event.plain_result(f"🔍 未找到与 '{query}' 相关的记忆")
+                yield event.plain_result(f" 未找到与 '{query}' 相关的记忆")
                 return
 
-            message = f"🔍 找到 {len(results)} 条相关记忆:\n\n"
+            message = f" 找到 {len(results)} 条相关记忆:\n\n"
             for i, result in enumerate(results, 1):
                 score = result.final_score
                 content = (
@@ -809,7 +809,7 @@ class LivingMemoryPlugin(Star):
             yield event.plain_result(message)
         except Exception as e:
             logger.error(f"搜索失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 搜索失败: {str(e)}")
+            yield event.plain_result(f" 搜索失败: {str(e)}")
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
@@ -820,18 +820,18 @@ class LivingMemoryPlugin(Star):
             return
 
         if not self.memory_engine:
-            yield event.plain_result("❌ 记忆引擎未初始化")
+            yield event.plain_result(" 记忆引擎未初始化")
             return
 
         try:
             success = await self.memory_engine.delete_memory(doc_id)
             if success:
-                yield event.plain_result(f"✅ 已删除记忆 #{doc_id}")
+                yield event.plain_result(f" 已删除记忆 #{doc_id}")
             else:
-                yield event.plain_result(f"❌ 删除失败，记忆 #{doc_id} 不存在")
+                yield event.plain_result(f" 删除失败，记忆 #{doc_id} 不存在")
         except Exception as e:
             logger.error(f"删除失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 删除失败: {str(e)}")
+            yield event.plain_result(f" 删除失败: {str(e)}")
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("webui")
@@ -844,26 +844,26 @@ class LivingMemoryPlugin(Star):
         webui_url = self._get_webui_url()
 
         if not webui_url:
-            message = """⚠️ WebUI 功能暂未启用
+            message = """️ WebUI 功能暂未启用
 
-🚧 WebUI 正在适配新的 MemoryEngine 架构
-📝 预计在下一个版本中恢复
+ WebUI 正在适配新的 MemoryEngine 架构
+ 预计在下一个版本中恢复
 
-💡 当前可用功能:
+ 当前可用功能:
 • /lmem status - 查看系统状态
 • /lmem search - 搜索记忆
 • /lmem forget - 删除记忆"""
         else:
-            message = f"""🌐 LivingMemory WebUI
+            message = f""" LivingMemory WebUI
 
 访问地址: {webui_url}
 
-💡 WebUI功能:
-• 📝 记忆编辑与管理
-• 📊 可视化统计分析
-• ⚙️ 高级配置管理
-• 🔧 系统调试工具
-• 💾 数据迁移管理
+ WebUI功能:
+•  记忆编辑与管理
+•  可视化统计分析
+• ️ 高级配置管理
+•  系统调试工具
+•  数据迁移管理
 
 在WebUI中可以进行更复杂的操作!"""
 
@@ -878,21 +878,21 @@ class LivingMemoryPlugin(Star):
             return
 
         if not self.memory_engine or not self.index_validator:
-            yield event.plain_result("❌ 记忆引擎或索引验证器未初始化")
+            yield event.plain_result(" 记忆引擎或索引验证器未初始化")
             return
 
         try:
-            yield event.plain_result("🔧 开始检查索引状态...")
+            yield event.plain_result(" 开始检查索引状态...")
 
             # 检查索引一致性
             status = await self.index_validator.check_consistency()
 
             if status.is_consistent and not status.needs_rebuild:
-                yield event.plain_result(f"✅ 索引状态正常: {status.reason}")
+                yield event.plain_result(f" 索引状态正常: {status.reason}")
                 return
 
             # 显示当前状态
-            status_msg = f"""📊 当前索引状态:
+            status_msg = f""" 当前索引状态:
 • Documents表: {status.documents_count} 条
 • BM25索引: {status.bm25_count} 条
 • 向量索引: {status.vector_count} 条
@@ -905,9 +905,9 @@ class LivingMemoryPlugin(Star):
             result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
             if result["success"]:
-                result_msg = f"""✅ 索引重建完成！
+                result_msg = f""" 索引重建完成！
 
-📊 处理结果:
+ 处理结果:
 • 成功: {result["processed"]} 条
 • 失败: {result["errors"]} 条
 • 总计: {result["total"]} 条
@@ -916,20 +916,20 @@ class LivingMemoryPlugin(Star):
                 yield event.plain_result(result_msg)
             else:
                 yield event.plain_result(
-                    f"❌ 重建失败: {result.get('message', '未知错误')}"
+                    f" 重建失败: {result.get('message', '未知错误')}"
                 )
 
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 重建索引失败: {str(e)}")
+            yield event.plain_result(f" 重建索引失败: {str(e)}")
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("help")
     async def lmem_help(self, event: AstrMessageEvent):
         """[管理员] 显示帮助信息"""
-        message = """📖 LivingMemory 使用指南
+        message = """ LivingMemory 使用指南
 
-🔹 核心指令:
+ 核心指令:
 /lmem status              查看系统状态
 /lmem search <关键词> [数量]  搜索记忆(默认5条)
 /lmem forget <ID>          删除指定记忆
@@ -937,14 +937,14 @@ class LivingMemoryPlugin(Star):
 /lmem webui               打开WebUI管理界面
 /lmem help                显示此帮助
 
-💡 使用建议:
+ 使用建议:
 • 日常查询使用 search 指令
 • 复杂管理使用 WebUI 界面
 • 记忆会自动保存对话内容
 • 使用 forget 删除敏感信息
 • v1迁移后需执行 rebuild-index
 
-📚 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
+ 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
 
         yield event.plain_result(message)
 
@@ -992,7 +992,7 @@ class LivingMemoryPlugin(Star):
                     self.webui_server._cleanup_task = None
 
                 self.webui_server = None
-                logger.info("✅ WebUI 服务器已停止")
+                logger.info(" WebUI 服务器已停止")
 
             except Exception as e:
                 logger.error(f"停止 WebUI 服务器时出错: {e}", exc_info=True)
@@ -1001,16 +1001,16 @@ class LivingMemoryPlugin(Star):
         # 关闭 ConversationManager（会自动关闭 ConversationStore）
         if self.conversation_manager and self.conversation_manager.store:
             await self.conversation_manager.store.close()
-            logger.info("✅ ConversationManager 已关闭")
+            logger.info(" ConversationManager 已关闭")
 
         # 关闭 MemoryEngine
         if self.memory_engine:
             await self.memory_engine.close()
-            logger.info("✅ MemoryEngine 已关闭")
+            logger.info(" MemoryEngine 已关闭")
 
         # 关闭 FaissVecDB
         if self.db:
             await self.db.close()
-            logger.info("✅ FaissVecDB 已关闭")
+            logger.info(" FaissVecDB 已关闭")
 
         logger.info("LivingMemory 插件已成功停止。")

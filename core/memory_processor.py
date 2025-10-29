@@ -115,7 +115,7 @@ class MemoryProcessor:
             )
 
             logger.info(
-                f"[MemoryProcessor] ✅ LLM 响应成功，响应长度={len(llm_response.completion_text)}"
+                f"[MemoryProcessor]  LLM 响应成功，响应长度={len(llm_response.completion_text)}"
             )
             logger.debug(
                 f"[MemoryProcessor] LLM 原始响应内容:\n{llm_response.completion_text}"
@@ -134,7 +134,7 @@ class MemoryProcessor:
             importance = float(structured_data.get("importance", 0.5))
 
             logger.info(
-                f"[MemoryProcessor] ✅ 成功生成结构化记忆: 摘要={structured_data.get('summary', '')[:50]}..., "
+                f"[MemoryProcessor]  成功生成结构化记忆: 摘要={structured_data.get('summary', '')[:50]}..., "
                 f"主题={structured_data.get('topics', [])}, "
                 f"重要性={importance}, 类型={conversation_type}"
             )
@@ -258,7 +258,7 @@ class MemoryProcessor:
             return data
 
         except json.JSONDecodeError as e:
-            logger.warning(f"[MemoryProcessor] ❌ JSON 解析失败: {e}")
+            logger.warning(f"[MemoryProcessor]  JSON 解析失败: {e}")
             logger.debug(
                 f"[MemoryProcessor] 解析失败的内容（前200字符）: {response_text[:200]}"
             )
@@ -267,7 +267,7 @@ class MemoryProcessor:
             return self._extract_by_regex(response_text, is_group_chat)
         except Exception as e:
             logger.error(
-                f"[MemoryProcessor] ❌ 解析 LLM 响应时发生异常: {e}", exc_info=True
+                f"[MemoryProcessor]  解析 LLM 响应时发生异常: {e}", exc_info=True
             )
             logger.debug(
                 f"[MemoryProcessor] 异常发生时的响应内容: {response_text[:200]}"
@@ -306,7 +306,7 @@ class MemoryProcessor:
                     parsed = json.loads(match)
                     if "summary" in parsed:
                         logger.info(
-                            f"[MemoryProcessor] ✅ 成功从第 {i + 1} 个 JSON 块中解析数据"
+                            f"[MemoryProcessor]  成功从第 {i + 1} 个 JSON 块中解析数据"
                         )
                         data = parsed
                         break
@@ -364,7 +364,7 @@ class MemoryProcessor:
             )
 
         except Exception as e:
-            logger.error(f"[MemoryProcessor] ❌ 正则提取失败: {e}", exc_info=True)
+            logger.error(f"[MemoryProcessor]  正则提取失败: {e}", exc_info=True)
 
         return data
 

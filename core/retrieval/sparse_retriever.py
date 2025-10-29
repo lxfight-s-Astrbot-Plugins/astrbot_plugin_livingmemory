@@ -253,7 +253,7 @@ class SparseRetriever:
                     auto_download=True,
                 )
                 logger.info(
-                    f"✅ 停用词管理器初始化成功，共 {len(self.stopwords_manager.stopwords)} 个停用词"
+                    f" 停用词管理器初始化成功，共 {len(self.stopwords_manager.stopwords)} 个停用词"
                 )
             else:
                 logger.info("停用词过滤已禁用")
@@ -262,11 +262,11 @@ class SparseRetriever:
             # 2. 初始化 FTS 管理器
             self.fts_manager = FTSManager(self.db_path, self.stopwords_manager)
             await self.fts_manager.initialize()
-            logger.info("✅ FTS5 索引初始化成功")
+            logger.info(" FTS5 索引初始化成功")
 
         except Exception as e:
             logger.error(
-                f"❌ 稀疏检索器初始化失败: {type(e).__name__}: {e}", exc_info=True
+                f" 稀疏检索器初始化失败: {type(e).__name__}: {e}", exc_info=True
             )
             raise
 
@@ -276,7 +276,7 @@ class SparseRetriever:
             # 可以添加自定义词典
             pass
 
-        logger.info("✅ 稀疏检索器初始化完成")
+        logger.info(" 稀疏检索器初始化完成")
 
     def _preprocess_query(self, query: str) -> str:
         """
@@ -378,11 +378,11 @@ class SparseRetriever:
                         f"    ID={result.doc_id}: {original_score:.3f} -> {result.score:.3f}"
                     )
 
-            logger.info(f"✅ 稀疏检索完成，返回 {len(filtered_results)} 条结果")
+            logger.info(f" 稀疏检索完成，返回 {len(filtered_results)} 条结果")
             return filtered_results
 
         except Exception as e:
-            logger.error(f"❌ 稀疏检索失败: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f" 稀疏检索失败: {type(e).__name__}: {e}", exc_info=True)
             logger.error(f"  失败上下文: query='{query[:50]}...', limit={limit}")
             return []
 
@@ -472,7 +472,7 @@ class SparseRetriever:
             logger.warning("稀疏检索器未启用，无法重建索引")
             return
 
-        logger.info("🔄 开始重建 FTS5 索引...")
+        logger.info(" 开始重建 FTS5 索引...")
 
         try:
             # 1. 清空现有索引
@@ -490,10 +490,8 @@ class SparseRetriever:
                     doc_id, content = row
                     await self.fts_manager.add_document(doc_id, content)
 
-            logger.info(f"✅ FTS5 索引重建成功，已索引 {len(rows)} 个文档")
+            logger.info(f" FTS5 索引重建成功，已索引 {len(rows)} 个文档")
 
         except Exception as e:
-            logger.error(
-                f"❌ 重建 FTS5 索引失败: {type(e).__name__}: {e}", exc_info=True
-            )
+            logger.error(f" 重建 FTS5 索引失败: {type(e).__name__}: {e}", exc_info=True)
             raise

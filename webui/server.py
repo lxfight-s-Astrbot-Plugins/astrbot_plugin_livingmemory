@@ -5,23 +5,23 @@ server.py - LivingMemory WebUI backend (适配MemoryEngine架构)
 
 WebUI 功能列表:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 记忆管理:
+ 记忆管理:
   - 查看记忆列表（分页、筛选、搜索）
   - 查看记忆详情
   - 搜索记忆
   - 删除记忆（单个或批量）
 
-⚙️ 系统管理:
+️ 系统管理:
   - 清理旧记忆
   - 查看会话列表
   - 获取配置信息
 
-📊 数据展示:
+ 数据展示:
   - 实时统计（总记忆数、会话分布）
   - 分页浏览
   - 关键词搜索
 
-🔐 安全特性:
+ 安全特性:
   - 密码认证
   - Token管理
   - 请求频率限制
@@ -627,24 +627,24 @@ class WebUIServer:
                         success = await self.memory_engine.delete_memory(mid)
                         if success:
                             deleted_count += 1
-                            logger.debug(f"[批量删除] ✅ 成功删除 memory_id={mid}")
+                            logger.debug(f"[批量删除] 成功删除 memory_id={mid}")
                         else:
                             failed_count += 1
                             failed_ids.append(mid)
                             logger.warning(
-                                f"[批量删除] ❌ 删除失败 memory_id={mid} (引擎返回False)"
+                                f"[批量删除]  删除失败 memory_id={mid} (引擎返回False)"
                             )
                     except ValueError as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
                         logger.error(
-                            f"[批量删除] ❌ memory_id 格式错误 '{memory_id}': {e}"
+                            f"[批量删除]  memory_id 格式错误 '{memory_id}': {e}"
                         )
                     except Exception as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
                         logger.error(
-                            f"[批量删除] ❌ 删除异常 memory_id={memory_id}: {e}",
+                            f"[批量删除]  删除异常 memory_id={memory_id}: {e}",
                             exc_info=True,
                         )
 

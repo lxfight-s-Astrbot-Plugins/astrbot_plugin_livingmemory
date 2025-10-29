@@ -425,9 +425,9 @@ console.log(searchResults);
 ## 更新日志
 
 ### v2.0.0 (当前版本)
-- ✅ 完全重构基于MemoryEngine架构
-- ✅ 移除对旧引擎和Handler的依赖
-- ✅ 简化API端点,专注核心功能
-- ✅ 改进错误处理和响应格式
-- ✅ 增强安全性(Token管理、频率限制)
-- ✅ 统一使用JSON响应格式
+-  完全重构基于MemoryEngine架构
+-  移除对旧引擎和Handler的依赖
+-  简化API端点,专注核心功能
+-  改进错误处理和响应格式
+-  增强安全性(Token管理、频率限制)
+-  统一使用JSON响应格式

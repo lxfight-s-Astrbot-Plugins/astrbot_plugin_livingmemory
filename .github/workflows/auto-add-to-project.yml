@@ -36,11 +36,11 @@ jobs:
             const type = context.payload.issue ? 'Issue' : 'PR';
             const title = context.payload.issue?.title || context.payload.pull_request?.title;
 
-            console.log(`📋 处理 ${type} #${number}: ${title}`);
+            console.log(` 处理 ${type} #${number}: ${title}`);
 
             try {
               // 2. 获取项目信息
-              console.log('🔍 查询项目信息...');
+              console.log(' 查询项目信息...');
               const projectQuery = `
                 query($org: String!, $number: Int!) {
                   organization(login: $org) {
@@ -74,7 +74,7 @@ jobs:
               });
               
               const project = projectData.organization.projectV2;
-              console.log(`✅ 找到项目: "${project.title}" (ID: ${project.id})`);
+              console.log(` 找到项目: "${project.title}" (ID: ${project.id})`);
               
               // 3. 查找状态字段
               const statusField = project.fields.nodes.find(
@@ -84,15 +84,15 @@ jobs:
               if (!statusField) {
                 const availableFields = project.fields.nodes.map(f => f.name).join(', ');
                 throw new Error(
-                  `❌ 未找到字段 "${CONFIG.statusFieldName}"。可用字段: ${availableFields}`
+                  ` 未找到字段 "${CONFIG.statusFieldName}"。可用字段: ${availableFields}`
                 );
               }
               
-              console.log(`✅ 找到状态字段: "${statusField.name}"`);
+              console.log(` 找到状态字段: "${statusField.name}"`);
               
               // 4. 查找目标状态选项
               const availableStatuses = statusField.options.map(opt => opt.name);
-              console.log(`📋 可用状态: ${availableStatuses.join(', ')}`);
+              console.log(` 可用状态: ${availableStatuses.join(', ')}`);
               
               const todoOption = statusField.options.find(
                 opt => opt.name === CONFIG.targetStatus
@@ -100,14 +100,14 @@ jobs:
               
               if (!todoOption) {
                 throw new Error(
-                  `❌ 未找到状态 "${CONFIG.targetStatus}"。可用状态: ${availableStatuses.join(', ')}`
+                  ` 未找到状态 "${CONFIG.targetStatus}"。可用状态: ${availableStatuses.join(', ')}`
                 );
               }
               
-              console.log(`✅ 目标状态: "${todoOption.name}"`);
+              console.log(` 目标状态: "${todoOption.name}"`);
               
               // 5. 添加到项目
-              console.log(`📌 添加 ${type} 到项目...`);
+              console.log(` 添加 ${type} 到项目...`);
               const addMutation = `
                 mutation($projectId: ID!, $contentId: ID!) {
                   addProjectV2ItemById(input: {
@@ -127,10 +127,10 @@ jobs:
               });
               
               const itemId = addResult.addProjectV2ItemById.item.id;
-              console.log(`✅ 已添加到项目 (Item ID: ${itemId})`);
+              console.log(` 已添加到项目 (Item ID: ${itemId})`);
               
               // 6. 设置状态
-              console.log(`🔄 移动到 "${todoOption.name}" 列...`);
+              console.log(` 移动到 "${todoOption.name}" 列...`);
               const updateMutation = `
                 mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
                   updateProjectV2ItemFieldValue(
@@ -159,22 +159,22 @@ jobs:
               
               // 7. 成功总结
               console.log('');
-              console.log('🎉 ============================================');
-              console.log(`✅ ${type} #${number} 已成功添加到项目`);
-              console.log(`📊 项目: ${project.title}`);
-              console.log(`📍 状态: ${todoOption.name}`);
-              console.log(`🔗 查看: https://github.com/orgs/${CONFIG.organization}/projects/${CONFIG.projectNumber}`);
+              console.log(' ============================================');
+              console.log(` ${type} #${number} 已成功添加到项目`);
+              console.log(` 项目: ${project.title}`);
+              console.log(` 状态: ${todoOption.name}`);
+              console.log(` 查看: https://github.com/orgs/${CONFIG.organization}/projects/${CONFIG.projectNumber}`);
               console.log('============================================');
               
             } catch (error) {
               // 错误处理
               console.error('');
-              console.error('❌ ============================================');
+              console.error(' ============================================');
               console.error('错误详情:');
               console.error(error.message);
               console.error('============================================');
               console.error('');
-              console.error('💡 故障排查建议:');
+              console.error(' 故障排查建议:');
               console.error('1. 检查 Token 权限是否包含: project (read & write)');
               console.error('2. 确认配置中的组织名称和项目编号是否正确');
               console.error('3. 确认状态字段名称和目标状态名称是否与项目看板完全匹配（区分大小写）');

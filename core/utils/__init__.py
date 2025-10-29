@@ -359,7 +359,7 @@ def format_memories_for_injection(memories: List) -> str:
     result = f"{header}{body}{footer}"
 
     logger.info(
-        f"[format_memories_for_injection] ✅ 记忆格式化完成: 记忆条数={len(formatted_entries)}, "
+        f"[format_memories_for_injection]  记忆格式化完成: 记忆条数={len(formatted_entries)}, "
         f"总长度={len(result)}"
     )
     logger.debug(
