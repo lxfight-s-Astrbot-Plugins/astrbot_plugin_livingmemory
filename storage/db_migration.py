@@ -53,12 +53,22 @@ class DBMigration:
                     has_documents = await cursor.fetchone()
 
                     if has_documents:
-                        logger.info("检测到旧版本数据库（无版本表），当前版本: 1")
-                        return 1
+                        # 有documents表但没有版本表，检查是否有数据
+                        cursor = await db.execute("SELECT COUNT(*) FROM documents")
+                        doc_count = (await cursor.fetchone())[0]
+                        
+                        if doc_count > 0:
+                            # 有数据的旧版本数据库
+                            logger.info(f"检测到旧版本数据库（无版本表，有{doc_count}条数据），当前版本: 1")
+                            return 1
+                        else:
+                            # 空数据库，视为最新版本
+                            logger.info("检测到空数据库（已初始化但无数据），视为最新版本")
+                            return self.CURRENT_VERSION
                     else:
-                        # 全新数据库
-                        logger.info("检测到全新数据库")
-                        return 0
+                        # 全新数据库，没有任何表，视为最新版本
+                        logger.info("检测到全新数据库，视为最新版本")
+                        return self.CURRENT_VERSION
 
                 # 读取版本号
                 cursor = await db.execute(
