@@ -509,8 +509,25 @@ class MemoryEngine:
             to_delete = []
             for doc in all_docs:
                 metadata = doc["metadata"]
+                # 处理 metadata（可能是JSON字符串或字典）
+                if isinstance(metadata, str):
+                    try:
+                        import json
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                elif not isinstance(metadata, dict):
+                    metadata = {}
+
                 create_time = metadata.get("create_time", time.time())
                 doc_importance = metadata.get("importance", 0.5)
+
+                # 确保时间值是数字类型
+                try:
+                    create_time = float(create_time)
+                    doc_importance = float(doc_importance)
+                except (ValueError, TypeError):
+                    continue
 
                 if create_time < cutoff_time and doc_importance < importance:
                     to_delete.append(doc["id"])
@@ -560,7 +577,16 @@ class MemoryEngine:
             newest_time = None
 
             for doc in all_docs:
+                # 处理 metadata（可能是JSON字符串或字典）
                 metadata = doc["metadata"]
+                if isinstance(metadata, str):
+                    try:
+                        import json
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                elif not isinstance(metadata, dict):
+                    metadata = {}
 
                 # 统计会话（提取UUID进行分组，支持新旧格式兼容）
                 session_id = metadata.get("session_id")
@@ -580,16 +606,24 @@ class MemoryEngine:
                 # 统计重要性
                 importance = metadata.get("importance")
                 if importance is not None:
-                    importance_sum += importance
-                    importance_count += 1
+                    try:
+                        importance = float(importance)
+                        importance_sum += importance
+                        importance_count += 1
+                    except (ValueError, TypeError):
+                        pass
 
                 # 统计时间
                 create_time = metadata.get("create_time")
                 if create_time:
-                    if oldest_time is None or create_time < oldest_time:
-                        oldest_time = create_time
-                    if newest_time is None or create_time > newest_time:
-                        newest_time = create_time
+                    try:
+                        create_time = float(create_time)
+                        if oldest_time is None or create_time < oldest_time:
+                            oldest_time = create_time
+                        if newest_time is None or create_time > newest_time:
+                            newest_time = create_time
+                    except (ValueError, TypeError):
+                        pass
 
             stats["sessions"] = session_counts
             stats["status_breakdown"] = status_breakdown
