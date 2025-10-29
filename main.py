@@ -91,7 +91,7 @@ class LivingMemoryPlugin(Star):
         try:
             # 1. 初始化 Provider
             self._initialize_providers()
-            if not self.embedding_provider or not self.llm_provider:
+            if not await self._wait_for_providers_basic():
                 logger.error("Provider 初始化失败，插件无法正常工作。")
                 return
 
@@ -316,6 +316,18 @@ class LivingMemoryPlugin(Star):
             logger.warning(f"停止 WebUI 控制台时出现异常: {e}", exc_info=True)
         finally:
             self.webui_server = None
+
+    async def _wait_for_providers_basic(self, timeout: float = 10.0) -> bool:
+        """等待 Provider 可用"""
+        start_time = time.time()
+        while not (self.embedding_provider and self.llm_provider):
+            await asyncio.sleep(1)
+            if time.time() - start_time > timeout:
+                logger.error(f"等待 Provider 可用超时（{timeout}秒）")
+                return False
+            self._initialize_providers()   # 在等待期间重新尝试获取 Provider
+        
+        return True
 
     async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
         """等待插件初始化完成"""
