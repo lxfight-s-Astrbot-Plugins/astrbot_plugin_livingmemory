@@ -39,8 +39,9 @@ body {
   color: var(--text);
   background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 45%, #f1f5f9 100%);
   -webkit-font-smoothing: antialiased;
-
+  -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 a {
@@ -310,8 +311,8 @@ button.danger-outline:hover:not(:disabled) {
 }
 
 .stat:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 16px -8px rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px -6px rgba(37, 99, 235, 0.25);
   border-color: rgba(37, 99, 235, 0.2);
 }
 
@@ -367,14 +368,21 @@ button.danger-outline:hover:not(:disabled) {
 
 .table-card {
   padding: 0;
-  overflow-x: auto;
+  overflow: hidden;
   -webkit-overflow-scrolling: touch;
 }
 
 .table-card table {
+  width: 100%;
   min-width: 720px;
+  table-layout: auto;
 }
 
+@media (max-width: 1200px) {
+  .table-card {
+    overflow-x: auto;
+  }
+}
 
 table {
   width: 100%;
@@ -394,7 +402,8 @@ td {
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
   word-break: break-word;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 th {
@@ -410,7 +419,7 @@ tbody tr {
 
 tbody tr:hover {
   background: rgba(37, 99, 235, 0.08);
-  transform: scale(1.001);
+  transform: none;
 }
 
 tbody tr.selected {
@@ -425,10 +434,13 @@ tbody tr.selected {
   background: rgba(99, 102, 241, 0.08);
   padding: 4px 8px;
   border-radius: 4px;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .summary-cell {
   max-width: 400px;
+  min-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -516,10 +528,12 @@ tbody tr.selected {
   padding: 28px 26px 32px;
   box-shadow: var(--shadow);
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  max-height: calc(100vh - 80px);
 }
 
 .close-btn {
@@ -532,9 +546,21 @@ tbody tr.selected {
   border: 1px solid var(--border);
   background: #fff;
   font-size: 20px;
-  line-height: 30px;
+  line-height: 1;
   text-align: center;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: var(--transition);
+}
+
+.close-btn:hover {
+  background: var(--danger-light);
+  border-color: var(--danger);
+  color: var(--danger);
+  transform: scale(1.1);
 }
 
 .detail-meta {
@@ -557,6 +583,8 @@ tbody tr.selected {
   font-size: 14px;
   color: var(--text);
   word-break: break-all;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .detail-json {
@@ -565,7 +593,9 @@ tbody tr.selected {
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 400px;
 }
 
 .detail-json pre {
@@ -574,6 +604,7 @@ tbody tr.selected {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .toast {
@@ -1231,6 +1262,11 @@ tbody tr.selected {
   .tabs-nav {
     overflow-x: auto;
     padding: 16px 16px 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .tabs-nav::-webkit-scrollbar {
+    height: 4px;
   }
 
   .tab-btn {
@@ -1250,12 +1286,36 @@ tbody tr.selected {
   .modal-content {
     max-height: 95vh;
   }
+  
+  .table-actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .table-actions button {
+    width: 100%;
+  }
 }
 
 
 @media (max-width: 480px) {
   input, select, button {
     font-size: 16px;
+  }
+  
+  .table-card {
+    border-radius: var(--radius-md);
+  }
+  
+  .summary-cell {
+    max-width: 200px;
+    min-width: 150px;
+  }
+  
+  .drawer-content {
+    width: 100%;
+    max-height: calc(100vh - 40px);
+    border-radius: var(--radius-md);
   }
 }
 
@@ -1360,6 +1420,35 @@ tbody tr.selected {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+}
+
+/* 自定义滚动条样式 */
+.recall-results::-webkit-scrollbar,
+.detail-json::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.recall-results::-webkit-scrollbar-track,
+.detail-json::-webkit-scrollbar-track {
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+
+.recall-results::-webkit-scrollbar-thumb,
+.detail-json::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.recall-results::-webkit-scrollbar-thumb:hover,
+.detail-json::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 .recall-result-card {
@@ -1425,6 +1514,8 @@ tbody tr.selected {
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .result-metadata {
