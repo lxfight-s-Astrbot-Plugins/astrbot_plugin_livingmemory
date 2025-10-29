@@ -55,8 +55,6 @@
         <!-- 标签页导航 -->
         <nav class="tabs-nav">
           <button class="tab-btn active" data-tab="memories">记忆管理</button>
-          <button class="tab-btn" data-tab="system">系统管理</button>
-          <button class="tab-btn" data-tab="debug">调试工具</button>
         </nav>
 
         <div id="nuke-banner" class="nuke-banner hidden" role="alert">
@@ -163,76 +161,6 @@
               </select>
             </div>
           </section>
-          </div>
-
-          <!-- 系统管理标签页 -->
-          <div class="tab-content" data-tab="system">
-            <section class="card">
-              <h2 class="card-title">遗忘代理</h2>
-              <div class="form-group">
-                <p class="help-text">手动触发遗忘代理，清理低重要性的过期记忆（功能开发中）</p>
-                <button id="trigger-forgetting" class="primary" disabled>运行遗忘代理</button>
-                <div id="forgetting-result" class="result-box hidden"></div>
-              </div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">索引管理</h2>
-              <div class="form-group">
-                <p class="help-text">重建 BM25 稀疏索引，提升检索效果（功能开发中）</p>
-                <button id="rebuild-index" class="primary" disabled>重建稀疏索引</button>
-                <div id="rebuild-result" class="result-box hidden"></div>
-              </div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">会话管理</h2>
-              <div class="form-group">
-                <p class="help-text">查看和管理当前活跃的对话会话</p>
-                <button id="load-sessions" class="ghost">刷新会话列表</button>
-                <div id="sessions-info" class="info-box hidden">
-                  <p><strong>总会话数:</strong> <span id="total-sessions">0</span></p>
-                  <p><strong>最大会话数:</strong> <span id="max-sessions">0</span></p>
-                  <p><strong>会话TTL:</strong> <span id="session-ttl">0</span> 秒</p>
-                </div>
-                <div id="sessions-list"></div>
-              </div>
-            </section>
-          </div>
-
-          <!-- 调试工具标签页 -->
-          <div class="tab-content" data-tab="debug">
-            <section class="card">
-              <h2 class="card-title">功能说明</h2>
-              <div class="form-group">
-                <p class="help-text" style="line-height: 1.8;">
-                  调试工具功能正在开发中，敬请期待。<br>
-                  计划包括：检索测试、融合策略对比、记忆统计分析等功能。
-                </p>
-              </div>
-            </section>
-
-            <section class="card">
-              <h2 class="card-title">检索测试</h2>
-              <div class="form-group">
-                <label for="debug-query">查询内容</label>
-                <input type="text" id="debug-query" placeholder="输入测试查询" disabled />
-              </div>
-              <div class="form-group">
-                <label for="debug-mode">检索模式</label>
-                <select id="debug-mode" disabled>
-                  <option value="dense">Dense</option>
-                  <option value="sparse">Sparse</option>
-                  <option value="hybrid">Hybrid</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="debug-top-k">Top-K</label>
-                <input type="number" id="debug-top-k" min="1" max="20" value="5" disabled />
-              </div>
-              <button id="run-search-test" class="primary" disabled>运行测试</button>
-              <div id="search-test-result" class="result-box hidden"></div>
-            </section>
           </div>
         </main>
       </section>

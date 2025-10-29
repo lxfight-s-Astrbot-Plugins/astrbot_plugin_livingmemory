@@ -19,7 +19,8 @@
       timer: null,
     },
     currentTab: "memories",
-    currentMemoryItem: null, // 用于记忆编辑
+    currentMemoryItem: null,
+    searchTimeout: null, // 用于防抖搜索
   };
 
   const dom = {
@@ -71,11 +72,7 @@
     dom.loginForm.addEventListener("submit", onLoginSubmit);
     dom.refreshButton.addEventListener("click", fetchAll);
     dom.loadAllButton.addEventListener("click", onLoadAll);
-    // 暂时禁用核爆功能（API未实现）
-    // dom.nukeButton.addEventListener("click", onNukeClick);
-    dom.nukeButton.disabled = true;
-    dom.nukeButton.title = "功能暂未实现";
-    
+    dom.nukeButton.addEventListener("click", onNukeClick);
     dom.logoutButton.addEventListener("click", logout);
     dom.prevPage.addEventListener("click", goPrevPage);
     dom.nextPage.addEventListener("click", goNextPage);
@@ -84,70 +81,73 @@
     dom.selectAll.addEventListener("change", toggleSelectAll);
     dom.deleteSelected.addEventListener("click", deleteSelectedMemories);
     dom.drawerClose.addEventListener("click", closeDetailDrawer);
-    // dom.nukeCancel.addEventListener("click", onNukeCancel);
+    dom.nukeCancel.addEventListener("click", onNukeCancel);
+
+    // 关键字输入 - 防抖搜索
+    dom.keywordInput.addEventListener("input", (event) => {
+      // 清除之前的搜索计时器
+      if (state.searchTimeout) {
+        clearTimeout(state.searchTimeout);
+      }
+
+      // 设置新的搜索计时器（500ms 防抖延迟）
+      state.searchTimeout = setTimeout(() => {
+        state.filters.keyword = event.target.value.trim();
+        state.page = 1;
+        state.loadAll = false;
+        dom.loadAllButton.classList.remove("active");
+        fetchMemories();
+      }, 500);
+    });
+
+    // 保留 Enter 键快速搜索
     dom.keywordInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        // 立即搜索，不等待防抖
+        if (state.searchTimeout) {
+          clearTimeout(state.searchTimeout);
+        }
         applyFilters();
       }
     });
 
-    // 标签页切换
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
-    });
-
-    // 记忆编辑功能（暂未实现后端API）
+    // 记忆编辑功能
     const editBtn = document.getElementById("edit-memory-btn");
     if (editBtn) {
-      editBtn.disabled = true;
-      editBtn.title = "功能暂未实现";
+      editBtn.addEventListener("click", openEditModal);
     }
 
-    // 系统管理功能（部分API未实现）
-    const triggerForgetting = document.getElementById("trigger-forgetting");
-    const rebuildIndex = document.getElementById("rebuild-index");
-    const loadSessions = document.getElementById("load-sessions");
+    // 编辑字段变更事件
+    const editFieldSelect = document.getElementById("edit-field");
+    if (editFieldSelect) {
+      editFieldSelect.addEventListener("change", onEditFieldChange);
+    }
 
-    if (triggerForgetting) {
-      triggerForgetting.disabled = true;
-      triggerForgetting.title = "功能暂未实现";
-    }
-    if (rebuildIndex) {
-      rebuildIndex.disabled = true;
-      rebuildIndex.title = "功能暂未实现";
-    }
-    if (loadSessions) loadSessions.addEventListener("click", loadSessionsInfo);
+    // 编辑模态框按钮
+    const modalCloseBtn = document.getElementById("modal-close");
+    const cancelEditBtn = document.getElementById("cancel-edit");
+    const saveEditBtn = document.getElementById("save-edit");
 
-    // 调试工具功能（API未实现）
-    const runSearchTest = document.getElementById("run-search-test");
-    const runFusionCompare = document.getElementById("run-fusion-compare");
-    const runMemoryAnalysis = document.getElementById("run-memory-analysis");
-
-    if (runSearchTest) {
-      runSearchTest.disabled = true;
-      runSearchTest.title = "功能暂未实现";
+    if (modalCloseBtn) {
+      modalCloseBtn.addEventListener("click", closeEditModal);
     }
-    if (runFusionCompare) {
-      runFusionCompare.disabled = true;
-      runFusionCompare.title = "功能暂未实现";
+    if (cancelEditBtn) {
+      cancelEditBtn.addEventListener("click", closeEditModal);
     }
-    if (runMemoryAnalysis) {
-      runMemoryAnalysis.disabled = true;
-      runMemoryAnalysis.title = "功能暂未实现";
+    if (saveEditBtn) {
+      saveEditBtn.addEventListener("click", saveMemoryEdit);
     }
 
     if (state.token) {
       switchView("dashboard");
       showToast("会话已恢复，正在验证...");
-      // 先验证 token 是否有效，再加载数据
       fetchStats()
         .then(() => {
           showToast("验证成功，正在加载数据...");
           return fetchMemories();
         })
         .catch((error) => {
-          // Token 无效，清除并返回登录页
           console.warn("Token 验证失败:", error.message);
           handleAuthFailure();
         });
@@ -204,20 +204,31 @@
       if (!response.success) {
         throw new Error(response.error || "获取统计信息失败");
       }
-      
+
       const stats = response.data || {};
-      dom.stats.total.textContent = stats.total_memories ?? stats.total_count ?? "--";
-      
-      // 处理状态分布
-      const status_breakdown = stats.status_breakdown || {};
-      dom.stats.active.textContent = status_breakdown.active ?? 0;
-      dom.stats.archived.textContent = status_breakdown.archived ?? 0;
-      dom.stats.deleted.textContent = status_breakdown.deleted ?? 0;
-      
+
+      // 总记忆数
+      dom.stats.total.textContent = stats.total_memories ?? stats.total_count ?? "0";
+
+      // 处理状态分布（支持两种格式）
+      const statusBreakdown = stats.status_breakdown || {};
+      dom.stats.active.textContent = statusBreakdown.active ?? 0;
+      dom.stats.archived.textContent = statusBreakdown.archived ?? 0;
+      dom.stats.deleted.textContent = statusBreakdown.deleted ?? 0;
+
       // 处理会话信息
       const sessions = stats.sessions || {};
-      dom.stats.sessions.textContent = Object.keys(sessions).length || 0;
+      const sessionCount = Object.keys(sessions).length;
+      dom.stats.sessions.textContent = sessionCount || "0";
+
+      // 调试日志
+      console.log("[统计信息]", {
+        total: stats.total_memories,
+        status: statusBreakdown,
+        sessions: sessionCount,
+      });
     } catch (error) {
+      logger.error("[统计信息获取失败]", error.message);
       showToast(error.message || "无法获取统计信息", true);
     }
   }
@@ -297,6 +308,7 @@
       return;
     }
 
+    // 构建表格行
     const rows = state.items
       .map((item) => {
         const key = getItemKey(item);
@@ -338,12 +350,22 @@
 
     dom.tableBody.innerHTML = rows;
 
+    // 绑定事件
     dom.tableBody.querySelectorAll(".row-select").forEach((checkbox) => {
       checkbox.addEventListener("change", onRowSelect);
     });
     dom.tableBody.querySelectorAll(".detail-btn").forEach((btn) => {
       btn.addEventListener("click", onDetailClick);
     });
+
+    // 显示搜索结果计数
+    const resultCount = state.items.length;
+    const countMsg = state.filters.keyword || state.filters.status !== "all"
+      ? `搜索结果：找到 ${resultCount} 条记忆`
+      : "";
+    if (countMsg) {
+      showToast(countMsg);
+    }
   }
 
   function renderEmptyTable(message) {
@@ -449,6 +471,19 @@
         : 1;
       dom.paginationInfo.textContent = `第 ${state.page} / ${totalPages} 页 · 共 ${state.total} 条`;
     }
+
+    // 显示当前筛选状态
+    if (state.filters.keyword || state.filters.status !== "all") {
+      let filterInfo = "筛选中:";
+      if (state.filters.keyword) {
+        filterInfo += ` 关键词="${state.filters.keyword}"`;
+      }
+      if (state.filters.status !== "all") {
+        filterInfo += ` 状态="${state.filters.status}"`;
+      }
+      dom.paginationInfo.textContent += ` | ${filterInfo}`;
+    }
+
     dom.prevPage.disabled = state.loadAll || state.page <= 1;
     dom.nextPage.disabled = state.loadAll || !state.hasMore;
   }
@@ -458,8 +493,17 @@
       return;
     }
     const count = state.selected.size;
-    const confirmed = window.confirm(`确定删除 ${count} 条记忆？此操作无法撤销。`);
+
+    // 改进的确认对话框
+    const confirmed = window.confirm(
+      `⚠️  确认删除？\n\n` +
+      `即将删除 ${count} 条记忆。\n` +
+      `此操作无法撤销！\n\n` +
+      `点击"确定"继续删除，点击"取消"保留。`
+    );
+
     if (!confirmed) {
+      showToast("已取消删除操作");
       return;
     }
 
@@ -476,24 +520,71 @@
     });
 
     try {
+      // 显示加载状态
+      dom.deleteSelected.disabled = true;
+      const originalText = dom.deleteSelected.textContent;
+      dom.deleteSelected.textContent = "删除中...";
+
+      console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
+
       const response = await apiRequest("/api/memories/batch-delete", {
         method: "POST",
         body: {
           memory_ids: memoryIds,
         },
       });
-      
+
       if (!response.success) {
         throw new Error(response.error || "删除失败");
       }
 
       const data = response.data || {};
-      showToast(`已删除 ${data.deleted_count || count} 条记忆`);
+      const deletedCount = data.deleted_count || 0;
+      const failedCount = data.failed_count || 0;
+      const failedIds = data.failed_ids || [];
+
+      console.log("[删除结果]", {
+        deleted: deletedCount,
+        failed: failedCount,
+        failedIds: failedIds,
+      });
+
+      // 根据结果显示相应的提示
+      if (deletedCount === 0 && failedCount > 0) {
+        // ❌ 全部失败
+        showToast(
+          `❌ 删除失败：全部 ${failedCount} 条记忆无法删除\n` +
+          `失败ID: ${failedIds.join(", ")}\n` +
+          `请检查日志了解详情`,
+          true
+        );
+        logger.error("删除失败 - 所有记忆都无法删除", { failedIds });
+      } else if (failedCount > 0) {
+        // ⚠️ 部分失败
+        showToast(
+          `⚠️ 部分删除失败：成功 ${deletedCount} 条，失败 ${failedCount} 条\n` +
+          `失败ID: ${failedIds.join(", ")}`
+        );
+        logger.warn("部分删除失败", { deletedCount, failedCount, failedIds });
+      } else if (deletedCount > 0) {
+        // ✅ 全部成功
+        showToast(`✅ 已成功删除 ${deletedCount} 条记忆`);
+      } else {
+        // ⚠️ 没有删除任何记忆
+        showToast("⚠️ 没有删除任何记忆", true);
+      }
+
+      // 清空选择并刷新数据
       state.selected.clear();
-      fetchMemories();
-      fetchStats();
+      dom.selectAll.checked = false;
+      await fetchMemories();
+      await fetchStats();
     } catch (error) {
-      showToast(error.message || "删除失败", true);
+      logger.error("[删除异常]", error);
+      showToast(error.message || "删除失败，请稍后重试", true);
+    } finally {
+      dom.deleteSelected.disabled = false;
+      dom.deleteSelected.textContent = originalText;
     }
   }
 
@@ -554,18 +645,31 @@
     if (state.nuke.active) {
       return;
     }
+
+    // 显示确认对话框
+    const confirmed = window.confirm(
+      "⚠️  警告：你将启动核爆模式！\n\n" +
+      "系统将模拟删除所有记忆（刷新后恢复）。\n\n" +
+      "30秒倒计时后开始执行。\n\n" +
+      "点击「取消核爆」可中止操作。\n\n" +
+      "确定要继续吗？"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     dom.nukeButton.disabled = true;
     try {
-      const result = await apiRequest("/api/memories/nuke", { method: "POST" });
-      if (result && result.pending) {
-        startNukeCountdown(result);
-        showToast(result.detail || "Memory wipe scheduled");
-      } else {
-        dom.nukeButton.disabled = false;
-      }
+      // 触发核爆倒计时
+      startNukeCountdown({
+        seconds_left: 30,
+        operation_id: "nuke_" + Date.now(),
+      });
+      showToast("核爆已启动！30秒后执行删除操作");
     } catch (error) {
       dom.nukeButton.disabled = false;
-      showToast(error.message || "Unable to schedule memory wipe", true);
+      showToast(error.message || "无法启动核爆模式", true);
     }
   }
 
@@ -575,11 +679,10 @@
     }
     dom.nukeCancel.disabled = true;
     try {
-      await apiRequest(`/api/memories/nuke/${state.nuke.operationId}`, {
-        method: "DELETE",
-      });
+      // 取消核爆
       stopNukeCountdown();
-      showToast("Memory wipe cancelled");
+      showToast("✅ 核爆已取消！记忆保留");
+      dom.nukeButton.disabled = false;
     } catch (error) {
       dom.nukeCancel.disabled = false;
       showToast(error.message || "取消失败，请稍后重试", true);
@@ -595,37 +698,38 @@
     state.nuke.operationId = info.operation_id || null;
     state.nuke.secondsLeft = seconds;
 
-    updateNukeBannerWithEffects(); // 使用新的视觉效果函数
+    updateNukeBannerWithEffects();
     dom.nukeButton.disabled = true;
 
     state.nuke.timer = setInterval(() => {
       if (state.nuke.secondsLeft > 0) {
         state.nuke.secondsLeft -= 1;
-        updateNukeBannerWithEffects(); // 使用新的视觉效果函数
+        updateNukeBannerWithEffects();
         return;
       }
 
       clearInterval(state.nuke.timer);
       state.nuke.timer = null;
-      updateNukeBannerWithEffects(); // 使用新的视觉效果函数
+      updateNukeBannerWithEffects();
       dom.nukeCancel.disabled = true;
 
+      // 核爆动画完成后，隐藏数据但不实际删除
       setTimeout(async () => {
-        // 核爆动画完成后,清理状态,但不自动加载数据
+        // 模拟清除（实际上不发生删除，只是UI层隐藏）
         stopNukeCountdown();
-        // 清空当前显示的数据
         state.items = [];
         state.total = 0;
         state.page = 1;
-        renderEmptyTable("所有记忆已被清除,点击「刷新」或「加载全部」查看结果");
+        renderEmptyTable("💥 核爆完成！所有记忆已被抹除。点击「刷新」重新加载。");
         updatePagination();
+
         // 更新统计信息显示为 0
         dom.stats.total.textContent = "0";
         dom.stats.active.textContent = "0";
         dom.stats.archived.textContent = "0";
         dom.stats.deleted.textContent = "0";
-        showToast("核爆完成!所有记忆已被清除");
-      }, 4000); // 延长到4秒，等待核爆动画完成
+        showToast("💥 核爆完成！所有记忆已从界面移除");
+      }, 4000); // 核爆动画时长
     }, 1000);
   }
 
@@ -656,55 +760,72 @@
   }
 
   async function apiRequest(path, options = {}) {
-    const { method = "GET", body, skipAuth = false } = options;
-    const headers = new Headers(options.headers || {});
+    const { method = "GET", body, skipAuth = false, retries = 2 } = options;
+    let lastError;
 
-    if (body !== undefined && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
+    // 实现重试逻辑
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const headers = new Headers(options.headers || {});
 
-    if (!skipAuth) {
-      if (!state.token) {
-        handleAuthFailure();
-        throw new Error("尚未登录");
+        if (body !== undefined && !headers.has("Content-Type")) {
+          headers.set("Content-Type", "application/json");
+        }
+
+        if (!skipAuth) {
+          if (!state.token) {
+            handleAuthFailure();
+            throw new Error("尚未登录");
+          }
+          headers.set("Authorization", `Bearer ${state.token}`);
+        }
+
+        const fetchOptions = {
+          method,
+          headers,
+          credentials: "same-origin",
+        };
+
+        if (body !== undefined) {
+          fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+        }
+
+        const response = await fetch(path, fetchOptions);
+
+        if (response.status === 401) {
+          handleAuthFailure();
+          throw new Error("会话已过期，请重新登录");
+        }
+
+        let data;
+        try {
+          data = await response.json();
+        } catch (error) {
+          throw new Error("服务器返回格式错误");
+        }
+
+        if (!response.ok) {
+          const message =
+            (data && (data.detail || data.message || data.error)) || "请求失败";
+          throw new Error(message);
+        }
+
+        return data;
+      } catch (error) {
+        lastError = error;
+
+        // 如果是最后一次尝试或不应该重试的错误，直接抛出
+        if (attempt === retries || error.message.includes("未登录") || error.message.includes("会话已过期")) {
+          throw error;
+        }
+
+        // 等待一段时间后重试（指数退避）
+        const waitTime = Math.min(1000 * Math.pow(2, attempt), 5000);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
-      headers.set("Authorization", `Bearer ${state.token}`);
     }
 
-    const fetchOptions = {
-      method,
-      headers,
-      credentials: "same-origin",
-    };
-
-    if (body !== undefined) {
-      fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
-    }
-
-    const response = await fetch(path, fetchOptions);
-
-    if (response.status === 401) {
-      handleAuthFailure();
-      throw new Error("会话已过期，请重新登录");
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch (error) {
-      throw new Error("服务器返回格式错误");
-    }
-
-    if (!response.ok) {
-      // 处理HTTP错误状态码
-      const message =
-        (data && (data.detail || data.message || data.error)) || "请求失败";
-      throw new Error(message);
-    }
-
-    // API现在返回 {success: true/false, data: {...}, error: "..."} 格式
-    // 但也要兼容直接返回数据的旧格式
-    return data;
+    throw lastError || new Error("请求失败");
   }
 
   function handleAuthFailure() {
@@ -944,30 +1065,10 @@
   }
 
   // ============================================
-  // 标签页切换功能
+  // 标签页切换功能（已移除，仅保留单一标签页）
   // ============================================
 
-  function switchTab(tabName) {
-    state.currentTab = tabName;
-
-    // 更新标签按钮状态
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      if (btn.dataset.tab === tabName) {
-        btn.classList.add("active");
-      } else {
-        btn.classList.remove("active");
-      }
-    });
-
-    // 更新标签页内容
-    document.querySelectorAll(".tab-content").forEach((content) => {
-      if (content.dataset.tab === tabName) {
-        content.classList.add("active");
-      } else {
-        content.classList.remove("active");
-      }
-    });
-  }
+  // switchTab 函数已移除，不再需要
 
   // ============================================
   // 记忆编辑功能
@@ -1083,272 +1184,11 @@
   }
 
   // ============================================
-  // 系统管理功能
+  // 调试工具功能（已移除，暂不实现）
   // ============================================
 
-  async function triggerForgettingAgent() {
-    const btn = document.getElementById("trigger-forgetting");
-    const resultBox = document.getElementById("forgetting-result");
-
-    try {
-      btn.disabled = true;
-      resultBox.classList.remove("hidden", "success", "error");
-      resultBox.textContent = "正在运行遗忘代理...";
-
-      const result = await apiRequest("/api/admin/forgetting-agent/trigger", {
-        method: "POST",
-      });
-
-      resultBox.classList.add("success");
-      resultBox.innerHTML = `
-        <strong>执行成功!</strong><br>
-        ${escapeHTML(result.message || "遗忘代理执行完成")}
-      `;
-      showToast(result.message || "遗忘代理执行完成");
-      fetchStats(); // 刷新统计
-    } catch (error) {
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "执行失败";
-      showToast(error.message || "执行失败", true);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function rebuildSparseIndex() {
-    const btn = document.getElementById("rebuild-index");
-    const resultBox = document.getElementById("rebuild-result");
-
-    try {
-      btn.disabled = true;
-      resultBox.classList.remove("hidden", "success", "error");
-      resultBox.textContent = "正在重建索引...";
-
-      const result = await apiRequest("/api/admin/sparse-index/rebuild", {
-        method: "POST",
-      });
-
-      resultBox.classList.add("success");
-      resultBox.innerHTML = `
-        <strong>重建成功!</strong><br>
-        索引文档数: ${result.indexed_count}
-      `;
-      showToast("稀疏索引重建完成");
-    } catch (error) {
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "重建失败";
-      showToast(error.message || "重建失败", true);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function loadSessionsInfo() {
-    const infoBox = document.getElementById("sessions-info");
-    const listBox = document.getElementById("sessions-list");
-
-    try {
-      // 使用新的 ConversationManager API
-      const response = await apiRequest("/api/conversations/recent?limit=50");
-      if (!response.success) {
-        throw new Error(response.error || "获取会话列表失败");
-      }
-
-      const data = response.data || {};
-      const sessions = data.sessions || [];
-
-      infoBox.classList.remove("hidden");
-      document.getElementById("total-sessions").textContent = data.total || sessions.length;
-      // 这些字段需要从配置API获取
-      document.getElementById("max-sessions").textContent = "100"; // 默认值
-      document.getElementById("session-ttl").textContent = "3600"; // 默认值
-
-      if (sessions.length > 0) {
-        const html = `
-          <table style="width: 100%; margin-top: 16px; border-collapse: collapse;">
-            <thead>
-              <tr style="background: var(--surface-alt); text-align: left;">
-                <th style="padding: 8px; border: 1px solid var(--border);">会话 ID</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">平台</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">消息数</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">参与者</th>
-                <th style="padding: 8px; border: 1px solid var(--border);">最后活跃</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${sessions
-                .map(
-                  (s) => `
-                <tr>
-                  <td style="padding: 8px; border: 1px solid var(--border); font-family: monospace;">${escapeHTML(s.session_id)}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.platform || "--")}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${s.message_count || 0}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${(s.participants || []).length}</td>
-                  <td style="padding: 8px; border: 1px solid var(--border);">${escapeHTML(s.last_active_at || "--")}</td>
-                </tr>
-              `
-                )
-                .join("")}
-            </tbody>
-          </table>
-        `;
-        listBox.innerHTML = html;
-      } else {
-        listBox.innerHTML = "<p>暂无活跃会话</p>";
-      }
-
-      showToast("会话信息加载完成");
-    } catch (error) {
-      showToast(error.message || "加载失败", true);
-    }
-  }
-
-  // ============================================
-  // 调试工具功能
-  // ============================================
-
-  async function runSearchTestFunc() {
-    const resultBox = document.getElementById("search-test-result");
-    const query = document.getElementById("debug-query").value.trim();
-
-    if (!query) {
-      showToast("请输入查询内容", true);
-      return;
-    }
-
-    try {
-      document.getElementById("run-search-test").disabled = true;
-      resultBox.classList.remove("hidden", "success", "error");
-      resultBox.textContent = "正在测试...";
-
-      const payload = {
-        query,
-        mode: document.getElementById("debug-mode").value,
-        top_k: parseInt(document.getElementById("debug-top-k").value),
-      };
-
-      const result = await apiRequest("/api/debug/search-test", {
-        method: "POST",
-        body: payload,
-      });
-
-      resultBox.classList.add("success");
-      let html = `
-        <strong>测试完成</strong><br>
-        查询: ${escapeHTML(result.query)}<br>
-        模式: ${result.mode}<br>
-        耗时: ${result.elapsed_time}秒<br>
-        结果数: ${result.result_count}<br><br>
-        <strong>检索结果:</strong>
-      `;
-
-      if (result.results && result.results.length > 0) {
-        html += "<pre>" + JSON.stringify(result.results, null, 2) + "</pre>";
-      } else {
-        html += "<p>无结果</p>";
-      }
-
-      resultBox.innerHTML = html;
-      showToast("检索测试完成");
-    } catch (error) {
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "测试失败";
-      showToast(error.message || "测试失败", true);
-    } finally {
-      document.getElementById("run-search-test").disabled = false;
-    }
-  }
-
-  async function runFusionCompareFunc() {
-    const resultBox = document.getElementById("fusion-compare-result");
-    const query = document.getElementById("fusion-compare-query").value.trim();
-
-    if (!query) {
-      showToast("请输入查询内容", true);
-      return;
-    }
-
-    try {
-      document.getElementById("run-fusion-compare").disabled = true;
-      resultBox.classList.remove("hidden", "success", "error");
-      resultBox.textContent = "正在对比...";
-
-      const selectElem = document.getElementById("fusion-compare-strategies");
-      const strategies = Array.from(selectElem.selectedOptions).map((opt) => opt.value);
-
-      if (strategies.length === 0) {
-        showToast("请至少选择一个策略", true);
-        document.getElementById("run-fusion-compare").disabled = false;
-        return;
-      }
-
-      const payload = { query, strategies, top_k: 5 };
-
-      const result = await apiRequest("/api/debug/fusion-comparison", {
-        method: "POST",
-        body: payload,
-      });
-
-      resultBox.classList.add("success");
-      let html = `
-        <strong>对比完成</strong><br>
-        查询: ${escapeHTML(result.query)}<br>
-        测试策略数: ${result.strategies_tested}<br><br>
-        <strong>对比结果:</strong>
-      `;
-
-      if (result.comparison && result.comparison.length > 0) {
-        html += "<pre>" + JSON.stringify(result.comparison, null, 2) + "</pre>";
-      }
-
-      resultBox.innerHTML = html;
-      showToast("策略对比完成");
-    } catch (error) {
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "对比失败";
-      showToast(error.message || "对比失败", true);
-    } finally {
-      document.getElementById("run-fusion-compare").disabled = false;
-    }
-  }
-
-  async function runMemoryAnalysisFunc() {
-    const resultBox = document.getElementById("memory-analysis-result");
-
-    try {
-      document.getElementById("run-memory-analysis").disabled = true;
-      resultBox.classList.remove("hidden", "success", "error");
-      resultBox.textContent = "正在分析...";
-
-      const result = await apiRequest("/api/debug/memory-analysis");
-
-      resultBox.classList.add("success");
-      let html = `
-        <strong>分析完成</strong><br>
-        总记忆数: ${result.total_memories}<br>
-        平均重要性: ${result.average_importance}<br><br>
-        <strong>详细统计:</strong>
-        <pre>${JSON.stringify(
-          {
-            importance_distribution: result.importance_distribution,
-            type_distribution: result.type_distribution,
-            status_distribution: result.status_distribution,
-          },
-          null,
-          2
-        )}</pre>
-      `;
-
-      resultBox.innerHTML = html;
-      showToast("记忆分析完成");
-    } catch (error) {
-      resultBox.classList.add("error");
-      resultBox.textContent = error.message || "分析失败";
-      showToast(error.message || "分析失败", true);
-    } finally {
-      document.getElementById("run-memory-analysis").disabled = false;
-    }
-  }
+  // 相关函数已删除：triggerForgettingAgent, rebuildSparseIndex, loadSessionsInfo
+  // runSearchTestFunc, runFusionCompareFunc, runMemoryAnalysisFunc
 
   document.addEventListener("DOMContentLoaded", init);
 })();

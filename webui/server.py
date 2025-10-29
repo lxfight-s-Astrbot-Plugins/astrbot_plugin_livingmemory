@@ -498,6 +498,99 @@ class WebUIServer:
                 logger.error(f"删除记忆失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
+        # 编辑记忆
+        @self._app.put("/api/memories/{memory_id}")
+        async def update_memory(
+            memory_id: int,
+            payload: Dict[str, Any],
+            token: str = Depends(self._auth_dependency()),
+        ):
+            """
+            编辑指定记忆
+            支持编辑字段: content, importance, type, status
+            """
+            try:
+                field = payload.get("field")
+                value = payload.get("value")
+                reason = payload.get("reason", "")
+
+                if not field or value is None:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST, detail="需要指定 field 和 value"
+                    )
+
+                # 获取记忆详情
+                memory = await self.memory_engine.get_memory(memory_id)
+                if not memory:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
+
+                # 验证字段和值
+                valid_fields = {"content", "importance", "type", "status"}
+                if field not in valid_fields:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST, detail=f"不支持编辑字段: {field}"
+                    )
+
+                # 构建更新字典
+                updates = {}
+
+                # 类型转换和验证
+                if field == "importance":
+                    try:
+                        value = float(value)
+                        if not (0 <= value <= 10):
+                            raise ValueError
+                        # 转换为 0-1 范围（MemoryEngine 使用此范围）
+                        value = value / 10.0
+                    except (ValueError, TypeError):
+                        raise HTTPException(
+                            status.HTTP_400_BAD_REQUEST, detail="重要性必须是 0-10 之间的数字"
+                        )
+                    updates["importance"] = value
+
+                elif field == "status":
+                    valid_statuses = {"active", "archived", "deleted"}
+                    if value not in valid_statuses:
+                        raise HTTPException(
+                            status.HTTP_400_BAD_REQUEST,
+                            detail=f"无效的状态。允许值: {', '.join(valid_statuses)}",
+                        )
+                    # 状态存储在 metadata 中
+                    updates["metadata"] = {"status": value}
+
+                elif field == "type":
+                    # 类型也存储在 metadata 中
+                    updates["metadata"] = {"memory_type": str(value).strip()}
+
+                elif field == "content":
+                    # 内容直接更新
+                    updates["content"] = str(value).strip()
+
+                # 添加更新原因到元数据
+                if reason:
+                    if "metadata" not in updates:
+                        updates["metadata"] = {}
+                    updates["metadata"]["update_reason"] = reason
+
+                # 调用 MemoryEngine 的更新方法
+                success = await self.memory_engine.update_memory(memory_id, updates)
+                if not success:
+                    raise HTTPException(
+                        status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新失败"
+                    )
+
+                return {
+                    "success": True,
+                    "message": f"记忆 {memory_id} 的 {field} 已更新",
+                    "data": {"memory_id": memory_id, "field": field, "value": value},
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"更新记忆失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
         # 批量删除记忆
         @self._app.post("/api/memories/batch-delete")
         async def batch_delete_memories(
@@ -512,16 +605,37 @@ class WebUIServer:
             try:
                 deleted_count = 0
                 failed_count = 0
+                failed_ids = []  # 记录失败的 ID 用于诊断
+
+                logger.info(f"[批量删除] 准备删除 {len(memory_ids)} 条记忆: {memory_ids}")
 
                 for memory_id in memory_ids:
                     try:
-                        success = await self.memory_engine.delete_memory(int(memory_id))
+                        # 转换为整数
+                        mid = int(memory_id)
+                        logger.debug(f"[批量删除] 尝试删除 memory_id={mid}")
+
+                        success = await self.memory_engine.delete_memory(mid)
                         if success:
                             deleted_count += 1
+                            logger.debug(f"[批量删除] ✅ 成功删除 memory_id={mid}")
                         else:
                             failed_count += 1
-                    except Exception:
+                            failed_ids.append(mid)
+                            logger.warning(f"[批量删除] ❌ 删除失败 memory_id={mid} (引擎返回False)")
+                    except ValueError as e:
                         failed_count += 1
+                        failed_ids.append(memory_id)
+                        logger.error(f"[批量删除] ❌ memory_id 格式错误 '{memory_id}': {e}")
+                    except Exception as e:
+                        failed_count += 1
+                        failed_ids.append(memory_id)
+                        logger.error(f"[批量删除] ❌ 删除异常 memory_id={memory_id}: {e}", exc_info=True)
+
+                logger.info(
+                    f"[批量删除] 完成 - 成功: {deleted_count}, 失败: {failed_count}, "
+                    f"失败ID: {failed_ids}"
+                )
 
                 return {
                     "success": True,
@@ -529,10 +643,11 @@ class WebUIServer:
                         "deleted_count": deleted_count,
                         "failed_count": failed_count,
                         "total": len(memory_ids),
+                        "failed_ids": failed_ids,  # 返回失败的 ID 用于客户端诊断
                     },
                 }
             except Exception as e:
-                logger.error(f"批量删除记忆失败: {e}", exc_info=True)
+                logger.error(f"[批量删除] 异常: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
         # 获取统计信息

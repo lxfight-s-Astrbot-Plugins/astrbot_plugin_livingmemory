@@ -17,6 +17,35 @@ from .retrieval.rrf_fusion import RRFFusion
 from .text_processor import TextProcessor
 
 
+def _extract_session_uuid(session_id: Optional[str]) -> Optional[str]:
+    """
+    从 session_id 中提取 UUID 部分用于比较
+
+    支持两种格式：
+    - 新版本：platform:message_type:uuid → 返回 uuid
+    - 旧版本：uuid → 返回 uuid
+
+    Args:
+        session_id: session_id 字符串
+
+    Returns:
+        Optional[str]: 提取出的 UUID 部分，如果无法提取则返回原值
+    """
+    if not session_id:
+        return None
+
+    # 尝试按新版本格式分割（冒号或感叹号分隔）
+    if ':' in session_id:
+        parts = session_id.split(':')
+        return parts[-1]  # 返回最后一部分（UUID）
+    elif '!' in session_id:
+        parts = session_id.split('!')
+        return parts[-1]  # 返回最后一部分（UUID）
+
+    # 已经是 UUID 格式，直接返回
+    return session_id
+
+
 class MemoryEngine:
     """
     统一记忆引擎
@@ -504,7 +533,8 @@ class MemoryEngine:
         Returns:
             Dict: 统计信息,包含:
                 - total_memories: 总记忆数
-                - sessions: 各会话的记忆数
+                - sessions: 各会话的记忆数（按UUID分组）
+                - status_breakdown: 各状态的记忆数
                 - avg_importance: 平均重要性
                 - oldest_memory: 最旧记忆时间
                 - newest_memory: 最新记忆时间
@@ -520,8 +550,10 @@ class MemoryEngine:
             # 总记忆数
             stats["total_memories"] = len(all_docs)
 
-            # 各会话记忆数
+            # 各会话记忆数（使用UUID分组以支持新旧版本兼容）
             session_counts = {}
+            # 各状态记忆数
+            status_breakdown = {"active": 0, "archived": 0, "deleted": 0}
             importance_sum = 0
             importance_count = 0
             oldest_time = None
@@ -530,10 +562,20 @@ class MemoryEngine:
             for doc in all_docs:
                 metadata = doc["metadata"]
 
-                # 统计会话
+                # 统计会话（提取UUID进行分组，支持新旧格式兼容）
                 session_id = metadata.get("session_id")
                 if session_id:
-                    session_counts[session_id] = session_counts.get(session_id, 0) + 1
+                    session_uuid = _extract_session_uuid(session_id)
+                    if session_uuid:
+                        session_counts[session_uuid] = session_counts.get(session_uuid, 0) + 1
+
+                # 统计状态（默认 active）
+                status = metadata.get("status", "active")
+                if status in status_breakdown:
+                    status_breakdown[status] += 1
+                else:
+                    # 未知状态默认计入 active
+                    status_breakdown["active"] += 1
 
                 # 统计重要性
                 importance = metadata.get("importance")
@@ -550,6 +592,7 @@ class MemoryEngine:
                         newest_time = create_time
 
             stats["sessions"] = session_counts
+            stats["status_breakdown"] = status_breakdown
             stats["avg_importance"] = (
                 importance_sum / importance_count if importance_count > 0 else 0.0
             )
@@ -557,10 +600,13 @@ class MemoryEngine:
             stats["newest_memory"] = newest_time
 
             return stats
-        except Exception:
+        except Exception as e:
+            from astrbot.api import logger
+            logger.error(f"获取统计信息失败: {e}", exc_info=True)
             return {
                 "total_memories": 0,
                 "sessions": {},
+                "status_breakdown": {"active": 0, "archived": 0, "deleted": 0},
                 "avg_importance": 0.0,
                 "oldest_memory": None,
                 "newest_memory": None,

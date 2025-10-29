@@ -147,6 +147,7 @@ button:disabled {
   cursor: not-allowed;
   transform: none !important;
   box-shadow: none !important;
+  position: relative;
 }
 
 button:not(:disabled):active {
@@ -249,12 +250,14 @@ button.danger-outline:hover:not(:disabled) {
 
 .nuke-banner {
   margin: 0 36px 18px;
-  padding: 14px 20px;
+  padding: 16px 24px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(220, 38, 38, 0.2);
-  background: rgba(254, 226, 226, 0.9);
+  border: 2px solid rgba(220, 38, 38, 0.4);
+  background: linear-gradient(135deg, rgba(254, 226, 226, 0.95), rgba(255, 240, 245, 0.9));
   color: #b91c1c;
-  box-shadow: 0 16px 30px -24px rgba(220, 38, 38, 0.65);
+  box-shadow: 0 16px 30px -24px rgba(220, 38, 38, 0.85);
+  font-weight: 600;
+  transition: all 0.3s ease;
 }
 
 .nuke-banner.hidden {
@@ -909,26 +912,29 @@ tbody tr.selected {
 
 /* 倒计时数字样式 - 放大警告 */
 .nuke-banner.critical {
-  animation: criticalPulse 0.5s ease-in-out infinite;
-  background: rgba(220, 38, 38, 0.2);
-  border-color: rgba(220, 38, 38, 0.5);
+  animation: criticalPulse 0.4s ease-in-out infinite;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.25), rgba(255, 200, 200, 0.2));
+  border-color: rgba(220, 38, 38, 0.8);
+  color: #991b1b;
+  box-shadow: 0 0 30px -5px rgba(220, 38, 38, 0.9), inset 0 0 20px -10px rgba(220, 38, 38, 0.2);
 }
 
 @keyframes criticalPulse {
   0%, 100% {
     transform: scale(1);
-    box-shadow: 0 16px 30px -24px rgba(220, 38, 38, 0.65);
+    box-shadow: 0 0 30px -5px rgba(220, 38, 38, 0.9), inset 0 0 20px -10px rgba(220, 38, 38, 0.2);
   }
   50% {
-    transform: scale(1.02);
-    box-shadow: 0 20px 40px -20px rgba(220, 38, 38, 0.85);
+    transform: scale(1.01);
+    box-shadow: 0 0 40px 0 rgba(220, 38, 38, 1), inset 0 0 20px -5px rgba(220, 38, 38, 0.4);
   }
 }
 
 /* 倒计时文字放大 */
 .nuke-banner.critical #nuke-message {
   font-size: 18px;
-  animation: textPulse 0.5s ease-in-out infinite;
+  animation: textPulse 0.4s ease-in-out infinite;
+  letter-spacing: 0.5px;
 }
 
 @keyframes textPulse {
@@ -937,7 +943,7 @@ tbody tr.selected {
   }
   50% {
     color: #dc2626;
-    text-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
+    text-shadow: 0 0 12px rgba(220, 38, 38, 0.8);
   }
 }
 
@@ -979,7 +985,7 @@ tbody tr.selected {
 }
 
 /* ============================================
-   标签页导航样式
+   标签页导航样式（简化为单一标签页）
    ============================================ */
 
 .tabs-nav {
@@ -994,10 +1000,10 @@ tbody tr.selected {
   padding: 12px 24px;
   font-size: 15px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--primary);
   background: transparent;
   border: none;
-  border-bottom: 3px solid transparent;
+  border-bottom: 3px solid var(--primary);
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
@@ -1017,7 +1023,7 @@ tbody tr.selected {
 }
 
 .tab-content {
-  display: none;
+  display: block;
   padding: 24px;
 }
 
@@ -1138,6 +1144,16 @@ tbody tr.selected {
   justify-content: center;
   z-index: 2000;
   padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal.hidden {
@@ -1153,6 +1169,18 @@ tbody tr.selected {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .modal-header {
@@ -1161,6 +1189,7 @@ tbody tr.selected {
   justify-content: space-between;
   padding: 24px 24px 16px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--primary-light) 0%, transparent 100%);
 }
 
 .modal-header h2 {
