@@ -45,7 +45,7 @@ class DBMigration:
                 table_exists = await cursor.fetchone()
 
                 if not table_exists:
-                    # 检查是否有documents表（判断是否为旧数据库）
+                    # 没有版本表，检查是否有documents表（判断是否为旧数据库）
                     cursor = await db.execute("""
                         SELECT name FROM sqlite_master
                         WHERE type='table' AND name='documents'
@@ -58,7 +58,8 @@ class DBMigration:
                         doc_count = (await cursor.fetchone())[0]
 
                         if doc_count > 0:
-                            # 有数据的旧版本数据库
+                            # 有数据但无版本表，判定为v1旧数据库
+                            # 注意：v2数据库在初始化时会自动创建版本表，不会出现这种情况
                             logger.info(
                                 f"检测到旧版本数据库（无版本表，有{doc_count}条数据），当前版本: 1"
                             )

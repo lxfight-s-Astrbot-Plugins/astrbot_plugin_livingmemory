@@ -157,7 +157,48 @@ class MemoryEngine:
             ON documents(json_extract(metadata, '$.session_id'))
         """)
 
+        # 创建版本管理表
+        await self.db_connection.execute("""
+            CREATE TABLE IF NOT EXISTS db_version (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version INTEGER NOT NULL,
+                description TEXT,
+                migrated_at TEXT NOT NULL,
+                migration_duration_seconds REAL
+            )
+        """)
+
+        # 创建迁移状态表
+        await self.db_connection.execute("""
+            CREATE TABLE IF NOT EXISTS migration_status (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT
+            )
+        """)
+
         await self.db_connection.commit()
+
+        # 检查是否需要初始化版本信息
+        cursor = await self.db_connection.execute(
+            "SELECT COUNT(*) FROM db_version"
+        )
+        version_count = (await cursor.fetchone())[0]
+
+        if version_count == 0:
+            # 全新数据库，设置初始版本为 2
+            from datetime import datetime
+            await self.db_connection.execute(
+                """
+                INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
+                VALUES (?, ?, ?, ?)
+            """,
+                (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
+            )
+            await self.db_connection.commit()
+
+            from astrbot.api import logger
+            logger.info("已初始化数据库版本信息: v2")
 
     # ==================== 核心记忆操作 ====================
 
