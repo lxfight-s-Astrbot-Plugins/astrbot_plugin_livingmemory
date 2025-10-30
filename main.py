@@ -74,27 +74,111 @@ class LivingMemoryPlugin(Star):
         # 初始化状态标记
         self._initialization_complete = False
         self._initialization_lock = asyncio.Lock()
+        self._initialization_failed = False
+        self._initialization_error: Optional[str] = None
+
+        # Provider 就绪标记
+        self._providers_ready = False
+        self._provider_check_attempts = 0
+        self._max_provider_attempts = 60  # 最多尝试60次（60秒）
 
         # WebUI 服务句柄
         self.webui_server: Optional[WebUIServer] = None
 
-        # 启动初始化任务
-        asyncio.create_task(self._initialize_plugin())
+        # 启动非阻塞的初始化任务
+        asyncio.create_task(self._initialize_plugin_async())
 
-    async def _initialize_plugin(self):
-        """执行插件的异步初始化"""
+    async def _initialize_plugin_async(self):
+        """非阻塞的异步初始化 - 后台持续尝试直到成功"""
         async with self._initialization_lock:
-            if self._initialization_complete:
+            if self._initialization_complete or self._initialization_failed:
                 return
 
-        logger.info("开始初始化 LivingMemory 插件...")
+        logger.info("LivingMemory 插件开始后台初始化...")
+
         try:
-            # 1. 初始化 Provider
-            self._initialize_providers()
-            if not await self._wait_for_providers_basic():
-                logger.error("Provider 初始化失败，插件无法正常工作。")
+            # 1. 非阻塞地等待 Provider 就绪
+            if not await self._wait_for_providers_non_blocking():
+                logger.warning("Provider 暂时不可用，将在后台继续尝试...")
+                # 启动后台重试任务
+                asyncio.create_task(self._retry_initialization())
                 return
 
+            # 2. Provider 就绪，继续完整初始化
+            await self._complete_initialization()
+
+        except Exception as e:
+            logger.error(f"LivingMemory 插件初始化失败: {e}", exc_info=True)
+            self._initialization_failed = True
+            self._initialization_error = str(e)
+
+    async def _wait_for_providers_non_blocking(self, max_wait: float = 5.0) -> bool:
+        """非阻塞地检查 Provider 是否可用（最多等待几秒）"""
+        start_time = time.time()
+        check_interval = 0.5  # 每0.5秒检查一次
+
+        while time.time() - start_time < max_wait:
+            self._initialize_providers()
+
+            if self.embedding_provider and self.llm_provider:
+                logger.info("✅ Provider 已就绪")
+                self._providers_ready = True
+                return True
+
+            await asyncio.sleep(check_interval)
+            self._provider_check_attempts += 1
+
+        logger.debug(
+            f"Provider 在 {max_wait}秒内未就绪（已尝试 {self._provider_check_attempts} 次）"
+        )
+        return False
+
+    async def _retry_initialization(self):
+        """后台重试初始化任务"""
+        retry_interval = 2.0  # 每2秒重试一次
+
+        while (
+            not self._initialization_complete
+            and not self._initialization_failed
+            and self._provider_check_attempts < self._max_provider_attempts
+        ):
+            await asyncio.sleep(retry_interval)
+
+            # 尝试获取 Provider
+            self._initialize_providers()
+            self._provider_check_attempts += 1
+
+            if self.embedding_provider and self.llm_provider:
+                logger.info(
+                    f"✅ Provider 在第 {self._provider_check_attempts} 次尝试后就绪，继续初始化..."
+                )
+                self._providers_ready = True
+
+                try:
+                    async with self._initialization_lock:
+                        if not self._initialization_complete:
+                            await self._complete_initialization()
+                except Exception as e:
+                    logger.error(f"重试初始化失败: {e}", exc_info=True)
+                    self._initialization_failed = True
+                    self._initialization_error = str(e)
+                break
+
+        if not self._initialization_complete and not self._initialization_failed:
+            logger.error(
+                f"❌ Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败"
+            )
+            self._initialization_failed = True
+            self._initialization_error = "Provider 初始化超时"
+
+    async def _complete_initialization(self):
+        """完成完整的初始化流程（Provider 已就绪时调用）"""
+        if self._initialization_complete:
+            return
+
+        logger.info("开始完整初始化流程...")
+
+        try:
             # 2. 初始化数据库
             data_dir = StarTools.get_data_dir()
             db_path = os.path.join(data_dir, "livingmemory.db")
@@ -179,13 +263,13 @@ class LivingMemoryPlugin(Star):
 
             # 标记初始化完成
             self._initialization_complete = True
-            logger.info("LivingMemory 插件初始化成功！")
+            logger.info("✅ LivingMemory 插件初始化成功！")
 
         except Exception as e:
-            logger.critical(
-                f"LivingMemory 插件初始化过程中发生严重错误: {e}", exc_info=True
-            )
-            self._initialization_complete = False
+            logger.error(f"完整初始化流程失败: {e}", exc_info=True)
+            self._initialization_failed = True
+            self._initialization_error = str(e)
+            raise
 
     async def _check_and_migrate_database(self):
         """检查并执行数据库迁移"""
@@ -317,29 +401,36 @@ class LivingMemoryPlugin(Star):
         finally:
             self.webui_server = None
 
-    async def _wait_for_providers_basic(self, timeout: float = 10.0) -> bool:
-        """等待 Provider 可用"""
-        start_time = time.time()
-        while not (self.embedding_provider and self.llm_provider):
-            await asyncio.sleep(1)
-            if time.time() - start_time > timeout:
-                logger.error(f"等待 Provider 可用超时（{timeout}秒）")
-                return False
-            self._initialize_providers()  # 在等待期间重新尝试获取 Provider
-
-        return True
-
-    async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
-        """等待插件初始化完成"""
+    async def _ensure_initialized(self, timeout: float = 30.0) -> bool:
+        """确保插件已初始化（懒加载机制）"""
+        # 如果已经初始化完成，直接返回
         if self._initialization_complete:
             return True
 
+        # 如果初始化已失败，返回失败信息
+        if self._initialization_failed:
+            logger.warning(f"插件初始化已失败: {self._initialization_error}")
+            return False
+
+        # 等待初始化完成
+        return await self._wait_for_initialization(timeout)
+
+    async def _wait_for_initialization(self, timeout: float = 30.0) -> bool:
+        """等待插件初始化完成（内部方法）"""
+        if self._initialization_complete:
+            return True
+
+        if self._initialization_failed:
+            return False
+
         start_time = time.time()
-        while not self._initialization_complete:
+        while not self._initialization_complete and not self._initialization_failed:
             if time.time() - start_time > timeout:
-                logger.error(f"插件初始化超时（{timeout}秒）")
+                logger.error(
+                    f"等待插件初始化超时（{timeout}秒），当前状态：Provider尝试次数={self._provider_check_attempts}"
+                )
                 return False
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
 
         return self._initialization_complete
 
@@ -482,8 +573,8 @@ class LivingMemoryPlugin(Star):
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
-        if not await self._wait_for_initialization():
-            logger.warning("插件未完成初始化，跳过记忆召回。")
+        if not await self._ensure_initialized():
+            logger.debug("插件未完成初始化，跳过记忆召回")
             return
 
         if not self.memory_engine:
@@ -605,8 +696,8 @@ class LivingMemoryPlugin(Star):
             f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
         )
 
-        if not await self._wait_for_initialization():
-            logger.warning("插件未完成初始化，跳过记忆反思。")
+        if not await self._ensure_initialized():
+            logger.debug("插件未完成初始化，跳过记忆反思")
             return
 
         if (
@@ -885,12 +976,22 @@ class LivingMemoryPlugin(Star):
         # 修复：直接使用 event.session_id，避免不一致问题
         return event.session_id or "default"
 
+    def _get_initialization_status_message(self) -> str:
+        """获取初始化状态的用户友好消息"""
+        if self._initialization_complete:
+            return "✅ 插件已就绪"
+        elif self._initialization_failed:
+            return f"❌ 插件初始化失败: {self._initialization_error}\n\n请检查：\n1. Embedding Provider 是否已配置\n2. LLM Provider 是否可用\n3. 查看日志获取详细错误信息"
+        else:
+            return f"⏳ 插件正在后台初始化中...\n已尝试: {self._provider_check_attempts} 次\n\n如果长时间未完成，请检查：\n1. Embedding Provider 配置\n2. 其他插件是否阻塞了初始化流程"
+
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("status")
     async def lmem_status(self, event: AstrMessageEvent):
         """[管理员] 显示记忆系统状态"""
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+        if not await self._ensure_initialized():
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
             return
 
         if not self.memory_engine:
@@ -933,8 +1034,9 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("search")
     async def lmem_search(self, event: AstrMessageEvent, query: str, k: int = 5):
         """[管理员] 搜索记忆"""
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+        if not await self._ensure_initialized():
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
             return
 
         if not self.memory_engine:
@@ -971,8 +1073,9 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("forget")
     async def lmem_forget(self, event: AstrMessageEvent, doc_id: int):
         """[管理员] 删除指定记忆"""
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+        if not await self._ensure_initialized():
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
             return
 
         if not self.memory_engine:
@@ -993,8 +1096,9 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("webui")
     async def lmem_webui(self, event: AstrMessageEvent):
         """[管理员] 显示WebUI访问信息"""
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+        if not await self._ensure_initialized():
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
             return
 
         webui_url = self._get_webui_url()
@@ -1029,8 +1133,9 @@ class LivingMemoryPlugin(Star):
     @lmem_group.command("rebuild-index")
     async def lmem_rebuild_index(self, event: AstrMessageEvent):
         """[管理员] 手动重建索引"""
-        if not await self._wait_for_initialization():
-            yield event.plain_result("插件尚未完成初始化，请稍后再试。")
+        if not await self._ensure_initialized():
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
             return
 
         if not self.memory_engine or not self.index_validator:
