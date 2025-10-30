@@ -323,20 +323,41 @@ def format_memories_for_injection(memories: List) -> str:
                 except Exception:
                     pass
 
-            # 格式化重要性等级
-            if importance >= 0.8:
-                importance_label = "高"
-            elif importance >= 0.5:
-                importance_label = "中"
-            else:
-                importance_label = "低"
-
-            # 构建格式化的记忆条目
-            entry = (
-                f"记忆 #{idx} (重要性: {importance_label}, 相关度: {score:.2f}, "
-                f"类型: {interaction_type}{time_str})\n"
-                f"{content}"
-            )
+            # 构建格式化的记忆条目（展示content和元数据信息）
+            entry_parts = [f"记忆 #{idx} (重要性: {importance:.2f})"]
+            
+            # 添加元数据信息
+            metadata_parts = []
+            
+            # 添加主题
+            topics = metadata.get("topics", [])
+            if topics and isinstance(topics, list) and len(topics) > 0:
+                topics_str = "、".join(str(t) for t in topics if t)
+                if topics_str:
+                    metadata_parts.append(f"主题: {topics_str}")
+            
+            # 添加参与者（仅群聊）
+            participants = metadata.get("participants", [])
+            if participants and isinstance(participants, list) and len(participants) > 0:
+                participants_str = "、".join(str(p) for p in participants if p)
+                if participants_str:
+                    metadata_parts.append(f"参与者: {participants_str}")
+            
+            # 添加关键事实
+            key_facts = metadata.get("key_facts", [])
+            if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
+                facts_str = "; ".join(str(f) for f in key_facts if f)
+                if facts_str:
+                    metadata_parts.append(f"关键信息: {facts_str}")
+            
+            # 组装元数据行
+            if metadata_parts:
+                entry_parts.append(" | ".join(metadata_parts))
+            
+            # 添加记忆内容
+            entry_parts.append(content)
+            
+            entry = "\n".join(entry_parts)
             formatted_entries.append(entry)
 
             logger.debug(

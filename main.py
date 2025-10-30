@@ -387,6 +387,98 @@ class LivingMemoryPlugin(Star):
             self.llm_provider = self.context.get_using_provider()
             logger.info("使用 AstrBot 当前默认的 LLM Provider。")
 
+    def _remove_injected_memories_from_context(
+        self, req: ProviderRequest, session_id: str
+    ) -> int:
+        """
+        从对话历史和system_prompt中删除之前注入的记忆片段
+
+        Args:
+            req: Provider请求对象
+            session_id: 会话ID
+
+        Returns:
+            int: 删除的消息数量
+        """
+        from .core.constants import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
+
+        removed_count = 0
+
+        try:
+            # 1. 清理 system_prompt 中的记忆
+            if hasattr(req, "system_prompt") and req.system_prompt:
+                if isinstance(req.system_prompt, str):
+                    original_prompt = req.system_prompt
+                    # 查找并删除记忆标记之间的内容
+                    if (
+                        MEMORY_INJECTION_HEADER in original_prompt
+                        and MEMORY_INJECTION_FOOTER in original_prompt
+                    ):
+                        # 使用正则表达式删除所有记忆片段
+                        import re
+
+                        pattern = (
+                            re.escape(MEMORY_INJECTION_HEADER)
+                            + r".*?"
+                            + re.escape(MEMORY_INJECTION_FOOTER)
+                        )
+                        cleaned_prompt = re.sub(
+                            pattern, "", original_prompt, flags=re.DOTALL
+                        )
+                        # 清理多余的空行
+                        cleaned_prompt = re.sub(
+                            r"\n{3,}", "\n\n", cleaned_prompt
+                        ).strip()
+                        req.system_prompt = cleaned_prompt
+
+                        if cleaned_prompt != original_prompt:
+                            removed_count += 1
+                            logger.debug(
+                                f"[{session_id}] 从 system_prompt 中删除记忆片段 "
+                                f"(原始长度: {len(original_prompt)}, 清理后: {len(cleaned_prompt)})"
+                            )
+
+            # 2. 清理对话历史中的记忆
+            if hasattr(req, "context") and req.context:
+                original_length = len(req.context)
+                filtered_context = []
+
+                for msg in req.context:
+                    # 检查消息内容是否包含记忆标记
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        # 如果消息包含记忆注入标记，跳过该消息
+                        if (
+                            MEMORY_INJECTION_HEADER in content
+                            and MEMORY_INJECTION_FOOTER in content
+                        ):
+                            removed_count += 1
+                            logger.debug(
+                                f"[{session_id}] 删除对话历史中的记忆片段: {content[:100]}..."
+                            )
+                            continue
+
+                    filtered_context.append(msg)
+
+                # 更新对话历史
+                req.context = filtered_context
+
+                if len(filtered_context) < original_length:
+                    logger.debug(
+                        f"[{session_id}] 从对话历史中删除了 {original_length - len(filtered_context)} 条记忆消息 "
+                        f"(原始: {original_length}, 当前: {len(filtered_context)})"
+                    )
+
+            if removed_count > 0:
+                logger.info(
+                    f"[{session_id}] 成功清理旧记忆片段，共删除 {removed_count} 处注入内容"
+                )
+
+        except Exception as e:
+            logger.error(f"[{session_id}] 删除注入记忆时发生错误: {e}", exc_info=True)
+
+        return removed_count
+
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
@@ -404,6 +496,12 @@ class LivingMemoryPlugin(Star):
             logger.debug(f"[DEBUG-Recall] 获取到 session_id: {session_id}")
 
             async with OperationContext("记忆召回", session_id):
+                # 首先检查是否需要自动删除旧的注入记忆
+                auto_remove = self.config.get("recall_engine", {}).get(
+                    "auto_remove_injected", True
+                )
+                if auto_remove:
+                    self._remove_injected_memories_from_context(req, session_id)
                 # 根据配置决定是否进行过滤
                 filtering_config = self.config.get("filtering_settings", {})
                 use_persona_filtering = filtering_config.get(
@@ -435,14 +533,12 @@ class LivingMemoryPlugin(Star):
                         f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆"
                     )
 
-                    # 格式化并注入记忆
+                    # 格式化并注入记忆（包含完整元数据）
                     memory_list = [
                         {
                             "content": mem.content,
                             "score": mem.final_score,
-                            "metadata": {
-                                "importance": mem.metadata.get("importance", 0.5)
-                            },
+                            "metadata": mem.metadata,  # 传递完整的元数据
                         }
                         for mem in recalled_memories
                     ]
@@ -455,18 +551,37 @@ class LivingMemoryPlugin(Star):
                             f"内容={mem.content[:100]}..."
                         )
 
+                    # 根据配置选择记忆注入方式
+                    injection_method = self.config.get("recall_engine", {}).get(
+                        "injection_method", "system_prompt"
+                    )
+
                     memory_str = format_memories_for_injection(memory_list)
                     logger.info(
-                        f"[{session_id}] 格式化后的记忆字符串长度={len(memory_str)}"
+                        f"[{session_id}] 格式化后的记忆字符串长度={len(memory_str)}, 注入方式={injection_method}"
                     )
                     logger.debug(
                         f"[{session_id}] 注入的记忆内容（前500字符）:\n{memory_str[:500]}"
                     )
 
-                    req.system_prompt = memory_str + "\n" + req.system_prompt
-                    logger.info(
-                        f"[{session_id}]  成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
-                    )
+                    if injection_method == "user_message_before":
+                        # 在用户消息前插入记忆
+                        req.prompt = memory_str + "\n\n" + req.prompt
+                        logger.info(
+                            f"[{session_id}]  成功向用户消息前注入 {len(recalled_memories)} 条记忆"
+                        )
+                    elif injection_method == "user_message_after":
+                        # 在用户消息后插入记忆
+                        req.prompt = req.prompt + "\n\n" + memory_str
+                        logger.info(
+                            f"[{session_id}]  成功向用户消息后注入 {len(recalled_memories)} 条记忆"
+                        )
+                    else:
+                        # 默认：注入到 system_prompt
+                        req.system_prompt = memory_str + "\n" + req.system_prompt
+                        logger.info(
+                            f"[{session_id}]  成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
+                        )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
@@ -669,6 +784,11 @@ class LivingMemoryPlugin(Star):
                                     logger.info(
                                         f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
                                     )
+                                    # 获取是否保存原始对话的配置
+                                    save_original = self.config.get(
+                                        "reflection_engine", {}
+                                    ).get("save_original_conversation", False)
+
                                     (
                                         content,
                                         metadata,
@@ -676,6 +796,7 @@ class LivingMemoryPlugin(Star):
                                     ) = await self.memory_processor.process_conversation(
                                         messages=history_messages,
                                         is_group_chat=is_group_chat,
+                                        save_original=save_original,
                                     )
                                     logger.info(
                                         f"[{session_id}]  已使用LLM生成结构化记忆, "
