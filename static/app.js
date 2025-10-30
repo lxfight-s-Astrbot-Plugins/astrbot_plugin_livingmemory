@@ -278,11 +278,13 @@
       const rawItems = Array.isArray(data.items) ? data.items : [];
       
       // 转换API返回的数据格式以匹配前端期望
+      // 注意：item.id 是整数主键，item.doc_id 是UUID（如果存在）
       state.items = rawItems.map((item) => ({
-        memory_id: item.doc_id || item.id,
-        doc_id: item.doc_id || item.id,
-        summary: item.content || item.text || "（无内容）",
-        content: item.content || item.text,
+        memory_id: item.id,  // 使用整数id而不是UUID doc_id
+        doc_id: item.id,     // 使用整数id而不是UUID doc_id
+        uuid: item.doc_id,   // 保存UUID以供显示
+        summary: item.text || item.content || "（无内容）",
+        content: item.text || item.content,
         memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
         importance: item.metadata?.importance ?? 5.0,
         status: item.metadata?.status || "active",
@@ -535,10 +537,16 @@
     state.items.forEach((item) => {
       const key = getItemKey(item);
       if (state.selected.has(key)) {
-        if (item.doc_id !== null && item.doc_id !== undefined) {
-          memoryIds.push(item.doc_id);
-        } else if (item.memory_id) {
-          memoryIds.push(item.memory_id);
+        // 使用整数ID（而非UUID）
+        const id = item.memory_id || item.doc_id;
+        if (id !== null && id !== undefined) {
+          // 确保是整数
+          const intId = parseInt(id, 10);
+          if (!isNaN(intId)) {
+            memoryIds.push(intId);
+          } else {
+            console.error(`[删除] 无效的memory_id: ${id}, item:`, item);
+          }
         }
       }
     });
@@ -737,22 +745,33 @@
       updateNukeBannerWithEffects();
       dom.nukeCancel.disabled = true;
 
-      // 核爆动画完成后，隐藏数据但不实际删除
+      // 核爆动画完成后，清空视觉效果
       setTimeout(async () => {
-        // 模拟清除（实际上不发生删除，只是UI层隐藏）
+        // 停止核爆倒计时
         stopNukeCountdown();
+        
+        // 清空所有数据的视觉显示
         state.items = [];
         state.total = 0;
         state.page = 1;
+        state.selected.clear();
+        
+        // 更新表格显示
         renderEmptyTable(" 核爆完成！所有记忆已被抹除。点击「刷新」重新加载。");
         updatePagination();
 
-        // 更新统计信息显示为 0
+        // 清空统计信息显示
         dom.stats.total.textContent = "0";
         dom.stats.active.textContent = "0";
         dom.stats.archived.textContent = "0";
         dom.stats.deleted.textContent = "0";
-        showToast(" 核爆完成！所有记忆已从界面移除");
+        dom.stats.sessions.textContent = "0";
+        
+        // 重置选择状态
+        dom.selectAll.checked = false;
+        dom.deleteSelected.disabled = true;
+        
+        showToast(" 核爆完成！所有记忆已从界面移除（仅视觉效果）");
       }, 4000); // 核爆动画时长
     }, 1000);
   }
