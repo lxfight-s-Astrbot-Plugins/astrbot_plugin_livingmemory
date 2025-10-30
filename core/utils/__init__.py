@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 import pytz
-
 from astrbot.api import logger
 from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
@@ -316,47 +315,51 @@ def format_memories_for_injection(memories: List) -> str:
             time_str = ""
             if timestamp:
                 try:
-                    from datetime import datetime
-
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
                     time_str = f", 时间: {dt.strftime('%Y-%m-%d %H:%M')}"
                 except Exception:
                     pass
 
             # 构建格式化的记忆条目（展示content和元数据信息）
-            entry_parts = [f"记忆 #{idx} (重要性: {importance:.2f})"]
-            
+            entry_parts = [
+                f"记忆 #{idx} (重要性: {importance:.2f}),发生时间:{time_str}"
+            ]
+
             # 添加元数据信息
             metadata_parts = []
-            
+
             # 添加主题
             topics = metadata.get("topics", [])
             if topics and isinstance(topics, list) and len(topics) > 0:
                 topics_str = "、".join(str(t) for t in topics if t)
                 if topics_str:
                     metadata_parts.append(f"主题: {topics_str}")
-            
+
             # 添加参与者（仅群聊）
             participants = metadata.get("participants", [])
-            if participants and isinstance(participants, list) and len(participants) > 0:
+            if (
+                participants
+                and isinstance(participants, list)
+                and len(participants) > 0
+            ):
                 participants_str = "、".join(str(p) for p in participants if p)
                 if participants_str:
                     metadata_parts.append(f"参与者: {participants_str}")
-            
+
             # 添加关键事实
             key_facts = metadata.get("key_facts", [])
             if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
                 facts_str = "; ".join(str(f) for f in key_facts if f)
                 if facts_str:
                     metadata_parts.append(f"关键信息: {facts_str}")
-            
+
             # 组装元数据行
             if metadata_parts:
                 entry_parts.append(" | ".join(metadata_parts))
-            
+
             # 添加记忆内容
             entry_parts.append(content)
-            
+
             entry = "\n".join(entry_parts)
             formatted_entries.append(entry)
 

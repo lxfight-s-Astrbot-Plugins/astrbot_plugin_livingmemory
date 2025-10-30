@@ -385,7 +385,7 @@ class WebUIServer:
                 self._tokens.pop(token, None)
             return {"detail": "已退出登录"}
 
-        # 获取记忆列表
+        # 获取记忆列表（支持服务端分页）
         @self._app.get("/api/memories")
         async def list_memories(
             request: Request,
@@ -393,19 +393,31 @@ class WebUIServer:
         ):
             query = request.query_params
             session_id = query.get("session_id")
-            limit = min(200, max(1, int(query.get("limit", 50))))
+            page = int(query.get("page", 1))
+            page_size = int(query.get("page_size", 20))
+
+            # 限制每页最大数量，防止内存溢出
+            page_size = min(page_size, 100)
+            offset = (page - 1) * page_size
 
             try:
                 if session_id:
                     # 获取特定会话的记忆
                     memories = await self.memory_engine.get_session_memories(
-                        session_id=session_id, limit=limit
+                        session_id=session_id, limit=page_size
                     )
+                    total = len(memories)
                 else:
-                    # 获取所有记忆(通过faiss_db)
-                    all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
+                    # 先获取总数（高效，不加载数据）
+                    total = await self.memory_engine.faiss_db.document_storage.count_documents(
                         metadata_filters={}
                     )
+
+                    # 使用真正的服务端分页（只加载当前页数据）
+                    all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
+                        metadata_filters={}, limit=page_size, offset=offset
+                    )
+
                     # 解析 metadata 字段（从 JSON 字符串转为字典）
                     import json
 
@@ -416,19 +428,17 @@ class WebUIServer:
                             except (json.JSONDecodeError, TypeError):
                                 doc["metadata"] = {}
 
-                    # 按创建时间排序
-                    sorted_docs = sorted(
-                        all_docs,
-                        key=lambda x: x["metadata"].get("create_time", 0)
-                        if isinstance(x["metadata"], dict)
-                        else 0,
-                        reverse=True,
-                    )
-                    memories = sorted_docs[:limit]
+                    memories = all_docs
 
                 return {
                     "success": True,
-                    "data": {"items": memories, "total": len(memories), "limit": limit},
+                    "data": {
+                        "items": memories,
+                        "total": total,
+                        "page": page,
+                        "page_size": page_size,
+                        "has_more": (offset + page_size) < total,
+                    },
                 }
             except Exception as e:
                 logger.error(f"获取记忆列表失败: {e}", exc_info=True)

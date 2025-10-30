@@ -395,7 +395,11 @@ class MemoryProcessor:
             content = summary
         else:
             # 降级方案：如果没有摘要，使用简短的对话文本
-            content = conversation_text[:200] + "..." if len(conversation_text) > 200 else conversation_text
+            content = (
+                conversation_text[:200] + "..."
+                if len(conversation_text) > 200
+                else conversation_text
+            )
 
         # metadata字段:存储结构化信息
         metadata = {

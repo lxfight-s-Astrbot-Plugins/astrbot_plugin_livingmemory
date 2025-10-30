@@ -282,20 +282,30 @@ class IndexValidator:
                 await db.execute("DELETE FROM documents")
                 await db.commit()
 
-                # 清空向量索引
+                # 清空向量索引 - 分批处理以避免内存问题
                 try:
-                    all_docs = (
-                        await memory_engine.faiss_db.document_storage.get_documents(
-                            metadata_filters={}
-                        )
-                    )
-                    for doc in all_docs:
-                        try:
-                            await memory_engine.faiss_db.delete(doc["doc_id"])
-                        except Exception as e:
-                            logger.warning(
-                                f"删除Faiss文档失败 (doc_id={doc.get('doc_id')}): {e}"
+                    batch_size = 500
+                    offset = 0
+                    while True:
+                        batch_docs = (
+                            await memory_engine.faiss_db.document_storage.get_documents(
+                                metadata_filters={}, offset=offset, limit=batch_size
                             )
+                        )
+                        if not batch_docs:
+                            break
+
+                        for doc in batch_docs:
+                            try:
+                                await memory_engine.faiss_db.delete(doc["doc_id"])
+                            except Exception as e:
+                                logger.warning(
+                                    f"删除Faiss文档失败 (doc_id={doc.get('doc_id')}): {e}"
+                                )
+
+                        if len(batch_docs) < batch_size:
+                            break
+                        offset += batch_size
                 except Exception as e:
                     logger.warning(f"清空Faiss索引时出错: {e}")
 

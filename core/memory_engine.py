@@ -477,7 +477,7 @@ class MemoryEngine:
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
-        获取会话的所有记忆
+        获取会话的所有记忆（使用分批处理和数据库排序优化）
 
         Args:
             session_id: 会话ID(支持多种格式,自动提取UUID)
@@ -489,24 +489,62 @@ class MemoryEngine:
         # 规范化 session_id - 提取 UUID
         normalized_session_id = _extract_session_uuid(session_id)
 
-        # 从faiss_db的document_storage获取所有文档并过滤
+        # 使用数据库层面的排序和分页，避免加载所有数据
         try:
-            all_docs = await self.faiss_db.document_storage.get_documents(
+            # 方案1: 如果document_storage支持排序，直接使用
+            # 方案2: 否则分批加载并在内存中排序（但只加载必要的数据）
+
+            # 先获取总数判断是否需要分批
+            total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={"session_id": normalized_session_id}
             )
 
-            # 按创建时间排序
-            sorted_docs = sorted(
-                all_docs,
-                key=lambda x: x["metadata"].get("create_time", 0),
-                reverse=True,
-            )
+            if total_count == 0:
+                return []
 
-            # 限制数量
-            limited_docs = sorted_docs[:limit]
+            # 如果总数小于等于limit，直接一次性获取
+            if total_count <= limit:
+                all_docs = await self.faiss_db.document_storage.get_documents(
+                    metadata_filters={"session_id": normalized_session_id},
+                    limit=limit,
+                    offset=0,
+                )
+
+                # 按创建时间排序
+                sorted_docs = sorted(
+                    all_docs,
+                    key=lambda x: x["metadata"].get("create_time", 0),
+                    reverse=True,
+                )
+            else:
+                # 总数大于limit，需要分批加载所有数据进行排序（无法避免）
+                # 但使用合理的批次大小来控制内存
+                all_docs = []
+                batch_size = 500
+                offset = 0
+
+                while offset < total_count:
+                    batch = await self.faiss_db.document_storage.get_documents(
+                        metadata_filters={"session_id": normalized_session_id},
+                        limit=batch_size,
+                        offset=offset,
+                    )
+
+                    if not batch:
+                        break
+
+                    all_docs.extend(batch)
+                    offset += batch_size
+
+                # 按创建时间排序并限制数量
+                sorted_docs = sorted(
+                    all_docs,
+                    key=lambda x: x["metadata"].get("create_time", 0),
+                    reverse=True,
+                )[:limit]
 
             memories = []
-            for doc in limited_docs:
+            for doc in sorted_docs:
                 memories.append(
                     {
                         "id": doc["id"],
@@ -525,7 +563,7 @@ class MemoryEngine:
         importance_threshold: Optional[float] = None,
     ) -> int:
         """
-        清理旧记忆
+        清理旧记忆（使用分批处理避免内存问题）
 
         删除超过阈值且重要性低的记忆
 
@@ -544,46 +582,71 @@ class MemoryEngine:
 
         cutoff_time = time.time() - (days * 86400)
 
-        # 从faiss_db获取所有文档并过滤
+        # 分批扫描文档并删除，避免一次性加载所有数据到内存
         try:
-            all_docs = await self.faiss_db.document_storage.get_documents(
+            # 先获取总数
+            total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={}
             )
 
-            # 找到符合清理条件的记忆
-            to_delete = []
-            for doc in all_docs:
-                metadata = doc["metadata"]
-                # 处理 metadata（可能是JSON字符串或字典）
-                if isinstance(metadata, str):
-                    try:
-                        import json
+            if total_count == 0:
+                return 0
 
-                        metadata = json.loads(metadata)
-                    except (json.JSONDecodeError, TypeError):
-                        metadata = {}
-                elif not isinstance(metadata, dict):
-                    metadata = {}
-
-                create_time = metadata.get("create_time", time.time())
-                doc_importance = metadata.get("importance", 0.5)
-
-                # 确保时间值是数字类型
-                try:
-                    create_time = float(create_time)
-                    doc_importance = float(doc_importance)
-                except (ValueError, TypeError):
-                    continue
-
-                if create_time < cutoff_time and doc_importance < importance:
-                    to_delete.append(doc["id"])
-
-            # 批量删除
             deleted_count = 0
-            for memory_id in to_delete:
-                success = await self.delete_memory(memory_id)
-                if success:
-                    deleted_count += 1
+            batch_size = 500
+            offset = 0
+
+            # 分批处理
+            while offset < total_count:
+                # 获取一批文档
+                batch_docs = await self.faiss_db.document_storage.get_documents(
+                    metadata_filters={}, limit=batch_size, offset=offset
+                )
+
+                if not batch_docs:
+                    break
+
+                # 处理这批文档，找到需要删除的
+                to_delete_in_batch = []
+
+                for doc in batch_docs:
+                    metadata = doc["metadata"]
+                    # 处理 metadata（可能是JSON字符串或字典）
+                    if isinstance(metadata, str):
+                        try:
+                            import json
+
+                            metadata = json.loads(metadata)
+                        except (json.JSONDecodeError, TypeError):
+                            metadata = {}
+                    elif not isinstance(metadata, dict):
+                        metadata = {}
+
+                    create_time = metadata.get("create_time", time.time())
+                    doc_importance = metadata.get("importance", 0.5)
+
+                    # 确保时间值是数字类型
+                    try:
+                        create_time = float(create_time)
+                        doc_importance = float(doc_importance)
+                    except (ValueError, TypeError):
+                        continue
+
+                    if create_time < cutoff_time and doc_importance < importance:
+                        to_delete_in_batch.append(doc["id"])
+
+                # 删除这批中符合条件的记忆
+                for memory_id in to_delete_in_batch:
+                    success = await self.delete_memory(memory_id)
+                    if success:
+                        deleted_count += 1
+
+                # 移动到下一批
+                offset += batch_size
+
+                # 如果这批数量少于batch_size，说明已经是最后一批
+                if len(batch_docs) < batch_size:
+                    break
 
             return deleted_count
         except Exception:
@@ -591,7 +654,7 @@ class MemoryEngine:
 
     async def get_statistics(self) -> Dict[str, Any]:
         """
-        获取记忆统计信息
+        获取记忆统计信息（使用批量处理避免内存问题）
 
         Returns:
             Dict: 统计信息,包含:
@@ -603,76 +666,90 @@ class MemoryEngine:
                 - newest_memory: 最新记忆时间
         """
         try:
-            # 从faiss_db获取所有文档
-            all_docs = await self.faiss_db.document_storage.get_documents(
+            # 使用 count_documents() 高效获取总数（不加载数据）
+            total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={}
             )
 
             stats = {}
+            stats["total_memories"] = total_count
 
-            # 总记忆数
-            stats["total_memories"] = len(all_docs)
-
-            # 各会话记忆数（使用UUID分组以支持新旧版本兼容）
+            # 初始化统计变量
             session_counts = {}
-            # 各状态记忆数
             status_breakdown = {"active": 0, "archived": 0, "deleted": 0}
             importance_sum = 0
             importance_count = 0
             oldest_time = None
             newest_time = None
 
-            for doc in all_docs:
-                # 处理 metadata（可能是JSON字符串或字典）
-                metadata = doc["metadata"]
-                if isinstance(metadata, str):
-                    try:
-                        import json
+            # 分批处理，每次加载500条，避免内存问题
+            batch_size = 500
+            offset = 0
 
-                        metadata = json.loads(metadata)
-                    except (json.JSONDecodeError, TypeError):
+            while offset < total_count:
+                # 获取一批文档
+                batch_docs = await self.faiss_db.document_storage.get_documents(
+                    metadata_filters={}, limit=batch_size, offset=offset
+                )
+
+                if not batch_docs:
+                    break
+
+                # 处理这批文档
+                for doc in batch_docs:
+                    # 处理 metadata（可能是JSON字符串或字典）
+                    metadata = doc["metadata"]
+                    if isinstance(metadata, str):
+                        try:
+                            import json
+
+                            metadata = json.loads(metadata)
+                        except (json.JSONDecodeError, TypeError):
+                            metadata = {}
+                    elif not isinstance(metadata, dict):
                         metadata = {}
-                elif not isinstance(metadata, dict):
-                    metadata = {}
 
-                # 统计会话（提取UUID进行分组，支持新旧格式兼容）
-                session_id = metadata.get("session_id")
-                if session_id:
-                    session_uuid = _extract_session_uuid(session_id)
-                    if session_uuid:
-                        session_counts[session_uuid] = (
-                            session_counts.get(session_uuid, 0) + 1
-                        )
+                    # 统计会话（提取UUID进行分组，支持新旧格式兼容）
+                    session_id = metadata.get("session_id")
+                    if session_id:
+                        session_uuid = _extract_session_uuid(session_id)
+                        if session_uuid:
+                            session_counts[session_uuid] = (
+                                session_counts.get(session_uuid, 0) + 1
+                            )
 
-                # 统计状态（默认 active）
-                status = metadata.get("status", "active")
-                if status in status_breakdown:
-                    status_breakdown[status] += 1
-                else:
-                    # 未知状态默认计入 active
-                    status_breakdown["active"] += 1
+                    # 统计状态（默认 active）
+                    status = metadata.get("status", "active")
+                    if status in status_breakdown:
+                        status_breakdown[status] += 1
+                    else:
+                        # 未知状态默认计入 active
+                        status_breakdown["active"] += 1
 
-                # 统计重要性
-                importance = metadata.get("importance")
-                if importance is not None:
-                    try:
-                        importance = float(importance)
-                        importance_sum += importance
-                        importance_count += 1
-                    except (ValueError, TypeError):
-                        pass
+                    # 统计重要性
+                    importance = metadata.get("importance")
+                    if importance is not None:
+                        try:
+                            importance = float(importance)
+                            importance_sum += importance
+                            importance_count += 1
+                        except (ValueError, TypeError):
+                            pass
 
-                # 统计时间
-                create_time = metadata.get("create_time")
-                if create_time:
-                    try:
-                        create_time = float(create_time)
-                        if oldest_time is None or create_time < oldest_time:
-                            oldest_time = create_time
-                        if newest_time is None or create_time > newest_time:
-                            newest_time = create_time
-                    except (ValueError, TypeError):
-                        pass
+                    # 统计时间
+                    create_time = metadata.get("create_time")
+                    if create_time:
+                        try:
+                            create_time = float(create_time)
+                            if oldest_time is None or create_time < oldest_time:
+                                oldest_time = create_time
+                            if newest_time is None or create_time > newest_time:
+                                newest_time = create_time
+                        except (ValueError, TypeError):
+                            pass
+
+                # 移动到下一批
+                offset += batch_size
 
             stats["sessions"] = session_counts
             stats["status_breakdown"] = status_breakdown

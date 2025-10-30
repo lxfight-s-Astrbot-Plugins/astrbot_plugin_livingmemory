@@ -262,8 +262,10 @@
 
   async function fetchMemories() {
     const params = new URLSearchParams();
-    // 一次性加载足够多的数据（客户端分页）
-    params.set("limit", "500");
+    
+    // 使用服务端分页（只加载当前页数据）
+    params.set("page", state.page.toString());
+    params.set("page_size", state.pageSize.toString());
     
     // 添加会话筛选（可选）
     if (state.filters.session_id) {
@@ -279,9 +281,12 @@
       const data = response.data || {};
       const rawItems = Array.isArray(data.items) ? data.items : [];
       
+      // 更新总数和分页状态
+      state.total = data.total || 0;
+      state.hasMore = data.has_more || false;
+      
       // 转换API返回的数据格式以匹配前端期望
-      // 注意：item.id 是整数主键，item.doc_id 是UUID（如果存在）
-      allMemories = rawItems.map((item) => ({
+      state.items = rawItems.map((item) => ({
         memory_id: item.id,  // 使用整数id而不是UUID doc_id
         doc_id: item.id,     // 使用整数id而不是UUID doc_id
         uuid: item.doc_id,   // 保存UUID以供显示
@@ -296,9 +301,6 @@
         raw: item,
         raw_json: JSON.stringify(item, null, 2),
       }));
-
-      // 应用过滤器
-      applyClientSideFilters();
       
       state.selected.clear();
       dom.selectAll.checked = false;
@@ -471,13 +473,8 @@
     state.loadAll = false;
     dom.loadAllButton.classList.remove("active");
     
-    // 只重新应用过滤，不重新请求数据
-    applyClientSideFilters();
-    state.selected.clear();
-    dom.selectAll.checked = false;
-    dom.deleteSelected.disabled = true;
-    renderTable();
-    updatePagination();
+    // 服务端分页：重新请求数据
+    fetchMemories();
   }
 
   function onPageSizeChange() {
@@ -486,40 +483,23 @@
     state.loadAll = false;
     dom.loadAllButton.classList.remove("active");
     
-    // 重新应用分页
-    applyClientSideFilters();
-    state.selected.clear();
-    dom.selectAll.checked = false;
-    dom.deleteSelected.disabled = true;
-    renderTable();
-    updatePagination();
+    // 服务端分页：重新请求数据
+    fetchMemories();
   }
 
   function goPrevPage() {
     if (state.page > 1) {
       state.page -= 1;
-      
-      // 重新应用分页
-      applyClientSideFilters();
-      state.selected.clear();
-      dom.selectAll.checked = false;
-      dom.deleteSelected.disabled = true;
-      renderTable();
-      updatePagination();
+      // 服务端分页：重新请求数据
+      fetchMemories();
     }
   }
 
   function goNextPage() {
     if (state.hasMore) {
       state.page += 1;
-      
-      // 重新应用分页
-      applyClientSideFilters();
-      state.selected.clear();
-      dom.selectAll.checked = false;
-      dom.deleteSelected.disabled = true;
-      renderTable();
-      updatePagination();
+      // 服务端分页：重新请求数据
+      fetchMemories();
     }
   }
 
