@@ -402,11 +402,33 @@ class WebUIServer:
 
             try:
                 if session_id:
-                    # 获取特定会话的记忆
-                    memories = await self.memory_engine.get_session_memories(
-                        session_id=session_id, limit=page_size
+                    # 规范化 session_id
+                    from core.memory_engine import _extract_session_uuid
+
+                    normalized_session_id = _extract_session_uuid(session_id)
+
+                    # 先获取该会话的总数（高效，不加载数据）
+                    total = await self.memory_engine.faiss_db.document_storage.count_documents(
+                        metadata_filters={"session_id": normalized_session_id}
                     )
-                    total = len(memories)
+
+                    # 使用服务端分页获取当前页数据
+                    all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
+                        metadata_filters={"session_id": normalized_session_id},
+                        limit=page_size,
+                        offset=offset,
+                    )
+
+                    # 按创建时间排序（如果需要）
+                    sorted_docs = sorted(
+                        all_docs,
+                        key=lambda x: x["metadata"].get("create_time", 0)
+                        if isinstance(x["metadata"], dict)
+                        else 0,
+                        reverse=True,
+                    )
+
+                    memories = sorted_docs
                 else:
                     # 先获取总数（高效，不加载数据）
                     total = await self.memory_engine.faiss_db.document_storage.count_documents(
@@ -418,17 +440,17 @@ class WebUIServer:
                         metadata_filters={}, limit=page_size, offset=offset
                     )
 
-                    # 解析 metadata 字段（从 JSON 字符串转为字典）
-                    import json
-
-                    for doc in all_docs:
-                        if isinstance(doc.get("metadata"), str):
-                            try:
-                                doc["metadata"] = json.loads(doc["metadata"])
-                            except (json.JSONDecodeError, TypeError):
-                                doc["metadata"] = {}
-
                     memories = all_docs
+
+                # 解析 metadata 字段（从 JSON 字符串转为字典）
+                import json
+
+                for doc in memories:
+                    if isinstance(doc.get("metadata"), str):
+                        try:
+                            doc["metadata"] = json.loads(doc["metadata"])
+                        except (json.JSONDecodeError, TypeError):
+                            doc["metadata"] = {}
 
                 return {
                     "success": True,
