@@ -65,7 +65,10 @@ class MemoryProcessor:
 """
 
     async def process_conversation(
-        self, messages: List[Message], is_group_chat: bool = False
+        self,
+        messages: List[Message],
+        is_group_chat: bool = False,
+        save_original: bool = False,
     ) -> tuple[str, Dict[str, Any], float]:
         """
         处理对话历史,生成结构化记忆
@@ -73,6 +76,7 @@ class MemoryProcessor:
         Args:
             messages: 消息列表(Message对象)
             is_group_chat: 是否为群聊
+            save_original: 是否保存原始对话历史（默认False，只保存LLM生成的总结）
 
         Returns:
             tuple: (content, metadata, importance)
@@ -378,19 +382,20 @@ class MemoryProcessor:
         构建存储格式
 
         Args:
-            conversation_text: 原始对话文本
+            conversation_text: 原始对话文本（已不再使用，保留参数以兼容旧代码）
             structured_data: 结构化数据
             is_group_chat: 是否为群聊
 
         Returns:
             (content, metadata) 元组
         """
-        # content字段:包含摘要和原始内容
+        # content字段：只保留LLM生成的摘要（第一人称）
         summary = structured_data.get("summary", "")
         if summary:
-            content = f"【摘要】{summary}\n\n【详细内容】\n{conversation_text}"
+            content = summary
         else:
-            content = conversation_text
+            # 降级方案：如果没有摘要，使用简短的对话文本
+            content = conversation_text[:200] + "..." if len(conversation_text) > 200 else conversation_text
 
         # metadata字段:存储结构化信息
         metadata = {

@@ -31,6 +31,13 @@ class RecallEngineConfig(BaseModel):
         default=1.0, ge=0.0, le=10.0, description="重要性权重"
     )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
+    injection_method: str = Field(
+        default="system_prompt",
+        description="记忆注入方式: system_prompt(系统提示), user_message_before(用户消息前), user_message_after(用户消息后)",
+    )
+    auto_remove_injected: bool = Field(
+        default=True, description="是否自动删除对话历史中已注入的记忆片段"
+    )
 
 
 class FusionStrategyConfig(BaseModel):
@@ -44,6 +51,9 @@ class ReflectionEngineConfig(BaseModel):
 
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
+    )
+    save_original_conversation: bool = Field(
+        default=False, description="保存记忆时是否包含原始对话历史"
     )
 
 

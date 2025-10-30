@@ -104,6 +104,23 @@
         "hint": "当混合/稀疏检索不可用或结果为空时，是否回退到纯向量检索。",
         "type": "bool",
         "default": true
+      },
+      "injection_method": {
+        "description": "记忆注入方式",
+        "hint": "控制记忆注入到 LLM 请求的位置。不同方式适合不同场景：system_prompt 适合作为背景知识，user_message_before 让 LLM 先看到记忆，user_message_after 将记忆作为补充信息。",
+        "type": "string",
+        "default": "user_message_before",
+        "options": [
+          "user_message_before",
+          "system_prompt",
+          "user_message_after"
+        ]
+      },
+      "auto_remove_injected": {
+        "description": "自动删除旧记忆片段",
+        "hint": "在注入新记忆前，自动从 system_prompt 和对话历史中删除之前注入的记忆片段。强烈建议启用，避免记忆重复累积和 token 浪费。",
+        "type": "bool",
+        "default": true
       }
     }
   },
@@ -161,6 +178,12 @@
         "hint": "触发对话历史总结的对话轮次（一问一答为一轮）。",
         "type": "int",
         "default": 10
+      },
+      "save_original_conversation": {
+        "description": "保存原始对话历史",
+        "hint": "是否在记忆中同时保存原始对话内容和 LLM 生成的摘要。关闭（默认）时只保存结构化摘要（总结、主题、关键信息），可减少 60-80% 存储空间并提升检索效率。开启时会保存完整对话记录，适合需要完整上下文的场景或调试。",
+        "type": "bool",
+        "default": false
       }
     }
   },

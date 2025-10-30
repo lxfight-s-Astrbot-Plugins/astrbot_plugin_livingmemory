@@ -95,19 +95,14 @@ pyproject.toml
 
 
 .spec-workflow/
-CONVERSATION_MANAGER_IMPLEMENTATION_PLAN.md
-ARCHITECTURE_REDESIGN.md
-ARCHITECTURE_REDESIGN_PART4.md
-ARCHITECTURE_REDESIGN_PART3.md
-ARCHITECTURE_REDESIGN_PART2.md
-test_data_layer.py
-test_text_processor.py
-test_conversation_manager.py
-docs/IMPLEMENTATION_PLAN.md
-docs/MEMORY_ENGINE_DESIGN.md
-test_rrf_fusion.py
-test_bm25_retriever.py
-test_vector_retriever.py
-test_hybrid_retriever.py
-test_memory_engine.py
-test_imports.py
+docs/astr_message_event.md
+docs/astrbot_message.md
+docs/context.md
+docs/message_member.md
+docs/message_type.md
+docs/overall_architecture.md
+docs/overall_operation_process.md
+docs/platform_metadata.md
+docs/plugin.md
+docs/star_metadata.md
+docs/star.md
