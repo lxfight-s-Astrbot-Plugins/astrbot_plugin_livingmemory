@@ -263,9 +263,16 @@
   async function fetchMemories() {
     const params = new URLSearchParams();
     
-    // 使用服务端分页（只加载当前页数据）
-    params.set("page", state.page.toString());
-    params.set("page_size", state.pageSize.toString());
+    // 根据loadAll状态决定请求参数
+    if (state.loadAll) {
+      // 加载全部模式：请求所有数据
+      params.set("page", "1");
+      params.set("page_size", "999999"); // 大数值以获取所有数据
+    } else {
+      // 正常分页模式：只加载当前页数据
+      params.set("page", state.page.toString());
+      params.set("page_size", state.pageSize.toString());
+    }
     
     // 添加会话筛选（可选）
     if (state.filters.session_id) {
@@ -283,7 +290,13 @@
       
       // 更新总数和分页状态
       state.total = data.total || 0;
-      state.hasMore = data.has_more || false;
+      
+      // 在loadAll模式下，设置hasMore为false
+      if (state.loadAll) {
+        state.hasMore = false;
+      } else {
+        state.hasMore = data.has_more || false;
+      }
       
       // 转换API返回的数据格式以匹配前端期望
       state.items = rawItems.map((item) => ({
