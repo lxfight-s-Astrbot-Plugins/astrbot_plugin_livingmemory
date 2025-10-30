@@ -525,12 +525,19 @@
 
   function updatePagination() {
     if (state.loadAll) {
-      dom.paginationInfo.textContent = `共 ${state.items.length} 条记录`;
+      dom.paginationInfo.textContent = `共 ${state.items.length} 条记录（已加载全部）`;
+      // 加载全部模式：禁用翻页按钮
+      dom.prevPage.disabled = true;
+      dom.nextPage.disabled = true;
     } else {
       const totalPages = state.total
         ? Math.max(1, Math.ceil(state.total / state.pageSize))
         : 1;
       dom.paginationInfo.textContent = `第 ${state.page} / ${totalPages} 页 · 共 ${state.total} 条`;
+      
+      // 正常分页模式：根据实际情况启用/禁用翻页按钮
+      dom.prevPage.disabled = state.page <= 1;
+      dom.nextPage.disabled = !state.hasMore;
     }
 
     // 显示当前筛选状态
@@ -544,9 +551,6 @@
       }
       dom.paginationInfo.textContent += ` | ${filterInfo}`;
     }
-
-    dom.prevPage.disabled = state.loadAll || state.page <= 1;
-    dom.nextPage.disabled = state.loadAll || !state.hasMore;
   }
 
   async function deleteSelectedMemories() {
