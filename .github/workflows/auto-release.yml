@@ -1,0 +1,122 @@
+name: Auto Release on Version Update
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'metadata.yaml'
+
+jobs:
+  check-version-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Get current version
+        id: current_version
+        run: |
+          VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+      
+      - name: Get previous version
+        id: previous_version
+        run: |
+          git checkout HEAD~1 metadata.yaml 2>/dev/null || echo "No previous version"
+          PREV_VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}' 2>/dev/null || echo "none")
+          git checkout HEAD metadata.yaml
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          echo "Previous version: $PREV_VERSION"
+      
+      - name: Check if version changed
+        id: version_changed
+        run: |
+          if [ "${{ steps.current_version.outputs.version }}" != "${{ steps.previous_version.outputs.prev_version }}" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version changed from ${{ steps.previous_version.outputs.prev_version }} to ${{ steps.current_version.outputs.version }}"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version not changed"
+          fi
+      
+      - name: Check if tag exists
+        id: check_tag
+        if: steps.version_changed.outputs.changed == 'true'
+        run: |
+          if git rev-parse "v${{ steps.current_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.current_version.outputs.version }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.current_version.outputs.version }} does not exist"
+          fi
+      
+      - name: Get plugin info
+        id: plugin_info
+        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+        run: |
+          NAME=$(grep '^name:' metadata.yaml | awk '{print $2}')
+          AUTHOR=$(grep '^author:' metadata.yaml | awk '{print $2}')
+          DESC=$(grep '^description:' metadata.yaml | cut -d':' -f2- | sed 's/^ *//')
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "author=$AUTHOR" >> $GITHUB_OUTPUT
+          echo "description=$DESC" >> $GITHUB_OUTPUT
+      
+      - name: Generate release notes
+        id: release_notes
+        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+        run: |
+          cat << EOF > release_notes.md
+          ## ${{ steps.plugin_info.outputs.name }} v${{ steps.current_version.outputs.version }}
+          
+          **插件名称**: ${{ steps.plugin_info.outputs.name }}
+          **作者**: ${{ steps.plugin_info.outputs.author }}
+          **描述**: ${{ steps.plugin_info.outputs.description }}
+          
+          ### 版本更新
+          
+          - 版本从 \`${{ steps.previous_version.outputs.prev_version }}\` 更新到 \`${{ steps.current_version.outputs.version }}\`
+          
+          ### 安装方式
+          
+          请参考项目 README 文档进行安装。
+          
+          ---
+          
+          *此版本由 GitHub Actions 自动发布*
+          EOF
+          cat release_notes.md
+      
+      - name: Create Release
+        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.current_version.outputs.version }}
+          name: Release v${{ steps.current_version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Release created
+        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+        run: |
+          echo "✅ Release v${{ steps.current_version.outputs.version }} created successfully!"
+      
+      - name: Skip release
+        if: steps.version_changed.outputs.changed == 'false' || steps.check_tag.outputs.exists == 'true'
+        run: |
+          if [ "${{ steps.version_changed.outputs.changed }}" == "false" ]; then
+            echo "ℹ️ Version not changed, skipping release"
+          elif [ "${{ steps.check_tag.outputs.exists }}" == "true" ]; then
+            echo "ℹ️ Tag already exists, skipping release"
+          fi
