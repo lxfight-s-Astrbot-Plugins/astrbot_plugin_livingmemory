@@ -180,14 +180,13 @@ class MemoryEngine:
         await self.db_connection.commit()
 
         # 检查是否需要初始化版本信息
-        cursor = await self.db_connection.execute(
-            "SELECT COUNT(*) FROM db_version"
-        )
+        cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
         version_count = (await cursor.fetchone())[0]
 
         if version_count == 0:
             # 全新数据库，设置初始版本为 2
             from datetime import datetime
+
             await self.db_connection.execute(
                 """
                 INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
@@ -198,6 +197,7 @@ class MemoryEngine:
             await self.db_connection.commit()
 
             from astrbot.api import logger
+
             logger.info("已初始化数据库版本信息: v2")
 
     # ==================== 核心记忆操作 ====================
@@ -268,38 +268,13 @@ class MemoryEngine:
             return []
 
         # 提取 UUID 用于过滤,确保兼容多种 session_id 格式
-        original_session_id = session_id
-        original_persona_id = persona_id
-
         if session_id:
             session_id = _extract_session_uuid(session_id)
-            from astrbot.api import logger as astr_logger
-
-            astr_logger.debug(
-                f"[search_memories] session_id: '{original_session_id}' -> '{session_id}'"
-            )
         if persona_id:
             persona_id = _extract_session_uuid(persona_id)
-            from astrbot.api import logger as astr_logger
-
-            astr_logger.debug(
-                f"[search_memories] persona_id: '{original_persona_id}' -> '{persona_id}'"
-            )
-
-        from astrbot.api import logger as astr_logger
-
-        astr_logger.info(
-            f"[search_memories] 开始混合检索: query='{query[:50]}...', k={k}, session_id={session_id}, persona_id={persona_id}"
-        )
 
         # 执行混合检索
         results = await self.hybrid_retriever.search(query, k, session_id, persona_id)
-
-        astr_logger.info(f"[search_memories] 混合检索完成: 返回 {len(results)} 条结果")
-        for i, result in enumerate(results, 1):
-            astr_logger.debug(
-                f"[search_memories] 结果{i}: doc_id={result.doc_id}, score={result.final_score:.4f}, session_id={result.metadata.get('session_id')}"
-            )
 
         # 异步更新访问时间(不阻塞返回)
         for result in results:
@@ -439,14 +414,14 @@ class MemoryEngine:
         """
         删除记忆
 
-        从向量库、BM25索引和SQLite数据库中同时删除记录,确保三个存储层同步。
-
         Args:
             memory_id: 记忆ID
 
         Returns:
             bool: 是否删除成功
         """
+        from astrbot.api import logger
+
         # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
         success = await self.hybrid_retriever.delete_memory(memory_id)
 
@@ -458,10 +433,7 @@ class MemoryEngine:
                 )
                 await self.db_connection.commit()
             except Exception as e:
-                from astrbot.api import logger
-
-                logger.warning(f"删除documents表记录失败 (memory_id={memory_id}): {e}")
-                # 不影响总体返回值,向量库和BM25已成功删除
+                logger.warning(f"删除documents表失败 (memory_id={memory_id}): {e}")
 
         return success
 

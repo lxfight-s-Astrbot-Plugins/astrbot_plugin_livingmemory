@@ -217,15 +217,26 @@ class BM25Retriever:
 
             return results
 
-    async def delete_document(self, doc_id: int):
+    async def delete_document(self, doc_id: int) -> bool:
         """
         从BM25索引删除文档
 
         Args:
             doc_id: 文档ID
+
+        Returns:
+            bool: 是否成功删除
         """
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
-            )
-            await db.commit()
+        from astrbot.api import logger
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
+                )
+                await db.commit()
+                return True
+
+        except Exception as e:
+            logger.error(f"BM25删除失败 (doc_id={doc_id}): {e}")
+            return False

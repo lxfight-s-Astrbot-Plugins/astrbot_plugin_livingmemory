@@ -257,11 +257,13 @@
     }
   }
 
+  // 存储所有加载的记忆数据
+  let allMemories = [];
+
   async function fetchMemories() {
     const params = new URLSearchParams();
-    // 新API使用limit参数
-    const limit = state.loadAll ? 200 : state.pageSize;
-    params.set("limit", String(limit));
+    // 一次性加载足够多的数据（客户端分页）
+    params.set("limit", "500");
     
     // 添加会话筛选（可选）
     if (state.filters.session_id) {
@@ -279,7 +281,7 @@
       
       // 转换API返回的数据格式以匹配前端期望
       // 注意：item.id 是整数主键，item.doc_id 是UUID（如果存在）
-      state.items = rawItems.map((item) => ({
+      allMemories = rawItems.map((item) => ({
         memory_id: item.id,  // 使用整数id而不是UUID doc_id
         doc_id: item.id,     // 使用整数id而不是UUID doc_id
         uuid: item.doc_id,   // 保存UUID以供显示
@@ -295,28 +297,9 @@
         raw_json: JSON.stringify(item, null, 2),
       }));
 
-      state.total = data.total ?? state.items.length;
-      state.hasMore = state.items.length >= limit;
+      // 应用过滤器
+      applyClientSideFilters();
       
-      // 应用关键词过滤（客户端侧）
-      if (state.filters.keyword) {
-        const keyword = state.filters.keyword.toLowerCase();
-        state.items = state.items.filter((item) => 
-          item.summary?.toLowerCase().includes(keyword) ||
-          item.memory_id?.toString().includes(keyword)
-        );
-      }
-
-      // 应用状态过滤（客户端侧）
-      if (state.filters.status && state.filters.status !== "all") {
-        state.items = state.items.filter((item) => 
-          item.status === state.filters.status
-        );
-      }
-
-      // 更新总数
-      state.total = state.items.length;
-
       state.selected.clear();
       dom.selectAll.checked = false;
       dom.deleteSelected.disabled = true;
@@ -325,6 +308,41 @@
     } catch (error) {
       renderEmptyTable(error.message || "加载失败");
       showToast(error.message || "获取记忆失败", true);
+    }
+  }
+
+  // 客户端过滤和分页
+  function applyClientSideFilters() {
+    let filtered = [...allMemories];
+
+    // 应用关键词过滤
+    if (state.filters.keyword) {
+      const keyword = state.filters.keyword.toLowerCase();
+      filtered = filtered.filter((item) =>
+        item.summary?.toLowerCase().includes(keyword) ||
+        item.memory_id?.toString().includes(keyword)
+      );
+    }
+
+    // 应用状态过滤
+    if (state.filters.status && state.filters.status !== "all") {
+      filtered = filtered.filter((item) =>
+        item.status === state.filters.status
+      );
+    }
+
+    // 更新总数
+    state.total = filtered.length;
+
+    // 应用分页（除非"加载全部"模式）
+    if (state.loadAll) {
+      state.items = filtered;
+      state.hasMore = false;
+    } else {
+      const startIndex = (state.page - 1) * state.pageSize;
+      const endIndex = startIndex + state.pageSize;
+      state.items = filtered.slice(startIndex, endIndex);
+      state.hasMore = endIndex < filtered.length;
     }
   }
 
@@ -385,12 +403,8 @@
     });
 
     // 显示搜索结果计数
-    const resultCount = state.items.length;
-    const countMsg = state.filters.keyword || state.filters.status !== "all"
-      ? `搜索结果：找到 ${resultCount} 条记忆`
-      : "";
-    if (countMsg) {
-      showToast(countMsg);
+    if (state.filters.keyword || state.filters.status !== "all") {
+      showToast(`搜索结果：找到 ${state.total} 条记忆，当前显示第 ${state.items.length} 条`);
     }
   }
 
@@ -456,7 +470,14 @@
     state.page = 1;
     state.loadAll = false;
     dom.loadAllButton.classList.remove("active");
-    fetchMemories();
+    
+    // 只重新应用过滤，不重新请求数据
+    applyClientSideFilters();
+    state.selected.clear();
+    dom.selectAll.checked = false;
+    dom.deleteSelected.disabled = true;
+    renderTable();
+    updatePagination();
   }
 
   function onPageSizeChange() {
@@ -464,20 +485,41 @@
     state.page = 1;
     state.loadAll = false;
     dom.loadAllButton.classList.remove("active");
-    fetchMemories();
+    
+    // 重新应用分页
+    applyClientSideFilters();
+    state.selected.clear();
+    dom.selectAll.checked = false;
+    dom.deleteSelected.disabled = true;
+    renderTable();
+    updatePagination();
   }
 
   function goPrevPage() {
     if (state.page > 1) {
       state.page -= 1;
-      fetchMemories();
+      
+      // 重新应用分页
+      applyClientSideFilters();
+      state.selected.clear();
+      dom.selectAll.checked = false;
+      dom.deleteSelected.disabled = true;
+      renderTable();
+      updatePagination();
     }
   }
 
   function goNextPage() {
     if (state.hasMore) {
       state.page += 1;
-      fetchMemories();
+      
+      // 重新应用分页
+      applyClientSideFilters();
+      state.selected.clear();
+      dom.selectAll.checked = false;
+      dom.deleteSelected.disabled = true;
+      renderTable();
+      updatePagination();
     }
   }
 

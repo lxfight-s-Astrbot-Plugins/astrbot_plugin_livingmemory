@@ -182,9 +182,9 @@ class VectorRetriever:
             # 访问FaissVecDB的document_storage来更新元数据
             doc_storage = self.faiss_db.document_storage
 
-            # 先获取文档以验证存在
-            doc = await doc_storage.get_document(doc_id)
-            if not doc:
+            # 先获取文档以验证存在（使用get_documents）
+            docs = await doc_storage.get_documents(metadata_filters={"id": doc_id})
+            if not docs or len(docs) == 0:
                 return False
 
             # 更新元数据
@@ -199,26 +199,43 @@ class VectorRetriever:
         删除文档
 
         Args:
-            doc_id: 文档ID
+            doc_id: 文档ID (documents表中的整数id)
 
         Returns:
             bool: 是否成功删除
         """
-        try:
-            # FaissVecDB的delete方法需要doc_id(string)
-            # 但我们的doc_id是int(内部ID)
-            # 需要通过document_storage获取对应的doc_id字符串
-            doc_storage = self.faiss_db.document_storage
+        from astrbot.api import logger
+        import aiosqlite
 
-            # 获取文档信息
-            doc = await doc_storage.get_document(doc_id)
-            if not doc:
+        try:
+            # 1. 从documents表获取记录
+            db_path = self.faiss_db.document_storage.db_path
+            async with aiosqlite.connect(db_path) as db:
+                cursor = await db.execute(
+                    "SELECT id FROM documents WHERE id = ?", (doc_id,)
+                )
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+
+            # 2. 遍历document_storage找到对应的UUID doc_id
+            doc_storage = self.faiss_db.document_storage
+            all_docs = await doc_storage.get_documents(metadata_filters={})
+
+            uuid_doc_id = None
+            for doc in all_docs:
+                if doc.get("id") == doc_id:
+                    uuid_doc_id = doc.get("doc_id")
+                    break
+
+            if not uuid_doc_id:
+                logger.warning(f"向量删除失败：未找到UUID (doc_id={doc_id})")
                 return False
 
-            # 使用doc_id字符串删除
-            str_doc_id = doc["doc_id"]
-            await self.faiss_db.delete(str_doc_id)
+            # 3. 使用UUID删除向量
+            await self.faiss_db.delete(uuid_doc_id)
             return True
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"向量删除失败 (doc_id={doc_id}): {e}")
             return False

@@ -133,12 +133,6 @@ class HybridRetriever:
         if not query or not query.strip():
             return []
 
-        from astrbot.api import logger as astr_logger
-
-        astr_logger.info(
-            f"[hybrid_retriever.search] 开始执行: query='{query[:50]}...', k={k}, session_id={session_id}, persona_id={persona_id}"
-        )
-
         # 1. 并行执行两路检索
         bm25_results = None
         vector_results = None
@@ -147,7 +141,6 @@ class HybridRetriever:
 
         try:
             # 使用asyncio.gather并行执行
-            astr_logger.debug("[hybrid_retriever.search] 开始并行执行BM25和向量检索")
             results = await asyncio.gather(
                 self.bm25_retriever.search(query, k, session_id, persona_id),
                 self.vector_retriever.search(query, k, session_id, persona_id),
@@ -157,25 +150,15 @@ class HybridRetriever:
             # 检查结果
             if isinstance(results[0], Exception):
                 bm25_error = results[0]
-                astr_logger.error(
-                    f"[hybrid_retriever.search] BM25检索异常: {bm25_error}"
-                )
+                logger.error(f"BM25检索异常: {bm25_error}")
             else:
                 bm25_results = results[0]
-                astr_logger.info(
-                    f"[hybrid_retriever.search] BM25检索完成: {len(bm25_results)} 条结果"
-                )
 
             if isinstance(results[1], Exception):
                 vector_error = results[1]
-                astr_logger.error(
-                    f"[hybrid_retriever.search] 向量检索异常: {vector_error}"
-                )
+                logger.error(f"向量检索异常: {vector_error}")
             else:
                 vector_results = results[1]
-                astr_logger.info(
-                    f"[hybrid_retriever.search] 向量检索完成: {len(vector_results)} 条结果"
-                )
 
         except Exception as e:
             # 如果整体失败,尝试单独执行
@@ -405,61 +388,44 @@ class HybridRetriever:
         """
         从多个存储层中删除记忆
 
-        同时从向量库、BM25索引和SQLite数据库中删除记录,确保三个存储层同步。
-
-        删除优先级：向量库和BM25索引必须成功,documents表删除失败时记录警告但不影响整体结果。
-
         Args:
             doc_id: 文档ID
 
         Returns:
-            bool: 是否成功删除(向量库和BM25都成功即返回True)
+            bool: 是否成功删除
         """
         import aiosqlite
 
         try:
-            # 1. 并行删除向量库和BM25索引(必须成功)
+            # 1. 并行删除向量库和BM25索引
             results = await asyncio.gather(
                 self.bm25_retriever.delete_document(doc_id),
                 self.vector_retriever.delete_document(doc_id),
                 return_exceptions=True,
             )
 
-            # 检查结果
-            bm25_success = not isinstance(results[0], Exception)
+            bm25_success = (
+                results[0] if not isinstance(results[0], Exception) else False
+            )
             vector_success = (
                 results[1] if not isinstance(results[1], Exception) else False
             )
 
-            # 向量库和BM25都必须成功
+            if isinstance(results[0], Exception):
+                logger.error(f"BM25删除异常: {results[0]}")
+            if isinstance(results[1], Exception):
+                logger.error(f"向量删除异常: {results[1]}")
+
             if not (bm25_success and vector_success):
                 return False
 
-            # 2. 同步删除SQLite documents表中的记录(辅助存储)
-            # 删除失败时记录警告但不影响整体结果
+            # 2. 删除documents表记录
             try:
                 async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
-                    cursor = await db.execute(
-                        "SELECT id FROM documents WHERE id = ?", (doc_id,)
-                    )
-                    exists = await cursor.fetchone()
-
-                    if exists:
-                        await db.execute(
-                            "DELETE FROM documents WHERE id = ?", (doc_id,)
-                        )
-                        await db.commit()
-                    else:
-                        logger.debug(
-                            f"documents表中未找到记录 (doc_id={doc_id}),索引已成功删除"
-                        )
-
+                    await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+                    await db.commit()
             except Exception as e:
-                # documents表删除失败不影响整体结果
-                logger.warning(
-                    f"删除documents表记录失败 (doc_id={doc_id}): {e}. "
-                    f"向量库和BM25索引已删除,但SQLite辅助表未同步"
-                )
+                logger.warning(f"删除documents表失败 (doc_id={doc_id}): {e}")
 
             return True
 
