@@ -314,6 +314,8 @@ class IndexValidator:
                 # 3. 重建所有存储（documents表 + 索引）
                 success_count = 0
                 error_count = 0
+                batch_size = 100  # 批处理大小
+                last_progress_update = 0
 
                 for i, (doc_id, text, metadata_json) in enumerate(documents, 1):
                     try:
@@ -349,12 +351,17 @@ class IndexValidator:
 
                         success_count += 1
 
-                        # 进度回调
-                        if progress_callback and i % 10 == 0:
+                        # 进度回调 - 降低频率到每100条
+                        progress_percentage = (i * 100) // total
+                        if (
+                            progress_callback
+                            and progress_percentage > last_progress_update
+                        ):
                             await progress_callback(i, total, f"已处理 {i}/{total} 条")
+                            last_progress_update = progress_percentage
 
-                        # 每处理10条记录提交一次
-                        if i % 10 == 0:
+                        # 每处理100条记录记录一次进度
+                        if i % batch_size == 0:
                             logger.info(f" 重建进度: {i}/{total} ({i * 100 // total}%)")
 
                     except Exception as e:

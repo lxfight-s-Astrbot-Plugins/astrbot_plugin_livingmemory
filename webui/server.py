@@ -397,7 +397,7 @@ class WebUIServer:
             page_size = int(query.get("page_size", 20))
 
             # 限制每页最大数量，防止内存溢出
-            page_size = min(page_size, 100)
+            page_size = min(page_size, 500)
             offset = (page - 1) * page_size
 
             try:
@@ -408,8 +408,8 @@ class WebUIServer:
                     normalized_session_id = _extract_session_uuid(session_id)
 
                     # 先获取该会话的总数（高效，不加载数据）
-                    total = await self.memory_engine.faiss_db.document_storage.count_documents(
-                        metadata_filters={"session_id": normalized_session_id}
+                    total = await self.memory_engine.faiss_db.count_documents(
+                        metadata_filter={"session_id": normalized_session_id}
                     )
 
                     # 使用服务端分页获取当前页数据
@@ -431,8 +431,8 @@ class WebUIServer:
                     memories = sorted_docs
                 else:
                     # 先获取总数（高效，不加载数据）
-                    total = await self.memory_engine.faiss_db.document_storage.count_documents(
-                        metadata_filters={}
+                    total = await self.memory_engine.faiss_db.count_documents(
+                        metadata_filter={}
                     )
 
                     # 使用真正的服务端分页（只加载当前页数据）
