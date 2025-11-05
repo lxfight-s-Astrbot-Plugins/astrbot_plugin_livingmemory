@@ -115,10 +115,10 @@ class LivingMemoryPlugin(Star):
     async def _wait_for_providers_non_blocking(self, max_wait: float = 5.0) -> bool:
         """非阻塞地检查 Provider 是否可用（最多等待几秒）"""
         start_time = time.time()
-        check_interval = 0.5  # 每0.5秒检查一次
+        check_interval = 1.0  # 每1秒检查一次（减少轮询频率）
 
         while time.time() - start_time < max_wait:
-            self._initialize_providers()
+            self._initialize_providers(silent=True)  # 静默模式
 
             if self.embedding_provider and self.llm_provider:
                 logger.info("✅ Provider 已就绪")
@@ -136,6 +136,7 @@ class LivingMemoryPlugin(Star):
     async def _retry_initialization(self):
         """后台重试初始化任务"""
         retry_interval = 2.0  # 每2秒重试一次
+        log_interval = 5  # 每5次尝试输出一次日志
 
         while (
             not self._initialization_complete
@@ -144,9 +145,15 @@ class LivingMemoryPlugin(Star):
         ):
             await asyncio.sleep(retry_interval)
 
-            # 尝试获取 Provider
-            self._initialize_providers()
+            # 尝试获取 Provider（静默模式）
+            self._initialize_providers(silent=True)
             self._provider_check_attempts += 1
+
+            # 每5次尝试输出一次等待日志
+            if self._provider_check_attempts % log_interval == 0:
+                logger.info(
+                    f"⏳ 等待 Provider 就绪中...（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次）"
+                )
 
             if self.embedding_provider and self.llm_provider:
                 logger.info(
@@ -167,6 +174,12 @@ class LivingMemoryPlugin(Star):
         if not self._initialization_complete and not self._initialization_failed:
             logger.error(
                 f"❌ Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败"
+            )
+            logger.error(
+                "💡 请检查：\n"
+                "   1. 是否已配置 Embedding Provider（如 text-embedding-3-small）\n"
+                "   2. Provider 配置是否正确\n"
+                "   3. 其他插件是否占用了 Provider 资源"
             )
             self._initialization_failed = True
             self._initialization_error = "Provider 初始化超时"
@@ -448,35 +461,46 @@ class LivingMemoryPlugin(Star):
         else:
             return f"http://{host}:{port}"
 
-    def _initialize_providers(self):
-        """初始化 Embedding 和 LLM provider"""
+    def _initialize_providers(self, silent: bool = False):
+        """初始化 Embedding 和 LLM provider
+        
+        Args:
+            silent: 静默模式，减少日志输出（用于轮询场景）
+        """
         # 初始化 Embedding Provider
         emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id")
         if emb_id:
             self.embedding_provider = self.context.get_provider_by_id(emb_id)
-            if self.embedding_provider:
+            if self.embedding_provider and not silent:
                 logger.info(f"成功从配置加载 Embedding Provider: {emb_id}")
 
         if not self.embedding_provider:
-            embedding_providers = self.context.provider_manager.embedding_provider_insts
+            # 使用 AstrBot 标准 API 获取所有 Embedding Providers
+            embedding_providers = self.context.get_all_embedding_providers()
             if embedding_providers:
                 self.embedding_provider = embedding_providers[0]
-                logger.info(
-                    f"未指定 Embedding Provider，使用默认的: {self.embedding_provider.provider_config.get('id')}"
-                )
+                if not silent:
+                    provider_id = getattr(
+                        self.embedding_provider.provider_config,
+                        'id',
+                        self.embedding_provider.provider_config.get('id', 'unknown')
+                    )
+                    logger.info(f"未指定 Embedding Provider，使用默认的: {provider_id}")
             else:
                 self.embedding_provider = None
-                logger.error("没有可用的 Embedding Provider，插件将无法使用。")
+                if not silent:
+                    logger.debug("没有可用的 Embedding Provider")
 
         # 初始化 LLM Provider
         llm_id = self.config.get("provider_settings", {}).get("llm_provider_id")
         if llm_id:
             self.llm_provider = self.context.get_provider_by_id(llm_id)
-            if self.llm_provider:
+            if self.llm_provider and not silent:
                 logger.info(f"成功从配置加载 LLM Provider: {llm_id}")
         else:
             self.llm_provider = self.context.get_using_provider()
-            logger.info("使用 AstrBot 当前默认的 LLM Provider。")
+            if not silent:
+                logger.info("使用 AstrBot 当前默认的 LLM Provider。")
 
     def _remove_injected_memories_from_context(
         self, req: ProviderRequest, session_id: str
