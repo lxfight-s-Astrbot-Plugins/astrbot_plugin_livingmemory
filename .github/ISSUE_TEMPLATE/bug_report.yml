@@ -1,0 +1,119 @@
+name: 🐛 Bug 报告
+description: 报告一个 Bug 或错误
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间填写这个 Bug 报告！这将帮助我们改进项目。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 🐛 Bug 描述
+      description: 清楚简洁地描述这个 Bug
+      placeholder: 例如：当我尝试查询记忆时，系统崩溃了
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 🔄 复现步骤
+      description: 如何复现这个问题？
+      placeholder: |
+        1. 进入 '...'
+        2. 点击 '...'
+        3. 滚动到 '...'
+        4. 看到错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: ✅ 预期行为
+      description: 你期望发生什么？
+      placeholder: 应该显示相关的记忆内容
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: ❌ 实际行为
+      description: 实际发生了什么？
+      placeholder: 出现了错误提示或崩溃
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 📋 错误日志
+      description: 如果有，请粘贴相关的错误日志或堆栈跟踪
+      placeholder: |
+        错误日志内容...
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 📸 截图
+      description: 如果适用，请添加截图来帮助解释你的问题
+      placeholder: 拖拽图片到这里或粘贴链接
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 你使用的插件版本是什么？
+      placeholder: 例如：1.5.18
+    validations:
+      required: true
+
+  - type: input
+    id: astrbot-version
+    attributes:
+      label: AstrBot 版本
+      description: 你使用的 AstrBot 版本是什么？
+      placeholder: 例如：4.5.0
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python 版本
+      description: 你使用的 Python 版本是什么？
+      placeholder: 例如：3.10.0
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Docker
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 📝 附加信息
+      description: 添加关于这个问题的任何其他上下文信息
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 确认事项
+      options:
+        - label: 我已经搜索过现有的 Issues，确认这是一个新的 Bug
+          required: true
+        - label: 我已经阅读了项目文档
+          required: false
+        - label: 我愿意提交 PR 来修复这个 Bug
+          required: false
