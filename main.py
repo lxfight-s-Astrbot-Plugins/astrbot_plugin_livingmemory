@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 main.py - LivingMemory 插件主文件
 负责插件注册、初始化MemoryEngine、绑定事件钩子以及管理生命周期。
@@ -9,30 +8,29 @@ import asyncio
 import os
 import time
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
 
-# AstrBot API
-from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.event.filter import PermissionType, permission_type
-from astrbot.api.star import Context, Star, register, StarTools
-from astrbot.api.provider import LLMResponse, ProviderRequest, Provider
-from astrbot.core.provider.provider import EmbeddingProvider
 from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event.filter import PermissionType, permission_type
+from astrbot.api.provider import LLMResponse, Provider, ProviderRequest
+from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
+from astrbot.core.provider.provider import EmbeddingProvider
 
-# 插件内部模块
-from .core.memory_engine import MemoryEngine
-from .storage.db_migration import DBMigration
-from .storage.conversation_store import ConversationStore
+from .core.config_validator import merge_config_with_defaults, validate_config
 from .core.conversation_manager import ConversationManager
-from .core.memory_processor import MemoryProcessor
 from .core.index_validator import IndexValidator
+from .core.memory_engine import MemoryEngine
+from .core.memory_processor import MemoryProcessor
+from .core.message_utils import store_round_with_length_check
 from .core.utils import (
-    get_persona_id,
-    format_memories_for_injection,
     OperationContext,
+    format_memories_for_injection,
+    get_persona_id,
 )
-from .core.config_validator import validate_config, merge_config_with_defaults
+from .storage.conversation_store import ConversationStore
+from .storage.db_migration import DBMigration
 from .webui import WebUIServer
 
 
@@ -44,7 +42,7 @@ from .webui import WebUIServer
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
-    def __init__(self, context: Context, config: Dict[str, Any]):
+    def __init__(self, context: Context, config: dict[str, Any]):
         super().__init__(context)
         self.context = context
 
@@ -62,20 +60,20 @@ class LivingMemoryPlugin(Star):
             self.config_obj = validate_config(self.config)
 
         # 初始化状态
-        self.embedding_provider: Optional[EmbeddingProvider] = None
-        self.llm_provider: Optional[Provider] = None
-        self.db: Optional[FaissVecDB] = None
-        self.memory_engine: Optional[MemoryEngine] = None
-        self.memory_processor: Optional[MemoryProcessor] = None
-        self.db_migration: Optional[DBMigration] = None
-        self.conversation_manager: Optional[ConversationManager] = None
-        self.index_validator: Optional[IndexValidator] = None
+        self.embedding_provider: EmbeddingProvider | None = None
+        self.llm_provider: Provider | None = None
+        self.db: FaissVecDB | None = None
+        self.memory_engine: MemoryEngine | None = None
+        self.memory_processor: MemoryProcessor | None = None
+        self.db_migration: DBMigration | None = None
+        self.conversation_manager: ConversationManager | None = None
+        self.index_validator: IndexValidator | None = None
 
         # 初始化状态标记
         self._initialization_complete = False
         self._initialization_lock = asyncio.Lock()
         self._initialization_failed = False
-        self._initialization_error: Optional[str] = None
+        self._initialization_error: str | None = None
 
         # Provider 就绪标记
         self._providers_ready = False
@@ -83,7 +81,7 @@ class LivingMemoryPlugin(Star):
         self._max_provider_attempts = 60  # 最多尝试60次（60秒）
 
         # WebUI 服务句柄
-        self.webui_server: Optional[WebUIServer] = None
+        self.webui_server: WebUIServer | None = None
 
         # 启动非阻塞的初始化任务
         asyncio.create_task(self._initialize_plugin_async())
@@ -196,6 +194,11 @@ class LivingMemoryPlugin(Star):
             data_dir = StarTools.get_data_dir()
             db_path = os.path.join(data_dir, "livingmemory.db")
             index_path = os.path.join(data_dir, "livingmemory.index")
+
+            # 确保 embedding_provider 不为 None
+            if not self.embedding_provider:
+                raise ValueError("Embedding Provider 未初始化，无法创建数据库")
+
             self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
             await self.db.initialize()
             logger.info(f"数据库已初始化。数据目录: {data_dir}")
@@ -257,6 +260,8 @@ class LivingMemoryPlugin(Star):
             logger.info(" ConversationManager 已初始化")
 
             # 6.6. 初始化 MemoryProcessor（记忆处理器）
+            if not self.llm_provider:
+                raise ValueError("LLM Provider 未初始化，无法创建 MemoryProcessor")
             self.memory_processor = MemoryProcessor(self.llm_provider)
             logger.info(" MemoryProcessor 已初始化")
 
@@ -265,8 +270,11 @@ class LivingMemoryPlugin(Star):
             await self._auto_rebuild_index_if_needed()
 
             # 6.5. 异步初始化 TextProcessor（加载停用词）
-            if self.memory_engine and hasattr(
-                self.memory_engine.text_processor, "async_init"
+            if (
+                self.memory_engine
+                and hasattr(self.memory_engine, "text_processor")
+                and self.memory_engine.text_processor is not None
+                and hasattr(self.memory_engine.text_processor, "async_init")
             ):
                 await self.memory_engine.text_processor.async_init()
                 logger.info(" TextProcessor 停用词已加载")
@@ -447,7 +455,7 @@ class LivingMemoryPlugin(Star):
 
         return self._initialization_complete
 
-    def _get_webui_url(self) -> Optional[str]:
+    def _get_webui_url(self) -> str | None:
         """获取 WebUI 访问地址"""
         webui_config = self.config.get("webui_settings", {})
         if not webui_config.get("enabled") or not self.webui_server:
@@ -463,16 +471,21 @@ class LivingMemoryPlugin(Star):
 
     def _initialize_providers(self, silent: bool = False):
         """初始化 Embedding 和 LLM provider
-        
+
         Args:
             silent: 静默模式，减少日志输出（用于轮询场景）
         """
         # 初始化 Embedding Provider
         emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id")
         if emb_id:
-            self.embedding_provider = self.context.get_provider_by_id(emb_id)
-            if self.embedding_provider and not silent:
-                logger.info(f"成功从配置加载 Embedding Provider: {emb_id}")
+            provider = self.context.get_provider_by_id(emb_id)
+            # 类型检查：确保返回的是 EmbeddingProvider
+            if provider and isinstance(provider, EmbeddingProvider):
+                self.embedding_provider = provider
+                if not silent:
+                    logger.info(f"成功从配置加载 Embedding Provider: {emb_id}")
+            elif provider and not silent:
+                logger.warning(f"Provider {emb_id} 不是 EmbeddingProvider 类型")
 
         if not self.embedding_provider:
             # 使用 AstrBot 标准 API 获取所有 Embedding Providers
@@ -482,8 +495,8 @@ class LivingMemoryPlugin(Star):
                 if not silent:
                     provider_id = getattr(
                         self.embedding_provider.provider_config,
-                        'id',
-                        self.embedding_provider.provider_config.get('id', 'unknown')
+                        "id",
+                        self.embedding_provider.provider_config.get("id", "unknown"),
                     )
                     logger.info(f"未指定 Embedding Provider，使用默认的: {provider_id}")
             else:
@@ -494,12 +507,18 @@ class LivingMemoryPlugin(Star):
         # 初始化 LLM Provider
         llm_id = self.config.get("provider_settings", {}).get("llm_provider_id")
         if llm_id:
-            self.llm_provider = self.context.get_provider_by_id(llm_id)
-            if self.llm_provider and not silent:
-                logger.info(f"成功从配置加载 LLM Provider: {llm_id}")
-        else:
+            provider = self.context.get_provider_by_id(llm_id)
+            # 类型检查：确保返回的是 Provider（LLM Provider）
+            if provider and isinstance(provider, Provider):
+                self.llm_provider = provider
+                if not silent:
+                    logger.info(f"成功从配置加载 LLM Provider: {llm_id}")
+            elif provider and not silent:
+                logger.warning(f"Provider {llm_id} 不是 LLM Provider 类型")
+
+        if not self.llm_provider:
             self.llm_provider = self.context.get_using_provider()
-            if not silent:
+            if not silent and self.llm_provider:
                 logger.info("使用 AstrBot 当前默认的 LLM Provider。")
 
     def _remove_injected_memories_from_context(
@@ -515,7 +534,9 @@ class LivingMemoryPlugin(Star):
         Returns:
             int: 删除的消息数量
         """
-        from .core.constants import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
+        import re
+
+        from .core.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
         removed_count = 0
 
@@ -530,8 +551,6 @@ class LivingMemoryPlugin(Star):
                         and MEMORY_INJECTION_FOOTER in original_prompt
                     ):
                         # 使用正则表达式删除所有记忆片段
-                        import re
-
                         pattern = (
                             re.escape(MEMORY_INJECTION_HEADER)
                             + r".*?"
@@ -554,13 +573,14 @@ class LivingMemoryPlugin(Star):
                             )
 
             # 2. 清理对话历史中的记忆
-            if hasattr(req, "context") and req.context:
-                original_length = len(req.context)
-                filtered_context = []
+            # ProviderRequest 使用 contexts 属性（OpenAI 格式上下文列表）
+            if hasattr(req, "contexts") and req.contexts:
+                original_length = len(req.contexts)
+                filtered_contexts = []
 
-                for msg in req.context:
+                for msg in req.contexts:
                     # 检查消息内容是否包含记忆标记
-                    content = msg.get("content", "")
+                    content = msg.get("content", "") if isinstance(msg, dict) else ""
                     if isinstance(content, str):
                         # 如果消息包含记忆注入标记，跳过该消息
                         if (
@@ -573,15 +593,15 @@ class LivingMemoryPlugin(Star):
                             )
                             continue
 
-                    filtered_context.append(msg)
+                    filtered_contexts.append(msg)
 
                 # 更新对话历史
-                req.context = filtered_context
+                req.contexts = filtered_contexts
 
-                if len(filtered_context) < original_length:
+                if len(filtered_contexts) < original_length:
                     logger.debug(
-                        f"[{session_id}] 从对话历史中删除了 {original_length - len(filtered_context)} 条记忆消息 "
-                        f"(原始: {original_length}, 当前: {len(filtered_context)})"
+                        f"[{session_id}] 从对话历史中删除了 {original_length - len(filtered_contexts)} 条记忆消息 "
+                        f"(原始: {original_length}, 当前: {len(filtered_contexts)})"
                     )
 
             if removed_count > 0:
@@ -627,6 +647,12 @@ class LivingMemoryPlugin(Star):
                 )
 
                 persona_id = await get_persona_id(self.context, event)
+
+                # 调试：输出过滤参数
+                logger.debug(
+                    f"[{session_id}] 过滤参数: session_id={session_id}, persona_id={persona_id}, "
+                    f"use_session={use_session_filtering}, use_persona={use_persona_filtering}"
+                )
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
@@ -814,33 +840,59 @@ class LivingMemoryPlugin(Star):
 
                 # start_index 计算：
                 # 1. 如果是第一次总结（last_summarized_index == 0），从头开始
-                # 2. 如果不是第一次，需要包含上次总结中最新的20%轮次作为上下文
+                # 2. 如果不是第一次，保留1-2轮重叠作为上下文
+                # 3. 如果trigger_rounds < 2，则重叠轮数不超过trigger_rounds
+                CONTEXT_OVERLAP_ROUNDS = 2  # 默认保留2轮对话作为上下文
+
+                # 边界处理：重叠轮数不能超过trigger_rounds，且至少为1轮
+                actual_overlap_rounds = min(
+                    CONTEXT_OVERLAP_ROUNDS, max(1, trigger_rounds)
+                )
+
                 if last_summarized_index == 0:
                     # 第一次总结：从头开始
                     start_index = 0
                     context_rounds_added = 0
                 else:
-                    # 计算上次总结了多少轮对话
-                    last_summarized_messages = last_summarized_index
-                    last_summarized_rounds = last_summarized_messages // 2
-
-                    # 计算需要重叠的轮数（上次总结的20%，至少1轮）
-                    overlap_rounds = max(1, int(last_summarized_rounds * 0.2))
-                    overlap_messages = overlap_rounds * 2
-
-                    # start_index 从上次总结位置向前回溯 overlap_messages 条
+                    # 向前回溯N轮对话作为上下文
+                    overlap_messages = actual_overlap_rounds * 2
                     start_index = max(0, last_summarized_index - overlap_messages)
-                    context_rounds_added = overlap_rounds
+                    context_rounds_added = min(
+                        actual_overlap_rounds, last_summarized_index // 2
+                    )
+
+                logger.debug(
+                    f"[{session_id}] 上下文重叠配置: trigger_rounds={trigger_rounds}, "
+                    f"actual_overlap_rounds={actual_overlap_rounds}, context_rounds_added={context_rounds_added}"
+                )
+
+                # 严格限制：每次只总结 trigger_rounds 轮新对话
+                # 计算实际应该总结到哪里（从last_summarized_index开始的trigger_rounds轮）
+                max_new_messages = (
+                    trigger_rounds * 2
+                )  # trigger_rounds轮 = trigger_rounds*2条消息
+                actual_end_index = last_summarized_index + max_new_messages
+
+                # 不能超过当前总消息数
+                if actual_end_index > total_messages:
+                    actual_end_index = total_messages
+
+                # 加上重叠上下文，确定最终范围
+                end_index = actual_end_index
 
                 # 计算本次将要总结的轮数
                 messages_to_summarize = end_index - start_index
                 rounds_to_summarize = messages_to_summarize // 2
 
+                # 计算实际的新消息数（不含重叠部分）
+                new_messages = end_index - last_summarized_index
+                new_rounds = new_messages // 2
+
                 logger.info(
                     f" [{session_id}] 滑动窗口总结: "
                     f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
                     f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息），"
-                    f"其中包含上次最新的 {context_rounds_added} 轮作为上下文，"
+                    f"其中包含 {context_rounds_added} 轮上下文 + {new_rounds} 轮新内容，"
                     f"上次总结位置 {last_summarized_index}"
                 )
 
@@ -852,14 +904,8 @@ class LivingMemoryPlugin(Star):
                     )
                     return
 
-                # 确保至少有 trigger_rounds 轮的新消息
-                new_messages = end_index - last_summarized_index
-                new_rounds = new_messages // 2
-                if new_rounds < trigger_rounds:
-                    logger.debug(
-                        f"[{session_id}] 新消息不足 {trigger_rounds} 轮 "
-                        f"(当前仅 {new_rounds} 轮)"
-                    )
+                if new_rounds < 1:
+                    logger.debug(f"[{session_id}] 没有新消息需要总结")
                     return
 
                 # 获取需要总结的消息
@@ -877,6 +923,9 @@ class LivingMemoryPlugin(Star):
                 )
 
                 persona_id = await get_persona_id(self.context, event)
+
+                # 调试：输出persona_id
+                logger.debug(f"[{session_id}] 存储记忆时的persona_id={persona_id}")
 
                 # 创建后台任务进行存储
                 async def storage_task():
@@ -927,57 +976,117 @@ class LivingMemoryPlugin(Star):
                                         f"[{session_id}]  LLM处理失败,使用降级方案: {e}",
                                         exc_info=True,
                                     )
-                                    # 降级方案:简单文本拼接
-                                    content = "\n".join(
-                                        [
-                                            f"{msg.role}: {msg.content}"
-                                            for msg in history_messages
-                                        ]
-                                    )
-                                    metadata = {"fallback": True}
-                                    importance = 0.7
+                                    # 降级方案：逐轮存储，带长度检查和截断
                                     logger.info(
-                                        f"[{session_id}] 使用降级方案，内容长度={len(content)}"
+                                        f"[{session_id}] 降级策略：将{len(history_messages)}条消息按轮次分别存储"
                                     )
-                            else:
-                                # 如果 MemoryProcessor 未初始化,使用简单文本拼接
-                                logger.warning(
-                                    f"[{session_id}] MemoryProcessor未初始化,使用简单文本拼接"
-                                )
-                                content = "\n".join(
-                                    [
-                                        f"{msg.role}: {msg.content}"
-                                        for msg in history_messages
-                                    ]
-                                )
-                                metadata = {"fallback": True}
-                                importance = 0.7
 
-                            # 添加到记忆引擎
+                                    stored_count = 0
+                                    skipped_count = 0
+
+                                    for i in range(0, len(history_messages) - 1, 2):
+                                        if i + 1 < len(history_messages):
+                                            (
+                                                success,
+                                                error,
+                                            ) = await store_round_with_length_check(
+                                                self.memory_engine,
+                                                history_messages[i],
+                                                history_messages[i + 1],
+                                                session_id,
+                                                persona_id,
+                                                i // 2,
+                                            )
+                                            if success:
+                                                stored_count += 1
+                                            else:
+                                                skipped_count += 1
+
+                                    logger.info(
+                                        f"[{session_id}] 降级存储完成：成功{stored_count}轮，跳过{skipped_count}轮"
+                                    )
+
+                                    # 更新已总结位置后直接返回
+                                    if self.conversation_manager:
+                                        await self.conversation_manager.update_session_metadata(
+                                            session_id,
+                                            "last_summarized_index",
+                                            end_index,
+                                        )
+                                    return  # 已经完成存储，直接返回
+                            else:
+                                # 如果 MemoryProcessor 未初始化,使用降级策略：逐轮存储
+                                logger.warning(
+                                    f"[{session_id}] MemoryProcessor未初始化,使用降级策略：逐轮存储"
+                                )
+
+                                # 按轮次存储，带长度检查和截断
+                                stored_count = 0
+                                skipped_count = 0
+
+                                for i in range(0, len(history_messages) - 1, 2):
+                                    if i + 1 < len(history_messages):
+                                        (
+                                            success,
+                                            error,
+                                        ) = await store_round_with_length_check(
+                                            self.memory_engine,
+                                            history_messages[i],
+                                            history_messages[i + 1],
+                                            session_id,
+                                            persona_id,
+                                            i // 2,
+                                        )
+                                        if success:
+                                            stored_count += 1
+                                        else:
+                                            skipped_count += 1
+
+                                logger.info(
+                                    f"[{session_id}] 降级存储完成：成功{stored_count}轮，跳过{skipped_count}轮"
+                                )
+
+                                # 更新已总结的位置
+                                if self.conversation_manager:
+                                    await self.conversation_manager.update_session_metadata(
+                                        session_id, "last_summarized_index", end_index
+                                    )
+                                    logger.info(
+                                        f"[{session_id}]  更新滑动窗口位置: last_summarized_index = {end_index}"
+                                    )
+                                return  # 已完成存储，直接返回
+
+                            # 正常流程：添加到记忆引擎（只有LLM处理成功时才会到这里）
                             logger.info(
                                 f"[{session_id}] 准备存储记忆: 重要性={importance:.2f}, "
                                 f"内容长度={len(content)}, metadata={list(metadata.keys())}"
                             )
 
-                            await self.memory_engine.add_memory(
-                                content=content,
-                                session_id=session_id,
-                                persona_id=persona_id,
-                                importance=importance,
-                                metadata=metadata,
-                            )
+                            if self.memory_engine:
+                                await self.memory_engine.add_memory(
+                                    content=content,
+                                    session_id=session_id,
+                                    persona_id=persona_id,
+                                    importance=importance,
+                                    metadata=metadata,
+                                )
 
-                            logger.info(
-                                f"[{session_id}]  成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
-                            )
+                                logger.info(
+                                    f"[{session_id}]  成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
+                                )
+                            else:
+                                logger.error(
+                                    f"[{session_id}] memory_engine 为 None，无法存储记忆"
+                                )
 
                             # 更新已总结的位置
-                            await self.conversation_manager.update_session_metadata(
-                                session_id, "last_summarized_index", end_index
-                            )
-                            logger.info(
-                                f"[{session_id}]  更新滑动窗口位置: last_summarized_index = {end_index}"
-                            )
+                            if self.conversation_manager:
+                                await self.conversation_manager.update_session_metadata(
+                                    session_id, "last_summarized_index", end_index
+                                )
+                                logger.info(
+                                    f"[{session_id}]  更新滑动窗口位置: last_summarized_index = {end_index}"
+                                )
                         except Exception as e:
                             logger.error(
                                 f"[{session_id}] 存储记忆失败: {e}", exc_info=True

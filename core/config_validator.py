@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 config_validator.py - 配置验证模块
 提供配置验证和默认值管理功能。
 """
 
-from typing import Dict, Any, List, Optional, Union
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
+
 from astrbot.api import logger
 
 
@@ -68,9 +69,7 @@ class SparseRetrieverConfig(BaseModel):
         default=True, description="是否启用停用词过滤"
     )
     stopwords_source: str = Field(default="hit", description="停用词来源")
-    custom_stopwords: Union[str, List[str]] = Field(
-        default="", description="自定义停用词"
-    )
+    custom_stopwords: str | list[str] = Field(default="", description="自定义停用词")
 
     @model_validator(mode="after")
     def process_custom_stopwords(self):
@@ -117,10 +116,10 @@ class FilteringConfig(BaseModel):
 class ProviderConfig(BaseModel):
     """Provider配置"""
 
-    embedding_provider_id: Optional[str] = Field(
+    embedding_provider_id: str | None = Field(
         default=None, description="Embedding Provider ID"
     )
-    llm_provider_id: Optional[str] = Field(default=None, description="LLM Provider ID")
+    llm_provider_id: str | None = Field(default=None, description="LLM Provider ID")
 
 
 class ImportanceDecayConfig(BaseModel):
@@ -184,7 +183,7 @@ class LivingMemoryConfig(BaseModel):
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
 
 
-def validate_config(raw_config: Dict[str, Any]) -> LivingMemoryConfig:
+def validate_config(raw_config: dict[str, Any]) -> LivingMemoryConfig:
     """
     验证并返回规范化的配置对象。
 
@@ -206,17 +205,17 @@ def validate_config(raw_config: Dict[str, Any]) -> LivingMemoryConfig:
         raise ValueError(f"插件配置无效: {e}") from e
 
 
-def get_default_config() -> Dict[str, Any]:
+def get_default_config() -> dict[str, Any]:
     """
     获取默认配置字典。
 
     Returns:
-        Dict[str, Any]: 默认配置
+        dict[str, Any]: 默认配置
     """
     return LivingMemoryConfig().model_dump()
 
 
-def merge_config_with_defaults(user_config: Dict[str, Any]) -> Dict[str, Any]:
+def merge_config_with_defaults(user_config: dict[str, Any]) -> dict[str, Any]:
     """
     将用户配置与默认配置合并。
 
@@ -224,11 +223,11 @@ def merge_config_with_defaults(user_config: Dict[str, Any]) -> Dict[str, Any]:
         user_config: 用户提供的配置
 
     Returns:
-        Dict[str, Any]: 合并后的配置
+        dict[str, Any]: 合并后的配置
     """
     default_config = get_default_config()
 
-    def deep_merge(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    def deep_merge(default: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         """深度合并两个字典"""
         result = default.copy()
         for key, value in user.items():
@@ -248,7 +247,7 @@ def merge_config_with_defaults(user_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def validate_runtime_config_changes(
-    current_config: LivingMemoryConfig, changes: Dict[str, Any]
+    current_config: LivingMemoryConfig, changes: dict[str, Any]
 ) -> bool:
     """
     验证运行时配置更改是否有效。
@@ -264,7 +263,7 @@ def validate_runtime_config_changes(
         # 创建更新后的配置副本进行验证
         updated_dict = current_config.model_dump()
 
-        def update_nested_dict(target: Dict[str, Any], updates: Dict[str, Any]):
+        def update_nested_dict(target: dict[str, Any], updates: dict[str, Any]):
             for key, value in updates.items():
                 if "." in key:
                     # 处理嵌套键，如 "recall_engine.top_k"
