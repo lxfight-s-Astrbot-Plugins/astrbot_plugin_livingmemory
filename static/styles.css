@@ -323,9 +323,9 @@ body {
   width: 100%;
 }
 
-.btn-icon {
-  font-size: 1rem;
-  line-height: 1;
+.btn svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* ============================================
@@ -483,8 +483,21 @@ body {
 }
 
 .stat-icon {
-  font-size: 1.5rem;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  background-color: var(--primary-light);
+  border-radius: var(--radius);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.stat-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke-width: 2;
 }
 
 .stat-content {

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LivingMemory 控制台</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
   </head>
   <body>
     <div id="app">
@@ -83,13 +85,13 @@
             <div class="content-toolbar">
               <div class="toolbar-group">
                 <button id="refresh-button" class="btn btn-ghost">
-                  <span class="btn-icon">↻</span> 刷新
+                  <i data-lucide="refresh-cw"></i> 刷新
                 </button>
                 <button id="load-all-button" class="btn btn-ghost">
-                  <span class="btn-icon">≡</span> 加载全部
+                  <i data-lucide="list"></i> 加载全部
                 </button>
                 <button id="nuke-button" class="btn btn-danger">
-                  <span class="btn-icon">⚠</span> 核爆清除
+                  <i data-lucide="alert-triangle"></i> 核爆清除
                 </button>
               </div>
             </div>
@@ -97,35 +99,45 @@
             <!-- 统计卡片 -->
             <section class="stats-grid">
               <div class="stat-card">
-                <div class="stat-icon">📊</div>
+                <div class="stat-icon">
+                  <i data-lucide="database"></i>
+                </div>
                 <div class="stat-content">
                   <span class="stat-label">总记忆</span>
                   <span class="stat-value" id="stat-total">--</span>
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon">✅</div>
+                <div class="stat-icon">
+                  <i data-lucide="check-circle"></i>
+                </div>
                 <div class="stat-content">
                   <span class="stat-label">活跃</span>
                   <span class="stat-value" id="stat-active">--</span>
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon">📁</div>
+                <div class="stat-icon">
+                  <i data-lucide="archive"></i>
+                </div>
                 <div class="stat-content">
                   <span class="stat-label">已归档</span>
                   <span class="stat-value" id="stat-archived">--</span>
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon">🗑️</div>
+                <div class="stat-icon">
+                  <i data-lucide="trash-2"></i>
+                </div>
                 <div class="stat-content">
                   <span class="stat-label">已删除</span>
                   <span class="stat-value" id="stat-deleted">--</span>
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon">💬</div>
+                <div class="stat-icon">
+                  <i data-lucide="message-circle"></i>
+                </div>
                 <div class="stat-content">
                   <span class="stat-label">活跃会话</span>
                   <span class="stat-value" id="stat-sessions">--</span>
@@ -410,5 +422,9 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script>
+      // 初始化 Lucide 图标
+      lucide.createIcons();
+    </script>
   </body>
 </html>
