@@ -90,15 +90,50 @@ jobs:
           # 如果没有找到更新日志，使用 git log 获取提交信息
           if [ -z "$CHANGELOG" ]; then
             echo "📝 从 Git 提交历史生成更新日志..."
-            CHANGELOG=$(git log --pretty=format:"- %s" HEAD~1..HEAD | grep -v "Merge\|merge")
+            
+            # 获取上一个版本的标签
+            PREV_TAG="v${{ steps.previous_version.outputs.prev_version }}"
+            
+            # 检查上一个版本标签是否存在
+            if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+              echo "✅ 找到上一个版本标签: $PREV_TAG"
+              echo "📊 获取从 $PREV_TAG 到当前版本的所有提交记录..."
+              # 从上一个版本标签到 HEAD 的所有提交
+              CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD | grep -v "Merge\|merge")
+            else
+              echo "⚠️ 未找到上一个版本标签 $PREV_TAG，尝试使用提交历史..."
+              # 尝试获取最近的标签
+              LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+              
+              if [ -n "$LAST_TAG" ]; then
+                echo "✅ 找到最近的标签: $LAST_TAG"
+                echo "📊 获取从 $LAST_TAG 到当前版本的所有提交记录..."
+                CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG"..HEAD | grep -v "Merge\|merge")
+              else
+                echo "⚠️ 未找到任何标签，获取所有提交记录..."
+                # 获取所有提交记录
+                CHANGELOG=$(git log --pretty=format:"- %s (%h)" | grep -v "Merge\|merge")
+              fi
+            fi
+            
+            # 如果仍然没有提交记录，使用最近一次提交
+            if [ -z "$CHANGELOG" ]; then
+              echo "⚠️ 未找到提交记录，使用最近一次提交..."
+              CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD~1..HEAD | grep -v "Merge\|merge")
+            fi
           fi
           
           # 保存到临时文件
           echo "$CHANGELOG" > changelog_content.txt
           
           # 输出预览
-          echo "更新日志内容:"
+          echo "================================"
+          echo "📋 更新日志内容:"
+          echo "================================"
           cat changelog_content.txt
+          echo "================================"
+          echo "📊 提交数量: $(wc -l < changelog_content.txt)"
+          echo "================================"
       
       - name: Generate release notes
         id: release_notes
