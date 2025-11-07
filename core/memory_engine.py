@@ -312,15 +312,16 @@ class MemoryEngine:
         updates: Dict[str, Any],
     ) -> bool:
         """
-        更新记忆
+        更新记忆（确保多数据库同步）
 
-        支持更新内容、重要性、元数据等。内容更新会通过删除旧记忆、创建新记忆来确保
-        向量库和BM25索引同步更新。
+        支持更新内容、重要性、元数据等。采用不同策略：
+        - 内容更新：先创建后删除（避免数据丢失）+ 全库同步
+        - 元数据更新：三库同步更新
 
         Args:
             memory_id: 记忆ID
             updates: 更新字典,可包含:
-                - content: 新内容 (会触发索引重建)
+                - content: 新内容 (触发完整重建)
                 - importance: 新重要性
                 - metadata: 元数据更新
 
@@ -330,38 +331,35 @@ class MemoryEngine:
         # 获取当前记忆
         memory = await self.get_memory(memory_id)
         if not memory:
+            from astrbot.api import logger
+            logger.error(f"[更新] 记忆不存在 (memory_id={memory_id})")
             return False
 
         current_metadata = memory.get("metadata", {})
 
-        # 处理内容更新 (需要重建索引)
+        # 处理内容更新 (需要重建所有索引)
         if "content" in updates:
             new_content = updates["content"]
             if not new_content or not new_content.strip():
                 return False
 
-            # 内容变化时,需要重新生成向量和更新BM25索引
-            # 实现方案:删除旧记忆,创建新记忆,保持其他属性不变
             try:
-                # 提取需要保留的信息
+                from astrbot.api import logger
+
+                # 保留必要信息
                 session_id = current_metadata.get("session_id")
                 persona_id = current_metadata.get("persona_id")
-                importance = current_metadata.get(
-                    "importance", updates.get("importance", 0.5)
-                )
+                importance = current_metadata.get("importance", updates.get("importance", 0.5))
 
-                # 构建新的元数据(保留原有数据,只更新必要字段)
+                # 构建新元数据
                 new_metadata = current_metadata.copy()
                 new_metadata["updated_at"] = time.time()
+                new_metadata["previous_id"] = memory_id  # 记录旧ID
 
-                # 1. 删除旧记忆 (同时清除BM25、向量库和documents表)
-                delete_success = await self.delete_memory(memory_id)
-                if not delete_success:
-                    from astrbot.api import logger
+                # 【改进】先创建新记忆，再删除旧记忆（避免数据丢失）
+                logger.info(f"[更新] 开始内容更新流程 (old_id={memory_id})")
 
-                    logger.warning(f"删除旧记忆失败 (memory_id={memory_id})")
-
-                # 2. 创建新记忆 (会自动创建向量和BM25索引)
+                # 1. 创建新记忆（自动在所有数据库创建）
                 new_memory_id = await self.add_memory(
                     content=new_content,
                     session_id=session_id,
@@ -370,25 +368,29 @@ class MemoryEngine:
                     metadata=new_metadata,
                 )
 
-                # 如果add_memory返回了新ID,更新成功
-                # 否则返回原有ID(兼容性)
-                if new_memory_id is not None:
-                    from astrbot.api import logger
+                if new_memory_id is None:
+                    logger.error(f"[更新] 创建新记忆失败 (old_id={memory_id})")
+                    return False
 
-                    logger.info(
-                        f"记忆内容更新成功 (old_id={memory_id}, new_id={new_memory_id})"
+                logger.info(f"[更新] 新记忆已创建 (new_id={new_memory_id})")
+
+                # 2. 删除旧记忆（从所有数据库删除）
+                delete_success = await self.delete_memory(memory_id)
+                if not delete_success:
+                    logger.warning(
+                        f"[更新] 删除旧记忆失败，但新记忆已创建 (old_id={memory_id}, new_id={new_memory_id})"
                     )
-                    return True
+                    # 不返回False，因为新记忆已经创建成功
 
-                return False
+                logger.info(f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})")
+                return True
 
             except Exception as e:
                 from astrbot.api import logger
-
-                logger.error(f"更新记忆内容失败 (memory_id={memory_id}): {e}")
+                logger.error(f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True)
                 return False
 
-        # 处理非内容的元数据更新 (不需要重建索引)
+        # 处理非内容的元数据更新（不需要重建索引）
         metadata_updates = {}
 
         if "importance" in updates:
@@ -398,13 +400,21 @@ class MemoryEngine:
             metadata_updates.update(updates["metadata"])
 
         if metadata_updates:
+            from astrbot.api import logger
+            
             # 合并元数据
             current_metadata.update(metadata_updates)
+            current_metadata["updated_at"] = time.time()
 
-            # 更新到混合检索器
+            # 【改进】使用增强的update_metadata确保三库同步
             success = await self.hybrid_retriever.update_metadata(
                 memory_id, metadata_updates
             )
+
+            if success:
+                logger.info(f"[更新] 元数据更新成功 (memory_id={memory_id})")
+            else:
+                logger.error(f"[更新] 元数据更新失败 (memory_id={memory_id})")
 
             return success
 

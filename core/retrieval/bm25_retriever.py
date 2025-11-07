@@ -240,3 +240,44 @@ class BM25Retriever:
         except Exception as e:
             logger.error(f"BM25删除失败 (doc_id={doc_id}): {e}")
             return False
+
+    async def update_document(
+        self, doc_id: int, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        更新BM25索引中的文档（重新索引）
+        
+        Args:
+            doc_id: 文档ID
+            content: 新内容
+            metadata: 新元数据（当前仅用于日志）
+        
+        Returns:
+            bool: 是否成功更新
+        """
+        from astrbot.api import logger
+        
+        try:
+            # 重新处理内容
+            tokens = self.text_processor.tokenize(content, remove_stopwords=True)
+            processed_content = " ".join(tokens)
+            
+            async with aiosqlite.connect(self.db_path) as db:
+                # 先删除旧索引
+                await db.execute(
+                    f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
+                )
+                
+                # 插入新索引
+                await db.execute(
+                    f"INSERT INTO {self.fts_table}(doc_id, content) VALUES (?, ?)",
+                    (doc_id, processed_content),
+                )
+                
+                await db.commit()
+                logger.debug(f"[BM25] 成功更新文档索引 doc_id={doc_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"[BM25] 更新文档失败 (doc_id={doc_id}): {e}")
+            return False
