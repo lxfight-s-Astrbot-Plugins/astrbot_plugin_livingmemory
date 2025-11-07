@@ -295,21 +295,26 @@
       }
       
       // 转换API返回的数据格式以匹配前端期望
-      state.items = rawItems.map((item) => ({
-        memory_id: item.id,  // 使用整数id而不是UUID doc_id
-        doc_id: item.id,     // 使用整数id而不是UUID doc_id
-        uuid: item.doc_id,   // 保存UUID以供显示
-        summary: item.text || item.content || "（无内容）",
-        content: item.text || item.content,
-        memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
-        importance: item.metadata?.importance ?? 5.0,
-        status: item.metadata?.status || "active",
-        created_at: item.metadata?.create_time ? new Date(item.metadata.create_time * 1000).toLocaleString() : "--",
-        last_access: item.metadata?.last_access_time ? new Date(item.metadata.last_access_time * 1000).toLocaleString() : "--",
-        source: "storage",
-        raw: item,
-        raw_json: JSON.stringify(item, null, 2),
-      }));
+      state.items = rawItems.map((item) => {
+        // 确保使用正确的ID字段
+        const actualId = item.id !== undefined ? item.id : (item.doc_id || item.memory_id);
+        
+        return {
+          memory_id: actualId,  // 使用实际的整数ID
+          doc_id: actualId,     // 使用实际的整数ID
+          uuid: item.doc_id,    // 保存UUID以供显示（如果存在）
+          summary: item.text || item.content || "（无内容）",
+          content: item.text || item.content,
+          memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
+          importance: item.metadata?.importance ?? 5.0,
+          status: item.metadata?.status || "active",
+          created_at: item.metadata?.create_time ? new Date(item.metadata.create_time * 1000).toLocaleString() : "--",
+          last_access: item.metadata?.last_access_time ? new Date(item.metadata.last_access_time * 1000).toLocaleString() : "--",
+          source: "storage",
+          raw: item,
+          raw_json: JSON.stringify(item, null, 2),
+        };
+      });
       
       state.selected.clear();
       dom.selectAll.checked = false;
@@ -664,6 +669,7 @@
   }
 
   function openDetailDrawer(item) {
+    state.currentMemoryItem = item; // 保存当前项
     dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
     dom.detail.source.textContent =
       item.source === "storage" ? "自定义存储" : "向量存储";
@@ -1214,6 +1220,14 @@
 
     const reason = document.getElementById("edit-reason").value.trim();
     const memoryId = state.currentMemoryItem.memory_id || state.currentMemoryItem.doc_id;
+    
+    // 调试：输出将要使用的ID
+    console.log('[编辑] 准备更新记忆:', {
+      memory_id: memoryId,
+      field: field,
+      value: value,
+      currentItem: state.currentMemoryItem
+    });
 
     try {
       document.getElementById("save-edit").disabled = true;
@@ -1231,23 +1245,6 @@
     } finally {
       document.getElementById("save-edit").disabled = false;
     }
-  }
-
-  function openDetailDrawer(item) {
-    state.currentMemoryItem = item; // 保存当前项
-    dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
-    dom.detail.source.textContent =
-      item.source === "storage" ? "自定义存储" : "向量存储";
-    dom.detail.status.textContent = item.status || "--";
-    dom.detail.importance.textContent =
-      item.importance !== undefined && item.importance !== null
-        ? Number(item.importance).toFixed(2)
-        : "--";
-    dom.detail.type.textContent = item.memory_type || "--";
-    dom.detail.created.textContent = item.created_at || "--";
-    dom.detail.access.textContent = item.last_access || "--";
-    dom.detail.json.textContent = item.raw_json || JSON.stringify(item.raw, null, 2);
-    dom.drawer.classList.remove("hidden");
   }
 
   // ============================================

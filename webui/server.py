@@ -557,10 +557,43 @@ class WebUIServer:
                         status.HTTP_400_BAD_REQUEST, detail="需要指定 field 和 value"
                     )
 
-                # 获取记忆详情
+                logger.info(f"[编辑记忆] memory_id={memory_id}, field={field}, value={value[:50] if isinstance(value, str) else value}")
+
+                # 尝试从get_memory获取（新架构）
                 memory = await self.memory_engine.get_memory(memory_id)
+                logger.info(f"[编辑记忆] get_memory返回: {memory is not None}")
+                
+                # 如果get_memory返回None，尝试直接从documents表读取（兼容v1迁移数据）
                 if not memory:
-                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
+                    logger.warning(f"[编辑记忆] get_memory返回None，尝试直接从documents表读取")
+                    try:
+                        import json
+                        cursor = await self.memory_engine.db_connection.execute(
+                            "SELECT id, text, metadata FROM documents WHERE id = ?", (memory_id,)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            logger.info(f"[编辑记忆] 从documents表成功读取记忆(id={row[0]})")
+                            # 构造memory对象
+                            metadata_str = row[2] if row[2] else "{}"
+                            try:
+                                metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                            except:
+                                metadata_dict = {}
+                            
+                            memory = {
+                                "id": row[0],
+                                "text": row[1],
+                                "metadata": metadata_dict
+                            }
+                        else:
+                            logger.error(f"[编辑记忆] 记忆在documents表中也不存在(memory_id={memory_id})")
+                            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
+                    except HTTPException:
+                        raise
+                    except Exception as e:
+                        logger.error(f"[编辑记忆] 从documents表读取失败: {e}", exc_info=True)
+                        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"读取记忆失败: {str(e)}")
 
                 # 验证字段和值
                 valid_fields = {"content", "importance", "type", "status"}
@@ -611,18 +644,135 @@ class WebUIServer:
                         updates["metadata"] = {}
                     updates["metadata"]["update_reason"] = reason
 
-                # 调用 MemoryEngine 的更新方法
-                success = await self.memory_engine.update_memory(memory_id, updates)
-                if not success:
-                    raise HTTPException(
-                        status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新失败"
-                    )
-
-                return {
-                    "success": True,
-                    "message": f"记忆 {memory_id} 的 {field} 已更新",
-                    "data": {"memory_id": memory_id, "field": field, "value": value},
-                }
+                # 对于内容更新：需要删除旧记忆+创建新记忆（以同步向量和索引）
+                if field == "content":
+                    logger.info(f"[编辑记忆] 内容更新需要重建向量，执行删除+创建流程")
+                    try:
+                        # 保存必要信息
+                        old_text = memory.get("text", "")
+                        current_metadata = memory.get("metadata", {})
+                        if isinstance(current_metadata, str):
+                            import json
+                            try:
+                                current_metadata = json.loads(current_metadata)
+                            except:
+                                current_metadata = {}
+                        
+                        session_id = current_metadata.get("session_id")
+                        persona_id = current_metadata.get("persona_id")
+                        importance = current_metadata.get("importance", 0.5)
+                        
+                        # 添加更新原因
+                        if reason:
+                            current_metadata["update_reason"] = reason
+                        current_metadata["updated_at"] = time.time()
+                        current_metadata["previous_content"] = old_text[:100]  # 保存前100字符
+                        
+                        # 1. 删除旧记忆（会同时删除向量和BM25索引）
+                        delete_success = await self.memory_engine.delete_memory(memory_id)
+                        if delete_success:
+                            logger.info(f"[编辑记忆] 成功删除旧记忆 {memory_id}")
+                        else:
+                            logger.warning(f"[编辑记忆] 删除旧记忆失败，可能已不存在于索引中")
+                        
+                        # 2. 创建新记忆（会自动生成向量和BM25索引）
+                        new_memory_id = await self.memory_engine.add_memory(
+                            content=updates["content"],
+                            session_id=session_id,
+                            persona_id=persona_id,
+                            importance=importance,
+                            metadata=current_metadata,
+                        )
+                        
+                        logger.info(f"[编辑记忆] 内容更新成功：old_id={memory_id}, new_id={new_memory_id}")
+                        
+                        return {
+                            "success": True,
+                            "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
+                            "data": {
+                                "old_memory_id": memory_id,
+                                "new_memory_id": new_memory_id,
+                                "field": field,
+                                "value": updates["content"],
+                            },
+                        }
+                    except Exception as e:
+                        logger.error(f"[编辑记忆] 内容更新失败: {e}", exc_info=True)
+                        raise HTTPException(
+                            status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"内容更新失败: {str(e)}"
+                        )
+                
+                # 对于元数据更新：尝试通过MemoryEngine更新
+                try:
+                    success = await self.memory_engine.update_memory(memory_id, updates)
+                    if success:
+                        logger.info(f"[编辑记忆] 元数据更新成功")
+                        return {
+                            "success": True,
+                            "message": f"记忆 {memory_id} 的 {field} 已更新",
+                            "data": {"memory_id": memory_id, "field": field, "value": value},
+                        }
+                    else:
+                        raise Exception("MemoryEngine.update_memory 返回 False")
+                except Exception as e:
+                    logger.warning(f"[编辑记忆] 通过MemoryEngine更新元数据失败: {e}")
+                    
+                    # 降级方案：直接更新documents表和FAISS元数据
+                    try:
+                        import json
+                        
+                        current_metadata = memory.get("metadata", {})
+                        if isinstance(current_metadata, str):
+                            try:
+                                current_metadata = json.loads(current_metadata)
+                            except:
+                                current_metadata = {}
+                        
+                        # 更新metadata
+                        if field == "importance":
+                            current_metadata["importance"] = updates["importance"]
+                        elif field == "status":
+                            current_metadata["status"] = updates["metadata"]["status"]
+                        elif field == "type":
+                            current_metadata["memory_type"] = updates["metadata"]["memory_type"]
+                        
+                        if reason:
+                            current_metadata["update_reason"] = reason
+                        current_metadata["updated_at"] = time.time()
+                        
+                        # 1. 更新documents表
+                        metadata_json = json.dumps(current_metadata, ensure_ascii=False)
+                        await self.memory_engine.db_connection.execute(
+                            "UPDATE documents SET metadata = ? WHERE id = ?",
+                            (metadata_json, memory_id)
+                        )
+                        await self.memory_engine.db_connection.commit()
+                        logger.info(f"[编辑记忆] documents表元数据更新成功")
+                        
+                        # 2. 尝试更新FAISS元数据（如果记录存在）
+                        try:
+                            # 注意：这里假设faiss_db有update_metadata方法
+                            # 如果没有，这步会失败，但documents已更新
+                            if hasattr(self.memory_engine.faiss_db, 'update_metadata'):
+                                await self.memory_engine.faiss_db.update_metadata(
+                                    memory_id, current_metadata
+                                )
+                                logger.info(f"[编辑记忆] FAISS元数据同步成功")
+                        except Exception as faiss_err:
+                            logger.warning(f"[编辑记忆] FAISS元数据同步失败（但documents已更新）: {faiss_err}")
+                        
+                        return {
+                            "success": True,
+                            "message": f"记忆 {memory_id} 的 {field} 已更新（降级模式）",
+                            "data": {"memory_id": memory_id, "field": field, "value": value},
+                        }
+                    except Exception as e2:
+                        logger.error(f"[编辑记忆] 降级更新也失败: {e2}", exc_info=True)
+                        raise HTTPException(
+                            status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"更新失败: {str(e2)}"
+                        )
 
             except HTTPException:
                 raise
