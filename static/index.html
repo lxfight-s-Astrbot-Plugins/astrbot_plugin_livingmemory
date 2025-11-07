@@ -8,217 +8,274 @@
   </head>
   <body>
     <div id="app">
+      <!-- 登录视图 -->
       <section id="login-view" class="view active">
-        <div class="panel">
-          <div class="panel-header">
-            <h1 class="title"> LivingMemory</h1>
-            <p class="intro">智能记忆管理系统 · 请输入访问密码</p>
+        <div class="login-container">
+          <div class="login-card">
+            <header class="login-header">
+              <h1 class="login-title">LivingMemory</h1>
+              <p class="login-subtitle">智能记忆管理系统</p>
+              <p class="login-description">请输入访问密码</p>
+            </header>
+            
+            <form id="login-form" class="login-form" autocomplete="off">
+              <label for="username-input" class="sr-only">用户名</label>
+              <input
+                id="username-input"
+                type="text"
+                name="username"
+                autocomplete="username"
+                value="admin"
+                style="position: absolute; left: -9999px; width: 1px; height: 1px;"
+                tabindex="-1"
+                aria-hidden="true"
+              />
+              
+              <div class="form-field">
+                <label for="password-input" class="form-label">访问密码</label>
+                <input
+                  id="password-input"
+                  type="password"
+                  name="password"
+                  placeholder="请输入访问密码"
+                  autocomplete="current-password"
+                  required
+                  class="form-input"
+                />
+              </div>
+              
+              <button type="submit" class="btn btn-primary btn-full">登录</button>
+              <p id="login-error" class="form-error" role="alert"></p>
+            </form>
           </div>
-          <form id="login-form" autocomplete="off">
-            <label for="username-input" class="sr-only">用户名</label>
-            <input
-              id="username-input"
-              type="text"
-              name="username"
-              autocomplete="username"
-              value="admin"
-              style="position: absolute; left: -9999px; width: 1px; height: 1px;"
-              tabindex="-1"
-              aria-hidden="true"
-            />
-            <label for="password-input">访问密码</label>
-            <input
-              id="password-input"
-              type="password"
-              name="password"
-              placeholder="请输入访问密码"
-              autocomplete="current-password"
-              required
-            />
-            <button type="submit" class="primary">登录</button>
-            <p id="login-error" class="form-error" role="alert"></p>
-          </form>
         </div>
       </section>
 
-      <section id="dashboard-view" class="view">
-        <header class="top-bar">
-          <div class="brand">
-            <h1> LivingMemory 管理面板</h1>
-            <p class="subtitle">长期记忆与会话管理 · 基于混合检索的智能记忆系统</p>
+      <!-- 主控制台视图 -->
+      <main id="dashboard-view" class="view">
+        <header class="dashboard-header">
+          <div class="header-brand">
+            <h1 class="header-title">LivingMemory 管理面板</h1>
+            <p class="header-subtitle">长期记忆与会话管理 · 基于混合检索的智能记忆系统</p>
           </div>
-          <div class="toolbar">
-            <button id="logout-button" class="ghost">退出登录</button>
+          <div class="header-actions">
+            <button id="logout-button" class="btn btn-ghost">退出登录</button>
           </div>
         </header>
 
-        <!-- 标签页导航 -->
-        <nav class="tabs-nav">
+        <!-- 导航标签 -->
+        <nav class="tab-navigation">
           <button class="tab-btn active" data-tab="memories">记忆管理</button>
           <button class="tab-btn" data-tab="recall-test">召回测试</button>
         </nav>
 
+        <!-- 核爆警告横幅 -->
         <div id="nuke-banner" class="nuke-banner hidden" role="alert">
           <div class="nuke-content">
             <span id="nuke-message"></span>
-            <button id="nuke-cancel" class="danger-outline">取消核爆</button>
+            <button id="nuke-cancel" class="btn btn-outline-danger">取消核爆</button>
           </div>
         </div>
 
-        <main class="content">
+        <div class="dashboard-content">
           <!-- 记忆管理标签页 -->
-          <div class="tab-content active" data-tab="memories">
-            <div class="tab-toolbar">
-              <button id="refresh-button" class="ghost">刷新</button>
-              <button id="load-all-button" class="ghost">加载全部</button>
-              <button id="nuke-button" class="danger">核爆清除</button>
+          <section class="tab-content active" data-tab="memories">
+            <div class="content-toolbar">
+              <div class="toolbar-group">
+                <button id="refresh-button" class="btn btn-ghost">
+                  <span class="btn-icon">↻</span> 刷新
+                </button>
+                <button id="load-all-button" class="btn btn-ghost">
+                  <span class="btn-icon">≡</span> 加载全部
+                </button>
+                <button id="nuke-button" class="btn btn-danger">
+                  <span class="btn-icon">⚠</span> 核爆清除
+                </button>
+              </div>
             </div>
 
-          <section class="card stats-card">
-            <div class="stat">
-              <span class="label">总记忆</span>
-              <span class="value" id="stat-total">--</span>
-            </div>
-            <div class="stat">
-              <span class="label">活跃</span>
-              <span class="value" id="stat-active">--</span>
-            </div>
-            <div class="stat">
-              <span class="label">已归档</span>
-              <span class="value" id="stat-archived">--</span>
-            </div>
-            <div class="stat">
-              <span class="label">已删除</span>
-              <span class="value" id="stat-deleted">--</span>
-            </div>
-            <div class="stat">
-              <span class="label">活跃会话</span>
-              <span class="value" id="stat-sessions">--</span>
-            </div>
-          </section>
+            <!-- 统计卡片 -->
+            <section class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                  <span class="stat-label">总记忆</span>
+                  <span class="stat-value" id="stat-total">--</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-content">
+                  <span class="stat-label">活跃</span>
+                  <span class="stat-value" id="stat-active">--</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon">📁</div>
+                <div class="stat-content">
+                  <span class="stat-label">已归档</span>
+                  <span class="stat-value" id="stat-archived">--</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon">🗑️</div>
+                <div class="stat-content">
+                  <span class="stat-label">已删除</span>
+                  <span class="stat-value" id="stat-deleted">--</span>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon">💬</div>
+                <div class="stat-content">
+                  <span class="stat-label">活跃会话</span>
+                  <span class="stat-value" id="stat-sessions">--</span>
+                </div>
+              </div>
+            </section>
 
-          <section class="card controls-card">
-            <div class="filter-group">
-              <input
-                type="text"
-                id="keyword-input"
-                placeholder="关键字（支持 memory_id / 内容搜索）"
-              />
-              <select id="status-filter">
-                <option value="all">全部状态</option>
-                <option value="active">活跃</option>
-                <option value="archived">已归档</option>
-                <option value="deleted">已删除</option>
-              </select>
-              <button id="apply-filter" class="ghost">筛选</button>
-            </div>
-            <div class="selection-group">
-              <label class="checkbox">
-                <input type="checkbox" id="select-all" />
-                <span>全选</span>
-              </label>
-              <button id="delete-selected" class="danger" disabled>
-                删除选中
-              </button>
-            </div>
-          </section>
+            <!-- 控制面板 -->
+            <section class="control-panel">
+              <div class="filter-section">
+                <div class="input-group">
+                  <input
+                    type="text"
+                    id="keyword-input"
+                    placeholder="关键字（支持 memory_id / 内容搜索）"
+                    class="form-input"
+                  />
+                  <select id="status-filter" class="form-select">
+                    <option value="all">全部状态</option>
+                    <option value="active">活跃</option>
+                    <option value="archived">已归档</option>
+                    <option value="deleted">已删除</option>
+                  </select>
+                  <button id="apply-filter" class="btn btn-ghost">筛选</button>
+                </div>
+              </div>
+              
+              <div class="selection-section">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="select-all" class="checkbox-input" />
+                  <span class="checkbox-text">全选</span>
+                </label>
+                <button id="delete-selected" class="btn btn-danger" disabled>
+                  删除选中
+                </button>
+              </div>
+            </section>
 
-          <section class="card table-card">
-            <table id="memories-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>记忆 ID</th>
-                  <th>摘要</th>
-                  <th>类型</th>
-                  <th>重要性</th>
-                  <th>状态</th>
-                  <th>创建时间</th>
-                  <th>最后访问</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="memories-body">
-                <tr>
-                  <td colspan="9" class="empty">暂无数据</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
+            <!-- 数据表格 -->
+            <section class="table-container">
+              <div class="table-wrapper">
+                <table id="memories-table" class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="table-header-checkbox">
+                        <input type="checkbox" class="table-select-all" disabled />
+                      </th>
+                      <th>记忆 ID</th>
+                      <th>摘要</th>
+                      <th>类型</th>
+                      <th>重要性</th>
+                      <th>状态</th>
+                      <th>创建时间</th>
+                      <th>最后访问</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="memories-body">
+                    <tr>
+                      <td colspan="9" class="table-empty">暂无数据</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-          <section class="card pagination-card">
-            <div class="pager">
-              <button id="prev-page" class="ghost">上一页</button>
-              <span id="pagination-info">第 1 / 1 页 · 共 0 条</span>
-              <button id="next-page" class="ghost">下一页</button>
-            </div>
-            <div class="page-size">
-              <label for="page-size">每页</label>
-              <select id="page-size">
-                <option value="10">10</option>
-                <option value="20" selected>20</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-            </div>
+            <!-- 分页控制 -->
+            <section class="pagination-container">
+              <div class="pagination-controls">
+                <button id="prev-page" class="btn btn-ghost" disabled>上一页</button>
+                <span id="pagination-info" class="pagination-info">第 1 / 1 页 · 共 0 条</span>
+                <button id="next-page" class="btn btn-ghost" disabled>下一页</button>
+              </div>
+              <div class="page-size-control">
+                <label for="page-size" class="page-size-label">每页</label>
+                <select id="page-size" class="form-select page-size-select">
+                  <option value="10">10</option>
+                  <option value="20" selected>20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+            </section>
           </section>
-          </div>
 
           <!-- 召回测试标签页 -->
-          <div class="tab-content" data-tab="recall-test">
-            <div class="tab-toolbar">
-              <button id="recall-clear-btn" class="ghost">清空结果</button>
+          <section class="tab-content" data-tab="recall-test">
+            <div class="content-toolbar">
+              <button id="recall-clear-btn" class="btn btn-ghost">清空结果</button>
             </div>
 
-            <section class="card recall-card">
-              <h3>记忆召回功能测试</h3>
-              <p class="subtitle">输入查询语句，测试混合检索引擎的召回能力</p>
+            <section class="recall-test-panel">
+              <header class="panel-header">
+                <h3 class="panel-title">记忆召回功能测试</h3>
+                <p class="panel-subtitle">输入查询语句，测试混合检索引擎的召回能力</p>
+              </header>
 
               <div class="recall-form">
-                <div class="form-group">
-                  <label for="recall-query">查询内容</label>
+                <div class="form-field">
+                  <label for="recall-query" class="form-label">查询内容</label>
                   <textarea
                     id="recall-query"
                     placeholder="输入你的查询语句，系统将使用混合检索（BM25+向量相似度）进行召回"
                     rows="3"
+                    class="form-textarea"
                   ></textarea>
                 </div>
 
-                <div class="form-group">
-                  <label for="recall-k">返回数量</label>
-                  <input
-                    type="number"
-                    id="recall-k"
-                    min="1"
-                    max="50"
-                    value="5"
-                    placeholder="返回的记忆数量"
-                  />
+                <div class="form-row">
+                  <div class="form-field">
+                    <label for="recall-k" class="form-label">返回数量</label>
+                    <input
+                      type="number"
+                      id="recall-k"
+                      min="1"
+                      max="50"
+                      value="5"
+                      placeholder="返回的记忆数量"
+                      class="form-input"
+                    />
+                  </div>
+
+                  <div class="form-field">
+                    <label for="recall-session-id" class="form-label">会话 ID (可选)</label>
+                    <input
+                      type="text"
+                      id="recall-session-id"
+                      placeholder="输入会话 ID 以过滤特定会话的记忆（支持多种格式）"
+                      class="form-input"
+                    />
+                  </div>
                 </div>
 
-                <div class="form-group">
-                  <label for="recall-session-id">会话 ID (可选)</label>
-                  <input
-                    type="text"
-                    id="recall-session-id"
-                    placeholder="输入会话 ID 以过滤特定会话的记忆（支持多种格式）"
-                  />
-                </div>
-
-                <button id="recall-search-btn" class="primary">执行召回</button>
+                <button id="recall-search-btn" class="btn btn-primary">执行召回</button>
               </div>
             </section>
 
-            <section class="card recall-results-card">
-              <h3>召回结果</h3>
+            <section class="recall-results-panel">
+              <header class="panel-header">
+                <h3 class="panel-title">召回结果</h3>
+              </header>
+              
               <div id="recall-stats" class="recall-stats hidden">
-                <div class="stat">
-                  <span class="label">召回数量</span>
-                  <span class="value" id="recall-count">0</span>
+                <div class="stat-item">
+                  <span class="stat-label">召回数量</span>
+                  <span class="stat-value" id="recall-count">0</span>
                 </div>
-                <div class="stat">
-                  <span class="label">查询耗时</span>
-                  <span class="value" id="recall-time">--</span>
+                <div class="stat-item">
+                  <span class="stat-label">查询耗时</span>
+                  <span class="stat-value" id="recall-time">--</span>
                 </div>
               </div>
 
@@ -228,103 +285,118 @@
                 </div>
               </div>
             </section>
-          </div>
-        </main>
-      </section>
+          </section>
+        </div>
+      </main>
     </div>
 
-    <div id="detail-drawer" class="drawer hidden">
+    <!-- 详情抽屉 -->
+    <aside id="detail-drawer" class="drawer hidden">
       <div class="drawer-content">
-        <button id="drawer-close" class="close-btn" aria-label="关闭详情">×</button>
-        <h2>记忆详情</h2>
-        <div class="detail-actions">
-          <button id="edit-memory-btn" class="primary">编辑记忆</button>
-        </div>
-        <div class="detail-meta">
-          <div>
-            <span class="meta-label">记忆 ID</span>
-            <span class="meta-value" id="detail-memory-id">--</span>
+        <button id="drawer-close" class="drawer-close" aria-label="关闭详情">×</button>
+        <header class="drawer-header">
+          <h2 class="drawer-title">记忆详情</h2>
+          <div class="drawer-actions">
+            <button id="edit-memory-btn" class="btn btn-primary">编辑记忆</button>
           </div>
-          <div>
-            <span class="meta-label">来源</span>
-            <span class="meta-value" id="detail-source">--</span>
+        </header>
+        
+        <div class="drawer-body">
+          <div class="detail-meta">
+            <div class="meta-item">
+              <span class="meta-label">记忆 ID</span>
+              <span class="meta-value" id="detail-memory-id">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">来源</span>
+              <span class="meta-value" id="detail-source">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">状态</span>
+              <span class="meta-value" id="detail-status">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">重要性</span>
+              <span class="meta-value" id="detail-importance">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">类型</span>
+              <span class="meta-value" id="detail-type">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">创建时间</span>
+              <span class="meta-value" id="detail-created">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">最后访问</span>
+              <span class="meta-value" id="detail-access">--</span>
+            </div>
           </div>
-          <div>
-            <span class="meta-label">状态</span>
-            <span class="meta-value" id="detail-status">--</span>
+          
+          <div class="detail-json">
+            <pre id="detail-json"></pre>
           </div>
-          <div>
-            <span class="meta-label">重要性</span>
-            <span class="meta-value" id="detail-importance">--</span>
-          </div>
-          <div>
-            <span class="meta-label">类型</span>
-            <span class="meta-value" id="detail-type">--</span>
-          </div>
-          <div>
-            <span class="meta-label">创建时间</span>
-            <span class="meta-value" id="detail-created">--</span>
-          </div>
-          <div>
-            <span class="meta-label">最后访问</span>
-            <span class="meta-value" id="detail-access">--</span>
-          </div>
-        </div>
-        <div class="detail-json">
-          <pre id="detail-json"></pre>
         </div>
       </div>
-    </div>
+    </aside>
 
     <!-- 编辑记忆对话框 -->
     <div id="edit-modal" class="modal hidden">
       <div class="modal-content">
-        <div class="modal-header">
-          <h2>编辑记忆</h2>
-          <button id="modal-close" class="close-btn" aria-label="关闭">×</button>
-        </div>
+        <header class="modal-header">
+          <h2 class="modal-title">编辑记忆</h2>
+          <button id="modal-close" class="modal-close" aria-label="关闭">×</button>
+        </header>
+        
         <div class="modal-body">
-          <div class="form-group">
-            <label for="edit-field">编辑字段</label>
-            <select id="edit-field">
+          <div class="form-field">
+            <label for="edit-field" class="form-label">编辑字段</label>
+            <select id="edit-field" class="form-select">
               <option value="content">内容</option>
               <option value="importance">重要性</option>
               <option value="type">类型</option>
               <option value="status">状态</option>
             </select>
           </div>
+          
           <div class="form-group" id="edit-content-group">
-            <label for="edit-value-content">新内容</label>
-            <textarea id="edit-value-content" rows="4"></textarea>
+            <label for="edit-value-content" class="form-label">新内容</label>
+            <textarea id="edit-value-content" rows="4" class="form-textarea"></textarea>
           </div>
+          
           <div class="form-group hidden" id="edit-importance-group">
-            <label for="edit-value-importance">新重要性 (0-10)</label>
-            <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" />
+            <label for="edit-value-importance" class="form-label">新重要性 (0-10)</label>
+            <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" class="form-input" />
           </div>
+          
           <div class="form-group hidden" id="edit-type-group">
-            <label for="edit-value-type">新类型</label>
-            <input type="text" id="edit-value-type" placeholder="如: FACT, EVENT, PREFERENCE" />
+            <label for="edit-value-type" class="form-label">新类型</label>
+            <input type="text" id="edit-value-type" placeholder="如: FACT, EVENT, PREFERENCE" class="form-input" />
           </div>
+          
           <div class="form-group hidden" id="edit-status-group">
-            <label for="edit-value-status">新状态</label>
-            <select id="edit-value-status">
+            <label for="edit-value-status" class="form-label">新状态</label>
+            <select id="edit-value-status" class="form-select">
               <option value="active">活跃</option>
               <option value="archived">已归档</option>
               <option value="deleted">已删除</option>
             </select>
           </div>
-          <div class="form-group">
-            <label for="edit-reason">更新原因 (可选)</label>
-            <input type="text" id="edit-reason" placeholder="说明本次更新的原因" />
+          
+          <div class="form-field">
+            <label for="edit-reason" class="form-label">更新原因 (可选)</label>
+            <input type="text" id="edit-reason" placeholder="说明本次更新的原因" class="form-input" />
           </div>
         </div>
-        <div class="modal-footer">
-          <button id="cancel-edit" class="ghost">取消</button>
-          <button id="save-edit" class="primary">保存</button>
-        </div>
+        
+        <footer class="modal-footer">
+          <button id="cancel-edit" class="btn btn-ghost">取消</button>
+          <button id="save-edit" class="btn btn-primary">保存</button>
+        </footer>
       </div>
     </div>
 
+    <!-- Toast 通知 -->
     <div id="toast" class="toast hidden"></div>
 
     <!-- 核爆视觉效果容器 -->
@@ -340,4 +412,3 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
-
