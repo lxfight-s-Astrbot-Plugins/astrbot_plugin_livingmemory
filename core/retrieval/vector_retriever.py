@@ -1,12 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 向量检索器 - 基于Faiss的向量密集检索
 封装AstrBot的FaissVecDB,提供统一的检索接口
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
+
 from ..text_processor import TextProcessor
 
 
@@ -17,7 +18,7 @@ class VectorResult:
     doc_id: int
     score: float
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class VectorRetriever:
@@ -35,8 +36,8 @@ class VectorRetriever:
     def __init__(
         self,
         faiss_db: FaissVecDB,
-        text_processor: Optional[TextProcessor] = None,
-        config: Optional[Dict[str, Any]] = None,
+        text_processor: TextProcessor | None = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         初始化向量检索器
@@ -56,7 +57,7 @@ class VectorRetriever:
         )
 
     async def add_document(
-        self, content: str, metadata: Optional[Dict[str, Any]] = None
+        self, content: str, metadata: dict[str, Any] | None = None
     ) -> int:
         """
         添加文档到向量库
@@ -101,9 +102,9 @@ class VectorRetriever:
         self,
         query: str,
         k: int = 10,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[VectorResult]:
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[VectorResult]:
         """
         执行向量相似度搜索
 
@@ -165,7 +166,7 @@ class VectorRetriever:
 
         return results
 
-    async def update_metadata(self, doc_id: int, metadata: Dict[str, Any]) -> bool:
+    async def update_metadata(self, doc_id: int, metadata: dict[str, Any]) -> bool:
         """
         更新文档元数据
 
@@ -204,8 +205,9 @@ class VectorRetriever:
         Returns:
             bool: 是否成功删除
         """
-        from astrbot.api import logger
         import aiosqlite
+
+        from astrbot.api import logger
 
         try:
             # 1. 从documents表获取记录

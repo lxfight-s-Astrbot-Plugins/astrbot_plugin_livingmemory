@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 统一记忆引擎 - MemoryEngine
 提供统一的记忆管理接口,整合所有底层组件
@@ -6,18 +5,19 @@
 
 import asyncio
 import time
-import aiosqlite
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any
 
-from .retrieval.hybrid_retriever import HybridRetriever, HybridResult
+import aiosqlite
+
 from .retrieval.bm25_retriever import BM25Retriever
-from .retrieval.vector_retriever import VectorRetriever
+from .retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from .retrieval.rrf_fusion import RRFFusion
+from .retrieval.vector_retriever import VectorRetriever
 from .text_processor import TextProcessor
 
 
-def _extract_session_uuid(session_id: Optional[str]) -> Optional[str]:
+def _extract_session_uuid(session_id: str | None) -> str | None:
     """
     从 session_id 中提取 UUID 部分用于比较
 
@@ -64,7 +64,7 @@ class MemoryEngine:
         db_path: str,
         faiss_db,
         llm_provider=None,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         初始化记忆引擎
@@ -205,10 +205,10 @@ class MemoryEngine:
     async def add_memory(
         self,
         content: str,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
+        session_id: str | None = None,
+        persona_id: str | None = None,
         importance: float = 0.5,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> int:
         """
         添加新记忆
@@ -241,6 +241,8 @@ class MemoryEngine:
             full_metadata.update(metadata)
 
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
+        if self.hybrid_retriever is None:
+            raise RuntimeError("混合检索器未初始化")
         doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
 
         return doc_id
@@ -249,9 +251,9 @@ class MemoryEngine:
         self,
         query: str,
         k: int = 5,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[HybridResult]:
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[HybridResult]:
         """
         检索相关记忆
 
@@ -274,6 +276,8 @@ class MemoryEngine:
             persona_id = _extract_session_uuid(persona_id)
 
         # 执行混合检索
+        if self.hybrid_retriever is None:
+            raise RuntimeError("混合检索器未初始化")
         results = await self.hybrid_retriever.search(query, k, session_id, persona_id)
 
         # 异步更新访问时间(不阻塞返回)
@@ -282,7 +286,7 @@ class MemoryEngine:
 
         return results
 
-    async def get_memory(self, memory_id: int) -> Optional[Dict[str, Any]]:
+    async def get_memory(self, memory_id: int) -> dict[str, Any] | None:
         """
         根据ID获取记忆
 
@@ -309,7 +313,7 @@ class MemoryEngine:
     async def update_memory(
         self,
         memory_id: int,
-        updates: Dict[str, Any],
+        updates: dict[str, Any],
     ) -> bool:
         """
         更新记忆（确保多数据库同步）
@@ -332,6 +336,7 @@ class MemoryEngine:
         memory = await self.get_memory(memory_id)
         if not memory:
             from astrbot.api import logger
+
             logger.error(f"[更新] 记忆不存在 (memory_id={memory_id})")
             return False
 
@@ -349,7 +354,9 @@ class MemoryEngine:
                 # 保留必要信息
                 session_id = current_metadata.get("session_id")
                 persona_id = current_metadata.get("persona_id")
-                importance = current_metadata.get("importance", updates.get("importance", 0.5))
+                importance = current_metadata.get(
+                    "importance", updates.get("importance", 0.5)
+                )
 
                 # 构建新元数据
                 new_metadata = current_metadata.copy()
@@ -382,12 +389,17 @@ class MemoryEngine:
                     )
                     # 不返回False，因为新记忆已经创建成功
 
-                logger.info(f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})")
+                logger.info(
+                    f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})"
+                )
                 return True
 
             except Exception as e:
                 from astrbot.api import logger
-                logger.error(f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True)
+
+                logger.error(
+                    f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True
+                )
                 return False
 
         # 处理非内容的元数据更新（不需要重建索引）
@@ -401,12 +413,15 @@ class MemoryEngine:
 
         if metadata_updates:
             from astrbot.api import logger
-            
+
             # 合并元数据
             current_metadata.update(metadata_updates)
             current_metadata["updated_at"] = time.time()
 
             # 【改进】使用增强的update_metadata确保三库同步
+            if self.hybrid_retriever is None:
+                logger.error("混合检索器未初始化")
+                return False
             success = await self.hybrid_retriever.update_metadata(
                 memory_id, metadata_updates
             )
@@ -433,11 +448,17 @@ class MemoryEngine:
         from astrbot.api import logger
 
         # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
+        if self.hybrid_retriever is None:
+            logger.error("混合检索器未初始化")
+            return False
         success = await self.hybrid_retriever.delete_memory(memory_id)
 
         if success:
             # 2. 同步删除SQLite documents表中的记录
             try:
+                if self.db_connection is None:
+                    logger.error("数据库连接未初始化")
+                    return False
                 await self.db_connection.execute(
                     "DELETE FROM documents WHERE id = ?", (memory_id,)
                 )
@@ -479,13 +500,15 @@ class MemoryEngine:
         current_time = time.time()
         metadata_update = {"last_access_time": current_time}
 
+        if self.hybrid_retriever is None:
+            return False
         return await self.hybrid_retriever.update_metadata(memory_id, metadata_update)
 
     async def get_session_memories(
         self,
         session_id: str,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取会话的所有记忆（使用分批处理和数据库排序优化）
 
@@ -569,8 +592,8 @@ class MemoryEngine:
 
     async def cleanup_old_memories(
         self,
-        days_threshold: Optional[int] = None,
-        importance_threshold: Optional[float] = None,
+        days_threshold: int | None = None,
+        importance_threshold: float | None = None,
     ) -> int:
         """
         清理旧记忆（使用分批处理避免内存问题）
@@ -662,7 +685,7 @@ class MemoryEngine:
         except Exception:
             return 0
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """
         获取记忆统计信息（使用批量处理避免内存问题）
 
@@ -685,7 +708,7 @@ class MemoryEngine:
             stats["total_memories"] = total_count
 
             # 初始化统计变量
-            session_counts = {}
+            session_counts: dict[str, int] = {}
             status_breakdown = {"active": 0, "archived": 0, "deleted": 0}
             importance_sum = 0
             importance_count = 0

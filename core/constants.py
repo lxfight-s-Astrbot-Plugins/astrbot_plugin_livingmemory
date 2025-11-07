@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 constants.py - 插件使用的常量
 """

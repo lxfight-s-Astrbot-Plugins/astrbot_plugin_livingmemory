@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 RRF融合器 - Reciprocal Rank Fusion
 实现纯Python的结果融合算法,用于合并BM25和向量检索结果
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -15,7 +14,7 @@ class BM25Result:
     doc_id: int
     score: float
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -25,7 +24,7 @@ class VectorResult:
     doc_id: int
     score: float
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -34,10 +33,10 @@ class FusedResult:
 
     doc_id: int
     rrf_score: float  # RRF融合分数
-    bm25_score: Optional[float]  # 原始BM25分数
-    vector_score: Optional[float]  # 原始向量分数
+    bm25_score: float | None  # 原始BM25分数
+    vector_score: float | None  # 原始向量分数
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class RRFFusion:
@@ -63,10 +62,10 @@ class RRFFusion:
 
     def fuse(
         self,
-        bm25_results: List[BM25Result],
-        vector_results: List[VectorResult],
+        bm25_results: list[BM25Result],
+        vector_results: list[VectorResult],
         top_k: int,
-    ) -> List[FusedResult]:
+    ) -> list[FusedResult]:
         """
         融合两路检索结果
 
@@ -159,8 +158,8 @@ class RRFFusion:
         return fused_results
 
     def _convert_bm25_only(
-        self, bm25_results: List[BM25Result], top_k: int
-    ) -> List[FusedResult]:
+        self, bm25_results: list[BM25Result], top_k: int
+    ) -> list[FusedResult]:
         """仅有BM25结果时的转换"""
         return [
             FusedResult(
@@ -175,8 +174,8 @@ class RRFFusion:
         ]
 
     def _convert_vector_only(
-        self, vector_results: List[VectorResult], top_k: int
-    ) -> List[FusedResult]:
+        self, vector_results: list[VectorResult], top_k: int
+    ) -> list[FusedResult]:
         """仅有向量结果时的转换"""
         return [
             FusedResult(

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 BM25检索器 - 基于SQLite FTS5的稀疏检索
 实现简洁的BM25检索功能,用于MemoryEngine的混合检索
@@ -6,7 +5,8 @@ BM25检索器 - 基于SQLite FTS5的稀疏检索
 
 import json
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 import aiosqlite
 
 from ..text_processor import TextProcessor
@@ -19,7 +19,7 @@ class BM25Result:
     doc_id: int
     score: float
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class BM25Retriever:
@@ -37,7 +37,7 @@ class BM25Retriever:
         self,
         db_path: str,
         text_processor: TextProcessor,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         初始化BM25检索器
@@ -73,7 +73,7 @@ class BM25Retriever:
             await db.commit()
 
     async def add_document(
-        self, doc_id: int, content: str, metadata: Optional[Dict[str, Any]] = None
+        self, doc_id: int, content: str, metadata: dict[str, Any] | None = None
     ):
         """
         添加文档到BM25索引
@@ -99,9 +99,9 @@ class BM25Retriever:
         self,
         query: str,
         limit: int = 50,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[BM25Result]:
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[BM25Result]:
         """
         执行BM25搜索
 
@@ -242,42 +242,42 @@ class BM25Retriever:
             return False
 
     async def update_document(
-        self, doc_id: int, content: str, metadata: Optional[Dict[str, Any]] = None
+        self, doc_id: int, content: str, metadata: dict[str, Any] | None = None
     ) -> bool:
         """
         更新BM25索引中的文档（重新索引）
-        
+
         Args:
             doc_id: 文档ID
             content: 新内容
             metadata: 新元数据（当前仅用于日志）
-        
+
         Returns:
             bool: 是否成功更新
         """
         from astrbot.api import logger
-        
+
         try:
             # 重新处理内容
             tokens = self.text_processor.tokenize(content, remove_stopwords=True)
             processed_content = " ".join(tokens)
-            
+
             async with aiosqlite.connect(self.db_path) as db:
                 # 先删除旧索引
                 await db.execute(
                     f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
                 )
-                
+
                 # 插入新索引
                 await db.execute(
                     f"INSERT INTO {self.fts_table}(doc_id, content) VALUES (?, ?)",
                     (doc_id, processed_content),
                 )
-                
+
                 await db.commit()
                 logger.debug(f"[BM25] 成功更新文档索引 doc_id={doc_id}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"[BM25] 更新文档失败 (doc_id={doc_id}): {e}")
             return False

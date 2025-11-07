@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 会话存储层 - ConversationStore
 负责管理会话和消息的持久化存储,使用 SQLite 数据库
 """
 
-import aiosqlite
 import time
 from pathlib import Path
-from typing import List, Optional, Dict
+
+import aiosqlite
+
 from astrbot.api import logger
 
 from ..core.conversation_models import Message, Session, serialize_to_json
@@ -31,7 +31,7 @@ class ConversationStore:
             db_path: 数据库文件路径
         """
         self.db_path = db_path
-        self.connection: Optional[aiosqlite.Connection] = None
+        self.connection: aiosqlite.Connection | None = None
 
         # 确保数据库目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +157,7 @@ class ConversationStore:
         logger.debug(f"[ConversationStore] 创建会话: {session_id}")
         return session
 
-    async def get_session(self, session_id: str) -> Optional[Session]:
+    async def get_session(self, session_id: str) -> Session | None:
         """
         获取会话信息
 
@@ -214,7 +214,7 @@ class ConversationStore:
 
         await self.connection.commit()
 
-    async def get_recent_sessions(self, limit: int = 10) -> List[Session]:
+    async def get_recent_sessions(self, limit: int = 10) -> list[Session]:
         """
         获取最近活跃的会话
 
@@ -299,7 +299,7 @@ class ConversationStore:
         )
         return len(session_ids)
 
-    async def get_session_participants(self, session_id: str) -> List[str]:
+    async def get_session_participants(self, session_id: str) -> list[str]:
         """
         获取会话参与者列表 (群聊场景)
 
@@ -406,8 +406,8 @@ class ConversationStore:
         return message_id
 
     async def get_messages(
-        self, session_id: str, limit: int = 50, sender_id: Optional[str] = None
-    ) -> List[Message]:
+        self, session_id: str, limit: int = 50, sender_id: str | None = None
+    ) -> list[Message]:
         """
         获取会话消息 (支持按发送者过滤)
 
@@ -528,7 +528,7 @@ class ConversationStore:
 
     # ==================== 高级查询 ====================
 
-    async def get_user_message_stats(self, session_id: str) -> Dict[str, int]:
+    async def get_user_message_stats(self, session_id: str) -> dict[str, int]:
         """
         获取会话中各用户的消息统计 (群聊场景)
 
@@ -557,7 +557,7 @@ class ConversationStore:
 
     async def search_messages(
         self, session_id: str, keyword: str, limit: int = 20
-    ) -> List[Message]:
+    ) -> list[Message]:
         """
         搜索会话中包含关键词的消息
 

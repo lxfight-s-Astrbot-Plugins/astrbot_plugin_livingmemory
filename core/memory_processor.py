@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 记忆处理器 - 使用LLM将对话历史处理为结构化记忆
 """
@@ -6,8 +5,10 @@
 import json
 import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
+
 from astrbot.api import logger
+
 from .conversation_models import Message
 
 
@@ -38,12 +39,12 @@ class MemoryProcessor:
         try:
             # 加载私聊提示词
             private_prompt_file = prompt_dir / "private_chat_prompt.txt"
-            with open(private_prompt_file, "r", encoding="utf-8") as f:
+            with open(private_prompt_file, encoding="utf-8") as f:
                 self.private_chat_prompt = f.read()
 
             # 加载群聊提示词
             group_prompt_file = prompt_dir / "group_chat_prompt.txt"
-            with open(group_prompt_file, "r", encoding="utf-8") as f:
+            with open(group_prompt_file, encoding="utf-8") as f:
                 self.group_chat_prompt = f.read()
 
             logger.info("[MemoryProcessor] 提示词模板加载成功")
@@ -66,10 +67,10 @@ class MemoryProcessor:
 
     async def process_conversation(
         self,
-        messages: List[Message],
+        messages: list[Message],
         is_group_chat: bool = False,
         save_original: bool = False,
-    ) -> tuple[str, Dict[str, Any], float]:
+    ) -> tuple[str, dict[str, Any], float]:
         """
         处理对话历史,生成结构化记忆
 
@@ -153,7 +154,7 @@ class MemoryProcessor:
             # 降级处理:使用简单的文本拼接
             return self._create_fallback_memory(conversation_text, is_group_chat)
 
-    def _format_conversation(self, messages: List[Message]) -> str:
+    def _format_conversation(self, messages: list[Message]) -> str:
         """
         格式化对话历史为文本
 
@@ -172,7 +173,7 @@ class MemoryProcessor:
 
     def _parse_llm_response(
         self, response_text: str, is_group_chat: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         解析LLM响应,提取JSON数据
 
@@ -278,7 +279,7 @@ class MemoryProcessor:
             )
             return self._get_default_structured_data(is_group_chat)
 
-    def _extract_by_regex(self, text: str, is_group_chat: bool) -> Dict[str, Any]:
+    def _extract_by_regex(self, text: str, is_group_chat: bool) -> dict[str, Any]:
         """
         使用正则表达式从文本中提取结构化数据(备用方案)
 
@@ -375,9 +376,9 @@ class MemoryProcessor:
     def _build_storage_format(
         self,
         conversation_text: str,
-        structured_data: Dict[str, Any],
+        structured_data: dict[str, Any],
         is_group_chat: bool,
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         构建存储格式
 
@@ -414,7 +415,7 @@ class MemoryProcessor:
 
         return content, metadata
 
-    def _ensure_list(self, value: Any) -> List[str]:
+    def _ensure_list(self, value: Any) -> list[str]:
         """确保值是字符串列表"""
         if isinstance(value, list):
             return [str(item) for item in value if item]
@@ -449,7 +450,7 @@ class MemoryProcessor:
         }
         return defaults.get(field, "")
 
-    def _get_default_structured_data(self, is_group_chat: bool) -> Dict[str, Any]:
+    def _get_default_structured_data(self, is_group_chat: bool) -> dict[str, Any]:
         """获取默认的结构化数据"""
         data = {
             "summary": "对话记录",
@@ -464,7 +465,7 @@ class MemoryProcessor:
 
     def _create_fallback_memory(
         self, conversation_text: str, is_group_chat: bool
-    ) -> tuple[str, Dict[str, Any], float]:
+    ) -> tuple[str, dict[str, Any], float]:
         """
         创建降级记忆(当LLM处理失败时)
 

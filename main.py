@@ -1142,7 +1142,7 @@ class LivingMemoryPlugin(Star):
                 )
 
             # 计算数据库大小
-            db_size = 0
+            db_size = 0.0
             if os.path.exists(self.memory_engine.db_path):
                 db_size = os.path.getsize(self.memory_engine.db_path) / (1024 * 1024)
 

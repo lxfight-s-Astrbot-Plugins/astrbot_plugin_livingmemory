@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 server.py - LivingMemory WebUI backend (适配MemoryEngine架构)
 基于FastAPI提供记忆管理、统计分析和系统管理API
@@ -51,7 +50,7 @@ import asyncio
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -70,7 +69,7 @@ class WebUIServer:
     def __init__(
         self,
         memory_engine,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         conversation_manager=None,
         index_validator=None,
     ):
@@ -106,16 +105,16 @@ class WebUIServer:
             )
 
         # Token管理
-        self._tokens: Dict[str, Dict[str, float]] = {}
+        self._tokens: dict[str, dict[str, float]] = {}
         self._token_lock = asyncio.Lock()
 
         # 请求频率限制
-        self._failed_attempts: Dict[str, List[float]] = {}
+        self._failed_attempts: dict[str, list[float]] = {}
         self._attempt_lock = asyncio.Lock()
 
-        self._server: Optional[uvicorn.Server] = None
-        self._server_task: Optional[asyncio.Task] = None
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._server: uvicorn.Server | None = None
+        self._server_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
         self._app = FastAPI(title="LivingMemory WebUI", version="2.0.0")
         self._setup_routes()
@@ -344,7 +343,7 @@ class WebUIServer:
 
         # 登录
         @self._app.post("/api/login")
-        async def login(request: Request, payload: Dict[str, Any]):
+        async def login(request: Request, payload: dict[str, Any]):
             password = str(payload.get("password", "")).strip()
             if not password:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="密码不能为空")
@@ -486,7 +485,7 @@ class WebUIServer:
         # 搜索记忆
         @self._app.post("/api/memories/search")
         async def search_memories(
-            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
+            payload: dict[str, Any], token: str = Depends(self._auth_dependency())
         ):
             query = payload.get("query", "").strip()
             if not query:
@@ -540,7 +539,7 @@ class WebUIServer:
         @self._app.put("/api/memories/{memory_id}")
         async def update_memory(
             memory_id: int,
-            payload: Dict[str, Any],
+            payload: dict[str, Any],
             token: str = Depends(self._auth_dependency()),
         ):
             """
@@ -557,43 +556,64 @@ class WebUIServer:
                         status.HTTP_400_BAD_REQUEST, detail="需要指定 field 和 value"
                     )
 
-                logger.info(f"[编辑记忆] memory_id={memory_id}, field={field}, value={value[:50] if isinstance(value, str) else value}")
+                logger.info(
+                    f"[编辑记忆] memory_id={memory_id}, field={field}, value={value[:50] if isinstance(value, str) else value}"
+                )
 
                 # 尝试从get_memory获取（新架构）
                 memory = await self.memory_engine.get_memory(memory_id)
                 logger.info(f"[编辑记忆] get_memory返回: {memory is not None}")
-                
+
                 # 如果get_memory返回None，尝试直接从documents表读取（兼容v1迁移数据）
                 if not memory:
-                    logger.warning(f"[编辑记忆] get_memory返回None，尝试直接从documents表读取")
+                    logger.warning(
+                        "[编辑记忆] get_memory返回None，尝试直接从documents表读取"
+                    )
                     try:
                         import json
+
                         cursor = await self.memory_engine.db_connection.execute(
-                            "SELECT id, text, metadata FROM documents WHERE id = ?", (memory_id,)
+                            "SELECT id, text, metadata FROM documents WHERE id = ?",
+                            (memory_id,),
                         )
                         row = await cursor.fetchone()
                         if row:
-                            logger.info(f"[编辑记忆] 从documents表成功读取记忆(id={row[0]})")
+                            logger.info(
+                                f"[编辑记忆] 从documents表成功读取记忆(id={row[0]})"
+                            )
                             # 构造memory对象
                             metadata_str = row[2] if row[2] else "{}"
                             try:
-                                metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                            except:
+                                metadata_dict = (
+                                    json.loads(metadata_str)
+                                    if isinstance(metadata_str, str)
+                                    else metadata_str
+                                )
+                            except (json.JSONDecodeError, TypeError):
                                 metadata_dict = {}
-                            
+
                             memory = {
                                 "id": row[0],
                                 "text": row[1],
-                                "metadata": metadata_dict
+                                "metadata": metadata_dict,
                             }
                         else:
-                            logger.error(f"[编辑记忆] 记忆在documents表中也不存在(memory_id={memory_id})")
-                            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在")
+                            logger.error(
+                                f"[编辑记忆] 记忆在documents表中也不存在(memory_id={memory_id})"
+                            )
+                            raise HTTPException(
+                                status.HTTP_404_NOT_FOUND, detail="记忆不存在"
+                            )
                     except HTTPException:
                         raise
                     except Exception as e:
-                        logger.error(f"[编辑记忆] 从documents表读取失败: {e}", exc_info=True)
-                        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"读取记忆失败: {str(e)}")
+                        logger.error(
+                            f"[编辑记忆] 从documents表读取失败: {e}", exc_info=True
+                        )
+                        raise HTTPException(
+                            status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"读取记忆失败: {str(e)}",
+                        )
 
                 # 验证字段和值
                 valid_fields = {"content", "importance", "type", "status"}
@@ -646,35 +666,42 @@ class WebUIServer:
 
                 # 对于内容更新：需要删除旧记忆+创建新记忆（以同步向量和索引）
                 if field == "content":
-                    logger.info(f"[编辑记忆] 内容更新需要重建向量，执行删除+创建流程")
+                    logger.info("[编辑记忆] 内容更新需要重建向量，执行删除+创建流程")
                     try:
                         # 保存必要信息
                         old_text = memory.get("text", "")
                         current_metadata = memory.get("metadata", {})
                         if isinstance(current_metadata, str):
                             import json
+
                             try:
                                 current_metadata = json.loads(current_metadata)
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 current_metadata = {}
-                        
+
                         session_id = current_metadata.get("session_id")
                         persona_id = current_metadata.get("persona_id")
                         importance = current_metadata.get("importance", 0.5)
-                        
+
                         # 添加更新原因
                         if reason:
                             current_metadata["update_reason"] = reason
                         current_metadata["updated_at"] = time.time()
-                        current_metadata["previous_content"] = old_text[:100]  # 保存前100字符
-                        
+                        current_metadata["previous_content"] = old_text[
+                            :100
+                        ]  # 保存前100字符
+
                         # 1. 删除旧记忆（会同时删除向量和BM25索引）
-                        delete_success = await self.memory_engine.delete_memory(memory_id)
+                        delete_success = await self.memory_engine.delete_memory(
+                            memory_id
+                        )
                         if delete_success:
                             logger.info(f"[编辑记忆] 成功删除旧记忆 {memory_id}")
                         else:
-                            logger.warning(f"[编辑记忆] 删除旧记忆失败，可能已不存在于索引中")
-                        
+                            logger.warning(
+                                "[编辑记忆] 删除旧记忆失败，可能已不存在于索引中"
+                            )
+
                         # 2. 创建新记忆（会自动生成向量和BM25索引）
                         new_memory_id = await self.memory_engine.add_memory(
                             content=updates["content"],
@@ -683,9 +710,11 @@ class WebUIServer:
                             importance=importance,
                             metadata=current_metadata,
                         )
-                        
-                        logger.info(f"[编辑记忆] 内容更新成功：old_id={memory_id}, new_id={new_memory_id}")
-                        
+
+                        logger.info(
+                            f"[编辑记忆] 内容更新成功：old_id={memory_id}, new_id={new_memory_id}"
+                        )
+
                         return {
                             "success": True,
                             "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
@@ -700,78 +729,90 @@ class WebUIServer:
                         logger.error(f"[编辑记忆] 内容更新失败: {e}", exc_info=True)
                         raise HTTPException(
                             status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=f"内容更新失败: {str(e)}"
+                            detail=f"内容更新失败: {str(e)}",
                         )
-                
+
                 # 对于元数据更新：尝试通过MemoryEngine更新
                 try:
                     success = await self.memory_engine.update_memory(memory_id, updates)
                     if success:
-                        logger.info(f"[编辑记忆] 元数据更新成功")
+                        logger.info("[编辑记忆] 元数据更新成功")
                         return {
                             "success": True,
                             "message": f"记忆 {memory_id} 的 {field} 已更新",
-                            "data": {"memory_id": memory_id, "field": field, "value": value},
+                            "data": {
+                                "memory_id": memory_id,
+                                "field": field,
+                                "value": value,
+                            },
                         }
                     else:
                         raise Exception("MemoryEngine.update_memory 返回 False")
                 except Exception as e:
                     logger.warning(f"[编辑记忆] 通过MemoryEngine更新元数据失败: {e}")
-                    
+
                     # 降级方案：直接更新documents表和FAISS元数据
                     try:
                         import json
-                        
+
                         current_metadata = memory.get("metadata", {})
                         if isinstance(current_metadata, str):
                             try:
                                 current_metadata = json.loads(current_metadata)
-                            except:
+                            except (json.JSONDecodeError, TypeError):
                                 current_metadata = {}
-                        
+
                         # 更新metadata
                         if field == "importance":
                             current_metadata["importance"] = updates["importance"]
                         elif field == "status":
                             current_metadata["status"] = updates["metadata"]["status"]
                         elif field == "type":
-                            current_metadata["memory_type"] = updates["metadata"]["memory_type"]
-                        
+                            current_metadata["memory_type"] = updates["metadata"][
+                                "memory_type"
+                            ]
+
                         if reason:
                             current_metadata["update_reason"] = reason
                         current_metadata["updated_at"] = time.time()
-                        
+
                         # 1. 更新documents表
                         metadata_json = json.dumps(current_metadata, ensure_ascii=False)
                         await self.memory_engine.db_connection.execute(
                             "UPDATE documents SET metadata = ? WHERE id = ?",
-                            (metadata_json, memory_id)
+                            (metadata_json, memory_id),
                         )
                         await self.memory_engine.db_connection.commit()
-                        logger.info(f"[编辑记忆] documents表元数据更新成功")
-                        
+                        logger.info("[编辑记忆] documents表元数据更新成功")
+
                         # 2. 尝试更新FAISS元数据（如果记录存在）
                         try:
                             # 注意：这里假设faiss_db有update_metadata方法
                             # 如果没有，这步会失败，但documents已更新
-                            if hasattr(self.memory_engine.faiss_db, 'update_metadata'):
+                            if hasattr(self.memory_engine.faiss_db, "update_metadata"):
                                 await self.memory_engine.faiss_db.update_metadata(
                                     memory_id, current_metadata
                                 )
-                                logger.info(f"[编辑记忆] FAISS元数据同步成功")
+                                logger.info("[编辑记忆] FAISS元数据同步成功")
                         except Exception as faiss_err:
-                            logger.warning(f"[编辑记忆] FAISS元数据同步失败（但documents已更新）: {faiss_err}")
-                        
+                            logger.warning(
+                                f"[编辑记忆] FAISS元数据同步失败（但documents已更新）: {faiss_err}"
+                            )
+
                         return {
                             "success": True,
                             "message": f"记忆 {memory_id} 的 {field} 已更新（降级模式）",
-                            "data": {"memory_id": memory_id, "field": field, "value": value},
+                            "data": {
+                                "memory_id": memory_id,
+                                "field": field,
+                                "value": value,
+                            },
                         }
                     except Exception as e2:
                         logger.error(f"[编辑记忆] 降级更新也失败: {e2}", exc_info=True)
                         raise HTTPException(
                             status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=f"更新失败: {str(e2)}"
+                            detail=f"更新失败: {str(e2)}",
                         )
 
             except HTTPException:
@@ -783,7 +824,7 @@ class WebUIServer:
         # 批量删除记忆
         @self._app.post("/api/memories/batch-delete")
         async def batch_delete_memories(
-            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
+            payload: dict[str, Any], token: str = Depends(self._auth_dependency())
         ):
             memory_ids = payload.get("memory_ids", [])
             if not memory_ids:
@@ -861,7 +902,7 @@ class WebUIServer:
         # 清理旧记忆
         @self._app.post("/api/cleanup")
         async def cleanup_memories(
-            payload: Optional[Dict[str, Any]] = None,
+            payload: dict[str, Any] | None = None,
             token: str = Depends(self._auth_dependency()),
         ):
             payload = payload or {}
@@ -888,7 +929,7 @@ class WebUIServer:
         # 召回测试 API
         @self._app.post("/api/recall/test")
         async def test_recall(
-            payload: Dict[str, Any], token: str = Depends(self._auth_dependency())
+            payload: dict[str, Any], token: str = Depends(self._auth_dependency())
         ):
             """
             测试记忆召回功能
@@ -1216,7 +1257,7 @@ class WebUIServer:
         @self._app.post("/api/conversations/{session_id}/search")
         async def search_conversation_messages(
             session_id: str,
-            payload: Dict[str, Any],
+            payload: dict[str, Any],
             token: str = Depends(self._auth_dependency()),
         ):
             if not self.conversation_manager:

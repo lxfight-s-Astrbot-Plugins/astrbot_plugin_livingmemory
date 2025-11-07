@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 会话管理器 - ConversationManager
 提供高级的会话和消息管理功能
@@ -11,14 +10,15 @@
 - AstrBot事件集成
 """
 
-from typing import List, Optional, Dict, Any
-from collections import OrderedDict
-import time
 import json
+import time
+from collections import OrderedDict
+from typing import Any
 
-from ..storage.conversation_store import ConversationStore
-from ..core.conversation_models import Message, Session
 from astrbot.api import logger
+
+from ..core.conversation_models import Message, Session
+from ..storage.conversation_store import ConversationStore
 
 
 class ConversationManager:
@@ -131,9 +131,9 @@ class ConversationManager:
         session_id: str,
         role: str,
         content: str,
-        sender_id: Optional[str] = None,
-        sender_name: Optional[str] = None,
-        group_id: Optional[str] = None,
+        sender_id: str | None = None,
+        sender_name: str | None = None,
+        group_id: str | None = None,
         platform: str = "unknown",
     ) -> Message:
         """
@@ -194,10 +194,10 @@ class ConversationManager:
     async def get_context(
         self,
         session_id: str,
-        max_messages: Optional[int] = None,
-        sender_id: Optional[str] = None,
+        max_messages: int | None = None,
+        sender_id: str | None = None,
         format_for_llm: bool = True,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         获取会话上下文(用于LLM)
 
@@ -232,9 +232,9 @@ class ConversationManager:
         self,
         session_id: str,
         limit: int = 50,
-        sender_id: Optional[str] = None,
+        sender_id: str | None = None,
         use_cache: bool = True,
-    ) -> List[Message]:
+    ) -> list[Message]:
         """
         获取会话消息
 
@@ -296,7 +296,7 @@ class ConversationManager:
 
         return session
 
-    async def get_session_info(self, session_id: str) -> Optional[Session]:
+    async def get_session_info(self, session_id: str) -> Session | None:
         """
         获取会话信息
 
@@ -318,7 +318,7 @@ class ConversationManager:
             logger.warning(f"[DEBUG-SessionInfo] [{session_id}] 会话不存在")
         return session
 
-    async def get_recent_sessions(self, limit: int = 10) -> List[Session]:
+    async def get_recent_sessions(self, limit: int = 10) -> list[Session]:
         """
         获取最近活跃的会话
 
@@ -368,7 +368,7 @@ class ConversationManager:
 
         return deleted_count
 
-    def _update_cache(self, session_id: str, messages: List[Message]):
+    def _update_cache(self, session_id: str, messages: list[Message]):
         """
         更新LRU缓存
 
@@ -387,7 +387,7 @@ class ConversationManager:
         if len(self._cache) > self.max_cache_size:
             self._cache.popitem(last=False)  # 删除最前面的(最旧)
 
-    def _get_from_cache(self, session_id: str) -> Optional[List[Message]]:
+    def _get_from_cache(self, session_id: str) -> list[Message] | None:
         """
         从缓存获取消息
 
@@ -416,8 +416,8 @@ class ConversationManager:
             self._cache.popitem(last=False)
 
     async def get_messages_range(
-        self, session_id: str, start_index: int = 0, end_index: Optional[int] = None
-    ) -> List[Message]:
+        self, session_id: str, start_index: int = 0, end_index: int | None = None
+    ) -> list[Message]:
         """
         获取指定范围的消息（用于滑动窗口总结）
 
@@ -499,7 +499,7 @@ class ConversationManager:
 
 
 def create_conversation_manager(
-    db_path: str, config: Optional[Dict[str, Any]] = None
+    db_path: str, config: dict[str, Any] | None = None
 ) -> ConversationManager:
     """
     便捷创建函数

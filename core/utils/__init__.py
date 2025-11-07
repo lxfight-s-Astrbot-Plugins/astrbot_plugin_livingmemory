@@ -1,25 +1,25 @@
-# -*- coding: utf-8 -*-
 """
 utils 子模块
 """
 
-import re
-import json
-import time
 import asyncio
+import json
+import re
+import time
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 import pytz
+
 from astrbot.api import logger
-from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
+from astrbot.api.star import Context
 
-from .stopwords_manager import StopwordsManager, get_stopwords_manager
 from ..text_processor import TextProcessor
+from .stopwords_manager import StopwordsManager, get_stopwords_manager
 
 
-def safe_parse_metadata(metadata_raw: Any) -> Dict[str, Any]:
+def safe_parse_metadata(metadata_raw: Any) -> dict[str, Any]:
     """
     安全解析元数据，统一处理字符串和字典类型。
 
@@ -42,7 +42,7 @@ def safe_parse_metadata(metadata_raw: Any) -> Dict[str, Any]:
         return {}
 
 
-def safe_serialize_metadata(metadata: Dict[str, Any]) -> str:
+def safe_serialize_metadata(metadata: dict[str, Any]) -> str:
     """
     安全序列化元数据为JSON字符串。
 
@@ -59,7 +59,7 @@ def safe_serialize_metadata(metadata: Dict[str, Any]) -> str:
         return "{}"
 
 
-def validate_timestamp(timestamp: Any, default_time: Optional[float] = None) -> float:
+def validate_timestamp(timestamp: Any, default_time: float | None = None) -> float:
     """
     验证和标准化时间戳。
 
@@ -114,7 +114,7 @@ async def retry_on_failure(
     Returns:
         函数执行结果
     """
-    last_exception = None
+    last_exception: BaseException | None = None
 
     for attempt in range(max_retries + 1):
         try:
@@ -137,13 +137,14 @@ async def retry_on_failure(
                 )
 
     # 所有重试都失败，抛出最后一个异常
-    raise last_exception
+    if last_exception is not None:
+        raise last_exception
 
 
 class OperationContext:
     """操作上下文管理器，用于错误处理和资源清理"""
 
-    def __init__(self, operation_name: str, session_id: Optional[str] = None):
+    def __init__(self, operation_name: str, session_id: str | None = None):
         self.operation_name = operation_name
         self.session_id = session_id
         self.start_time = None
@@ -171,7 +172,7 @@ class OperationContext:
         return False
 
 
-async def get_persona_id(context: Context, event: AstrMessageEvent) -> Optional[str]:
+async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | None:
     """
     获取当前会话的人格 ID。
     如果当前会话没有特定人格，则返回 AstrBot 的默认人格。
@@ -180,6 +181,8 @@ async def get_persona_id(context: Context, event: AstrMessageEvent) -> Optional[
         session_id = await context.conversation_manager.get_curr_conversation_id(
             event.unified_msg_origin
         )
+        if session_id is None:
+            return None
         conversation = await context.conversation_manager.get_conversation(
             event.unified_msg_origin, session_id
         )
@@ -249,22 +252,27 @@ def get_now_datetime_from_context(context: Context) -> datetime:
     """
     try:
         # 尝试从配置中获取时区
-        tz_str = context.plugin_config.get("timezone_settings", {}).get(
-            "timezone", "Asia/Shanghai"
-        )
-        return get_now_datetime(tz_str)
+        if hasattr(context, "plugin_config"):
+            config = getattr(context, "plugin_config", {})
+            if isinstance(config, dict):
+                tz_str = config.get("timezone_settings", {}).get(
+                    "timezone", "Asia/Shanghai"
+                )
+                return get_now_datetime(tz_str)
+        # 如果配置不存在，则使用默认值
+        return get_now_datetime()
     except (AttributeError, KeyError):
         # 如果配置不存在，则使用默认值
         return get_now_datetime()
 
 
-def format_memories_for_injection(memories: List) -> str:
+def format_memories_for_injection(memories: list) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
     添加明确的说明文本，告知 LLM 这些是历史对话记忆。
     """
     # 延迟导入避免循环依赖
-    from ..constants import MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER
+    from ..constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
     if not memories:
         return ""

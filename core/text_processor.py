@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 文本处理器 - 提供统一的分词和文本预处理功能
 用于支持 BM25 稀疏检索和记忆内容处理
@@ -6,9 +5,8 @@
 
 import re
 import string
-from typing import List, Dict, Set, Optional
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 try:
     import jieba
@@ -282,7 +280,7 @@ class TextProcessor:
         "上来",
     }
 
-    def __init__(self, stopwords_dir: Optional[str] = None):
+    def __init__(self, stopwords_dir: str | None = None):
         """
         初始化文本处理器
 
@@ -290,8 +288,8 @@ class TextProcessor:
             stopwords_dir: 停用词目录路径(将被传递给StopwordsManager),
                           如果为None则使用默认停用词
         """
-        self.stopwords: Set[str] = set()
-        self.custom_words: Set[str] = set()
+        self.stopwords: set[str] = set()
+        self.custom_words: set[str] = set()
         self.stopwords_dir = stopwords_dir  # 保存目录路径
 
         # 检查 jieba 是否可用
@@ -320,7 +318,7 @@ class TextProcessor:
             if stopwords_path:
                 self.load_stopwords(stopwords_path)
 
-    def tokenize(self, text: str, remove_stopwords: bool = True) -> List[str]:
+    def tokenize(self, text: str, remove_stopwords: bool = True) -> list[str]:
         """
         对单个文本进行分词
 
@@ -377,8 +375,8 @@ class TextProcessor:
         return filtered_tokens
 
     def tokenize_batch(
-        self, texts: List[str], remove_stopwords: bool = True
-    ) -> List[List[str]]:
+        self, texts: list[str], remove_stopwords: bool = True
+    ) -> list[list[str]]:
         """
         批量分词
 
@@ -396,7 +394,7 @@ class TextProcessor:
         """
         return [self.tokenize(text, remove_stopwords) for text in texts]
 
-    def load_stopwords(self, stopwords_path: str) -> Set[str]:
+    def load_stopwords(self, stopwords_path: str) -> set[str]:
         """
         加载停用词表
 
@@ -418,7 +416,7 @@ class TextProcessor:
             raise FileNotFoundError(f"停用词文件不存在: {stopwords_path}")
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 stopwords = set()
                 for line in f:
                     word = line.strip()
@@ -432,9 +430,9 @@ class TextProcessor:
             return stopwords
 
         except Exception as e:
-            raise IOError(f"读取停用词文件失败: {e}")
+            raise OSError(f"读取停用词文件失败: {e}")
 
-    def add_custom_words(self, words: List[str]):
+    def add_custom_words(self, words: list[str]):
         """
         添加自定义词汇到jieba词典
 
@@ -458,7 +456,7 @@ class TextProcessor:
         for word in words:
             jieba.add_word(word)
 
-    def add_stopwords(self, words: List[str]):
+    def add_stopwords(self, words: list[str]):
         """
         添加自定义停用词
 
@@ -467,7 +465,7 @@ class TextProcessor:
         """
         self.stopwords.update(words)
 
-    def remove_stopwords_from_list(self, words: List[str]):
+    def remove_stopwords_from_list(self, words: list[str]):
         """
         从停用词表中移除指定词
 
@@ -477,7 +475,7 @@ class TextProcessor:
         for word in words:
             self.stopwords.discard(word)
 
-    def get_word_freq(self, texts: List[str]) -> Dict[str, int]:
+    def get_word_freq(self, texts: list[str]) -> dict[str, int]:
         """
         统计词频
 
@@ -548,7 +546,7 @@ class TextProcessor:
 
         return text.strip()
 
-    def _segment(self, text: str) -> List[str]:
+    def _segment(self, text: str) -> list[str]:
         """
         对文本进行分词
 
@@ -589,7 +587,7 @@ class TextProcessor:
         """
         return word in self.stopwords
 
-    def filter_stopwords(self, tokens: List[str]) -> List[str]:
+    def filter_stopwords(self, tokens: list[str]) -> list[str]:
         """
         从分词列表中过滤停用词
 
@@ -634,9 +632,9 @@ class TextProcessor:
 
 # 便捷函数
 def create_text_processor(
-    stopwords_path: Optional[str] = None,
-    custom_words: Optional[List[str]] = None,
-    additional_stopwords: Optional[List[str]] = None,
+    stopwords_path: str | None = None,
+    custom_words: list[str] | None = None,
+    additional_stopwords: list[str] | None = None,
 ) -> TextProcessor:
     """
     创建文本处理器的便捷函数

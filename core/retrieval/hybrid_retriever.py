@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 混合检索器 - 结合BM25和向量检索的混合检索
 实现并行检索、RRF融合和智能加权策略
@@ -8,13 +7,14 @@ import asyncio
 import json
 import math
 import time
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
-from .rrf_fusion import RRFFusion, FusedResult
-from .bm25_retriever import BM25Retriever
-from .vector_retriever import VectorRetriever
 from astrbot.api import logger
+
+from .bm25_retriever import BM25Retriever
+from .rrf_fusion import FusedResult, RRFFusion
+from .vector_retriever import VectorRetriever
 
 
 @dataclass
@@ -24,10 +24,10 @@ class HybridResult:
     doc_id: int
     final_score: float  # 加权后的最终分数
     rrf_score: float  # RRF融合分数
-    bm25_score: Optional[float]  # BM25分数
-    vector_score: Optional[float]  # 向量分数
+    bm25_score: float | None  # BM25分数
+    vector_score: float | None  # 向量分数
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class HybridRetriever:
@@ -50,7 +50,7 @@ class HybridRetriever:
         bm25_retriever: BM25Retriever,
         vector_retriever: VectorRetriever,
         rrf_fusion: RRFFusion,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         初始化混合检索器
@@ -75,7 +75,7 @@ class HybridRetriever:
         self.fallback_enabled = self.config.get("fallback_enabled", True)
 
     async def add_memory(
-        self, content: str, metadata: Optional[Dict[str, Any]] = None
+        self, content: str, metadata: dict[str, Any] | None = None
     ) -> int:
         """
         添加记忆到两个索引
@@ -115,9 +115,9 @@ class HybridRetriever:
         self,
         query: str,
         k: int = 10,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[HybridResult]:
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[HybridResult]:
         """
         执行混合检索
 
@@ -189,14 +189,25 @@ class HybridRetriever:
 
         if not bm25_results and self.fallback_enabled and vector_results:
             # 只有向量结果,使用向量退化
-            return self._fallback_vector_only(vector_results, k)
+            if not isinstance(vector_results, BaseException):
+                return self._fallback_vector_only(vector_results, k)
+            return []
 
         if not vector_results and self.fallback_enabled and bm25_results:
             # 只有BM25结果,使用BM25退化
-            return self._fallback_bm25_only(bm25_results, k)
+            if not isinstance(bm25_results, BaseException):
+                return self._fallback_bm25_only(bm25_results, k)
+            return []
 
         # 3. RRF融合
-        fused_results = self.rrf_fusion.fuse(bm25_results, vector_results, top_k=k)
+        # 确保结果不是异常
+        valid_bm25 = bm25_results if not isinstance(bm25_results, BaseException) else None
+        valid_vector = vector_results if not isinstance(vector_results, BaseException) else None
+
+        if valid_bm25 is None or valid_vector is None:
+            return []
+
+        fused_results = self.rrf_fusion.fuse(valid_bm25, valid_vector, top_k=k)
 
         if not fused_results:
             return []
@@ -208,8 +219,8 @@ class HybridRetriever:
         return weighted_results
 
     def _apply_weighting(
-        self, fused_results: List[FusedResult], current_time: float
-    ) -> List[HybridResult]:
+        self, fused_results: list[FusedResult], current_time: float
+    ) -> list[HybridResult]:
         """
         应用重要性和时间衰减加权
 
@@ -279,7 +290,7 @@ class HybridRetriever:
 
         return hybrid_results
 
-    def _fallback_bm25_only(self, bm25_results: List, k: int) -> List[HybridResult]:
+    def _fallback_bm25_only(self, bm25_results: list, k: int) -> list[HybridResult]:
         """
         BM25退化:仅使用BM25结果
 
@@ -297,7 +308,7 @@ class HybridRetriever:
         current_time = time.time()
         return self._apply_weighting(fused_results, current_time)
 
-    def _fallback_vector_only(self, vector_results: List, k: int) -> List[HybridResult]:
+    def _fallback_vector_only(self, vector_results: list, k: int) -> list[HybridResult]:
         """
         向量退化:仅使用向量结果
 
@@ -315,7 +326,7 @@ class HybridRetriever:
         current_time = time.time()
         return self._apply_weighting(fused_results, current_time)
 
-    async def update_metadata(self, doc_id: int, metadata: Dict[str, Any]) -> bool:
+    async def update_metadata(self, doc_id: int, metadata: dict[str, Any]) -> bool:
         """
         同步更新所有存储层的元数据
 
@@ -329,15 +340,18 @@ class HybridRetriever:
         Returns:
             bool: FAISS更新是否成功
         """
-        import aiosqlite
         import json
+
+        import aiosqlite
 
         success_count = 0
         error_messages = []
 
         try:
             # 1. 更新FAISS向量库（主存储，必须成功）
-            vector_success = await self.vector_retriever.update_metadata(doc_id, metadata)
+            vector_success = await self.vector_retriever.update_metadata(
+                doc_id, metadata
+            )
 
             if not vector_success:
                 logger.error(f"[同步] FAISS向量库更新失败 (doc_id={doc_id})")
@@ -366,7 +380,9 @@ class HybridRetriever:
                         success_count += 1
                         logger.debug(f"[同步] ✓ documents表已更新 (doc_id={doc_id})")
                     else:
-                        logger.debug(f"[同步] ⊘ documents表中无此记录 (doc_id={doc_id})")
+                        logger.debug(
+                            f"[同步] ⊘ documents表中无此记录 (doc_id={doc_id})"
+                        )
 
             except Exception as e:
                 error_messages.append(f"documents表更新失败: {e}")

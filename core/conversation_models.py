@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 数据模型定义 - LivingMemory 插件重构
 包含 Message、Session、MemoryEvent 三个核心数据模型
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 import json
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -26,19 +25,19 @@ class Message:
 
     # 发送者信息 (群聊关键字段)
     sender_id: str  # 发送者唯一ID (用户ID/群组成员ID)
-    sender_name: Optional[str] = None  # 发送者昵称 (用于显示)
+    sender_name: str | None = None  # 发送者昵称 (用于显示)
 
     # 上下文信息
-    group_id: Optional[str] = None  # 群组ID (私聊时为 None)
-    platform: Optional[str] = None  # 平台标识 (如 "qq", "discord")
+    group_id: str | None = None  # 群组ID (私聊时为 None)
+    platform: str | None = None  # 平台标识 (如 "qq", "discord")
 
     # 时间戳
     timestamp: float = field(default_factory=time.time)  # 消息创建时间
 
     # 元数据
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 额外的元数据 (JSON)
+    metadata: dict[str, Any] = field(default_factory=dict)  # 额外的元数据 (JSON)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式"""
         return {
             "id": self.id,
@@ -54,7 +53,7 @@ class Message:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Message":
+    def from_dict(cls, data: dict[str, Any]) -> "Message":
         """从字典创建 Message 对象"""
         return cls(
             id=data.get("id", 0),
@@ -69,7 +68,7 @@ class Message:
             metadata=data.get("metadata", {}),
         )
 
-    def format_for_llm(self, include_sender_name: bool = True) -> Dict[str, str]:
+    def format_for_llm(self, include_sender_name: bool = True) -> dict[str, str]:
         """
         格式化为 LLM 所需格式
 
@@ -109,12 +108,12 @@ class Session:
     message_count: int = 0  # 消息总数
 
     # 群聊相关
-    participants: List[str] = field(default_factory=list)  # 参与者ID列表 (JSON存储)
+    participants: list[str] = field(default_factory=list)  # 参与者ID列表 (JSON存储)
 
     # 元数据
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 额外的元数据 (JSON)
+    metadata: dict[str, Any] = field(default_factory=dict)  # 额外的元数据 (JSON)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式"""
         return {
             "id": self.id,
@@ -128,7 +127,7 @@ class Session:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Session":
+    def from_dict(cls, data: dict[str, Any]) -> "Session":
         """从字典创建 Session 对象"""
         # 处理 participants 可能是 JSON 字符串的情况
         participants = data.get("participants", [])
@@ -190,9 +189,9 @@ class MemoryEvent:
     timestamp: float = field(default_factory=time.time)  # 记忆创建时间
 
     # 元数据
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 额外的元数据
+    metadata: dict[str, Any] = field(default_factory=dict)  # 额外的元数据
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式"""
         return {
             "memory_content": self.memory_content,
@@ -203,7 +202,7 @@ class MemoryEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MemoryEvent":
+    def from_dict(cls, data: dict[str, Any]) -> "MemoryEvent":
         """从字典创建 MemoryEvent 对象"""
         # 处理 metadata 可能是 JSON 字符串的情况
         metadata = data.get("metadata", {})
@@ -236,7 +235,7 @@ def serialize_to_json(obj: Any) -> str:
     return str(obj)
 
 
-def deserialize_from_json(json_str: Optional[str], default: Any = None) -> Any:
+def deserialize_from_json(json_str: str | None, default: Any = None) -> Any:
     """从 JSON 字符串反序列化对象"""
     if json_str is None or json_str == "":
         return default if default is not None else {}

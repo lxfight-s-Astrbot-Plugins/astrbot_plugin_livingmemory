@@ -1,14 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 稀疏检索器 - 基于 SQLite FTS5 和 BM25 的全文检索
 """
 
 import json
-from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any
+
 import aiosqlite
 
 from astrbot.api import logger
+
 from ..utils.stopwords_manager import StopwordsManager
 
 try:
@@ -27,14 +28,14 @@ class SparseResult:
     doc_id: int
     score: float
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class FTSManager:
     """FTS5 索引管理器"""
 
     def __init__(
-        self, db_path: str, stopwords_manager: Optional[StopwordsManager] = None
+        self, db_path: str, stopwords_manager: StopwordsManager | None = None
     ):
         self.db_path = db_path
         self.fts_table_name = "documents_fts"
@@ -181,7 +182,7 @@ class FTSManager:
             await db.commit()
             logger.debug(f"FTS文档已删除: ID={doc_id}")
 
-    async def search(self, query: str, limit: int = 50) -> List[Tuple[int, float]]:
+    async def search(self, query: str, limit: int = 50) -> list[tuple[int, float]]:
         """执行 BM25 搜索"""
         async with aiosqlite.connect(self.db_path) as db:
             # 将整个查询用双引号包裹，以处理特殊字符并将其作为短语搜索
@@ -207,7 +208,7 @@ class FTSManager:
 class SparseRetriever:
     """稀疏检索器"""
 
-    def __init__(self, db_path: str, config: Dict[str, Any] = None):
+    def __init__(self, db_path: str, config: dict[str, Any] | None = None):
         self.db_path = db_path
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
@@ -219,10 +220,10 @@ class SparseRetriever:
         self.enable_stopwords = self.config.get("enable_stopwords_filtering", True)
         self.stopwords_source = self.config.get("stopwords_source", "hit")
         self.custom_stopwords = self.config.get("custom_stopwords", [])
-        self.stopwords_manager: Optional[StopwordsManager] = None
+        self.stopwords_manager: StopwordsManager | None = None
 
         # 初始化 FTS 管理器（稍后会设置 stopwords_manager）
-        self.fts_manager: Optional[FTSManager] = None
+        self.fts_manager: FTSManager | None = None
 
         logger.info("SparseRetriever 初始化")
         logger.info(f"  启用状态: {'是' if self.enabled else '否'}")
@@ -306,10 +307,10 @@ class SparseRetriever:
         self,
         query: str,
         limit: int = 50,
-        session_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
-        metadata_filters: Optional[Dict[str, Any]] = None,
-    ) -> List[SparseResult]:
+        session_id: str | None = None,
+        persona_id: str | None = None,
+        metadata_filters: dict[str, Any] | None = None,
+    ) -> list[SparseResult]:
         """执行稀疏检索"""
         if not self.enabled:
             logger.debug("稀疏检索器未启用，返回空结果")
@@ -324,6 +325,9 @@ class SparseRetriever:
             logger.debug(f"  处理后查询: '{processed_query[:50]}...'")
 
             # 执行 FTS 搜索
+            if self.fts_manager is None:
+                logger.warning("FTS管理器未初始化")
+                return []
             fts_results = await self.fts_manager.search(processed_query, limit)
 
             if not fts_results:
@@ -386,7 +390,7 @@ class SparseRetriever:
             logger.error(f"  失败上下文: query='{query[:50]}...', limit={limit}")
             return []
 
-    async def _get_documents(self, doc_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    async def _get_documents(self, doc_ids: list[int]) -> dict[int, dict[str, Any]]:
         """批量获取文档"""
         async with aiosqlite.connect(self.db_path) as db:
             placeholders = ",".join("?" for _ in doc_ids)
@@ -406,10 +410,10 @@ class SparseRetriever:
 
     def _apply_filters(
         self,
-        metadata: Dict[str, Any],
-        session_id: Optional[str],
-        persona_id: Optional[str],
-        metadata_filters: Optional[Dict[str, Any]],
+        metadata: dict[str, Any],
+        session_id: str | None,
+        persona_id: str | None,
+        metadata_filters: dict[str, Any] | None,
     ) -> bool:
         """应用过滤器"""
         # 会话过滤

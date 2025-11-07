@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 停用词管理器 - 自动下载和管理停用词表
 """
 
-import aiohttp
 import asyncio
-from typing import Set, Optional
 from pathlib import Path
+
+import aiohttp
 
 from astrbot.api import logger
 
@@ -28,7 +27,7 @@ class StopwordsManager:
 
     def __init__(
         self,
-        stopwords_dir: Optional[str] = None,
+        stopwords_dir: str | None = None,
     ):
         """
         初始化停用词管理器
@@ -45,15 +44,15 @@ class StopwordsManager:
             self.stopwords_dir = Path(tempfile.gettempdir()) / "astrbot_stopwords"
 
         self.stopwords_dir.mkdir(parents=True, exist_ok=True)
-        self.stopwords: Set[str] = set()
-        self.custom_stopwords: Set[str] = set()
+        self.stopwords: set[str] = set()
+        self.custom_stopwords: set[str] = set()
 
     async def load_stopwords(
         self,
         source: str = "hit",
-        custom_words: Optional[list] = None,
+        custom_words: list | None = None,
         auto_download: bool = True,
-    ) -> Set[str]:
+    ) -> set[str]:
         """
         加载停用词表
 
@@ -174,7 +173,7 @@ class StopwordsManager:
             logger.error(f"下载停用词表时发生错误: {type(e).__name__}: {e}")
             return False
 
-    async def _load_from_file(self, filepath: Path) -> Set[str]:
+    async def _load_from_file(self, filepath: Path) -> set[str]:
         """
         从文件加载停用词
 
@@ -185,7 +184,7 @@ class StopwordsManager:
             Set[str]: 停用词集合
         """
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 stopwords = set()
                 for line in f:
                     word = line.strip()
@@ -199,7 +198,7 @@ class StopwordsManager:
             logger.error(f"读取停用词文件失败: {filepath}, 错误: {e}")
             return set()
 
-    def _get_builtin_stopwords(self) -> Set[str]:
+    def _get_builtin_stopwords(self) -> set[str]:
         """
         获取内置的基础停用词表（作为后备方案）
 
@@ -412,7 +411,7 @@ class StopwordsManager:
         """
         return [token for token in tokens if token not in self.stopwords]
 
-    async def save_custom_stopwords(self, filepath: Optional[Path] = None):
+    async def save_custom_stopwords(self, filepath: Path | None = None):
         """
         保存自定义停用词到文件
 
@@ -432,7 +431,7 @@ class StopwordsManager:
         except Exception as e:
             logger.error(f"保存自定义停用词失败: {e}")
 
-    async def get_stopwords(self, source: str = "hit") -> Optional[str]:
+    async def get_stopwords(self, source: str = "hit") -> str | None:
         """
         确保本地存在可用的停用词文件并返回其路径。
 
@@ -477,7 +476,7 @@ class StopwordsManager:
 
 
 # 全局单例
-_stopwords_manager: Optional[StopwordsManager] = None
+_stopwords_manager: StopwordsManager | None = None
 
 
 def get_stopwords_manager() -> StopwordsManager:

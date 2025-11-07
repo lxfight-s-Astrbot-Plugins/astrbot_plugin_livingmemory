@@ -1,12 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 索引一致性验证器 - 检测并修复索引与数据库的不一致问题
 """
 
-import aiosqlite
 import json
-from typing import Dict, Any, Tuple
 from dataclasses import dataclass
+from typing import Any
+
+import aiosqlite
+
 from astrbot.api import logger
 
 
@@ -191,7 +192,7 @@ class IndexValidator:
                 reason=f"检查失败: {str(e)}",
             )
 
-    async def get_migration_status(self) -> Tuple[bool, int]:
+    async def get_migration_status(self) -> tuple[bool, int]:
         """
         获取v1迁移状态
 
@@ -236,7 +237,7 @@ class IndexValidator:
 
     async def rebuild_indexes(
         self, memory_engine: Any, progress_callback=None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         重建所有索引
 

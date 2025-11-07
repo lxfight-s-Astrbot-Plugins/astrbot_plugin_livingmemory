@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 webui.__init__ - WebUI 模块导出
 """

@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 数据库迁移管理器 - 处理数据库版本升级和数据迁移
 """
 
 import asyncio
-import aiosqlite
-from typing import Optional, Dict, Any, Callable
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
+import aiosqlite
 
 from astrbot.api import logger
 
@@ -158,9 +159,9 @@ class DBMigration:
 
     async def migrate(
         self,
-        sparse_retriever: Optional[Any] = None,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
-    ) -> Dict[str, Any]:
+        sparse_retriever: Any | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
+    ) -> dict[str, Any]:
         """
         执行数据库迁移
 
@@ -235,8 +236,8 @@ class DBMigration:
 
     async def _migrate_v1_to_v2(
         self,
-        sparse_retriever: Optional[Any],
-        progress_callback: Optional[Callable[[str, int, int], None]],
+        sparse_retriever: Any | None,
+        progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
         从版本1迁移到版本2
@@ -313,7 +314,7 @@ class DBMigration:
             logger.error(f" 数据库迁移失败: {e}", exc_info=True)
             raise
 
-    async def get_migration_info(self) -> Dict[str, Any]:
+    async def get_migration_info(self) -> dict[str, Any]:
         """
         获取迁移信息
 
@@ -361,7 +362,7 @@ class DBMigration:
             logger.error(f"获取迁移信息失败: {e}", exc_info=True)
             return {"error": str(e)}
 
-    async def create_backup(self) -> Optional[str]:
+    async def create_backup(self) -> str | None:
         """
         创建数据库备份
 
