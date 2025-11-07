@@ -944,6 +944,27 @@ body {
   display: none;
 }
 
+.edit-form-section {
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.edit-form-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.edit-form-section:first-child {
+  padding-top: 0;
+}
+
+.form-hint {
+  margin-top: var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* ============================================
    Toast 通知
    ============================================ */

@@ -87,9 +87,6 @@
                 <button id="refresh-button" class="btn btn-ghost">
                   <i data-lucide="refresh-cw"></i> 刷新
                 </button>
-                <button id="load-all-button" class="btn btn-ghost">
-                  <i data-lucide="list"></i> 加载全部
-                </button>
                 <button id="nuke-button" class="btn btn-danger">
                   <i data-lucide="alert-triangle"></i> 核爆清除
                 </button>
@@ -361,43 +358,52 @@
         </header>
         
         <div class="modal-body">
-          <div class="form-field">
-            <label for="edit-field" class="form-label">编辑字段</label>
-            <select id="edit-field" class="form-select">
-              <option value="content">内容</option>
-              <option value="importance">重要性</option>
-              <option value="type">类型</option>
-              <option value="status">状态</option>
-            </select>
+          <div class="edit-form-section">
+            <div class="form-field">
+              <label for="edit-field" class="form-label">编辑字段</label>
+              <select id="edit-field" class="form-select">
+                <option value="content">内容</option>
+                <option value="importance">重要性</option>
+                <option value="type">类型</option>
+                <option value="status">状态</option>
+              </select>
+            </div>
           </div>
           
-          <div class="form-group" id="edit-content-group">
-            <label for="edit-value-content" class="form-label">新内容</label>
-            <textarea id="edit-value-content" rows="4" class="form-textarea"></textarea>
+          <div class="edit-form-section">
+            <div class="form-group" id="edit-content-group">
+              <label for="edit-value-content" class="form-label">新内容</label>
+              <textarea id="edit-value-content" rows="6" class="form-textarea" placeholder="输入新的记忆内容"></textarea>
+            </div>
+            
+            <div class="form-group hidden" id="edit-importance-group">
+              <label for="edit-value-importance" class="form-label">新重要性 (0-10)</label>
+              <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" class="form-input" placeholder="5.0" />
+              <p class="form-hint">重要性越高，记忆被召回的优先级越高</p>
+            </div>
+            
+            <div class="form-group hidden" id="edit-type-group">
+              <label for="edit-value-type" class="form-label">新类型</label>
+              <input type="text" id="edit-value-type" placeholder="如: FACT, EVENT, PREFERENCE" class="form-input" />
+              <p class="form-hint">记忆类型用于分类管理</p>
+            </div>
+            
+            <div class="form-group hidden" id="edit-status-group">
+              <label for="edit-value-status" class="form-label">新状态</label>
+              <select id="edit-value-status" class="form-select">
+                <option value="active">活跃</option>
+                <option value="archived">已归档</option>
+                <option value="deleted">已删除</option>
+              </select>
+              <p class="form-hint">已删除的记忆不会被召回</p>
+            </div>
           </div>
           
-          <div class="form-group hidden" id="edit-importance-group">
-            <label for="edit-value-importance" class="form-label">新重要性 (0-10)</label>
-            <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" class="form-input" />
-          </div>
-          
-          <div class="form-group hidden" id="edit-type-group">
-            <label for="edit-value-type" class="form-label">新类型</label>
-            <input type="text" id="edit-value-type" placeholder="如: FACT, EVENT, PREFERENCE" class="form-input" />
-          </div>
-          
-          <div class="form-group hidden" id="edit-status-group">
-            <label for="edit-value-status" class="form-label">新状态</label>
-            <select id="edit-value-status" class="form-select">
-              <option value="active">活跃</option>
-              <option value="archived">已归档</option>
-              <option value="deleted">已删除</option>
-            </select>
-          </div>
-          
-          <div class="form-field">
-            <label for="edit-reason" class="form-label">更新原因 (可选)</label>
-            <input type="text" id="edit-reason" placeholder="说明本次更新的原因" class="form-input" />
+          <div class="edit-form-section">
+            <div class="form-field">
+              <label for="edit-reason" class="form-label">更新原因 (可选)</label>
+              <input type="text" id="edit-reason" placeholder="说明本次更新的原因" class="form-input" />
+            </div>
           </div>
         </div>
         

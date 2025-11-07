@@ -38,7 +38,6 @@
     loginError: document.getElementById("login-error"),
     passwordInput: document.getElementById("password-input"),
     refreshButton: document.getElementById("refresh-button"),
-    loadAllButton: document.getElementById("load-all-button"),
     nukeButton: document.getElementById("nuke-button"),
     nukeBanner: document.getElementById("nuke-banner"),
     nukeMessage: document.getElementById("nuke-message"),
@@ -79,7 +78,6 @@
   function init() {
     dom.loginForm.addEventListener("submit", onLoginSubmit);
     dom.refreshButton.addEventListener("click", fetchAll);
-    dom.loadAllButton.addEventListener("click", onLoadAll);
     dom.nukeButton.addEventListener("click", onNukeClick);
     dom.logoutButton.addEventListener("click", logout);
     dom.prevPage.addEventListener("click", goPrevPage);
@@ -102,8 +100,6 @@
       state.searchTimeout = setTimeout(() => {
         state.filters.keyword = event.target.value.trim();
         state.page = 1;
-        state.loadAll = false;
-        dom.loadAllButton.classList.remove("active");
         fetchMemories();
       }, 500);
     });
@@ -483,8 +479,6 @@
     state.filters.status = dom.statusFilter.value;
     state.filters.keyword = dom.keywordInput.value.trim();
     state.page = 1;
-    state.loadAll = false;
-    dom.loadAllButton.classList.remove("active");
     
     // 服务端分页：重新请求数据
     fetchMemories();
@@ -493,8 +487,6 @@
   function onPageSizeChange() {
     state.pageSize = Number(dom.pageSize.value) || 20;
     state.page = 1;
-    state.loadAll = false;
-    dom.loadAllButton.classList.remove("active");
     
     // 服务端分页：重新请求数据
     fetchMemories();
@@ -514,13 +506,6 @@
       // 服务端分页：重新请求数据
       fetchMemories();
     }
-  }
-
-  function onLoadAll() {
-    state.loadAll = !state.loadAll;
-    dom.loadAllButton.classList.toggle("active", state.loadAll);
-    state.page = 1;
-    fetchMemories();
   }
 
   function updatePagination() {
