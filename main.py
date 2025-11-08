@@ -1104,6 +1104,28 @@ class LivingMemoryPlugin(Star):
         """长期记忆管理命令组 /lmem"""
         pass
 
+    #
+    # !!! [新功能] 新增一个 lmem reset 指令 !!!
+    #
+    @permission_type(PermissionType.ADMIN)
+    @lmem_group.command("reset")
+    async def lmem_reset(self, event: AstrMessageEvent):
+        """[管理员] 重置当前会话的长期记忆上下文，开始新的记忆篇章"""
+        if not await self._ensure_initialized() or not self.conversation_manager:
+            status_msg = self._get_initialization_status_message()
+            yield event.plain_result(status_msg)
+            return
+
+        session_id = self._get_session_id(event)
+        try:
+            await self.conversation_manager.clear_session(session_id)
+            message = "✅ 当前会话的长期记忆上下文已重置。\n\n下一次记忆总结将从现在开始，不会再包含之前的对话内容。"
+            yield event.plain_result(message)
+        except Exception as e:
+            logger.error(f"手动重置记忆上下文失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 重置失败: {str(e)}")
+    # !!! 新增指令到这里结束 !!!
+
     def _get_session_id(self, event: AstrMessageEvent) -> str:
         """从event获取session_id的辅助方法"""
         # 修复：直接使用 event.session_id，避免不一致问题
