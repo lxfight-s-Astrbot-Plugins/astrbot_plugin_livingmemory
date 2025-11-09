@@ -343,8 +343,10 @@ class ConversationManager:
         # 清除缓存
         if session_id in self._cache:
             del self._cache[session_id]
+        # 同步重置会话元数据，特别是记忆总结的计数器  
+        await self.reset_session_metadata(session_id)
 
-        logger.info(f"[ConversationManager] 清空会话: {session_id}")
+        logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
 
     async def cleanup_expired_sessions(self) -> int:
         """
@@ -496,6 +498,32 @@ class ConversationManager:
             return default
 
         return session.metadata.get(key, default)
+    async def reset_session_metadata(self, session_id: str) -> None:
+        """
+        重置指定会话的所有元数据，特别是 'last_summarized_index'。
+        这会使下一次记忆总结从头开始，不会包含旧的上下文。
+        """
+        session = await self.store.get_session(session_id)
+        if not session:
+            logger.warning(
+                f"[ConversationManager] 尝试重置元数据失败，会话 {session_id} 不存在"
+            )
+            return
+        # 将元数据重置为空字典
+        session.metadata = {}
+        # 保存回数据库
+        await self.store.connection.execute(
+            """
+            UPDATE sessions
+            SET metadata = ?
+            WHERE session_id = ?
+        """,
+            ("{}", session_id),
+        )
+        await self.store.connection.commit()
+        logger.info(
+            f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
+        )
 
 
 def create_conversation_manager(
