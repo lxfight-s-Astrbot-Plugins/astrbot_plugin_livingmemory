@@ -56,7 +56,7 @@ class VectorRetriever:
         self.enable_query_preprocessing = self.config.get(
             "enable_query_preprocessing", False
         )
-        
+
         # 优化3: ID映射缓存 (int_id -> uuid)
         self._id_cache: dict[int, str] = {}
         self._cache_max_size = self.config.get("id_cache_size", 1000)
@@ -174,36 +174,36 @@ class VectorRetriever:
     async def _get_uuid_from_id(self, doc_id: int) -> str | None:
         """
         获取文档的UUID（带缓存优化）
-        
+
         Args:
             doc_id: 整数文档ID
-            
+
         Returns:
             Optional[str]: UUID字符串，如果不存在返回None
         """
         # 优化3: 先查缓存
         if doc_id in self._id_cache:
             return self._id_cache[doc_id]
-        
+
         from astrbot.api import logger
-        
+
         try:
             doc_storage = self.faiss_db.document_storage
             docs = await doc_storage.get_documents(
                 metadata_filters={}, ids=[doc_id], limit=1
             )
-            
+
             if not docs or len(docs) == 0:
                 return None
-            
+
             uuid_doc_id = docs[0].get("doc_id")
-            
+
             # 更新缓存
             if uuid_doc_id and len(self._id_cache) < self._cache_max_size:
                 self._id_cache[doc_id] = uuid_doc_id
-            
+
             return uuid_doc_id
-            
+
         except Exception as e:
             logger.error(f"[UUID查询] 失败 (doc_id={doc_id}): {e}")
             return None
@@ -253,14 +253,15 @@ class VectorRetriever:
             # 优化2: 使用参数化查询确保SQL安全
             async with doc_storage.get_session() as session, session.begin():
                 from sqlalchemy import text
-                
+
                 # 使用参数化查询，避免SQL注入
-                stmt = text(
-                    "UPDATE documents SET metadata = :metadata WHERE id = :id"
-                )
+                stmt = text("UPDATE documents SET metadata = :metadata WHERE id = :id")
                 await session.execute(
                     stmt,
-                    {"metadata": json.dumps(current_metadata, ensure_ascii=False), "id": doc_id}
+                    {
+                        "metadata": json.dumps(current_metadata, ensure_ascii=False),
+                        "id": doc_id,
+                    },
                 )
 
             logger.debug(f"[元数据更新] 成功 (doc_id={doc_id})")
@@ -295,13 +296,11 @@ class VectorRetriever:
             # 使用 UUID 调用 FaissVecDB.delete()
             # 这会同时删除 document_storage 和 embedding_storage
             await self.faiss_db.delete(uuid_doc_id)
-            
+
             # 从缓存中移除
             self._id_cache.pop(doc_id, None)
 
-            logger.debug(
-                f"[向量删除] 成功删除 (doc_id={doc_id}, uuid={uuid_doc_id})"
-            )
+            logger.debug(f"[向量删除] 成功删除 (doc_id={doc_id}, uuid={uuid_doc_id})")
             return True
 
         except Exception as e:

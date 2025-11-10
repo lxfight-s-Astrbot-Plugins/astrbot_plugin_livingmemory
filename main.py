@@ -1124,6 +1124,7 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"手动重置记忆上下文失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 重置失败: {str(e)}")
+
     # !!! 新增指令到这里结束 !!!
 
     def _get_session_id(self, event: AstrMessageEvent) -> str:

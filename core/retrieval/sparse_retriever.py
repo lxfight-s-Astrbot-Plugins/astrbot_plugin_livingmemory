@@ -34,9 +34,7 @@ class SparseResult:
 class FTSManager:
     """FTS5 索引管理器"""
 
-    def __init__(
-        self, db_path: str, stopwords_manager: StopwordsManager | None = None
-    ):
+    def __init__(self, db_path: str, stopwords_manager: StopwordsManager | None = None):
         self.db_path = db_path
         self.fts_table_name = "documents_fts"
         self.stopwords_manager = stopwords_manager

@@ -343,7 +343,7 @@ class ConversationManager:
         # 清除缓存
         if session_id in self._cache:
             del self._cache[session_id]
-        # 同步重置会话元数据，特别是记忆总结的计数器  
+        # 同步重置会话元数据，特别是记忆总结的计数器
         await self.reset_session_metadata(session_id)
 
         logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
@@ -498,6 +498,7 @@ class ConversationManager:
             return default
 
         return session.metadata.get(key, default)
+
     async def reset_session_metadata(self, session_id: str) -> None:
         """
         重置指定会话的所有元数据，特别是 'last_summarized_index'。

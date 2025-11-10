@@ -332,7 +332,7 @@ class MemoryEngine:
             docs = await self.faiss_db.document_storage.get_documents(
                 metadata_filters={}, ids=[memory_id], limit=1
             )
-            
+
             if not docs or len(docs) == 0:
                 return None
 
@@ -379,6 +379,7 @@ class MemoryEngine:
         current_metadata = memory.get("metadata", {})
         if isinstance(current_metadata, str):
             import json
+
             try:
                 current_metadata = json.loads(current_metadata)
             except (json.JSONDecodeError, TypeError):
@@ -461,8 +462,13 @@ class MemoryEngine:
             # 确保 current_metadata 是字典（再次检查）
             if not isinstance(current_metadata, dict):
                 import json
+
                 try:
-                    current_metadata = json.loads(current_metadata) if isinstance(current_metadata, str) else {}
+                    current_metadata = (
+                        json.loads(current_metadata)
+                        if isinstance(current_metadata, str)
+                        else {}
+                    )
                 except (json.JSONDecodeError, TypeError):
                     current_metadata = {}
 
