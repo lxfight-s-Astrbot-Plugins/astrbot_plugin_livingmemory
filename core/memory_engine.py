@@ -328,10 +328,15 @@ class MemoryEngine:
         """
         # 从faiss_db的document_storage获取文档
         try:
-            doc = await self.faiss_db.document_storage.get_document(memory_id)
-            if not doc:
+            # 使用 get_documents (复数) 并传入 ids 参数
+            docs = await self.faiss_db.document_storage.get_documents(
+                metadata_filters={}, ids=[memory_id], limit=1
+            )
+            
+            if not docs or len(docs) == 0:
                 return None
 
+            doc = docs[0]
             return {
                 "id": doc["id"],
                 "text": doc["text"],
@@ -370,7 +375,16 @@ class MemoryEngine:
             logger.error(f"[更新] 记忆不存在 (memory_id={memory_id})")
             return False
 
+        # 解析 metadata（可能是JSON字符串）
         current_metadata = memory.get("metadata", {})
+        if isinstance(current_metadata, str):
+            import json
+            try:
+                current_metadata = json.loads(current_metadata)
+            except (json.JSONDecodeError, TypeError):
+                current_metadata = {}
+        elif not isinstance(current_metadata, dict):
+            current_metadata = {}
 
         # 处理内容更新 (需要重建所有索引)
         if "content" in updates:
@@ -443,6 +457,14 @@ class MemoryEngine:
 
         if metadata_updates:
             from astrbot.api import logger
+
+            # 确保 current_metadata 是字典（再次检查）
+            if not isinstance(current_metadata, dict):
+                import json
+                try:
+                    current_metadata = json.loads(current_metadata) if isinstance(current_metadata, str) else {}
+                except (json.JSONDecodeError, TypeError):
+                    current_metadata = {}
 
             # 合并元数据
             current_metadata.update(metadata_updates)
