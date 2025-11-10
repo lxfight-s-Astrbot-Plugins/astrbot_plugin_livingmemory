@@ -171,8 +171,15 @@ class MemoryEngine:
             await self.db_connection.close()
 
     async def _create_tables(self):
-        """创建数据库表"""
-        # documents表 - 存储文档内容和元数据
+        """创建数据库表
+        
+        注意：documents 表主要由 FAISS 的 DocumentStorage 类创建和管理。
+        这里使用 CREATE TABLE IF NOT EXISTS 确保兼容性：
+        - 如果 FAISS 已创建，不会重复创建（IF NOT EXISTS）
+        - 如果 FAISS 未创建（极端情况），插件仍能正常工作
+        - 插件需要直接操作此表进行高频更新（如访问时间）
+        """
+        # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
         await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,7 +188,7 @@ class MemoryEngine:
             )
         """)
 
-        # 创建索引
+        # 创建索引以提升session_id查询性能
         await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_doc_metadata
             ON documents(json_extract(metadata, '$.session_id'))
@@ -554,13 +561,47 @@ class MemoryEngine:
         return await self._update_access_time_internal(memory_id)
 
     async def _update_access_time_internal(self, memory_id: int) -> bool:
-        """内部方法:更新访问时间"""
+        """内部方法:更新访问时间（直接更新documents表，不经过FAISS）"""
+        import json
+        
         current_time = time.time()
-        metadata_update = {"last_access_time": current_time}
-
-        if self.hybrid_retriever is None:
+        
+        try:
+            if self.db_connection is None:
+                return False
+                
+            # 直接更新 documents 表，不经过 FAISS
+            # 1. 获取当前 metadata
+            cursor = await self.db_connection.execute(
+                "SELECT metadata FROM documents WHERE id = ?",
+                (memory_id,)
+            )
+            row = await cursor.fetchone()
+            
+            if not row:
+                return False
+            
+            # 2. 解析并更新 metadata
+            metadata_str = row[0] if row[0] else "{}"
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+            
+            metadata["last_access_time"] = current_time
+            
+            # 3. 写回 documents 表
+            await self.db_connection.execute(
+                "UPDATE documents SET metadata = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False), memory_id)
+            )
+            await self.db_connection.commit()
+            
+            return True
+            
+        except Exception:
+            # 静默失败，不影响查询流程
             return False
-        return await self.hybrid_retriever.update_metadata(memory_id, metadata_update)
 
     async def get_session_memories(
         self,
