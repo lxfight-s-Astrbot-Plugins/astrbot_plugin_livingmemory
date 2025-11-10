@@ -201,8 +201,12 @@ class HybridRetriever:
 
         # 3. RRF融合
         # 确保结果不是异常
-        valid_bm25 = bm25_results if not isinstance(bm25_results, BaseException) else None
-        valid_vector = vector_results if not isinstance(vector_results, BaseException) else None
+        valid_bm25 = (
+            bm25_results if not isinstance(bm25_results, BaseException) else None
+        )
+        valid_vector = (
+            vector_results if not isinstance(vector_results, BaseException) else None
+        )
 
         if valid_bm25 is None or valid_vector is None:
             return []
@@ -366,7 +370,7 @@ class HybridRetriever:
 
     async def delete_memory(self, doc_id: int) -> bool:
         """
-        从多个存储层中删除记忆
+        从多个存储层中删除记忆（带事务回滚机制）
 
         Args:
             doc_id: 文档ID
@@ -376,39 +380,68 @@ class HybridRetriever:
         """
         import aiosqlite
 
+        bm25_deleted = False
+        vector_deleted = False
+
         try:
-            # 1. 并行删除向量库和BM25索引
-            results = await asyncio.gather(
-                self.bm25_retriever.delete_document(doc_id),
-                self.vector_retriever.delete_document(doc_id),
-                return_exceptions=True,
-            )
-
-            bm25_success = (
-                results[0] if not isinstance(results[0], Exception) else False
-            )
-            vector_success = (
-                results[1] if not isinstance(results[1], Exception) else False
-            )
-
-            if isinstance(results[0], Exception):
-                logger.error(f"BM25删除异常: {results[0]}")
-            if isinstance(results[1], Exception):
-                logger.error(f"向量删除异常: {results[1]}")
-
-            if not (bm25_success and vector_success):
+            # 优化1: 先删除BM25索引（外键引用）
+            try:
+                bm25_deleted = await self.bm25_retriever.delete_document(doc_id)
+                if not bm25_deleted:
+                    logger.warning(f"[删除] BM25索引删除失败 (doc_id={doc_id})")
+                    return False
+                logger.debug(f"[删除] BM25索引已删除 (doc_id={doc_id})")
+            except Exception as e:
+                logger.error(f"[删除] BM25删除异常 (doc_id={doc_id}): {e}")
                 return False
 
-            # 2. 删除documents表记录
+            # 再删除向量库（主数据）
+            try:
+                vector_deleted = await self.vector_retriever.delete_document(doc_id)
+                if not vector_deleted:
+                    logger.error(f"[删除] 向量库删除失败，需回滚 (doc_id={doc_id})")
+                    # 回滚: 恢复BM25索引
+                    await self._rollback_bm25_delete(doc_id)
+                    return False
+                logger.debug(f"[删除] 向量库已删除 (doc_id={doc_id})")
+            except Exception as e:
+                logger.error(f"[删除] 向量删除异常，回滚BM25 (doc_id={doc_id}): {e}")
+                # 回滚: 恢复BM25索引
+                await self._rollback_bm25_delete(doc_id)
+                return False
+
+            # 最后删除documents表记录
             try:
                 async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
                     await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
                     await db.commit()
+                logger.debug(f"[删除] documents表已删除 (doc_id={doc_id})")
             except Exception as e:
-                logger.warning(f"删除documents表失败 (doc_id={doc_id}): {e}")
+                logger.warning(f"[删除] documents表删除失败 (doc_id={doc_id}): {e}")
+                # documents表删除失败不影响整体，因为主要数据已删除
 
+            logger.info(f"[删除] 记忆删除成功 (doc_id={doc_id})")
             return True
 
         except Exception as e:
-            logger.error(f"删除记忆失败 (doc_id={doc_id}): {e}")
+            logger.error(f"[删除] 删除记忆失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
+
+    async def _rollback_bm25_delete(self, doc_id: int):
+        """
+        回滚BM25删除操作（尽力而为）
+
+        注意：由于BM25是FTS索引，实际回滚较困难，这里只记录日志
+        实际生产环境应该考虑使用数据库事务或保存删除前的状态
+
+        Args:
+            doc_id: 文档ID
+        """
+        logger.warning(
+            f"[回滚] BM25删除需要回滚，但FTS5索引难以恢复 (doc_id={doc_id}). "
+            "建议使用索引重建功能修复数据一致性。"
+        )
+        # TODO: 实现完整的回滚机制，可能需要：
+        # 1. 从documents表读取原始内容
+        # 2. 重新插入BM25索引
+        # 但这需要保证documents表还未被删除

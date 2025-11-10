@@ -31,6 +31,7 @@ class VectorRetriever:
     2. 元数据包含:importance, create_time, last_access_time, session_id, persona_id
     3. 相似度分数已归一化到[0,1]区间
     4. 支持通过metadata过滤session_id和persona_id
+    5. ID映射缓存优化UUID查询性能
     """
 
     def __init__(
@@ -55,6 +56,10 @@ class VectorRetriever:
         self.enable_query_preprocessing = self.config.get(
             "enable_query_preprocessing", False
         )
+        
+        # 优化3: ID映射缓存 (int_id -> uuid)
+        self._id_cache: dict[int, str] = {}
+        self._cache_max_size = self.config.get("id_cache_size", 1000)
 
     async def add_document(
         self, content: str, metadata: dict[str, Any] | None = None
@@ -166,9 +171,46 @@ class VectorRetriever:
 
         return results
 
+    async def _get_uuid_from_id(self, doc_id: int) -> str | None:
+        """
+        获取文档的UUID（带缓存优化）
+        
+        Args:
+            doc_id: 整数文档ID
+            
+        Returns:
+            Optional[str]: UUID字符串，如果不存在返回None
+        """
+        # 优化3: 先查缓存
+        if doc_id in self._id_cache:
+            return self._id_cache[doc_id]
+        
+        from astrbot.api import logger
+        
+        try:
+            doc_storage = self.faiss_db.document_storage
+            docs = await doc_storage.get_documents(
+                metadata_filters={}, ids=[doc_id], limit=1
+            )
+            
+            if not docs or len(docs) == 0:
+                return None
+            
+            uuid_doc_id = docs[0].get("doc_id")
+            
+            # 更新缓存
+            if uuid_doc_id and len(self._id_cache) < self._cache_max_size:
+                self._id_cache[doc_id] = uuid_doc_id
+            
+            return uuid_doc_id
+            
+        except Exception as e:
+            logger.error(f"[UUID查询] 失败 (doc_id={doc_id}): {e}")
+            return None
+
     async def update_metadata(self, doc_id: int, metadata: dict[str, Any]) -> bool:
         """
-        更新文档元数据（通过重新获取并更新）
+        更新文档元数据（使用ORM方式）
 
         Args:
             doc_id: 文档ID (整数 id)
@@ -194,11 +236,6 @@ class VectorRetriever:
                 return False
 
             doc = docs[0]
-            uuid_doc_id = doc.get("doc_id")
-
-            if not uuid_doc_id:
-                logger.error(f"[元数据更新] 文档缺少 UUID (doc_id={doc_id})")
-                return False
 
             # 获取当前元数据并更新
             current_metadata_str = doc.get("metadata", "{}")
@@ -213,13 +250,17 @@ class VectorRetriever:
             # 合并新元数据
             current_metadata.update(metadata)
 
-            # 使用 SQLAlchemy 方式更新（直接操作数据库）
+            # 优化2: 使用参数化查询确保SQL安全
             async with doc_storage.get_session() as session, session.begin():
                 from sqlalchemy import text
-
+                
+                # 使用参数化查询，避免SQL注入
+                stmt = text(
+                    "UPDATE documents SET metadata = :metadata WHERE id = :id"
+                )
                 await session.execute(
-                    text("UPDATE documents SET metadata = :metadata WHERE id = :id"),
-                    {"metadata": json.dumps(current_metadata), "id": doc_id},
+                    stmt,
+                    {"metadata": json.dumps(current_metadata, ensure_ascii=False), "id": doc_id}
                 )
 
             logger.debug(f"[元数据更新] 成功 (doc_id={doc_id})")
@@ -233,7 +274,7 @@ class VectorRetriever:
 
     async def delete_document(self, doc_id: int) -> bool:
         """
-        删除文档（修复版：正确使用 FaissVecDB.delete API）
+        删除文档（修复版：正确使用 FaissVecDB.delete API + 缓存优化）
 
         Args:
             doc_id: 文档ID (documents表中的整数id)
@@ -244,27 +285,19 @@ class VectorRetriever:
         from astrbot.api import logger
 
         try:
-            doc_storage = self.faiss_db.document_storage
-
-            # 1. 通过整数 id 获取文档（包含 UUID doc_id）
-            docs = await doc_storage.get_documents(
-                metadata_filters={}, ids=[doc_id], limit=1
-            )
-
-            if not docs or len(docs) == 0:
-                logger.warning(f"[向量删除] 文档不存在 (doc_id={doc_id})")
-                return False
-
-            doc = docs[0]
-            uuid_doc_id = doc.get("doc_id")
+            # 优化3: 使用缓存的UUID查询方法
+            uuid_doc_id = await self._get_uuid_from_id(doc_id)
 
             if not uuid_doc_id:
-                logger.error(f"[向量删除] 文档缺少 UUID (doc_id={doc_id})")
+                logger.warning(f"[向量删除] 文档不存在或缺少UUID (doc_id={doc_id})")
                 return False
 
-            # 2. 使用 UUID 调用 FaissVecDB.delete()
+            # 使用 UUID 调用 FaissVecDB.delete()
             # 这会同时删除 document_storage 和 embedding_storage
             await self.faiss_db.delete(uuid_doc_id)
+            
+            # 从缓存中移除
+            self._id_cache.pop(doc_id, None)
 
             logger.debug(
                 f"[向量删除] 成功删除 (doc_id={doc_id}, uuid={uuid_doc_id})"
