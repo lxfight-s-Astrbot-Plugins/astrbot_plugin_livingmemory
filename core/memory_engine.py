@@ -57,6 +57,36 @@ class MemoryEngine:
     2. 自动化记忆整理和清理
     3. 重要性评估和时间衰减
     4. 会话隔离和统计
+
+    ID管理体系说明：
+    ==================
+    本系统使用三层存储架构，统一使用整数ID作为主键：
+
+    1. **DocumentStorage (FAISS内部)**
+       - 表: documents (SQLite，由SQLAlchemy管理)
+       - 主键: id (INTEGER, AUTOINCREMENT) - 这是统一的整数标识符
+       - UUID字段: doc_id (TEXT) - FAISS内部使用的UUID字符串
+       - 关系: id ←→ doc_id (一对一映射)
+
+    2. **BM25 FTS5索引**
+       - 表: memories_fts (SQLite FTS5虚拟表)
+       - 字段: doc_id (UNINDEXED) - 引用documents.id的整数
+       - 注意: 只存储分词后的内容，metadata从documents表读取
+
+    3. **FAISS向量索引**
+       - 存储: EmbeddingStorage (FAISS索引文件)
+       - 索引ID: 使用documents.id作为向量的整数索引
+
+    插件对外接口：
+    - add_memory() 返回: int (documents.id)
+    - search_memories() 返回: HybridResult包含doc_id (int)
+    - update_memory(memory_id: int) 参数: documents.id
+    - delete_memory(memory_id: int) 参数: documents.id
+
+    同步保证：
+    - 添加: 先插入DocumentStorage获取id，再用此id插入BM25和FAISS
+    - 更新: 通过vector_retriever更新DocumentStorage (自动同步)
+    - 删除: 先删除BM25，再通过FaissVecDB.delete()删除DocumentStorage和向量
     """
 
     def __init__(

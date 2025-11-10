@@ -330,81 +330,38 @@ class HybridRetriever:
         """
         同步更新所有存储层的元数据
 
-        确保FAISS向量库、documents表、BM25索引的元数据保持一致。
-        采用"尽力而为"策略：至少FAISS必须成功，其他失败仅警告。
+        ID体系说明：
+        - doc_id (int): documents表的主键，统一标识符
+        - 三个存储层都使用这个整数ID进行关联
+        - FAISS内部使用UUID，但对外接口使用整数ID
+
+        更新策略：
+        1. FAISS向量库（通过vector_retriever，会更新DocumentStorage）
+        2. documents表无需额外更新（已在步骤1完成）
+        3. BM25索引不存储metadata，从documents表读取
 
         Args:
-            doc_id: 文档ID
-            metadata: 新的元数据
+            doc_id: 文档ID (整数)
+            metadata: 新的元数据字典
 
         Returns:
-            bool: FAISS更新是否成功
+            bool: 是否更新成功
         """
-        import json
-
-        import aiosqlite
-
-        success_count = 0
-        error_messages = []
-
         try:
-            # 1. 更新FAISS向量库（主存储，必须成功）
+            # 更新FAISS向量库（这会同步更新DocumentStorage中的metadata）
             vector_success = await self.vector_retriever.update_metadata(
                 doc_id, metadata
             )
 
             if not vector_success:
-                logger.error(f"[同步] FAISS向量库更新失败 (doc_id={doc_id})")
+                logger.error(f"[同步更新] FAISS更新失败 (doc_id={doc_id})")
                 return False
 
-            success_count += 1
-            logger.debug(f"[同步] ✓ FAISS向量库已更新 (doc_id={doc_id})")
-
-            # 2. 更新documents表（辅助存储）
-            try:
-                async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
-                    cursor = await db.execute(
-                        "SELECT metadata FROM documents WHERE id = ?", (doc_id,)
-                    )
-                    row = await cursor.fetchone()
-
-                    if row:
-                        current_metadata = json.loads(row[0]) if row[0] else {}
-                        current_metadata.update(metadata)
-
-                        await db.execute(
-                            "UPDATE documents SET metadata = ? WHERE id = ?",
-                            (json.dumps(current_metadata, ensure_ascii=False), doc_id),
-                        )
-                        await db.commit()
-                        success_count += 1
-                        logger.debug(f"[同步] ✓ documents表已更新 (doc_id={doc_id})")
-                    else:
-                        logger.debug(
-                            f"[同步] ⊘ documents表中无此记录 (doc_id={doc_id})"
-                        )
-
-            except Exception as e:
-                error_messages.append(f"documents表更新失败: {e}")
-                logger.warning(f"[同步] ✗ documents表更新失败 (doc_id={doc_id}): {e}")
-
-            # 3. 【新增】BM25索引说明
-            # 注意：BM25 FTS5索引只存储分词后的内容用于检索，不存储metadata
-            # metadata是从documents表读取的，所以步骤2已经完成了BM25需要的更新
-            logger.debug(f"[同步] ℹ BM25索引通过documents表间接更新 (doc_id={doc_id})")
-
-            # 记录同步结果
-            if error_messages:
-                logger.warning(
-                    f"[同步] 部分同步成功 ({success_count}/2): {', '.join(error_messages)}"
-                )
-            else:
-                logger.info(f"[同步] 完全同步成功 (doc_id={doc_id})")
-
+            logger.info(f"[同步更新] 元数据更新成功 (doc_id={doc_id})")
             return True
 
         except Exception as e:
-            logger.error(f"[同步] 元数据更新失败 (doc_id={doc_id}): {e}")
+            logger.error(f"[同步更新] 失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
 
     async def delete_memory(self, doc_id: int) -> bool:

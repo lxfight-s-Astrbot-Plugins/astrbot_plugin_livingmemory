@@ -168,36 +168,72 @@ class VectorRetriever:
 
     async def update_metadata(self, doc_id: int, metadata: dict[str, Any]) -> bool:
         """
-        更新文档元数据
-
-        注意: FaissVecDB不直接支持元数据更新,需要通过DocumentStorage实现
+        更新文档元数据（通过重新获取并更新）
 
         Args:
-            doc_id: 文档ID
-            metadata: 新的元数据
+            doc_id: 文档ID (整数 id)
+            metadata: 新的元数据字典
 
         Returns:
             bool: 是否成功更新
         """
+        import json
+
+        from astrbot.api import logger
+
         try:
-            # 访问FaissVecDB的document_storage来更新元数据
             doc_storage = self.faiss_db.document_storage
 
-            # 先获取文档以验证存在（使用get_documents）
-            docs = await doc_storage.get_documents(metadata_filters={"id": doc_id})
+            # 通过 id 获取文档
+            docs = await doc_storage.get_documents(
+                metadata_filters={}, ids=[doc_id], limit=1
+            )
+
             if not docs or len(docs) == 0:
+                logger.warning(f"[元数据更新] 文档不存在 (doc_id={doc_id})")
                 return False
 
-            # 更新元数据
-            await doc_storage.update_metadata(doc_id, metadata)
+            doc = docs[0]
+            uuid_doc_id = doc.get("doc_id")
+
+            if not uuid_doc_id:
+                logger.error(f"[元数据更新] 文档缺少 UUID (doc_id={doc_id})")
+                return False
+
+            # 获取当前元数据并更新
+            current_metadata_str = doc.get("metadata", "{}")
+            if isinstance(current_metadata_str, str):
+                try:
+                    current_metadata = json.loads(current_metadata_str)
+                except (json.JSONDecodeError, TypeError):
+                    current_metadata = {}
+            else:
+                current_metadata = current_metadata_str or {}
+
+            # 合并新元数据
+            current_metadata.update(metadata)
+
+            # 使用 SQLAlchemy 方式更新（直接操作数据库）
+            async with doc_storage.get_session() as session, session.begin():
+                from sqlalchemy import text
+
+                await session.execute(
+                    text("UPDATE documents SET metadata = :metadata WHERE id = :id"),
+                    {"metadata": json.dumps(current_metadata), "id": doc_id},
+                )
+
+            logger.debug(f"[元数据更新] 成功 (doc_id={doc_id})")
             return True
 
-        except Exception:
+        except Exception as e:
+            from astrbot.api import logger
+
+            logger.error(f"[元数据更新] 失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
 
     async def delete_document(self, doc_id: int) -> bool:
         """
-        删除文档
+        删除文档（修复版：正确使用 FaissVecDB.delete API）
 
         Args:
             doc_id: 文档ID (documents表中的整数id)
@@ -205,39 +241,38 @@ class VectorRetriever:
         Returns:
             bool: 是否成功删除
         """
-        import aiosqlite
-
         from astrbot.api import logger
 
         try:
-            # 1. 从documents表获取记录
-            db_path = self.faiss_db.document_storage.db_path
-            async with aiosqlite.connect(db_path) as db:
-                cursor = await db.execute(
-                    "SELECT id FROM documents WHERE id = ?", (doc_id,)
-                )
-                row = await cursor.fetchone()
-                if not row:
-                    return False
-
-            # 2. 遍历document_storage找到对应的UUID doc_id
             doc_storage = self.faiss_db.document_storage
-            all_docs = await doc_storage.get_documents(metadata_filters={})
 
-            uuid_doc_id = None
-            for doc in all_docs:
-                if doc.get("id") == doc_id:
-                    uuid_doc_id = doc.get("doc_id")
-                    break
+            # 1. 通过整数 id 获取文档（包含 UUID doc_id）
+            docs = await doc_storage.get_documents(
+                metadata_filters={}, ids=[doc_id], limit=1
+            )
 
-            if not uuid_doc_id:
-                logger.warning(f"向量删除失败：未找到UUID (doc_id={doc_id})")
+            if not docs or len(docs) == 0:
+                logger.warning(f"[向量删除] 文档不存在 (doc_id={doc_id})")
                 return False
 
-            # 3. 使用UUID删除向量
+            doc = docs[0]
+            uuid_doc_id = doc.get("doc_id")
+
+            if not uuid_doc_id:
+                logger.error(f"[向量删除] 文档缺少 UUID (doc_id={doc_id})")
+                return False
+
+            # 2. 使用 UUID 调用 FaissVecDB.delete()
+            # 这会同时删除 document_storage 和 embedding_storage
             await self.faiss_db.delete(uuid_doc_id)
+
+            logger.debug(
+                f"[向量删除] 成功删除 (doc_id={doc_id}, uuid={uuid_doc_id})"
+            )
             return True
 
         except Exception as e:
-            logger.error(f"向量删除失败 (doc_id={doc_id}): {e}")
+            from astrbot.api import logger
+
+            logger.error(f"[向量删除] 失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
