@@ -109,6 +109,9 @@ class ForgettingAgentConfig(BaseModel):
 class FilteringConfig(BaseModel):
     """过滤配置"""
 
+    use_bot_isolation: bool = Field(
+        default=True, description="是否启用机器人记忆隔离"
+    )
     use_persona_filtering: bool = Field(default=True, description="是否使用人格过滤")
     use_session_filtering: bool = Field(default=True, description="是否使用会话过滤")
 

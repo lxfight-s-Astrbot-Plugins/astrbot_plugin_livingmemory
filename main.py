@@ -27,6 +27,7 @@ from .core.message_utils import store_round_with_length_check
 from .core.utils import (
     OperationContext,
     format_memories_for_injection,
+    get_bot_session_id,
     get_persona_id,
 )
 from .storage.conversation_store import ConversationStore
@@ -626,9 +627,13 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与其他地方保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Recall] 获取到 session_id: {session_id}")
+            # 根据配置生成会话ID（可能包含机器人标识）
+            filtering_config = self.config.get("filtering_settings", {})
+            use_bot_isolation = filtering_config.get("use_bot_isolation", True)
+            
+            # 使用新的复合会话ID生成函数
+            session_id = get_bot_session_id(event, use_bot_isolation)
+            logger.debug(f"[DEBUG-Recall] 生成会话ID: {session_id} (bot_isolation={use_bot_isolation})")
 
             async with OperationContext("记忆召回", session_id):
                 # 首先检查是否需要自动删除旧的注入记忆
@@ -638,7 +643,6 @@ class LivingMemoryPlugin(Star):
                 if auto_remove:
                     self._remove_injected_memories_from_context(req, session_id)
                 # 根据配置决定是否进行过滤
-                filtering_config = self.config.get("filtering_settings", {})
                 use_persona_filtering = filtering_config.get(
                     "use_persona_filtering", True
                 )
@@ -651,7 +655,8 @@ class LivingMemoryPlugin(Star):
                 # 调试：输出过滤参数
                 logger.debug(
                     f"[{session_id}] 过滤参数: session_id={session_id}, persona_id={persona_id}, "
-                    f"use_session={use_session_filtering}, use_persona={use_persona_filtering}"
+                    f"use_session={use_session_filtering}, use_persona={use_persona_filtering}, "
+                    f"use_bot_isolation={use_bot_isolation}"
                 )
 
                 recall_session_id = session_id if use_session_filtering else None
@@ -726,12 +731,13 @@ class LivingMemoryPlugin(Star):
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
-                # 使用 ConversationManager 添加用户消息
+                # 使用 ConversationManager 添加用户消息（传递复合会话ID）
                 if self.conversation_manager:
                     await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
                         content=req.prompt,
+                        custom_session_id=session_id,
                     )
 
         except Exception as e:
@@ -763,18 +769,24 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与 add_message_from_event 保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Reflection] 获取到 session_id: {session_id}")
+            # 根据配置生成会话ID（与recall保持一致）
+            filtering_config = self.config.get("filtering_settings", {})
+            use_bot_isolation = filtering_config.get("use_bot_isolation", True)
+            
+            # 使用新的复合会话ID生成函数
+            session_id = get_bot_session_id(event, use_bot_isolation)
+            logger.debug(f"[DEBUG-Reflection] 生成会话ID: {session_id} (bot_isolation={use_bot_isolation})")
+            
             if not session_id:
                 logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
                 return
 
-            # 使用 ConversationManager 添加助手响应
+            # 使用 ConversationManager 添加助手响应（传递复合会话ID）
             await self.conversation_manager.add_message_from_event(
                 event=event,
                 role="assistant",
                 content=resp.completion_text,
+                custom_session_id=session_id,
             )
             logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
 
@@ -1128,9 +1140,14 @@ class LivingMemoryPlugin(Star):
     # !!! 新增指令到这里结束 !!!
 
     def _get_session_id(self, event: AstrMessageEvent) -> str:
-        """从event获取session_id的辅助方法"""
-        # 修复：直接使用 event.session_id，避免不一致问题
-        return event.session_id or "default"
+        """从event获取session_id的辅助方法（支持机器人隔离）"""
+        # 根据配置生成会话ID
+        filtering_config = self.config.get("filtering_settings", {})
+        use_bot_isolation = filtering_config.get("use_bot_isolation", True)
+        
+        # 使用复合会话ID生成函数
+        session_id = get_bot_session_id(event, use_bot_isolation)
+        return session_id or "default"
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""

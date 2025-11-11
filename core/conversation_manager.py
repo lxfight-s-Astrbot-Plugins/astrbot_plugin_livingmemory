@@ -67,6 +67,7 @@ class ConversationManager:
         event: Any,  # AstrBot MessageEvent
         role: str,
         content: str,
+        custom_session_id: str | None = None,
     ) -> Message:
         """
         从AstrBot事件添加消息(自动提取发送者信息)
@@ -75,12 +76,13 @@ class ConversationManager:
             event: AstrBot的MessageEvent对象
             role: 消息角色 ("user" 或 "assistant")
             content: 消息内容
+            custom_session_id: 可选的自定义会话ID（用于机器人隔离等场景）
 
         Returns:
             创建的Message对象
         """
-        # 提取会话ID
-        session_id = event.session_id
+        # 提取会话ID（优先使用自定义ID）
+        session_id = custom_session_id if custom_session_id else event.session_id
 
         # 提取发送者信息
         sender_id = None

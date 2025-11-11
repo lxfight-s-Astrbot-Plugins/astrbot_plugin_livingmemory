@@ -154,6 +154,13 @@
     "description": "过滤与隔离设置",
     "type": "object",
     "items": {
+      "use_bot_isolation": {
+        "description": "启用机器人记忆隔离",
+        "hint": "开启后，不同机器人的记忆将完全独立。适用于在同一平台部署多个机器人实例的场景。关闭后，同一用户与不同机器人的对话会共享记忆（默认行为）。",
+        "type": "bool",
+        "default": true,
+        "obvious_hint": true
+      },
       "use_persona_filtering": {
         "description": "启用人格记忆过滤",
         "hint": "开启后，只会召回和总结与当前人格相关的记忆。",

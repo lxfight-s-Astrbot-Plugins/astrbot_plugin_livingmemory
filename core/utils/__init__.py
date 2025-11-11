@@ -172,6 +172,43 @@ class OperationContext:
         return False
 
 
+def get_bot_session_id(event: AstrMessageEvent, use_bot_isolation: bool = True) -> str:
+    """
+    生成复合会话ID，可选择是否包含机器人标识。
+    
+    Args:
+        event: AstrBot消息事件
+        use_bot_isolation: 是否启用机器人隔离（默认True）
+    
+    Returns:
+        str: 复合会话ID
+        - 启用机器人隔离: "bot_{self_id}:{unified_msg_origin}"
+        - 不启用: "{unified_msg_origin}" (保持原有行为)
+    
+    示例:
+        - 启用: "bot_111111:aiocqhttp:private:333333"
+        - 不启用: "aiocqhttp:private:333333"
+    """
+    if not use_bot_isolation:
+        # 不启用机器人隔离，返回原始的 unified_msg_origin
+        return event.unified_msg_origin
+    
+    # 获取机器人自身ID
+    self_id = event.get_self_id() if hasattr(event, "get_self_id") else None
+    
+    if not self_id:
+        # 如果无法获取self_id，降级为原始行为并记录警告
+        logger.warning(
+            f"无法获取机器人ID (self_id)，已降级为不隔离模式。"
+            f"unified_msg_origin={event.unified_msg_origin}"
+        )
+        return event.unified_msg_origin
+    
+    # 组合机器人ID和原始会话ID
+    # 格式: bot_{self_id}:{unified_msg_origin}
+    return f"bot_{self_id}:{event.unified_msg_origin}"
+
+
 async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | None:
     """
     获取当前会话的人格 ID。
@@ -411,6 +448,7 @@ __all__ = [
     "validate_timestamp",
     "retry_on_failure",
     "OperationContext",
+    "get_bot_session_id",
     "get_persona_id",
     "extract_json_from_response",
     "get_now_datetime",
