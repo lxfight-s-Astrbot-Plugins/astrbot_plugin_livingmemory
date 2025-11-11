@@ -12,6 +12,7 @@ from typing import Any
 import aiosqlite
 
 from astrbot.api import logger
+
 from .retrieval.bm25_retriever import BM25Retriever
 from .retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from .retrieval.rrf_fusion import RRFFusion
@@ -182,7 +183,8 @@ class MemoryEngine:
         - 插件需要直接操作此表进行高频更新（如访问时间）
         """
         # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
-        await self.db_connection.execute("""
+        if self.db_connection is not None:
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 text TEXT NOT NULL,
@@ -190,14 +192,14 @@ class MemoryEngine:
             )
         """)
 
-        # 创建索引以提升session_id查询性能
-        await self.db_connection.execute("""
+            # 创建索引以提升session_id查询性能
+            await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_doc_metadata
             ON documents(json_extract(metadata, '$.session_id'))
         """)
 
-        # 创建版本管理表
-        await self.db_connection.execute("""
+            # 创建版本管理表
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS db_version (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 version INTEGER NOT NULL,
@@ -207,8 +209,8 @@ class MemoryEngine:
             )
         """)
 
-        # 创建迁移状态表
-        await self.db_connection.execute("""
+            # 创建迁移状态表
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS migration_status (
                 key TEXT PRIMARY KEY,
                 value TEXT,
@@ -216,26 +218,27 @@ class MemoryEngine:
             )
         """)
 
-        await self.db_connection.commit()
-
-        # 检查是否需要初始化版本信息
-        cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
-        version_count = (await cursor.fetchone())[0]
-
-        if version_count == 0:
-            # 全新数据库，设置初始版本为 2
-            from datetime import datetime
-
-            await self.db_connection.execute(
-                """
-                INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
-                VALUES (?, ?, ?, ?)
-            """,
-                (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
-            )
             await self.db_connection.commit()
 
-            logger.info("已初始化数据库版本信息: v2")
+            # 检查是否需要初始化版本信息
+            cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
+            version_result = await cursor.fetchone()
+            version_count = version_result[0] if version_result else 0
+
+            if version_count == 0:
+                # 全新数据库，设置初始版本为 2
+                from datetime import datetime
+
+                await self.db_connection.execute(
+                    """
+                    INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
+                )
+                await self.db_connection.commit()
+
+                logger.info("已初始化数据库版本信息: v2")
 
     # ==================== 核心记忆操作 ====================
 
@@ -829,6 +832,8 @@ class MemoryEngine:
 
             # 3. 检查是否已迁移（使用unified_msg_origin本身作为标记）
             migration_key = f"migrated_umo_{unified_msg_origin}"
+            if self.db_connection is None:
+                return
             cursor = await self.db_connection.execute(
                 "SELECT value FROM migration_status WHERE key = ?", (migration_key,)
             )
@@ -849,7 +854,7 @@ class MemoryEngine:
             """
 
             cursor = await self.db_connection.execute(query, tuple(candidates))
-            rows = await cursor.fetchall()
+            rows = list(await cursor.fetchall())
 
             if not rows:
                 logger.info("[自动迁移] 未找到需要迁移的旧数据")
@@ -861,7 +866,7 @@ class MemoryEngine:
                 await self.db_connection.commit()
                 return
 
-            logger.info(f"[自动迁移] 找到 {len(rows)} 条旧数据需要迁移")
+            logger.info(f"[自动迁移] 找到 {len(list(rows))} 条旧数据需要迁移")
 
             # 5. 批量更新
             updated_count = 0

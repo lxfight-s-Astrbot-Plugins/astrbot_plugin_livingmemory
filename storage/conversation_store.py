@@ -55,7 +55,8 @@ class ConversationStore:
     async def _create_tables(self) -> None:
         """创建数据库表结构"""
         # sessions 表 - 会话元数据
-        await self.connection.execute("""
+        if self.connection is not None:
+            await self.connection.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT UNIQUE NOT NULL,
@@ -68,8 +69,8 @@ class ConversationStore:
             )
         """)
 
-        # messages 表 - 消息记录
-        await self.connection.execute("""
+            # messages 表 - 消息记录
+            await self.connection.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
@@ -85,30 +86,31 @@ class ConversationStore:
             )
         """)
 
-        await self.connection.commit()
+            await self.connection.commit()
 
     async def _create_indexes(self) -> None:
         """创建索引以优化查询性能"""
-        # sessions 表索引
-        await self.connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_id ON sessions(session_id)"
-        )
-        await self.connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_last_active ON sessions(last_active_at DESC)"
-        )
+        if self.connection is not None:
+            # sessions 表索引
+            await self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_id ON sessions(session_id)"
+            )
+            await self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_last_active ON sessions(last_active_at DESC)"
+            )
 
-        # messages 表索引
-        await self.connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_msg_session ON messages(session_id, timestamp DESC)"
-        )
-        await self.connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_msg_sender ON messages(session_id, sender_id, timestamp DESC)"
-        )
-        await self.connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_msg_timestamp ON messages(timestamp DESC)"
-        )
+            # messages 表索引
+            await self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_msg_session ON messages(session_id, timestamp DESC)"
+            )
+            await self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_msg_sender ON messages(session_id, sender_id, timestamp DESC)"
+            )
+            await self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_msg_timestamp ON messages(timestamp DESC)"
+            )
 
-        await self.connection.commit()
+            await self.connection.commit()
 
     # ==================== 会话管理 ====================
 
@@ -133,6 +135,8 @@ class ConversationStore:
                 f"[create_session] platform 参数不是字符串类型，已自动转换为: {platform}"
             )
 
+        if self.connection is None:
+            raise RuntimeError("数据库连接未初始化")
         cursor = await self.connection.execute(
             """
             INSERT INTO sessions (session_id, platform, created_at, last_active_at, message_count, participants, metadata)
@@ -144,7 +148,7 @@ class ConversationStore:
         await self.connection.commit()
 
         session = Session(
-            id=cursor.lastrowid,
+            id=cursor.lastrowid if cursor.lastrowid else 0,
             session_id=session_id,
             platform=platform,
             created_at=now,
@@ -167,6 +171,8 @@ class ConversationStore:
         Returns:
             Optional[Session]: 会话对象,不存在则返回 None
         """
+        if self.connection is None:
+            return None
         async with self.connection.execute(
             """
             SELECT id, session_id, platform, created_at, last_active_at,
@@ -203,6 +209,8 @@ class ConversationStore:
         """
         now = time.time()
 
+        if self.connection is None:
+            return
         await self.connection.execute(
             """
             UPDATE sessions
@@ -224,6 +232,8 @@ class ConversationStore:
         Returns:
             List[Session]: 会话列表
         """
+        if self.connection is None:
+            return []
         async with self.connection.execute(
             """
             SELECT id, session_id, platform, created_at, last_active_at,
@@ -267,6 +277,8 @@ class ConversationStore:
         """
         cutoff_time = time.time() - (days * 24 * 60 * 60)
 
+        if self.connection is None:
+            return 0
         # 获取要删除的会话ID列表
         async with self.connection.execute(
             """
@@ -329,16 +341,17 @@ class ConversationStore:
         if sender_id not in session.participants:
             session.participants.append(sender_id)
 
-            await self.connection.execute(
-                """
-                UPDATE sessions
-                SET participants = ?
-                WHERE session_id = ?
-            """,
-                (serialize_to_json(session.participants), session_id),
-            )
+            if self.connection is not None:
+                await self.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET participants = ?
+                    WHERE session_id = ?
+                """,
+                    (serialize_to_json(session.participants), session_id),
+                )
 
-            await self.connection.commit()
+                await self.connection.commit()
 
     # ==================== 消息管理 ====================
 
@@ -359,6 +372,8 @@ class ConversationStore:
             platform = message.platform or "unknown"
             session = await self.create_session(message.session_id, platform)
 
+        if self.connection is None:
+            raise RuntimeError("数据库连接未初始化")
         # 插入消息
         cursor = await self.connection.execute(
             """
@@ -381,7 +396,7 @@ class ConversationStore:
             ),
         )
 
-        message_id = cursor.lastrowid
+        message_id = cursor.lastrowid if cursor.lastrowid else 0
 
         # 更新会话统计
         await self.connection.execute(
@@ -442,6 +457,8 @@ class ConversationStore:
             """
             params = (session_id, limit)
 
+        if self.connection is None:
+            return []
         async with self.connection.execute(query, params) as cursor:
             rows = await cursor.fetchall()
 
@@ -478,6 +495,8 @@ class ConversationStore:
         Returns:
             int: 消息数量
         """
+        if self.connection is None:
+            return 0
         async with self.connection.execute(
             """
             SELECT COUNT(*) as count
@@ -487,7 +506,8 @@ class ConversationStore:
             (session_id,),
         ) as cursor:
             row = await cursor.fetchone()
-            return row["count"] if row else 0
+            count_value = row["count"] if row else 0
+            return int(count_value) if count_value is not None else 0
 
     async def delete_session_messages(self, session_id: str) -> int:
         """
@@ -499,6 +519,8 @@ class ConversationStore:
         Returns:
             int: 删除的消息数量
         """
+        if self.connection is None:
+            return 0
         cursor = await self.connection.execute(
             """
             DELETE FROM messages
@@ -538,6 +560,8 @@ class ConversationStore:
         Returns:
             Dict[str, int]: {sender_id: message_count}
         """
+        if self.connection is None:
+            return {}
         async with self.connection.execute(
             """
             SELECT sender_id, COUNT(*) as count
@@ -569,6 +593,8 @@ class ConversationStore:
         Returns:
             List[Message]: 匹配的消息列表
         """
+        if self.connection is None:
+            return []
         async with self.connection.execute(
             """
             SELECT id, session_id, role, content, sender_id, sender_name,

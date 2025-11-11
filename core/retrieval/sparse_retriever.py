@@ -200,7 +200,7 @@ class FTSManager:
             )
 
             results = await cursor.fetchall()
-            return [(row[0], row[1]) for row in results]
+            return [(int(row[0]), float(row[1])) for row in results]
 
 
 class SparseRetriever:
@@ -401,8 +401,21 @@ class SparseRetriever:
 
             documents = {}
             async for row in cursor:
-                metadata = json.loads(row[2]) if isinstance(row[2], str) else row[2]
-                documents[row[0]] = {"text": row[1], "metadata": metadata or {}}
+                doc_id = int(row[0])
+                text = str(row[1])
+                metadata_raw = row[2]
+
+                if isinstance(metadata_raw, str):
+                    try:
+                        metadata = json.loads(metadata_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                elif isinstance(metadata_raw, dict):
+                    metadata = metadata_raw
+                else:
+                    metadata = {}
+
+                documents[doc_id] = {"text": text, "metadata": metadata or {}}
 
             return documents
 
@@ -478,12 +491,14 @@ class SparseRetriever:
 
         try:
             # 1. 清空现有索引
+            if self.fts_manager is None:
+                raise RuntimeError("FTS管理器未初始化")
             await self.fts_manager.rebuild_index()
 
             # 2. 从 documents 表重新加载所有数据
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute("SELECT id, text FROM documents")
-                rows = await cursor.fetchall()
+                rows = list(await cursor.fetchall())
 
                 logger.info(f"找到 {len(rows)} 个文档需要索引")
 

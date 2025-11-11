@@ -65,12 +65,12 @@ class IndexValidator:
                         SELECT value FROM migration_status
                         WHERE key='index_rebuild_completed'
                     """)
-                    rebuild_completed = await cursor.fetchone()
-
-                    if rebuild_completed and rebuild_completed[0] == "true":
+                    rebuild_result = await cursor.fetchone()
+                    if rebuild_result and rebuild_result[0] == "true":
                         # 索引已经重建完成，直接返回一致状态
                         cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                        documents_count = (await cursor.fetchone())[0]
+                        count_result = await cursor.fetchone()
+                        documents_count = count_result[0] if count_result else 0
 
                         logger.debug(
                             f"检测到索引已完成重建标记，跳过详细检查（文档数: {documents_count}）"
@@ -89,7 +89,8 @@ class IndexValidator:
 
                 # 1. 获取documents表中的文档数和ID集合
                 cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                documents_count = (await cursor.fetchone())[0]
+                count_result = await cursor.fetchone()
+                documents_count = count_result[0] if count_result else 0
 
                 cursor = await db.execute("SELECT id FROM documents")
                 doc_ids = {row[0] for row in await cursor.fetchall()}
@@ -105,7 +106,8 @@ class IndexValidator:
                     cursor = await db.execute(
                         "SELECT COUNT(DISTINCT doc_id) FROM memories_fts"
                     )
-                    bm25_count = (await cursor.fetchone())[0]
+                    bm25_result = await cursor.fetchone()
+                    bm25_count = bm25_result[0] if bm25_result else 0
 
                     cursor = await db.execute(
                         "SELECT DISTINCT doc_id FROM memories_fts"
@@ -267,7 +269,7 @@ class IndexValidator:
                         "errors": 0,
                     }
 
-                total = len(documents)
+                total = len(list(documents))
                 logger.info(f" 找到 {total} 条文档需要重建索引")
 
                 # 2. 清空所有存储（documents表、BM25索引、向量索引）

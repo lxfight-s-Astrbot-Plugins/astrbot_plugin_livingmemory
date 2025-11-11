@@ -13,7 +13,7 @@ from typing import Any
 from astrbot.api import logger
 
 from .bm25_retriever import BM25Retriever
-from .rrf_fusion import FusedResult, RRFFusion
+from .rrf_fusion import BM25Result, FusedResult, RRFFusion, VectorResult
 from .vector_retriever import VectorRetriever
 
 
@@ -211,7 +211,28 @@ class HybridRetriever:
         if valid_bm25 is None or valid_vector is None:
             return []
 
-        fused_results = self.rrf_fusion.fuse(valid_bm25, valid_vector, top_k=k)
+        # 转换结果类型以匹配RRF融合器期望的类型
+        rrf_bm25_results = [
+            BM25Result(
+                doc_id=r.doc_id,
+                score=r.score,
+                content=r.content,
+                metadata=r.metadata
+            )
+            for r in valid_bm25
+        ]
+
+        rrf_vector_results = [
+            VectorResult(
+                doc_id=r.doc_id,
+                score=r.score,
+                content=r.content,
+                metadata=r.metadata
+            )
+            for r in valid_vector
+        ]
+
+        fused_results = self.rrf_fusion.fuse(rrf_bm25_results, rrf_vector_results, top_k=k)
 
         if not fused_results:
             return []

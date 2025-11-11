@@ -994,7 +994,7 @@ class LivingMemoryPlugin(Star):
                                                 history_messages[i],
                                                 history_messages[i + 1],
                                                 session_id,
-                                                persona_id,
+                                                persona_id or "",
                                                 i // 2,
                                             )
                                             if success:
@@ -1034,7 +1034,7 @@ class LivingMemoryPlugin(Star):
                                             history_messages[i],
                                             history_messages[i + 1],
                                             session_id,
-                                            persona_id,
+                                            persona_id or "",
                                             i // 2,
                                         )
                                         if success:
