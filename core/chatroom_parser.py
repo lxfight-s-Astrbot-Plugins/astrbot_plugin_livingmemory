@@ -69,6 +69,9 @@ class ChatroomContextParser:
                 )
                 return prompt
 
+        except (IndexError, AttributeError) as e:
+            logger.error(f"[ChatroomParser] 正则匹配错误: {e}", exc_info=True)
+            return prompt
         except Exception as e:
             logger.error(f"[ChatroomParser] 提取失败: {e}", exc_info=True)
             return prompt

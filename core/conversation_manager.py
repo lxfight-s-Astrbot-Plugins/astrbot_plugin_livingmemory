@@ -466,15 +466,18 @@ class ConversationManager:
 
         # 保存到数据库
         if self.store.connection is not None:
-            await self.store.connection.execute(
-                """
-                UPDATE sessions
-                SET metadata = ?
-                WHERE session_id = ?
-            """,
-                (json.dumps(session.metadata, ensure_ascii=False), session_id),
-            )
-            await self.store.connection.commit()
+            try:
+                await self.store.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                """,
+                    (json.dumps(session.metadata, ensure_ascii=False), session_id),
+                )
+                await self.store.connection.commit()
+            except Exception as e:
+                logger.error(f"更新会话元数据失败: {e}", exc_info=True)
 
         logger.debug(
             f"[ConversationManager] 更新会话元数据: {session_id}, {key}={value}"
@@ -515,15 +518,18 @@ class ConversationManager:
         session.metadata = {}
         # 保存回数据库
         if self.store.connection is not None:
-            await self.store.connection.execute(
-                """
-                UPDATE sessions
-                SET metadata = ?
-                WHERE session_id = ?
-            """,
-                ("{}", session_id),
-            )
-            await self.store.connection.commit()
+            try:
+                await self.store.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                """,
+                    ("{}", session_id),
+                )
+                await self.store.connection.commit()
+            except Exception as e:
+                logger.error(f"重置会话元数据失败: {e}", exc_info=True)
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )

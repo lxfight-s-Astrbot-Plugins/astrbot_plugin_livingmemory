@@ -54,11 +54,17 @@ class LivingMemoryPlugin(Star):
             self.config = self.config_obj.model_dump()
             logger.info("插件配置验证成功")
         except Exception as e:
-            logger.error(f"配置验证失败，使用默认配置: {e}")
+            logger.error(f"配置验证失败，使用默认配置: {e}", exc_info=True)
             from .core.config_validator import get_default_config
 
-            self.config = get_default_config()
-            self.config_obj = validate_config(self.config)
+            try:
+                self.config = get_default_config()
+                self.config_obj = validate_config(self.config)
+            except Exception as e2:
+                logger.error(f"加载默认配置也失败: {e2}", exc_info=True)
+                # 使用最基本的配置
+                self.config = {}
+                self.config_obj = None
 
         # 初始化状态
         self.embedding_provider: EmbeddingProvider | None = None
@@ -271,14 +277,11 @@ class LivingMemoryPlugin(Star):
             await self._auto_rebuild_index_if_needed()
 
             # 6.5. 异步初始化 TextProcessor（加载停用词）
-            if (
-                self.memory_engine
-                and hasattr(self.memory_engine, "text_processor")
-                and self.memory_engine.text_processor is not None
-                and hasattr(self.memory_engine.text_processor, "async_init")
-            ):
-                await self.memory_engine.text_processor.async_init()
-                logger.info(" TextProcessor 停用词已加载")
+            if self.memory_engine is not None:
+                if hasattr(self.memory_engine, "text_processor") and self.memory_engine.text_processor is not None:
+                    if hasattr(self.memory_engine.text_processor, "async_init"):
+                        await self.memory_engine.text_processor.async_init()
+                        logger.info(" TextProcessor 停用词已加载")
 
             # 7. 启动 WebUI（如启用）
             await self._start_webui()
@@ -477,7 +480,7 @@ class LivingMemoryPlugin(Star):
             silent: 静默模式，减少日志输出（用于轮询场景）
         """
         # 初始化 Embedding Provider
-        emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id")
+        emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id") if self.config else None
         if emb_id:
             provider = self.context.get_provider_by_id(emb_id)
             # 类型检查：确保返回的是 EmbeddingProvider
@@ -506,7 +509,7 @@ class LivingMemoryPlugin(Star):
                     logger.debug("没有可用的 Embedding Provider")
 
         # 初始化 LLM Provider
-        llm_id = self.config.get("provider_settings", {}).get("llm_provider_id")
+        llm_id = self.config.get("provider_settings", {}).get("llm_provider_id") if self.config else None
         if llm_id:
             provider = self.context.get_provider_by_id(llm_id)
             # 类型检查：确保返回的是 Provider（LLM Provider）

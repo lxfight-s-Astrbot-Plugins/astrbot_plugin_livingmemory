@@ -579,13 +579,15 @@ class MemoryEngine:
                 return False
 
             # 2. 解析并更新 metadata
-            metadata_str = row[0] if row[0] else "{}"
+            metadata_str = row[0] if row and row[0] else "{}"
             try:
                 metadata = (
                     json.loads(metadata_str)
                     if isinstance(metadata_str, str)
                     else metadata_str
                 )
+                if not isinstance(metadata, dict):
+                    metadata = {}
             except (json.JSONDecodeError, TypeError):
                 metadata = {}
 
@@ -600,8 +602,9 @@ class MemoryEngine:
 
             return True
 
-        except Exception:
-            # 静默失败，不影响查询流程
+        except Exception as e:
+            # 记录错误但不影响查询流程
+            logger.debug(f"更新访问时间失败 (memory_id={memory_id}): {e}")
             return False
 
     async def get_session_memories(

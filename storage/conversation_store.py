@@ -506,8 +506,10 @@ class ConversationStore:
             (session_id,),
         ) as cursor:
             row = await cursor.fetchone()
-            count_value = row["count"] if row else 0
-            return int(count_value) if count_value is not None else 0
+            if row and "count" in row.keys():
+                count_value = row["count"]
+                return int(count_value) if count_value is not None else 0
+            return 0
 
     async def delete_session_messages(self, session_id: str) -> int:
         """

@@ -66,7 +66,7 @@ class IndexValidator:
                         WHERE key='index_rebuild_completed'
                     """)
                     rebuild_result = await cursor.fetchone()
-                    if rebuild_result and rebuild_result[0] == "true":
+                    if rebuild_result and len(rebuild_result) > 0 and rebuild_result[0] == "true":
                         # 索引已经重建完成，直接返回一致状态
                         cursor = await db.execute("SELECT COUNT(*) FROM documents")
                         count_result = await cursor.fetchone()
@@ -137,7 +137,8 @@ class IndexValidator:
                                 if doc:
                                     vector_count += 1
                                     vector_ids.add(doc_id)
-                            except Exception:
+                            except Exception as e:
+                                logger.debug(f"检查向量索引失败 (doc_id={doc_id}): {e}")
                                 pass
                 except Exception as e:
                     logger.warning(f"检查向量索引失败: {e}")
@@ -220,7 +221,7 @@ class IndexValidator:
                 """)
                 row = await cursor.fetchone()
 
-                if not row or row[0] != "true":
+                if not row or len(row) == 0 or row[0] != "true":
                     return False, 0
 
                 # 获取待处理文档数
@@ -229,7 +230,7 @@ class IndexValidator:
                     WHERE key='pending_documents_count'
                 """)
                 count_row = await cursor.fetchone()
-                pending_count = int(count_row[0]) if count_row else 0
+                pending_count = int(count_row[0]) if count_row and len(count_row) > 0 and count_row[0] else 0
 
                 return True, pending_count
 
