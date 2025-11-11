@@ -38,7 +38,7 @@ from .webui import WebUIServer
     "LivingMemory",
     "lxfight",
     "一个拥有动态生命周期的智能长期记忆插件。",
-    "1.6.6",
+    "1.6.7",
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -1130,7 +1130,9 @@ class LivingMemoryPlugin(Star):
     def _get_session_id(self, event: AstrMessageEvent) -> str:
         """从event获取session_id的辅助方法"""
         # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
-        return event.unified_msg_origin or "default"
+        if not event.unified_msg_origin:
+            raise ValueError("无法获取 unified_msg_origin，event 对象可能不完整")
+        return event.unified_msg_origin
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""
