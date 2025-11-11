@@ -235,8 +235,6 @@ class MemoryEngine:
             )
             await self.db_connection.commit()
 
-            from astrbot.api import logger
-
             logger.info("已初始化数据库版本信息: v2")
 
     # ==================== 核心记忆操作 ====================
@@ -383,8 +381,6 @@ class MemoryEngine:
         # 获取当前记忆
         memory = await self.get_memory(memory_id)
         if not memory:
-            from astrbot.api import logger
-
             logger.error(f"[更新] 记忆不存在 (memory_id={memory_id})")
             return False
 
@@ -407,8 +403,6 @@ class MemoryEngine:
                 return False
 
             try:
-                from astrbot.api import logger
-
                 # 保留必要信息
                 session_id = current_metadata.get("session_id")
                 persona_id = current_metadata.get("persona_id")
@@ -453,8 +447,6 @@ class MemoryEngine:
                 return True
 
             except Exception as e:
-                from astrbot.api import logger
-
                 logger.error(
                     f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True
                 )
@@ -470,8 +462,6 @@ class MemoryEngine:
             metadata_updates.update(updates["metadata"])
 
         if metadata_updates:
-            from astrbot.api import logger
-
             # 确保 current_metadata 是字典（再次检查）
             if not isinstance(current_metadata, dict):
                 import json
@@ -516,7 +506,6 @@ class MemoryEngine:
         Returns:
             bool: 是否删除成功
         """
-        from astrbot.api import logger
 
         # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
         if self.hybrid_retriever is None:
@@ -914,8 +903,6 @@ class MemoryEngine:
             )
 
         except Exception as e:
-            from astrbot.api import logger
-
             logger.error(f"[自动迁移] 迁移失败: {e}", exc_info=True)
 
     async def get_statistics(self) -> dict[str, Any]:
@@ -1025,8 +1012,6 @@ class MemoryEngine:
 
             return stats
         except Exception as e:
-            from astrbot.api import logger
-
             logger.error(f"获取统计信息失败: {e}", exc_info=True)
             return {
                 "total_memories": 0,
