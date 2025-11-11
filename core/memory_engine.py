@@ -21,7 +21,8 @@ def _extract_session_uuid(session_id: str | None) -> str | None:
     """
     从 session_id 中提取 UUID 部分用于比较
 
-    支持两种格式：
+    支持多种格式：
+    - 机器人隔离格式：bot_{bot_id}:platform:message_type:uuid → 返回完整字符串（不提取）
     - 新版本：platform:message_type:uuid → 返回 uuid
     - 旧版本：uuid → 返回 uuid
 
@@ -33,6 +34,10 @@ def _extract_session_uuid(session_id: str | None) -> str | None:
     """
     if not session_id:
         return None
+
+    # 【重要】如果是机器人隔离格式(bot_开头)，直接返回完整ID，不进行提取
+    if session_id.startswith("bot_"):
+        return session_id
 
     # 尝试按新版本格式分割（冒号或感叹号分隔）
     if ":" in session_id:

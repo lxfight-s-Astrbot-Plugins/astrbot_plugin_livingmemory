@@ -69,7 +69,37 @@ def get_bot_session_id(event: AstrMessageEvent, use_bot_isolation: bool = True) 
 - ✅ 自动降级（无法获取self_id时回退到原始行为）
 - ✅ 详细的日志记录
 
-### 3. 记忆召回逻辑更新 (`main.py::handle_memory_recall`)
+### 3. UUID提取函数修复 (`core/memory_engine.py`) ⚠️ **关键修复**
+
+**问题**：原有的 `_extract_session_uuid()` 函数会将复合会话ID拆解，导致隔离失效。
+
+**修复前**：
+```python
+# 输入: "bot_111111:aiocqhttp:private:333333"
+# 输出: "333333"  ❌ 只保留最后一部分，机器人标识丢失！
+```
+
+**修复后**：
+```python
+def _extract_session_uuid(session_id: str | None) -> str | None:
+    # 如果是机器人隔离格式(bot_开头)，直接返回完整ID
+    if session_id.startswith("bot_"):
+        return session_id
+    
+    # 其他格式照旧提取UUID
+    if ":" in session_id:
+        parts = session_id.split(":")
+        return parts[-1]
+    ...
+```
+
+**修复后**：
+```python
+# 输入: "bot_111111:aiocqhttp:private:333333"
+# 输出: "bot_111111:aiocqhttp:private:333333"  ✅ 保持完整，隔离生效！
+```
+
+### 4. 记忆召回逻辑更新 (`main.py::handle_memory_recall`)
 
 **修改前**：
 ```python
