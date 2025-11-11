@@ -807,7 +807,7 @@ class MemoryEngine:
             parts = unified_msg_origin.split(":", 2)
             if len(parts) != 3:
                 logger.warning(
-                    "[自动迁移] unified_msg_origin 格式不正确: {unified_msg_origin}"
+                    f"[自动迁移] unified_msg_origin 格式不正确: {unified_msg_origin}"
                 )
                 return
 
