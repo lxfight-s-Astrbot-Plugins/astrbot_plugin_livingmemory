@@ -18,6 +18,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from astrbot.core.provider.provider import EmbeddingProvider
 
+from .core.chatroom_parser import ChatroomContextParser
 from .core.config_validator import merge_config_with_defaults, validate_config
 from .core.conversation_manager import ConversationManager
 from .core.index_validator import IndexValidator
@@ -38,7 +39,7 @@ from .webui import WebUIServer
     "LivingMemory",
     "lxfight",
     "一个拥有动态生命周期的智能长期记忆插件。",
-    "1.6.7",
+    "1.7.0",
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -657,13 +658,23 @@ class LivingMemoryPlugin(Star):
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
 
+                # ===== 问题1修复：提取真实用户消息用于召回 =====
+                # 自动检测并提取（如果不是特殊格式则返回原值）
+                actual_query = ChatroomContextParser.extract_actual_message(req.prompt)
+
+                if actual_query != req.prompt:
+                    logger.info(
+                        f"[{session_id}]  检测到群聊上下文格式，已提取真实消息用于召回 "
+                        f"(原始: {len(req.prompt)}字符 → 提取: {len(actual_query)}字符)"
+                    )
+
                 # 使用 MemoryEngine 进行智能回忆
                 logger.info(
-                    f"[{session_id}] 开始记忆召回，查询='{req.prompt[:50]}...'，top_k={self.config.get('recall_engine', {}).get('top_k', 5)}"
+                    f"[{session_id}] 开始记忆召回，查询='{actual_query[:50]}...'，top_k={self.config.get('recall_engine', {}).get('top_k', 5)}"
                 )
 
                 recalled_memories = await self.memory_engine.search_memories(
-                    query=req.prompt,
+                    query=actual_query,  # 使用提取的真实消息
                     k=self.config.get("recall_engine", {}).get("top_k", 5),
                     session_id=recall_session_id,
                     persona_id=recall_persona_id,
@@ -726,12 +737,23 @@ class LivingMemoryPlugin(Star):
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
-                # 使用 ConversationManager 添加用户消息
+                # ===== 问题3修复：避免存储完整上下文到数据库 =====
                 if self.conversation_manager:
+                    # 提取真实消息存储（避免数据库膨胀）
+                    message_to_store = ChatroomContextParser.extract_actual_message(
+                        req.prompt
+                    )
+
+                    if message_to_store != req.prompt:
+                        logger.debug(
+                            f"[{session_id}]  只存储真实消息到数据库 "
+                            f"({len(req.prompt)} → {len(message_to_store)}字符，避免数据库膨胀)"
+                        )
+
                     await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
-                        content=req.prompt,
+                        content=message_to_store,
                     )
 
         except Exception as e:
