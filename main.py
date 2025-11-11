@@ -38,7 +38,7 @@ from .webui import WebUIServer
     "LivingMemory",
     "lxfight",
     "一个拥有动态生命周期的智能长期记忆插件。",
-    "1.6.3",
+    "1.6.4",
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -626,9 +626,9 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与其他地方保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Recall] 获取到 session_id: {session_id}")
+            # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+            session_id = event.unified_msg_origin
+            logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
 
             async with OperationContext("记忆召回", session_id):
                 # 首先检查是否需要自动删除旧的注入记忆
@@ -763,9 +763,9 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与 add_message_from_event 保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Reflection] 获取到 session_id: {session_id}")
+            # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+            session_id = event.unified_msg_origin
+            logger.debug(f"[DEBUG-Reflection] 获取到 unified_msg_origin: {session_id}")
             if not session_id:
                 logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
                 return
@@ -1129,8 +1129,8 @@ class LivingMemoryPlugin(Star):
 
     def _get_session_id(self, event: AstrMessageEvent) -> str:
         """从event获取session_id的辅助方法"""
-        # 修复：直接使用 event.session_id，避免不一致问题
-        return event.session_id or "default"
+        # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+        return event.unified_msg_origin or "default"
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""

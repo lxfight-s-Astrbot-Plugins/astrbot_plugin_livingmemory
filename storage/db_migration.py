@@ -17,12 +17,13 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 2
+    CURRENT_VERSION = 3
 
     # 版本历史记录
     VERSION_HISTORY = {
         1: "初始版本 - 基础记忆存储",
         2: "FTS5索引预处理 - 添加分词和停用词支持",
+        3: "会话ID迁移 - 标记需要session_id格式升级",
     }
 
     def __init__(self, db_path: str):
@@ -56,7 +57,8 @@ class DBMigration:
                     if has_documents:
                         # 有documents表但没有版本表，检查是否有数据
                         cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                        doc_count = (await cursor.fetchone())[0]
+                        doc_count_row = await cursor.fetchone()
+                        doc_count = doc_count_row[0] if doc_count_row else 0
 
                         if doc_count > 0:
                             # 有数据但无版本表，判定为v1旧数据库
@@ -202,6 +204,10 @@ class DBMigration:
                 if current_version == 1:
                     migration_steps.append(self._migrate_v1_to_v2)
 
+                # 从版本2升级到版本3
+                if current_version <= 2:
+                    migration_steps.append(self._migrate_v2_to_v3)
+
                 # 执行所有迁移步骤
                 for step in migration_steps:
                     await step(sparse_retriever, progress_callback)
@@ -252,7 +258,8 @@ class DBMigration:
                     SELECT COUNT(*) FROM sqlite_master
                     WHERE type='table' AND name='documents'
                 """)
-                has_table = (await cursor.fetchone())[0] > 0
+                has_table_row = await cursor.fetchone()
+                has_table = (has_table_row[0] if has_table_row else 0) > 0
 
                 if not has_table:
                     logger.info("ℹ️ 未找到documents表，创建新数据库")
@@ -260,7 +267,8 @@ class DBMigration:
 
                 # 获取文档总数
                 cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                total_docs = (await cursor.fetchone())[0]
+                total_docs_row = await cursor.fetchone()
+                total_docs = total_docs_row[0] if total_docs_row else 0
 
                 if total_docs == 0:
                     logger.info("ℹ️ 数据库为空，无需重建索引")
@@ -312,6 +320,40 @@ class DBMigration:
 
         except Exception as e:
             logger.error(f" 数据库迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _migrate_v2_to_v3(
+        self,
+        sparse_retriever: Any | None,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """
+        从版本2迁移到版本3
+        主要变更：标记需要进行 session_id 格式升级
+
+        策略说明：
+        不在迁移阶段进行数据转换，原因：
+        1. 大多数用户只有一个Bot，旧的session_id实际上就对应当前Bot的unified_msg_origin
+        2. 迁移时无法获取运行时的platform信息，无法生成正确的unified_msg_origin
+        3. 插件运行时会自动使用unified_msg_origin，旧数据保持不变不影响使用
+        4. 只有多Bot用户才会遇到session_id冲突，这种情况下新消息会使用新格式
+
+        此迁移步骤仅升级版本号，不进行实际数据转换。
+        """
+        logger.info(" 执行迁移步骤: v2 -> v3 (session_id格式升级)")
+
+        try:
+            logger.info(
+                "ℹ️ 插件现在使用 unified_msg_origin (格式:platform:type:id) 作为会话标识"
+            )
+            logger.info("ℹ️ 旧数据保持不变，新消息自动使用新格式")
+            logger.info("ℹ️ 对于单Bot用户，这不会导致任何问题")
+            logger.info("ℹ️ 对于多Bot用户，新旧数据会自然分离，避免混淆")
+
+            logger.info(" v2 -> v3 迁移完成")
+
+        except Exception as e:
+            logger.error(f" v2 -> v3 迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> dict[str, Any]:

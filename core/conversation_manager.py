@@ -79,8 +79,8 @@ class ConversationManager:
         Returns:
             创建的Message对象
         """
-        # 提取会话ID
-        session_id = event.session_id
+        # 使用 unified_msg_origin 作为会话ID，确保多Bot场景下的唯一性
+        session_id = event.unified_msg_origin
 
         # 提取发送者信息
         sender_id = None
