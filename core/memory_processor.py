@@ -403,6 +403,8 @@ class MemoryProcessor:
             )
 
         # metadata字段:存储结构化信息
+        # 注意：不要在这里设置 create_time 和 last_access_time
+        # 这些字段会由 MemoryEngine.add_memory() 自动添加
         metadata = {
             "topics": structured_data.get("topics", []),
             "key_facts": structured_data.get("key_facts", []),

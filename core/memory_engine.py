@@ -278,8 +278,13 @@ class MemoryEngine:
         }
 
         # 合并用户提供的额外元数据
+        # 注意：先合并外部metadata，再确保时间字段不被覆盖
         if metadata:
             full_metadata.update(metadata)
+
+        # 确保时间字段始终存在且不被外部metadata覆盖
+        full_metadata["create_time"] = current_time
+        full_metadata["last_access_time"] = current_time
 
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
         if self.hybrid_retriever is None:

@@ -278,7 +278,10 @@ class LivingMemoryPlugin(Star):
 
             # 6.5. 异步初始化 TextProcessor（加载停用词）
             if self.memory_engine is not None:
-                if hasattr(self.memory_engine, "text_processor") and self.memory_engine.text_processor is not None:
+                if (
+                    hasattr(self.memory_engine, "text_processor")
+                    and self.memory_engine.text_processor is not None
+                ):
                     if hasattr(self.memory_engine.text_processor, "async_init"):
                         await self.memory_engine.text_processor.async_init()
                         logger.info(" TextProcessor 停用词已加载")
@@ -480,7 +483,11 @@ class LivingMemoryPlugin(Star):
             silent: 静默模式，减少日志输出（用于轮询场景）
         """
         # 初始化 Embedding Provider
-        emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id") if self.config else None
+        emb_id = (
+            self.config.get("provider_settings", {}).get("embedding_provider_id")
+            if self.config
+            else None
+        )
         if emb_id:
             provider = self.context.get_provider_by_id(emb_id)
             # 类型检查：确保返回的是 EmbeddingProvider
@@ -509,7 +516,11 @@ class LivingMemoryPlugin(Star):
                     logger.debug("没有可用的 Embedding Provider")
 
         # 初始化 LLM Provider
-        llm_id = self.config.get("provider_settings", {}).get("llm_provider_id") if self.config else None
+        llm_id = (
+            self.config.get("provider_settings", {}).get("llm_provider_id")
+            if self.config
+            else None
+        )
         if llm_id:
             provider = self.context.get_provider_by_id(llm_id)
             # 类型检查：确保返回的是 Provider（LLM Provider）
