@@ -673,6 +673,11 @@ class LivingMemoryPlugin(Star):
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # ===== 问题1修复：提取真实用户消息用于召回 =====
+                # 检查 prompt 是否为 None
+                if not req.prompt:
+                    logger.warning(f"[{session_id}] req.prompt 为空，跳过记忆召回")
+                    return
+
                 # 自动检测并提取（如果不是特殊格式则返回原值）
                 actual_query = ChatroomContextParser.extract_actual_message(req.prompt)
 
@@ -732,19 +737,28 @@ class LivingMemoryPlugin(Star):
 
                     if injection_method == "user_message_before":
                         # 在用户消息前插入记忆
-                        req.prompt = memory_str + "\n\n" + req.prompt
+                        if req.prompt:
+                            req.prompt = memory_str + "\n\n" + req.prompt
+                        else:
+                            req.prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向用户消息前注入 {len(recalled_memories)} 条记忆"
                         )
                     elif injection_method == "user_message_after":
                         # 在用户消息后插入记忆
-                        req.prompt = req.prompt + "\n\n" + memory_str
+                        if req.prompt:
+                            req.prompt = req.prompt + "\n\n" + memory_str
+                        else:
+                            req.prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向用户消息后注入 {len(recalled_memories)} 条记忆"
                         )
                     else:
                         # 默认：注入到 system_prompt
-                        req.system_prompt = memory_str + "\n" + req.system_prompt
+                        if req.system_prompt:
+                            req.system_prompt = memory_str + "\n" + req.system_prompt
+                        else:
+                            req.system_prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
                         )
@@ -752,7 +766,7 @@ class LivingMemoryPlugin(Star):
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
                 # ===== 问题3修复：避免存储完整上下文到数据库 =====
-                if self.conversation_manager:
+                if self.conversation_manager and req.prompt:
                     # 提取真实消息存储（避免数据库膨胀）
                     message_to_store = ChatroomContextParser.extract_actual_message(
                         req.prompt
