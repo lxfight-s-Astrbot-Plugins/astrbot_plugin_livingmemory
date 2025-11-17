@@ -75,6 +75,57 @@
 }
 
 /* ============================================
+   深色模式
+   ============================================ */
+
+[data-theme="dark"] {
+  /* 中性色调色板（反转） */
+  --neutral-50: #171717;
+  --neutral-100: #262626;
+  --neutral-200: #404040;
+  --neutral-300: #525252;
+  --neutral-400: #737373;
+  --neutral-500: #a3a3a3;
+  --neutral-600: #d4d4d4;
+  --neutral-700: #e5e5e5;
+  --neutral-800: #f5f5f5;
+  --neutral-900: #fafafa;
+  
+  /* 语义化颜色 - 深色模式适配 */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: #1e3a8a;
+  --success: #10b981;
+  --success-light: #064e3b;
+  --warning: #f59e0b;
+  --warning-light: #78350f;
+  --danger: #ef4444;
+  --danger-light: #7f1d1d;
+  
+  /* 背景色 */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #0f0f0f;
+  --bg-tertiary: #262626;
+  
+  /* 边框色 */
+  --border-light: #2d2d2d;
+  --border-medium: #404040;
+  --border-dark: #525252;
+  
+  /* 文字色 */
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
+  
+  /* 阴影 - 深色模式下稍微调整 */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5);
+}
+
+/* ============================================
    基础重置和全局样式
    ============================================ */
 
@@ -100,6 +151,26 @@ body {
   background-color: var(--bg-secondary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+/* 为主题切换添加平滑过渡 */
+* {
+  transition: background-color var(--transition), 
+              color var(--transition), 
+              border-color var(--transition),
+              box-shadow var(--transition);
+}
+
+/* 避免某些元素的过渡（保留原有动画） */
+.nuke-overlay,
+.nuke-flash,
+.nuke-particles-container,
+.nuke-smoke,
+.toast,
+*[class*="particle"],
+*[class*="animation"] {
+  transition: none !important;
 }
 
 /* 屏幕阅读器专用类 */
@@ -326,6 +397,33 @@ body {
 .btn svg {
   width: 1rem;
   height: 1rem;
+}
+
+/* 主题切换按钮 */
+.theme-toggle-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-dark);
+}
+
+.theme-toggle-btn svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 /* ============================================

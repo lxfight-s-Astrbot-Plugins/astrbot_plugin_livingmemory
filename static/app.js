@@ -159,6 +159,14 @@
       recallClearBtn.addEventListener("click", clearRecallResults);
     }
 
+    // 主题切换功能
+    const themeToggleBtn = document.getElementById("theme-toggle");
+    if (themeToggleBtn) {
+      themeToggleBtn.addEventListener("click", toggleTheme);
+    }
+    // 初始化主题
+    initTheme();
+
     if (state.token) {
       switchView("dashboard");
       showToast("会话已恢复，正在验证...");
@@ -1538,6 +1546,44 @@
     document.getElementById("recall-results").innerHTML =
       '<div class="empty-state"><p>暂无召回结果 · 请输入查询内容并执行召回</p></div>';
     document.getElementById("recall-stats").classList.add("hidden");
+  }
+
+  // ============================================
+  // 主题切换功能
+  // ============================================
+
+  function initTheme() {
+    // 从 localStorage 读取保存的主题，默认为浅色
+    const savedTheme = localStorage.getItem("lmem_theme") || "light";
+    applyTheme(savedTheme);
+  }
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
+    const newTheme = currentTheme === "light" ? "dark" : "light";
+    applyTheme(newTheme);
+    localStorage.setItem("lmem_theme", newTheme);
+  }
+
+  function applyTheme(theme) {
+    const html = document.documentElement;
+    const lightIcon = document.getElementById("theme-icon-light");
+    const darkIcon = document.getElementById("theme-icon-dark");
+
+    if (theme === "dark") {
+      html.setAttribute("data-theme", "dark");
+      if (lightIcon) lightIcon.style.display = "none";
+      if (darkIcon) darkIcon.style.display = "block";
+    } else {
+      html.setAttribute("data-theme", "light");
+      if (lightIcon) lightIcon.style.display = "block";
+      if (darkIcon) darkIcon.style.display = "none";
+    }
+
+    // 重新初始化 Lucide 图标
+    if (window.lucide) {
+      lucide.createIcons();
+    }
   }
 
   // ============================================
