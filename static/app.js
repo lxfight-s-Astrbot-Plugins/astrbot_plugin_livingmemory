@@ -161,8 +161,12 @@
 
     // 主题切换功能
     const themeToggleBtn = document.getElementById("theme-toggle");
+    const themeToggleBtnLogin = document.getElementById("theme-toggle-login");
     if (themeToggleBtn) {
       themeToggleBtn.addEventListener("click", toggleTheme);
+    }
+    if (themeToggleBtnLogin) {
+      themeToggleBtnLogin.addEventListener("click", toggleTheme);
     }
     // 初始化主题
     initTheme();
@@ -1561,23 +1565,38 @@
   function toggleTheme() {
     const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
     const newTheme = currentTheme === "light" ? "dark" : "light";
+    
+    // 添加过渡类
+    document.documentElement.classList.add("theme-transitioning");
+    
     applyTheme(newTheme);
     localStorage.setItem("lmem_theme", newTheme);
+    
+    // 移除过渡类（在过渡完成后）
+    setTimeout(() => {
+      document.documentElement.classList.remove("theme-transitioning");
+    }, 300);
   }
 
   function applyTheme(theme) {
     const html = document.documentElement;
     const lightIcon = document.getElementById("theme-icon-light");
     const darkIcon = document.getElementById("theme-icon-dark");
+    const lightIconLogin = document.getElementById("theme-icon-light-login");
+    const darkIconLogin = document.getElementById("theme-icon-dark-login");
 
     if (theme === "dark") {
       html.setAttribute("data-theme", "dark");
       if (lightIcon) lightIcon.style.display = "none";
       if (darkIcon) darkIcon.style.display = "block";
+      if (lightIconLogin) lightIconLogin.style.display = "none";
+      if (darkIconLogin) darkIconLogin.style.display = "block";
     } else {
       html.setAttribute("data-theme", "light");
       if (lightIcon) lightIcon.style.display = "block";
       if (darkIcon) darkIcon.style.display = "none";
+      if (lightIconLogin) lightIconLogin.style.display = "block";
+      if (darkIconLogin) darkIconLogin.style.display = "none";
     }
 
     // 重新初始化 Lucide 图标
