@@ -222,6 +222,33 @@ body {
   top: var(--space-6);
   right: var(--space-6);
   z-index: 10;
+  padding: var(--space-2);
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.login-theme-toggle svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+#theme-toggle {
+  padding: var(--space-2);
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-fast);
+}
+
+#theme-toggle:hover {
+  transform: rotate(20deg);
+}
+
+#theme-toggle svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .login-card {
@@ -404,32 +431,6 @@ body {
   height: 1rem;
 }
 
-/* 主题切换按钮 */
-.theme-toggle-btn {
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background-color: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.theme-toggle-btn:hover {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-color: var(--border-dark);
-}
-
-.theme-toggle-btn svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
 
 /* ============================================
    仪表板头部

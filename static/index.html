@@ -13,12 +13,9 @@
       <!-- 登录视图 -->
       <section id="login-view" class="view active">
         <div class="login-container">
-          <div class="login-theme-toggle">
-            <button id="theme-toggle-login" class="theme-toggle-btn" aria-label="切换主题">
-              <i data-lucide="sun" id="theme-icon-light-login"></i>
-              <i data-lucide="moon" id="theme-icon-dark-login" style="display: none;"></i>
-            </button>
-          </div>
+          <button id="login-theme-toggle" class="btn btn-ghost login-theme-toggle" title="切换主题">
+            <i data-lucide="moon" id="login-theme-icon"></i>
+          </button>
           <div class="login-card">
             <header class="login-header">
               <h1 class="login-title">LivingMemory</h1>
@@ -67,9 +64,8 @@
             <p class="header-subtitle">长期记忆与会话管理 · 基于混合检索的智能记忆系统</p>
           </div>
           <div class="header-actions">
-            <button id="theme-toggle" class="theme-toggle-btn" aria-label="切换主题">
-              <i data-lucide="sun" id="theme-icon-light"></i>
-              <i data-lucide="moon" id="theme-icon-dark" style="display: none;"></i>
+            <button id="theme-toggle" class="btn btn-ghost" title="切换主题">
+              <i data-lucide="moon" id="theme-icon"></i>
             </button>
             <button id="logout-button" class="btn btn-ghost">退出登录</button>
           </div>
