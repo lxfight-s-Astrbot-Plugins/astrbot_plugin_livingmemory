@@ -1061,116 +1061,56 @@ class LivingMemoryPlugin(Star):
                 f"[DEBUG-Reflection] [{session_id}] 配置的 summary_trigger_rounds: {trigger_rounds}"
             )
 
-            # 修复：基于对话轮数而非消息条数触发总结
-            # 每轮对话 = 1条user消息 + 1条assistant消息 = 2条消息
-            # 例如：trigger_rounds=5 表示每5轮对话触发，即每10条消息触发
-            message_count = session_info.message_count
-            conversation_rounds = message_count // 2  # 计算对话轮数
-
-            logger.info(
-                f"[DEBUG-Reflection] [{session_id}] 当前消息数: {message_count}, "
-                f"对话轮数: {conversation_rounds}, 触发阈值(轮数): {trigger_rounds}"
-            )
-            logger.info(
-                f"[DEBUG-Reflection] [{session_id}] 触发条件检查: "
-                f"conversation_rounds >= trigger_rounds = {conversation_rounds >= trigger_rounds}, "
-                f"conversation_rounds % trigger_rounds == 0 = {conversation_rounds % trigger_rounds == 0}"
+            # 获取上次总结的位置
+            last_summarized_index = (
+                await self.conversation_manager.get_session_metadata(
+                    session_id, "last_summarized_index", 0
+                )
             )
 
-            # 每达到 trigger_rounds 轮对话的倍数时进行反思
-            if (
-                conversation_rounds >= trigger_rounds
-                and conversation_rounds % trigger_rounds == 0
-            ):
+            # 修复：基于未总结的消息数量触发
+            # 计算当前有多少消息未被总结
+            total_messages = session_info.message_count
+            unsummarized_messages = total_messages - last_summarized_index
+            unsummarized_rounds = unsummarized_messages // 2  # 转换为轮数
+
+            logger.info(
+                f"[DEBUG-Reflection] [{session_id}] 总消息数: {total_messages}, "
+                f"上次总结位置: {last_summarized_index}, "
+                f"未总结消息数: {unsummarized_messages}, "
+                f"未总结轮数: {unsummarized_rounds}, "
+                f"触发阈值: {trigger_rounds}轮"
+            )
+
+            # 当未总结的轮数达到触发阈值时进行总结
+            if unsummarized_rounds >= trigger_rounds:
                 logger.info(
-                    f"[{session_id}]  对话轮数达到 {conversation_rounds} 轮（消息数={message_count}），启动记忆反思任务"
+                    f"[{session_id}]  未总结轮数达到 {unsummarized_rounds} 轮（触发阈值 {trigger_rounds} 轮），启动记忆反思任务"
                 )
 
-                # ====== 滑动窗口逻辑 ======
-                # 不再保留上下文，而是总结所有应该总结的消息
+                # ====== 简化的滑动窗口逻辑 ======
+                # 策略：只总结未总结的消息，不重复总结已处理的消息
 
-                # 获取上次总结的位置
-                last_summarized_index = (
-                    await self.conversation_manager.get_session_metadata(
-                        session_id, "last_summarized_index", 0
-                    )
-                )
-
-                # 计算本次需要总结的消息范围
-                total_messages = session_info.message_count
-
-                # end_index：总结到当前所有消息
+                # 计算总结范围
+                start_index = last_summarized_index
                 end_index = total_messages
 
-                # start_index 计算：
-                # 1. 如果是第一次总结（last_summarized_index == 0），从头开始
-                # 2. 如果不是第一次，保留1-2轮重叠作为上下文
-                # 3. 如果trigger_rounds < 2，则重叠轮数不超过trigger_rounds
-                CONTEXT_OVERLAP_ROUNDS = 2  # 默认保留2轮对话作为上下文
-
-                # 边界处理：重叠轮数不能超过trigger_rounds，且至少为1轮
-                actual_overlap_rounds = min(
-                    CONTEXT_OVERLAP_ROUNDS, max(1, trigger_rounds)
-                )
-
-                if last_summarized_index == 0:
-                    # 第一次总结：从头开始
-                    start_index = 0
-                    context_rounds_added = 0
-                else:
-                    # 向前回溯N轮对话作为上下文
-                    overlap_messages = actual_overlap_rounds * 2
-                    start_index = max(0, last_summarized_index - overlap_messages)
-                    context_rounds_added = min(
-                        actual_overlap_rounds, last_summarized_index // 2
-                    )
-
-                logger.debug(
-                    f"[{session_id}] 上下文重叠配置: trigger_rounds={trigger_rounds}, "
-                    f"actual_overlap_rounds={actual_overlap_rounds}, context_rounds_added={context_rounds_added}"
-                )
-
-                # 严格限制：每次只总结 trigger_rounds 轮新对话
-                # 计算实际应该总结到哪里（从last_summarized_index开始的trigger_rounds轮）
-                max_new_messages = (
-                    trigger_rounds * 2
-                )  # trigger_rounds轮 = trigger_rounds*2条消息
-                actual_end_index = last_summarized_index + max_new_messages
-
-                # 不能超过当前总消息数
-                if actual_end_index > total_messages:
-                    actual_end_index = total_messages
-
-                # 加上重叠上下文，确定最终范围
-                end_index = actual_end_index
-
-                # 计算本次将要总结的轮数
-                messages_to_summarize = end_index - start_index
-                rounds_to_summarize = messages_to_summarize // 2
-
-                # 计算实际的新消息数（不含重叠部分）
-                new_messages = end_index - last_summarized_index
-                new_rounds = new_messages // 2
-
-                logger.info(
-                    f" [{session_id}] 滑动窗口总结: "
-                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
-                    f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息），"
-                    f"其中包含 {context_rounds_added} 轮上下文 + {new_rounds} 轮新内容，"
-                    f"上次总结位置 {last_summarized_index}"
-                )
-
-                # 检查是否有足够的新消息需要总结
-                if end_index <= start_index:
+                # 确保至少有2条消息（1轮对话）可以总结
+                if end_index - start_index < 2:
                     logger.debug(
-                        f"[{session_id}] 没有足够的新消息需要总结 "
+                        f"[{session_id}] 消息数不足一轮对话，跳过总结 "
                         f"(start={start_index}, end={end_index})"
                     )
                     return
 
-                if new_rounds < 1:
-                    logger.debug(f"[{session_id}] 没有新消息需要总结")
-                    return
+                messages_to_summarize = end_index - start_index
+                rounds_to_summarize = messages_to_summarize // 2
+
+                logger.info(
+                    f" [{session_id}] 滑动窗口总结: "
+                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
+                    f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息）"
+                )
 
                 # 获取需要总结的消息
                 history_messages = await self.conversation_manager.get_messages_range(
