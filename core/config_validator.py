@@ -22,6 +22,12 @@ class SessionManagerConfig(BaseModel):
     context_window_size: int = Field(
         default=50, ge=1, le=1000, description="上下文窗口大小"
     )
+    enable_full_group_capture: bool = Field(
+        default=True, description="是否捕获群聊中的所有消息(包括非@Bot的消息)"
+    )
+    max_messages_per_session: int = Field(
+        default=1000, ge=100, le=10000, description="单会话最大消息数量(超出后自动删除旧消息)"
+    )
 
 
 class RecallEngineConfig(BaseModel):

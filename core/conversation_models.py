@@ -73,16 +73,29 @@ class Message:
         格式化为 LLM 所需格式
 
         Args:
-            include_sender_name: 是否在用户消息前添加发送者名称 (群聊场景)
+            include_sender_name: 是否在消息前添加发送者详细信息 (群聊场景)
 
         Returns:
             Dict: {"role": "user/assistant", "content": "..."}
         """
+        from datetime import datetime
+
         content = self.content
 
-        # 群聊场景: 在用户消息前加上发送者名称
-        if include_sender_name and self.role == "user" and self.sender_name:
-            content = f"[{self.sender_name}] {content}"
+        # 群聊场景: 在消息前加上发送者详细信息
+        if include_sender_name and self.group_id:
+            # 判断是否为Bot消息
+            is_bot = self.metadata.get("is_bot_message", False)
+            sender_type = "Bot" if is_bot else "用户"
+
+            # 格式化时间
+            time_str = datetime.fromtimestamp(self.timestamp).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            # 构建发送者信息前缀
+            sender_info = f"[{sender_type}: {self.sender_name or '未知'} | ID: {self.sender_id} | {time_str}]"
+            content = f"{sender_info} {content}"
 
         return {"role": self.role, "content": content}
 
@@ -230,7 +243,7 @@ class MemoryEvent:
 
 def serialize_to_json(obj: Any) -> str:
     """将对象序列化为 JSON 字符串"""
-    if isinstance(obj, (list, dict)):
+    if isinstance(obj, list | dict):
         return json.dumps(obj, ensure_ascii=False)
     return str(obj)
 

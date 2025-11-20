@@ -39,7 +39,8 @@ class ConversationStore:
     async def initialize(self) -> None:
         """初始化数据库连接并创建表结构"""
         self.connection = await aiosqlite.connect(self.db_path)
-        self.connection.row_factory = aiosqlite.Row
+        if self.connection is not None:
+            self.connection.row_factory = aiosqlite.Row
 
         await self._create_tables()
         await self._create_indexes()
@@ -580,6 +581,38 @@ class ConversationStore:
             stats[row["sender_id"]] = row["count"]
 
         return stats
+
+    async def update_message_metadata(self, message_id: int, metadata: dict) -> bool:
+        """
+        更新消息的metadata
+
+        Args:
+            message_id: 消息ID
+            metadata: 新的metadata字典
+
+        Returns:
+            bool: 是否更新成功
+        """
+        if self.connection is None:
+            return False
+
+        try:
+            import json
+
+            await self.connection.execute(
+                """
+                UPDATE messages
+                SET metadata = ?
+                WHERE id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False), message_id),
+            )
+            await self.connection.commit()
+            logger.debug(f"[ConversationStore] 更新消息metadata: id={message_id}")
+            return True
+        except Exception as e:
+            logger.error(f"更新消息metadata失败: {e}", exc_info=True)
+            return False
 
     async def search_messages(
         self, session_id: str, keyword: str, limit: int = 20

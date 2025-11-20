@@ -82,6 +82,11 @@ class LivingMemoryPlugin(Star):
         self._initialization_failed = False
         self._initialization_error: str | None = None
 
+        # 消息去重缓存: {message_id: timestamp}
+        self._message_dedup_cache: dict[str, float] = {}
+        self._dedup_cache_max_size = 1000  # 最大缓存1000条消息ID
+        self._dedup_cache_ttl = 300  # 缓存5分钟
+
         # Provider 就绪标记
         self._providers_ready = False
         self._provider_check_attempts = 0
@@ -629,6 +634,203 @@ class LivingMemoryPlugin(Star):
 
         return removed_count
 
+    @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
+    async def handle_all_group_messages(self, event: AstrMessageEvent):
+        """[事件钩子] 捕获所有群聊消息(包括非@Bot的消息)用于记忆存储"""
+        # 检查配置是否启用
+        if not self.config.get("session_manager", {}).get(
+            "enable_full_group_capture", True
+        ):
+            return
+
+        # 只处理群聊消息
+        from astrbot.api.platform import MessageType
+
+        if event.get_message_type() != MessageType.GROUP_MESSAGE:
+            return
+
+        # 确保插件已初始化
+        if not self._initialization_complete or not self.conversation_manager:
+            return
+
+        try:
+            session_id = event.unified_msg_origin
+            message_id = event.message_obj.message_id
+
+            # 消息去重检查
+            if self._is_duplicate_message(message_id):
+                logger.debug(f"[{session_id}] 消息已存在,跳过: message_id={message_id}")
+                return
+
+            # 标记消息已处理
+            self._mark_message_processed(message_id)
+
+            # 判断是否是Bot自己发送的消息
+            is_bot_message = event.get_sender_id() == event.get_self_id()
+
+            # 获取消息内容(包含非文本消息的描述)
+            content = self._extract_message_content(event)
+
+            # 确定角色
+            role = "assistant" if is_bot_message else "user"
+
+            # 存储消息到数据库，并立即标记metadata
+            message = await self.conversation_manager.add_message_from_event(
+                event=event,
+                role=role,
+                content=content,
+            )
+
+            # 在消息的metadata中标记是否为Bot消息
+            message.metadata["is_bot_message"] = is_bot_message
+            # 更新到数据库
+            await self._update_message_metadata(message)
+
+            # 检查并执行消息数量上限控制
+            await self._enforce_message_limit(session_id)
+
+            logger.debug(
+                f"[{session_id}] 捕获群聊消息: "
+                f"sender={event.get_sender_name()}({event.get_sender_id()}), "
+                f"is_bot={is_bot_message}, content={content[:50]}..."
+            )
+
+        except Exception as e:
+            logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
+
+    def _is_duplicate_message(self, message_id: str) -> bool:
+        """检查消息是否已经处理过"""
+        current_time = time.time()
+
+        # 清理过期的缓存条目
+        expired_keys = [
+            key
+            for key, timestamp in self._message_dedup_cache.items()
+            if current_time - timestamp > self._dedup_cache_ttl
+        ]
+        for key in expired_keys:
+            del self._message_dedup_cache[key]
+
+        # 检查是否已存在
+        return message_id in self._message_dedup_cache
+
+    def _mark_message_processed(self, message_id: str):
+        """标记消息已处理"""
+        current_time = time.time()
+
+        # 如果缓存已满,删除最旧的条目
+        if len(self._message_dedup_cache) >= self._dedup_cache_max_size:
+            oldest_key = min(self._message_dedup_cache.items(), key=lambda x: x[1])[0]
+            del self._message_dedup_cache[oldest_key]
+
+        self._message_dedup_cache[message_id] = current_time
+
+    def _extract_message_content(self, event: AstrMessageEvent) -> str:
+        """提取消息内容,包括非文本消息的类型描述"""
+        from astrbot.core.message.components import (
+            At,
+            AtAll,
+            Face,
+            File,
+            Forward,
+            Image,
+            Plain,
+            Record,
+            Reply,
+            Video,
+        )
+
+        parts = []
+        base_text = event.get_message_str()
+
+        # 添加基础文本
+        if base_text:
+            parts.append(base_text)
+
+        # 遍历消息链,添加非文本消息的类型描述
+        for component in event.get_messages():
+            if isinstance(component, Image):
+                parts.append("[图片]")
+            elif isinstance(component, Record):
+                parts.append("[语音]")
+            elif isinstance(component, Video):
+                parts.append("[视频]")
+            elif isinstance(component, File):
+                file_name = component.name or "未知文件"
+                parts.append(f"[文件: {file_name}]")
+            elif isinstance(component, Face):
+                parts.append(f"[表情:{component.id}]")
+            elif isinstance(component, At):
+                if isinstance(component, AtAll):
+                    parts.append("[At:全体成员]")
+                else:
+                    parts.append(f"[At:{component.qq}]")
+            elif isinstance(component, Forward):
+                parts.append("[转发消息]")
+            elif isinstance(component, Reply):
+                if component.message_str:
+                    parts.append(f"[引用: {component.message_str[:30]}]")
+                else:
+                    parts.append("[引用消息]")
+            elif not isinstance(component, Plain):
+                # 其他未知类型
+                parts.append(f"[{component.type}]")
+
+        return " ".join(parts).strip()
+
+    async def _update_message_metadata(self, message):
+        """更新消息的metadata到数据库"""
+        if not self.conversation_manager or not self.conversation_manager.store:
+            return
+
+        # 使用 ConversationStore 提供的专用方法
+        await self.conversation_manager.store.update_message_metadata(
+            message.id, message.metadata
+        )
+
+    async def _enforce_message_limit(self, session_id: str):
+        """执行消息数量上限控制"""
+        if not self.conversation_manager:
+            return
+
+        max_messages = self.config.get("session_manager", {}).get(
+            "max_messages_per_session", 1000
+        )
+
+        session_info = await self.conversation_manager.get_session_info(session_id)
+        if not session_info:
+            return
+
+        if session_info.message_count > max_messages:
+            # 计算需要删除的消息数量
+            to_delete = session_info.message_count - max_messages
+
+            # 删除最旧的消息
+            if (
+                self.conversation_manager.store
+                and self.conversation_manager.store.connection
+            ):
+                try:
+                    await self.conversation_manager.store.connection.execute(
+                        """
+                        DELETE FROM messages
+                        WHERE id IN (
+                            SELECT id FROM messages
+                            WHERE session_id = ?
+                            ORDER BY timestamp ASC
+                            LIMIT ?
+                        )
+                        """,
+                        (session_id, to_delete),
+                    )
+                    await self.conversation_manager.store.connection.commit()
+
+                    logger.info(
+                        f"[{session_id}] 消息数量超过上限({max_messages}),已删除最旧的{to_delete}条消息"
+                    )
+                except Exception as e:
+                    logger.error(f"删除旧消息失败: {e}", exc_info=True)
+
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
@@ -766,23 +968,35 @@ class LivingMemoryPlugin(Star):
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
                 # ===== 问题3修复：避免存储完整上下文到数据库 =====
+                # ===== 避免重复存储：handle_all_group_messages 已经捕获了群聊消息 =====
                 if self.conversation_manager and req.prompt:
-                    # 提取真实消息存储（避免数据库膨胀）
-                    message_to_store = ChatroomContextParser.extract_actual_message(
-                        req.prompt
-                    )
+                    # 检查是否为群聊消息
+                    from astrbot.api.platform import MessageType
 
-                    if message_to_store != req.prompt:
+                    is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+
+                    # 群聊消息已被 handle_all_group_messages 捕获，跳过重复存储
+                    if is_group:
                         logger.debug(
-                            f"[{session_id}]  只存储真实消息到数据库 "
-                            f"({len(req.prompt)} → {len(message_to_store)}字符，避免数据库膨胀)"
+                            f"[{session_id}] 群聊消息已由 handle_all_group_messages 捕获，跳过重复存储"
+                        )
+                    else:
+                        # 私聊消息：提取真实消息存储（避免数据库膨胀）
+                        message_to_store = ChatroomContextParser.extract_actual_message(
+                            req.prompt
                         )
 
-                    await self.conversation_manager.add_message_from_event(
-                        event=event,
-                        role="user",
-                        content=message_to_store,
-                    )
+                        if message_to_store != req.prompt:
+                            logger.debug(
+                                f"[{session_id}]  只存储真实消息到数据库 "
+                                f"({len(req.prompt)} → {len(message_to_store)}字符，避免数据库膨胀)"
+                            )
+
+                        await self.conversation_manager.add_message_from_event(
+                            event=event,
+                            role="user",
+                            content=message_to_store,
+                        )
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
