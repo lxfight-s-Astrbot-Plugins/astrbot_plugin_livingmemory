@@ -655,6 +655,14 @@ class LivingMemoryPlugin(Star):
 
         try:
             session_id = event.unified_msg_origin
+            
+            # 检测并警告异常的session_id
+            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+                logger.warning(
+                    f"检测到异常的session_id: {session_id}。"
+                    f"这可能是平台适配器初始化问题，建议检查平台配置。"
+                )
+            
             message_id = event.message_obj.message_id
 
             # 消息去重检查
@@ -846,6 +854,13 @@ class LivingMemoryPlugin(Star):
             # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
             session_id = event.unified_msg_origin
             logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
+            
+            # 检测并警告异常的session_id
+            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+                logger.warning(
+                    f"[{session_id}] 检测到异常的session_id，这可能导致记忆功能异常。"
+                    f"建议检查平台适配器配置或重启AstrBot。"
+                )
 
             async with OperationContext("记忆召回", session_id):
                 # 首先检查是否需要自动删除旧的注入记忆
@@ -1030,9 +1045,17 @@ class LivingMemoryPlugin(Star):
             # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
             session_id = event.unified_msg_origin
             logger.debug(f"[DEBUG-Reflection] 获取到 unified_msg_origin: {session_id}")
+            
             if not session_id:
                 logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
                 return
+            
+            # 检测并警告异常的session_id
+            if "Error:" in session_id or "error:" in session_id.lower():
+                logger.warning(
+                    f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
+                    f"建议检查平台适配器配置或重启AstrBot。"
+                )
 
             # 使用 ConversationManager 添加助手响应
             await self.conversation_manager.add_message_from_event(
