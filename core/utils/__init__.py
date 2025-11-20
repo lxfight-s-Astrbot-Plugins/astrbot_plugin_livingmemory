@@ -188,9 +188,11 @@ async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | Non
         )
         persona_id = conversation.persona_id if conversation else None
 
-        # 如果无人格或明确设置为None，则使用全局默认人格
+        # 如果无人格或明确设置为None，则使用该会话配置的默认人格
         if not persona_id or persona_id == "[%None]":
-            default_persona = context.provider_manager.selected_default_persona
+            default_persona = await context.persona_manager.get_default_persona_v3(
+                umo=event.unified_msg_origin
+            )
             persona_id = default_persona["name"] if default_persona else None
 
         return persona_id
