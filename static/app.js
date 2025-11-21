@@ -76,6 +76,9 @@
   };
 
   function init() {
+    // 初始化主题
+    initTheme();
+    
     dom.loginForm.addEventListener("submit", onLoginSubmit);
     dom.refreshButton.addEventListener("click", fetchAll);
     dom.nukeButton.addEventListener("click", onNukeClick);
@@ -157,6 +160,16 @@
     }
     if (recallClearBtn) {
       recallClearBtn.addEventListener("click", clearRecallResults);
+    }
+
+    // 主题切换按钮
+    const themeToggle = document.getElementById("theme-toggle");
+    const loginThemeToggle = document.getElementById("login-theme-toggle");
+    if (themeToggle) {
+      themeToggle.addEventListener("click", toggleTheme);
+    }
+    if (loginThemeToggle) {
+      loginThemeToggle.addEventListener("click", toggleTheme);
     }
 
     if (state.token) {
@@ -708,27 +721,14 @@
       return;
     }
 
-    // 显示确认对话框
-    const confirmed = window.confirm(
-      "️  警告：你将启动核爆模式！\n\n" +
-      "系统将模拟删除所有记忆（刷新后恢复）。\n\n" +
-      "30秒倒计时后开始执行。\n\n" +
-      "点击「取消核爆」可中止操作。\n\n" +
-      "确定要继续吗？"
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     dom.nukeButton.disabled = true;
     try {
-      // 触发核爆倒计时
+      // 直接触发核爆倒计时，不需要确认
       startNukeCountdown({
-        seconds_left: 30,
+        seconds_left: 10,  // 缩短到10秒，更刺激
         operation_id: "nuke_" + Date.now(),
       });
-      showToast("核爆已启动！30秒后执行删除操作");
+      showToast("💥 核爆倒计时启动！");
     } catch (error) {
       dom.nukeButton.disabled = false;
       showToast(error.message || "无法启动核爆模式", true);
@@ -958,7 +958,7 @@
   // ============================================
 
   /**
-   * 触发完整的核爆视觉效果序列
+   * 触发完整的核爆视觉效果序列 - 粒子系统
    */
   function triggerNukeVisualEffects() {
     const overlay = document.getElementById("nuke-overlay");
@@ -973,17 +973,32 @@
     // 2. 添加屏幕震动效果
     app.classList.add("screen-shake");
 
-    // 3. 数据表格粒子化消失
+    // 3. 创建核心爆炸粒子
+    setTimeout(() => {
+      createExplosionParticles();
+    }, 100);
+
+    // 4. 创建火焰粒子
+    setTimeout(() => {
+      createFireParticles();
+    }, 200);
+
+    // 5. 创建冲击波粒子
+    setTimeout(() => {
+      createShockwaveParticles();
+    }, 400);
+
+    // 6. 数据表格粒子化消失
     if (tableBody) {
       const rows = tableBody.querySelectorAll("tr");
       rows.forEach((row, index) => {
         setTimeout(() => {
           row.classList.add("particle-fade");
-        }, index * 50); // 每行延迟50ms
+        }, index * 50);
       });
     }
 
-    // 4. 添加数据撕裂效果到所有卡片
+    // 7. 添加数据撕裂效果到所有卡片
     const cards = document.querySelectorAll(".card");
     setTimeout(() => {
       cards.forEach((card) => {
@@ -991,12 +1006,12 @@
       });
     }, 800);
 
-    // 5. 生成灰烬飘落粒子
+    // 8. 生成灰烬飘落粒子
     setTimeout(() => {
       createAshParticles();
     }, 1500);
 
-    // 6. 停止所有动画效果
+    // 9. 停止所有动画效果
     setTimeout(() => {
       app.classList.remove("screen-shake");
       cards.forEach((card) => {
@@ -1004,16 +1019,145 @@
       });
     }, 3000);
 
-    // 7. 移除核爆遮罩层，添加界面恢复动画
+    // 10. 移除核爆遮罩层，添加界面恢复动画
     setTimeout(() => {
       overlay.classList.remove("active");
       app.classList.add("fade-in-recovery");
+
+      // 清理粒子容器
+      const container = document.getElementById("nuke-particles-container");
+      if (container) {
+        container.innerHTML = "";
+      }
 
       // 移除恢复动画类
       setTimeout(() => {
         app.classList.remove("fade-in-recovery");
       }, 1500);
     }, 3500);
+  }
+
+  /**
+   * 创建核心爆炸粒子 - 快速向外扩散的白色粒子
+   */
+  function createExplosionParticles() {
+    const container = document.getElementById("nuke-particles-container");
+    if (!container) return;
+
+    const particleCount = 200; // 爆炸粒子数量
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+
+    for (let i = 0; i < particleCount; i++) {
+      const particle = document.createElement("div");
+      particle.className = "explosion-particle";
+
+      // 随机角度和速度
+      const angle = (Math.PI * 2 * i) / particleCount;
+      const speed = 100 + Math.random() * 400; // 100-500px
+      const size = 2 + Math.random() * 6; // 2-8px
+
+      const endX = Math.cos(angle) * speed;
+      const endY = Math.sin(angle) * speed;
+
+      particle.style.left = `${centerX}px`;
+      particle.style.top = `${centerY}px`;
+      particle.style.width = `${size}px`;
+      particle.style.height = `${size}px`;
+      particle.style.setProperty("--end-x", `${endX}px`);
+      particle.style.setProperty("--end-y", `${endY}px`);
+
+      // 随机延迟
+      particle.style.animationDelay = `${Math.random() * 0.1}s`;
+
+      container.appendChild(particle);
+
+      // 动画结束后移除
+      setTimeout(() => {
+        particle.remove();
+      }, 1500);
+    }
+  }
+
+  /**
+   * 创建火焰粒子 - 橙红色向外扩散
+   */
+  function createFireParticles() {
+    const container = document.getElementById("nuke-particles-container");
+    if (!container) return;
+
+    const particleCount = 150;
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+
+    for (let i = 0; i < particleCount; i++) {
+      const particle = document.createElement("div");
+      particle.className = "fire-particle";
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 80 + Math.random() * 300;
+      const size = 3 + Math.random() * 8;
+
+      const endX = Math.cos(angle) * speed;
+      const endY = Math.sin(angle) * speed;
+
+      particle.style.left = `${centerX}px`;
+      particle.style.top = `${centerY}px`;
+      particle.style.width = `${size}px`;
+      particle.style.height = `${size}px`;
+      particle.style.setProperty("--end-x", `${endX}px`);
+      particle.style.setProperty("--end-y", `${endY}px`);
+      particle.style.animationDelay = `${Math.random() * 0.2}s`;
+
+      container.appendChild(particle);
+
+      setTimeout(() => {
+        particle.remove();
+      }, 2000);
+    }
+  }
+
+  /**
+   * 创建冲击波粒子 - 环形扩散的小粒子
+   */
+  function createShockwaveParticles() {
+    const container = document.getElementById("nuke-particles-container");
+    if (!container) return;
+
+    const waves = 5; // 5层冲击波
+    const particlesPerWave = 80;
+
+    for (let wave = 0; wave < waves; wave++) {
+      setTimeout(() => {
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+
+        for (let i = 0; i < particlesPerWave; i++) {
+          const particle = document.createElement("div");
+          particle.className = "shockwave-particle";
+
+          const angle = (Math.PI * 2 * i) / particlesPerWave;
+          const speed = 200 + wave * 100 + Math.random() * 100;
+          const size = 2 + Math.random() * 4;
+
+          const endX = Math.cos(angle) * speed;
+          const endY = Math.sin(angle) * speed;
+
+          particle.style.left = `${centerX}px`;
+          particle.style.top = `${centerY}px`;
+          particle.style.width = `${size}px`;
+          particle.style.height = `${size}px`;
+          particle.style.setProperty("--end-x", `${endX}px`);
+          particle.style.setProperty("--end-y", `${endY}px`);
+
+          container.appendChild(particle);
+
+          setTimeout(() => {
+            particle.remove();
+          }, 1500);
+        }
+      }, wave * 150);
+    }
   }
 
   /**
@@ -1407,6 +1551,57 @@
     document.getElementById("recall-results").innerHTML =
       '<div class="empty-state"><p>暂无召回结果 · 请输入查询内容并执行召回</p></div>';
     document.getElementById("recall-stats").classList.add("hidden");
+  }
+
+  // ============================================
+  // 主题切换功能
+  // ============================================
+
+  function initTheme() {
+    // 从 localStorage 读取主题设置，默认为浅色
+    const savedTheme = localStorage.getItem("lmem_theme") || "light";
+    applyTheme(savedTheme);
+  }
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
+    const newTheme = currentTheme === "light" ? "dark" : "light";
+    applyTheme(newTheme);
+    localStorage.setItem("lmem_theme", newTheme);
+    showToast(newTheme === "dark" ? "🌙 已切换到深色模式" : "☀️ 已切换到浅色模式");
+  }
+
+  function applyTheme(theme) {
+    // 添加过渡类以实现平滑切换
+    document.documentElement.classList.add("theme-transitioning");
+    
+    // 设置主题属性
+    document.documentElement.setAttribute("data-theme", theme);
+    
+    // 更新图标
+    updateThemeIcons(theme);
+    
+    // 移除过渡类
+    setTimeout(() => {
+      document.documentElement.classList.remove("theme-transitioning");
+    }, 300);
+  }
+
+  function updateThemeIcons(theme) {
+    const themeIcon = document.getElementById("theme-icon");
+    const loginThemeIcon = document.getElementById("login-theme-icon");
+    
+    if (themeIcon) {
+      themeIcon.setAttribute("data-lucide", theme === "dark" ? "sun" : "moon");
+    }
+    if (loginThemeIcon) {
+      loginThemeIcon.setAttribute("data-lucide", theme === "dark" ? "sun" : "moon");
+    }
+    
+    // 重新初始化图标
+    if (typeof lucide !== "undefined" && lucide.createIcons) {
+      lucide.createIcons();
+    }
   }
 
   // ============================================

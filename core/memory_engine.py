@@ -4,11 +4,14 @@
 """
 
 import asyncio
+import json
 import time
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from astrbot.api import logger
 
 from .retrieval.bm25_retriever import BM25Retriever
 from .retrieval.hybrid_retriever import HybridResult, HybridRetriever
@@ -172,7 +175,7 @@ class MemoryEngine:
 
     async def _create_tables(self):
         """创建数据库表
-        
+
         注意：documents 表主要由 FAISS 的 DocumentStorage 类创建和管理。
         这里使用 CREATE TABLE IF NOT EXISTS 确保兼容性：
         - 如果 FAISS 已创建，不会重复创建（IF NOT EXISTS）
@@ -180,7 +183,8 @@ class MemoryEngine:
         - 插件需要直接操作此表进行高频更新（如访问时间）
         """
         # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
-        await self.db_connection.execute("""
+        if self.db_connection is not None:
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 text TEXT NOT NULL,
@@ -188,14 +192,14 @@ class MemoryEngine:
             )
         """)
 
-        # 创建索引以提升session_id查询性能
-        await self.db_connection.execute("""
+            # 创建索引以提升session_id查询性能
+            await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_doc_metadata
             ON documents(json_extract(metadata, '$.session_id'))
         """)
 
-        # 创建版本管理表
-        await self.db_connection.execute("""
+            # 创建版本管理表
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS db_version (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 version INTEGER NOT NULL,
@@ -205,8 +209,8 @@ class MemoryEngine:
             )
         """)
 
-        # 创建迁移状态表
-        await self.db_connection.execute("""
+            # 创建迁移状态表
+            await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS migration_status (
                 key TEXT PRIMARY KEY,
                 value TEXT,
@@ -214,28 +218,27 @@ class MemoryEngine:
             )
         """)
 
-        await self.db_connection.commit()
-
-        # 检查是否需要初始化版本信息
-        cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
-        version_count = (await cursor.fetchone())[0]
-
-        if version_count == 0:
-            # 全新数据库，设置初始版本为 2
-            from datetime import datetime
-
-            await self.db_connection.execute(
-                """
-                INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
-                VALUES (?, ?, ?, ?)
-            """,
-                (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
-            )
             await self.db_connection.commit()
 
-            from astrbot.api import logger
+            # 检查是否需要初始化版本信息
+            cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
+            version_result = await cursor.fetchone()
+            version_count = version_result[0] if version_result else 0
 
-            logger.info("已初始化数据库版本信息: v2")
+            if version_count == 0:
+                # 全新数据库，设置初始版本为 2
+                from datetime import datetime
+
+                await self.db_connection.execute(
+                    """
+                    INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
+                )
+                await self.db_connection.commit()
+
+                logger.info("已初始化数据库版本信息: v2")
 
     # ==================== 核心记忆操作 ====================
 
@@ -263,19 +266,25 @@ class MemoryEngine:
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
 
-        # 准备完整元数据 - 规范化 session_id 和 persona_id
+        # 准备完整元数据 - 保存完整的 unified_msg_origin，不提取UUID
+        # 只在查询/过滤时才提取UUID进行匹配，存储时保留完整信息
         current_time = time.time()
         full_metadata = {
-            "session_id": _extract_session_uuid(session_id) if session_id else None,
-            "persona_id": _extract_session_uuid(persona_id) if persona_id else None,
+            "session_id": session_id,  # 保存完整的 unified_msg_origin
+            "persona_id": persona_id,  # 保存完整的 persona_id
             "importance": max(0.0, min(1.0, importance)),  # 限制在0-1范围
             "create_time": current_time,
             "last_access_time": current_time,
         }
 
         # 合并用户提供的额外元数据
+        # 注意：先合并外部metadata，再确保时间字段不被覆盖
         if metadata:
             full_metadata.update(metadata)
+
+        # 确保时间字段始终存在且不被外部metadata覆盖
+        full_metadata["create_time"] = current_time
+        full_metadata["last_access_time"] = current_time
 
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
         if self.hybrid_retriever is None:
@@ -297,8 +306,8 @@ class MemoryEngine:
         Args:
             query: 查询字符串
             k: 返回数量
-            session_id: 会话ID过滤(可选,支持多种格式)
-            persona_id: 人格ID过滤(可选,支持多种格式)
+            session_id: 会话ID过滤(可选,应传入unified_msg_origin完整格式)
+            persona_id: 人格ID过滤(可选)
 
         Returns:
             List[HybridResult]: 检索结果列表
@@ -306,11 +315,14 @@ class MemoryEngine:
         if not query or not query.strip():
             return []
 
-        # 提取 UUID 用于过滤,确保兼容多种 session_id 格式
-        if session_id:
-            session_id = _extract_session_uuid(session_id)
-        if persona_id:
-            persona_id = _extract_session_uuid(persona_id)
+        # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
+        if session_id and ":" in session_id:
+            # 异步触发迁移，不阻塞查询
+            asyncio.create_task(self._migrate_session_data_if_needed(session_id))
+
+        # 【关键修改】不再提取UUID，直接使用完整的unified_msg_origin进行匹配
+        # 因为现在数据库中存储的就是完整格式
+        # session_id 和 persona_id 保持原样传递给检索器
 
         # 执行混合检索
         if self.hybrid_retriever is None:
@@ -377,8 +389,6 @@ class MemoryEngine:
         # 获取当前记忆
         memory = await self.get_memory(memory_id)
         if not memory:
-            from astrbot.api import logger
-
             logger.error(f"[更新] 记忆不存在 (memory_id={memory_id})")
             return False
 
@@ -401,8 +411,6 @@ class MemoryEngine:
                 return False
 
             try:
-                from astrbot.api import logger
-
                 # 保留必要信息
                 session_id = current_metadata.get("session_id")
                 persona_id = current_metadata.get("persona_id")
@@ -447,8 +455,6 @@ class MemoryEngine:
                 return True
 
             except Exception as e:
-                from astrbot.api import logger
-
                 logger.error(
                     f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True
                 )
@@ -464,8 +470,6 @@ class MemoryEngine:
             metadata_updates.update(updates["metadata"])
 
         if metadata_updates:
-            from astrbot.api import logger
-
             # 确保 current_metadata 是字典（再次检查）
             if not isinstance(current_metadata, dict):
                 import json
@@ -510,7 +514,6 @@ class MemoryEngine:
         Returns:
             bool: 是否删除成功
         """
-        from astrbot.api import logger
 
         # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
         if self.hybrid_retriever is None:
@@ -563,44 +566,50 @@ class MemoryEngine:
     async def _update_access_time_internal(self, memory_id: int) -> bool:
         """内部方法:更新访问时间（直接更新documents表，不经过FAISS）"""
         import json
-        
+
         current_time = time.time()
-        
+
         try:
             if self.db_connection is None:
                 return False
-                
+
             # 直接更新 documents 表，不经过 FAISS
             # 1. 获取当前 metadata
             cursor = await self.db_connection.execute(
-                "SELECT metadata FROM documents WHERE id = ?",
-                (memory_id,)
+                "SELECT metadata FROM documents WHERE id = ?", (memory_id,)
             )
             row = await cursor.fetchone()
-            
+
             if not row:
                 return False
-            
+
             # 2. 解析并更新 metadata
-            metadata_str = row[0] if row[0] else "{}"
+            metadata_str = row[0] if row and row[0] else "{}"
             try:
-                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata = (
+                    json.loads(metadata_str)
+                    if isinstance(metadata_str, str)
+                    else metadata_str
+                )
+                if not isinstance(metadata, dict):
+                    metadata = {}
             except (json.JSONDecodeError, TypeError):
                 metadata = {}
-            
+
             metadata["last_access_time"] = current_time
-            
+
             # 3. 写回 documents 表
             await self.db_connection.execute(
                 "UPDATE documents SET metadata = ? WHERE id = ?",
-                (json.dumps(metadata, ensure_ascii=False), memory_id)
+                (json.dumps(metadata, ensure_ascii=False), memory_id),
             )
             await self.db_connection.commit()
-            
+
             return True
-            
-        except Exception:
-            # 静默失败，不影响查询流程
+
+        except Exception as e:
+            # 记录错误但不影响查询流程
+            logger.debug(f"更新访问时间失败 (memory_id={memory_id}): {e}")
             return False
 
     async def get_session_memories(
@@ -612,23 +621,20 @@ class MemoryEngine:
         获取会话的所有记忆（使用分批处理和数据库排序优化）
 
         Args:
-            session_id: 会话ID(支持多种格式,自动提取UUID)
+            session_id: 会话ID(应传入完整的unified_msg_origin格式)
             limit: 限制数量
 
         Returns:
             List[Dict]: 记忆列表
         """
-        # 规范化 session_id - 提取 UUID
-        normalized_session_id = _extract_session_uuid(session_id)
+        # 【关键修改】不再提取UUID，直接使用完整的session_id进行匹配
+        # 因为现在数据库中存储的就是完整的unified_msg_origin格式
 
         # 使用数据库层面的排序和分页，避免加载所有数据
         try:
-            # 方案1: 如果document_storage支持排序，直接使用
-            # 方案2: 否则分批加载并在内存中排序（但只加载必要的数据）
-
             # 先获取总数判断是否需要分批
             total_count = await self.faiss_db.document_storage.count_documents(
-                metadata_filters={"session_id": normalized_session_id}
+                metadata_filters={"session_id": session_id}
             )
 
             if total_count == 0:
@@ -637,7 +643,7 @@ class MemoryEngine:
             # 如果总数小于等于limit，直接一次性获取
             if total_count <= limit:
                 all_docs = await self.faiss_db.document_storage.get_documents(
-                    metadata_filters={"session_id": normalized_session_id},
+                    metadata_filters={"session_id": session_id},
                     limit=limit,
                     offset=0,
                 )
@@ -657,7 +663,7 @@ class MemoryEngine:
 
                 while offset < total_count:
                     batch = await self.faiss_db.document_storage.get_documents(
-                        metadata_filters={"session_id": normalized_session_id},
+                        metadata_filters={"session_id": session_id},
                         limit=batch_size,
                         offset=offset,
                     )
@@ -784,6 +790,134 @@ class MemoryEngine:
         except Exception:
             return 0
 
+    async def _migrate_session_data_if_needed(self, unified_msg_origin: str) -> None:
+        """
+        运行时自动迁移：将旧格式的session_id更新为unified_msg_origin格式
+
+        支持各种平台的旧格式（通用匹配策略）：
+        - WebChat UUID: "ac8c2cef-959e-4146-ad22-c82d0230ad06"
+        - WebChat带前缀: "webchat!astrbot!ac8c2cef-959e-4146-ad22-c82d0230ad06"
+        - QQ号: "123456789"
+        - 其他平台: 任意字符串
+
+        目标格式: "platform:message_type:session_id"
+
+        策略：
+        1. 从unified_msg_origin解析出：platform、message_type、session_id
+        2. 生成所有可能的旧格式匹配候选（递归拆分）
+        3. 查找匹配任一候选且不含冒号的旧记录
+        4. 批量更新为unified_msg_origin
+        5. 使用unified_msg_origin本身作为迁移标记（避免重复）
+
+        Args:
+            unified_msg_origin: 完整的统一消息来源（格式：platform:type:session_id）
+        """
+
+        try:
+            # 1. 解析 unified_msg_origin
+            parts = unified_msg_origin.split(":", 2)
+            if len(parts) != 3:
+                logger.warning(
+                    f"[自动迁移] unified_msg_origin 格式不正确: {unified_msg_origin}"
+                )
+                return
+
+            platform_id, message_type, full_session_id = parts
+
+            # 2. 生成所有可能的旧格式匹配候选
+            # 对于 "webchat!astrbot!ac8c2cef-..." 会生成:
+            #   ["webchat!astrbot!ac8c2cef-...", "astrbot!ac8c2cef-...", "ac8c2cef-..."]
+            # 对于 "123456789" 会生成: ["123456789"]
+            candidates = [full_session_id]
+
+            # 按感叹号递归拆分
+            if "!" in full_session_id:
+                parts_by_bang = full_session_id.split("!")
+                for i in range(1, len(parts_by_bang)):
+                    candidates.append("!".join(parts_by_bang[i:]))
+
+            logger.info(f"[自动迁移] 开始检查会话，候选匹配: {candidates}")
+
+            # 3. 检查是否已迁移（使用unified_msg_origin本身作为标记）
+            migration_key = f"migrated_umo_{unified_msg_origin}"
+            if self.db_connection is None:
+                return
+            cursor = await self.db_connection.execute(
+                "SELECT value FROM migration_status WHERE key = ?", (migration_key,)
+            )
+            row = await cursor.fetchone()
+            if row and row[0] == "true":
+                # 已迁移过，跳过
+                return
+
+            # 4. 查找所有需要迁移的记录
+            # 条件：session_id 匹配任一候选 且 不包含冒号（旧格式标识）
+            placeholders = " OR ".join(
+                ["json_extract(metadata, '$.session_id') = ?" for _ in candidates]
+            )
+            query = f"""
+                SELECT id, metadata FROM documents
+                WHERE ({placeholders})
+                AND json_extract(metadata, '$.session_id') NOT LIKE '%:%'
+            """
+
+            cursor = await self.db_connection.execute(query, tuple(candidates))
+            rows = list(await cursor.fetchall())
+
+            if not rows:
+                logger.info("[自动迁移] 未找到需要迁移的旧数据")
+                # 即使没有旧数据也标记为已检查，避免重复查询
+                await self.db_connection.execute(
+                    "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    (migration_key, "true"),
+                )
+                await self.db_connection.commit()
+                return
+
+            logger.info(f"[自动迁移] 找到 {len(list(rows))} 条旧数据需要迁移")
+
+            # 5. 批量更新
+            updated_count = 0
+            for row in rows:
+                doc_id = row[0]
+                metadata_str = row[1]
+
+                try:
+                    metadata = json.loads(metadata_str) if metadata_str else {}
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
+                old_session_id = metadata.get("session_id", "unknown")
+
+                # 更新为unified_msg_origin格式
+                metadata["session_id"] = unified_msg_origin
+                metadata["migrated_at"] = time.time()
+                metadata["old_session_id"] = old_session_id  # 保留旧值便于追溯
+
+                # 写回数据库
+                await self.db_connection.execute(
+                    "UPDATE documents SET metadata = ? WHERE id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), doc_id),
+                )
+                updated_count += 1
+
+            # 6. 提交更新
+            await self.db_connection.commit()
+
+            # 7. 标记为已迁移
+            await self.db_connection.execute(
+                "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                (migration_key, "true"),
+            )
+            await self.db_connection.commit()
+
+            logger.info(
+                f"[自动迁移] 完成！已更新 {updated_count} 条记录 -> {unified_msg_origin}"
+            )
+
+        except Exception as e:
+            logger.error(f"[自动迁移] 迁移失败: {e}", exc_info=True)
+
     async def get_statistics(self) -> dict[str, Any]:
         """
         获取记忆统计信息（使用批量处理避免内存问题）
@@ -841,14 +975,12 @@ class MemoryEngine:
                     elif not isinstance(metadata, dict):
                         metadata = {}
 
-                    # 统计会话（提取UUID进行分组，支持新旧格式兼容）
+                    # 统计会话（直接使用session_id分组）
                     session_id = metadata.get("session_id")
                     if session_id:
-                        session_uuid = _extract_session_uuid(session_id)
-                        if session_uuid:
-                            session_counts[session_uuid] = (
-                                session_counts.get(session_uuid, 0) + 1
-                            )
+                        session_counts[session_id] = (
+                            session_counts.get(session_id, 0) + 1
+                        )
 
                     # 统计状态（默认 active）
                     status = metadata.get("status", "active")
@@ -893,8 +1025,6 @@ class MemoryEngine:
 
             return stats
         except Exception as e:
-            from astrbot.api import logger
-
             logger.error(f"获取统计信息失败: {e}", exc_info=True)
             return {
                 "total_memories": 0,

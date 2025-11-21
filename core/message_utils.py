@@ -84,18 +84,18 @@ async def store_round_with_length_check(
     }
 
     try:
-        if memory_engine:
-            await memory_engine.add_memory(
-                content=round_content,
-                session_id=session_id,
-                persona_id=persona_id,
-                importance=0.5,
-                metadata=round_metadata,
-            )
-            return True, ""
-        else:
+        if memory_engine is None:
             return False, "memory_engine为None"
+
+        await memory_engine.add_memory(
+            content=round_content,
+            session_id=session_id,
+            persona_id=persona_id,
+            importance=0.5,
+            metadata=round_metadata,
+        )
+        return True, ""
     except Exception as e:
         error_msg = f"存储失败: {str(e)}"
-        logger.error(f"[{session_id}] 第{round_index}轮对话{error_msg}")
+        logger.error(f"[{session_id}] 第{round_index}轮对话{error_msg}", exc_info=True)
         return False, error_msg

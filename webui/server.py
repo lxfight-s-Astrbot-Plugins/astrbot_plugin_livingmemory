@@ -97,7 +97,8 @@ class WebUIServer:
         self._access_password = str(config.get("access_password", "")).strip()
         self._password_generated = False
         if not self._access_password:
-            self._access_password = secrets.token_urlsafe(10)
+            # 使用更长的密码以增强安全性(16字符代替10字符)
+            self._access_password = secrets.token_urlsafe(16)
             self._password_generated = True
             logger.info(
                 "WebUI 未设置访问密码，已自动生成随机密码: %s",
@@ -349,7 +350,9 @@ class WebUIServer:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="密码不能为空")
 
             # 检查请求频率限制
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = "unknown"
+            if request.client and request.client.host:
+                client_ip = request.client.host
             if not await self._check_rate_limit(client_ip):
                 raise HTTPException(
                     status.HTTP_429_TOO_MANY_REQUESTS,
@@ -861,7 +864,8 @@ class WebUIServer:
                         failed_count += 1
                         failed_ids.append(memory_id)
                         logger.error(
-                            f"[批量删除]  memory_id 格式错误 '{memory_id}': {e}"
+                            f"[批量删除]  memory_id 格式错误 '{memory_id}': {e}",
+                            exc_info=True,
                         )
                     except Exception as e:
                         failed_count += 1

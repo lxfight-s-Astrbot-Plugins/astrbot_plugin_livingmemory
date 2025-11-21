@@ -79,8 +79,8 @@ class ConversationManager:
         Returns:
             创建的Message对象
         """
-        # 提取会话ID
-        session_id = event.session_id
+        # 使用 unified_msg_origin 作为会话ID，确保多Bot场景下的唯一性
+        session_id = event.unified_msg_origin
 
         # 提取发送者信息
         sender_id = None
@@ -465,15 +465,19 @@ class ConversationManager:
         session.metadata[key] = value
 
         # 保存到数据库
-        await self.store.connection.execute(
-            """
-            UPDATE sessions
-            SET metadata = ?
-            WHERE session_id = ?
-        """,
-            (json.dumps(session.metadata, ensure_ascii=False), session_id),
-        )
-        await self.store.connection.commit()
+        if self.store.connection is not None:
+            try:
+                await self.store.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                """,
+                    (json.dumps(session.metadata, ensure_ascii=False), session_id),
+                )
+                await self.store.connection.commit()
+            except Exception as e:
+                logger.error(f"更新会话元数据失败: {e}", exc_info=True)
 
         logger.debug(
             f"[ConversationManager] 更新会话元数据: {session_id}, {key}={value}"
@@ -513,15 +517,19 @@ class ConversationManager:
         # 将元数据重置为空字典
         session.metadata = {}
         # 保存回数据库
-        await self.store.connection.execute(
-            """
-            UPDATE sessions
-            SET metadata = ?
-            WHERE session_id = ?
-        """,
-            ("{}", session_id),
-        )
-        await self.store.connection.commit()
+        if self.store.connection is not None:
+            try:
+                await self.store.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                """,
+                    ("{}", session_id),
+                )
+                await self.store.connection.commit()
+            except Exception as e:
+                logger.error(f"重置会话元数据失败: {e}", exc_info=True)
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )

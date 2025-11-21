@@ -18,6 +18,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from astrbot.core.provider.provider import EmbeddingProvider
 
+from .core.chatroom_parser import ChatroomContextParser
 from .core.config_validator import merge_config_with_defaults, validate_config
 from .core.conversation_manager import ConversationManager
 from .core.index_validator import IndexValidator
@@ -38,7 +39,7 @@ from .webui import WebUIServer
     "LivingMemory",
     "lxfight",
     "一个拥有动态生命周期的智能长期记忆插件。",
-    "1.6.3",
+    "1.7.0",
     "https://github.com/lxfight/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -53,11 +54,17 @@ class LivingMemoryPlugin(Star):
             self.config = self.config_obj.model_dump()
             logger.info("插件配置验证成功")
         except Exception as e:
-            logger.error(f"配置验证失败，使用默认配置: {e}")
+            logger.error(f"配置验证失败，使用默认配置: {e}", exc_info=True)
             from .core.config_validator import get_default_config
 
-            self.config = get_default_config()
-            self.config_obj = validate_config(self.config)
+            try:
+                self.config = get_default_config()
+                self.config_obj = validate_config(self.config)
+            except Exception as e2:
+                logger.error(f"加载默认配置也失败: {e2}", exc_info=True)
+                # 使用最基本的配置
+                self.config = {}
+                self.config_obj = None
 
         # 初始化状态
         self.embedding_provider: EmbeddingProvider | None = None
@@ -74,6 +81,11 @@ class LivingMemoryPlugin(Star):
         self._initialization_lock = asyncio.Lock()
         self._initialization_failed = False
         self._initialization_error: str | None = None
+
+        # 消息去重缓存: {message_id: timestamp}
+        self._message_dedup_cache: dict[str, float] = {}
+        self._dedup_cache_max_size = 1000  # 最大缓存1000条消息ID
+        self._dedup_cache_ttl = 300  # 缓存5分钟
 
         # Provider 就绪标记
         self._providers_ready = False
@@ -270,14 +282,14 @@ class LivingMemoryPlugin(Star):
             await self._auto_rebuild_index_if_needed()
 
             # 6.5. 异步初始化 TextProcessor（加载停用词）
-            if (
-                self.memory_engine
-                and hasattr(self.memory_engine, "text_processor")
-                and self.memory_engine.text_processor is not None
-                and hasattr(self.memory_engine.text_processor, "async_init")
-            ):
-                await self.memory_engine.text_processor.async_init()
-                logger.info(" TextProcessor 停用词已加载")
+            if self.memory_engine is not None:
+                if (
+                    hasattr(self.memory_engine, "text_processor")
+                    and self.memory_engine.text_processor is not None
+                ):
+                    if hasattr(self.memory_engine.text_processor, "async_init"):
+                        await self.memory_engine.text_processor.async_init()
+                        logger.info(" TextProcessor 停用词已加载")
 
             # 7. 启动 WebUI（如启用）
             await self._start_webui()
@@ -476,7 +488,11 @@ class LivingMemoryPlugin(Star):
             silent: 静默模式，减少日志输出（用于轮询场景）
         """
         # 初始化 Embedding Provider
-        emb_id = self.config.get("provider_settings", {}).get("embedding_provider_id")
+        emb_id = (
+            self.config.get("provider_settings", {}).get("embedding_provider_id")
+            if self.config
+            else None
+        )
         if emb_id:
             provider = self.context.get_provider_by_id(emb_id)
             # 类型检查：确保返回的是 EmbeddingProvider
@@ -505,7 +521,11 @@ class LivingMemoryPlugin(Star):
                     logger.debug("没有可用的 Embedding Provider")
 
         # 初始化 LLM Provider
-        llm_id = self.config.get("provider_settings", {}).get("llm_provider_id")
+        llm_id = (
+            self.config.get("provider_settings", {}).get("llm_provider_id")
+            if self.config
+            else None
+        )
         if llm_id:
             provider = self.context.get_provider_by_id(llm_id)
             # 类型检查：确保返回的是 Provider（LLM Provider）
@@ -614,6 +634,211 @@ class LivingMemoryPlugin(Star):
 
         return removed_count
 
+    @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
+    async def handle_all_group_messages(self, event: AstrMessageEvent):
+        """[事件钩子] 捕获所有群聊消息(包括非@Bot的消息)用于记忆存储"""
+        # 检查配置是否启用
+        if not self.config.get("session_manager", {}).get(
+            "enable_full_group_capture", True
+        ):
+            return
+
+        # 只处理群聊消息
+        from astrbot.api.platform import MessageType
+
+        if event.get_message_type() != MessageType.GROUP_MESSAGE:
+            return
+
+        # 确保插件已初始化
+        if not self._initialization_complete or not self.conversation_manager:
+            return
+
+        try:
+            session_id = event.unified_msg_origin
+            
+            # 检测并警告异常的session_id
+            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+                logger.warning(
+                    f"检测到异常的session_id: {session_id}。"
+                    f"这可能是平台适配器初始化问题，建议检查平台配置。"
+                )
+            
+            message_id = event.message_obj.message_id
+
+            # 消息去重检查
+            if self._is_duplicate_message(message_id):
+                logger.debug(f"[{session_id}] 消息已存在,跳过: message_id={message_id}")
+                return
+
+            # 标记消息已处理
+            self._mark_message_processed(message_id)
+
+            # 判断是否是Bot自己发送的消息
+            is_bot_message = event.get_sender_id() == event.get_self_id()
+
+            # 获取消息内容(包含非文本消息的描述)
+            content = self._extract_message_content(event)
+
+            # 确定角色
+            role = "assistant" if is_bot_message else "user"
+
+            # 存储消息到数据库，并立即标记metadata
+            message = await self.conversation_manager.add_message_from_event(
+                event=event,
+                role=role,
+                content=content,
+            )
+
+            # 在消息的metadata中标记是否为Bot消息
+            message.metadata["is_bot_message"] = is_bot_message
+            # 更新到数据库
+            await self._update_message_metadata(message)
+
+            # 检查并执行消息数量上限控制
+            await self._enforce_message_limit(session_id)
+
+            logger.debug(
+                f"[{session_id}] 捕获群聊消息: "
+                f"sender={event.get_sender_name()}({event.get_sender_id()}), "
+                f"is_bot={is_bot_message}, content={content[:50]}..."
+            )
+
+        except Exception as e:
+            logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
+
+    def _is_duplicate_message(self, message_id: str) -> bool:
+        """检查消息是否已经处理过"""
+        current_time = time.time()
+
+        # 清理过期的缓存条目
+        expired_keys = [
+            key
+            for key, timestamp in self._message_dedup_cache.items()
+            if current_time - timestamp > self._dedup_cache_ttl
+        ]
+        for key in expired_keys:
+            del self._message_dedup_cache[key]
+
+        # 检查是否已存在
+        return message_id in self._message_dedup_cache
+
+    def _mark_message_processed(self, message_id: str):
+        """标记消息已处理"""
+        current_time = time.time()
+
+        # 如果缓存已满,删除最旧的条目
+        if len(self._message_dedup_cache) >= self._dedup_cache_max_size:
+            oldest_key = min(self._message_dedup_cache.items(), key=lambda x: x[1])[0]
+            del self._message_dedup_cache[oldest_key]
+
+        self._message_dedup_cache[message_id] = current_time
+
+    def _extract_message_content(self, event: AstrMessageEvent) -> str:
+        """提取消息内容,包括非文本消息的类型描述"""
+        from astrbot.core.message.components import (
+            At,
+            AtAll,
+            Face,
+            File,
+            Forward,
+            Image,
+            Plain,
+            Record,
+            Reply,
+            Video,
+        )
+
+        parts = []
+        base_text = event.get_message_str()
+
+        # 添加基础文本
+        if base_text:
+            parts.append(base_text)
+
+        # 遍历消息链,添加非文本消息的类型描述
+        for component in event.get_messages():
+            if isinstance(component, Image):
+                parts.append("[图片]")
+            elif isinstance(component, Record):
+                parts.append("[语音]")
+            elif isinstance(component, Video):
+                parts.append("[视频]")
+            elif isinstance(component, File):
+                file_name = component.name or "未知文件"
+                parts.append(f"[文件: {file_name}]")
+            elif isinstance(component, Face):
+                parts.append(f"[表情:{component.id}]")
+            elif isinstance(component, At):
+                if isinstance(component, AtAll):
+                    parts.append("[At:全体成员]")
+                else:
+                    parts.append(f"[At:{component.qq}]")
+            elif isinstance(component, Forward):
+                parts.append("[转发消息]")
+            elif isinstance(component, Reply):
+                if component.message_str:
+                    parts.append(f"[引用: {component.message_str[:30]}]")
+                else:
+                    parts.append("[引用消息]")
+            elif not isinstance(component, Plain):
+                # 其他未知类型
+                parts.append(f"[{component.type}]")
+
+        return " ".join(parts).strip()
+
+    async def _update_message_metadata(self, message):
+        """更新消息的metadata到数据库"""
+        if not self.conversation_manager or not self.conversation_manager.store:
+            return
+
+        # 使用 ConversationStore 提供的专用方法
+        await self.conversation_manager.store.update_message_metadata(
+            message.id, message.metadata
+        )
+
+    async def _enforce_message_limit(self, session_id: str):
+        """执行消息数量上限控制"""
+        if not self.conversation_manager:
+            return
+
+        max_messages = self.config.get("session_manager", {}).get(
+            "max_messages_per_session", 1000
+        )
+
+        session_info = await self.conversation_manager.get_session_info(session_id)
+        if not session_info:
+            return
+
+        if session_info.message_count > max_messages:
+            # 计算需要删除的消息数量
+            to_delete = session_info.message_count - max_messages
+
+            # 删除最旧的消息
+            if (
+                self.conversation_manager.store
+                and self.conversation_manager.store.connection
+            ):
+                try:
+                    await self.conversation_manager.store.connection.execute(
+                        """
+                        DELETE FROM messages
+                        WHERE id IN (
+                            SELECT id FROM messages
+                            WHERE session_id = ?
+                            ORDER BY timestamp ASC
+                            LIMIT ?
+                        )
+                        """,
+                        (session_id, to_delete),
+                    )
+                    await self.conversation_manager.store.connection.commit()
+
+                    logger.info(
+                        f"[{session_id}] 消息数量超过上限({max_messages}),已删除最旧的{to_delete}条消息"
+                    )
+                except Exception as e:
+                    logger.error(f"删除旧消息失败: {e}", exc_info=True)
+
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
@@ -626,9 +851,16 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与其他地方保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Recall] 获取到 session_id: {session_id}")
+            # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+            session_id = event.unified_msg_origin
+            logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
+            
+            # 检测并警告异常的session_id
+            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+                logger.warning(
+                    f"[{session_id}] 检测到异常的session_id，这可能导致记忆功能异常。"
+                    f"建议检查平台适配器配置或重启AstrBot。"
+                )
 
             async with OperationContext("记忆召回", session_id):
                 # 首先检查是否需要自动删除旧的注入记忆
@@ -657,13 +889,28 @@ class LivingMemoryPlugin(Star):
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
 
+                # ===== 问题1修复：提取真实用户消息用于召回 =====
+                # 检查 prompt 是否为 None
+                if not req.prompt:
+                    logger.warning(f"[{session_id}] req.prompt 为空，跳过记忆召回")
+                    return
+
+                # 自动检测并提取（如果不是特殊格式则返回原值）
+                actual_query = ChatroomContextParser.extract_actual_message(req.prompt)
+
+                if actual_query != req.prompt:
+                    logger.info(
+                        f"[{session_id}]  检测到群聊上下文格式，已提取真实消息用于召回 "
+                        f"(原始: {len(req.prompt)}字符 → 提取: {len(actual_query)}字符)"
+                    )
+
                 # 使用 MemoryEngine 进行智能回忆
                 logger.info(
-                    f"[{session_id}] 开始记忆召回，查询='{req.prompt[:50]}...'，top_k={self.config.get('recall_engine', {}).get('top_k', 5)}"
+                    f"[{session_id}] 开始记忆召回，查询='{actual_query[:50]}...'，top_k={self.config.get('recall_engine', {}).get('top_k', 5)}"
                 )
 
                 recalled_memories = await self.memory_engine.search_memories(
-                    query=req.prompt,
+                    query=actual_query,  # 使用提取的真实消息
                     k=self.config.get("recall_engine", {}).get("top_k", 5),
                     session_id=recall_session_id,
                     persona_id=recall_persona_id,
@@ -707,32 +954,64 @@ class LivingMemoryPlugin(Star):
 
                     if injection_method == "user_message_before":
                         # 在用户消息前插入记忆
-                        req.prompt = memory_str + "\n\n" + req.prompt
+                        if req.prompt:
+                            req.prompt = memory_str + "\n\n" + req.prompt
+                        else:
+                            req.prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向用户消息前注入 {len(recalled_memories)} 条记忆"
                         )
                     elif injection_method == "user_message_after":
                         # 在用户消息后插入记忆
-                        req.prompt = req.prompt + "\n\n" + memory_str
+                        if req.prompt:
+                            req.prompt = req.prompt + "\n\n" + memory_str
+                        else:
+                            req.prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向用户消息后注入 {len(recalled_memories)} 条记忆"
                         )
                     else:
                         # 默认：注入到 system_prompt
-                        req.system_prompt = memory_str + "\n" + req.system_prompt
+                        if req.system_prompt:
+                            req.system_prompt = memory_str + "\n" + req.system_prompt
+                        else:
+                            req.system_prompt = memory_str
                         logger.info(
                             f"[{session_id}]  成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
                         )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
-                # 使用 ConversationManager 添加用户消息
-                if self.conversation_manager:
-                    await self.conversation_manager.add_message_from_event(
-                        event=event,
-                        role="user",
-                        content=req.prompt,
-                    )
+                # ===== 问题3修复：避免存储完整上下文到数据库 =====
+                # ===== 避免重复存储：handle_all_group_messages 已经捕获了群聊消息 =====
+                if self.conversation_manager and req.prompt:
+                    # 检查是否为群聊消息
+                    from astrbot.api.platform import MessageType
+
+                    is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+
+                    # 群聊消息已被 handle_all_group_messages 捕获，跳过重复存储
+                    if is_group:
+                        logger.debug(
+                            f"[{session_id}] 群聊消息已由 handle_all_group_messages 捕获，跳过重复存储"
+                        )
+                    else:
+                        # 私聊消息：提取真实消息存储（避免数据库膨胀）
+                        message_to_store = ChatroomContextParser.extract_actual_message(
+                            req.prompt
+                        )
+
+                        if message_to_store != req.prompt:
+                            logger.debug(
+                                f"[{session_id}]  只存储真实消息到数据库 "
+                                f"({len(req.prompt)} → {len(message_to_store)}字符，避免数据库膨胀)"
+                            )
+
+                        await self.conversation_manager.add_message_from_event(
+                            event=event,
+                            role="user",
+                            content=message_to_store,
+                        )
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
@@ -763,12 +1042,20 @@ class LivingMemoryPlugin(Star):
             return
 
         try:
-            # 修复：直接使用 event.session_id，与 add_message_from_event 保持一致
-            session_id = event.session_id
-            logger.debug(f"[DEBUG-Reflection] 获取到 session_id: {session_id}")
+            # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+            session_id = event.unified_msg_origin
+            logger.debug(f"[DEBUG-Reflection] 获取到 unified_msg_origin: {session_id}")
+            
             if not session_id:
                 logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
                 return
+            
+            # 检测并警告异常的session_id
+            if "Error:" in session_id or "error:" in session_id.lower():
+                logger.warning(
+                    f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
+                    f"建议检查平台适配器配置或重启AstrBot。"
+                )
 
             # 使用 ConversationManager 添加助手响应
             await self.conversation_manager.add_message_from_event(
@@ -797,116 +1084,56 @@ class LivingMemoryPlugin(Star):
                 f"[DEBUG-Reflection] [{session_id}] 配置的 summary_trigger_rounds: {trigger_rounds}"
             )
 
-            # 修复：基于对话轮数而非消息条数触发总结
-            # 每轮对话 = 1条user消息 + 1条assistant消息 = 2条消息
-            # 例如：trigger_rounds=5 表示每5轮对话触发，即每10条消息触发
-            message_count = session_info.message_count
-            conversation_rounds = message_count // 2  # 计算对话轮数
-
-            logger.info(
-                f"[DEBUG-Reflection] [{session_id}] 当前消息数: {message_count}, "
-                f"对话轮数: {conversation_rounds}, 触发阈值(轮数): {trigger_rounds}"
-            )
-            logger.info(
-                f"[DEBUG-Reflection] [{session_id}] 触发条件检查: "
-                f"conversation_rounds >= trigger_rounds = {conversation_rounds >= trigger_rounds}, "
-                f"conversation_rounds % trigger_rounds == 0 = {conversation_rounds % trigger_rounds == 0}"
+            # 获取上次总结的位置
+            last_summarized_index = (
+                await self.conversation_manager.get_session_metadata(
+                    session_id, "last_summarized_index", 0
+                )
             )
 
-            # 每达到 trigger_rounds 轮对话的倍数时进行反思
-            if (
-                conversation_rounds >= trigger_rounds
-                and conversation_rounds % trigger_rounds == 0
-            ):
+            # 修复：基于未总结的消息数量触发
+            # 计算当前有多少消息未被总结
+            total_messages = session_info.message_count
+            unsummarized_messages = total_messages - last_summarized_index
+            unsummarized_rounds = unsummarized_messages // 2  # 转换为轮数
+
+            logger.info(
+                f"[DEBUG-Reflection] [{session_id}] 总消息数: {total_messages}, "
+                f"上次总结位置: {last_summarized_index}, "
+                f"未总结消息数: {unsummarized_messages}, "
+                f"未总结轮数: {unsummarized_rounds}, "
+                f"触发阈值: {trigger_rounds}轮"
+            )
+
+            # 当未总结的轮数达到触发阈值时进行总结
+            if unsummarized_rounds >= trigger_rounds:
                 logger.info(
-                    f"[{session_id}]  对话轮数达到 {conversation_rounds} 轮（消息数={message_count}），启动记忆反思任务"
+                    f"[{session_id}]  未总结轮数达到 {unsummarized_rounds} 轮（触发阈值 {trigger_rounds} 轮），启动记忆反思任务"
                 )
 
-                # ====== 滑动窗口逻辑 ======
-                # 不再保留上下文，而是总结所有应该总结的消息
+                # ====== 简化的滑动窗口逻辑 ======
+                # 策略：只总结未总结的消息，不重复总结已处理的消息
 
-                # 获取上次总结的位置
-                last_summarized_index = (
-                    await self.conversation_manager.get_session_metadata(
-                        session_id, "last_summarized_index", 0
-                    )
-                )
-
-                # 计算本次需要总结的消息范围
-                total_messages = session_info.message_count
-
-                # end_index：总结到当前所有消息
+                # 计算总结范围
+                start_index = last_summarized_index
                 end_index = total_messages
 
-                # start_index 计算：
-                # 1. 如果是第一次总结（last_summarized_index == 0），从头开始
-                # 2. 如果不是第一次，保留1-2轮重叠作为上下文
-                # 3. 如果trigger_rounds < 2，则重叠轮数不超过trigger_rounds
-                CONTEXT_OVERLAP_ROUNDS = 2  # 默认保留2轮对话作为上下文
-
-                # 边界处理：重叠轮数不能超过trigger_rounds，且至少为1轮
-                actual_overlap_rounds = min(
-                    CONTEXT_OVERLAP_ROUNDS, max(1, trigger_rounds)
-                )
-
-                if last_summarized_index == 0:
-                    # 第一次总结：从头开始
-                    start_index = 0
-                    context_rounds_added = 0
-                else:
-                    # 向前回溯N轮对话作为上下文
-                    overlap_messages = actual_overlap_rounds * 2
-                    start_index = max(0, last_summarized_index - overlap_messages)
-                    context_rounds_added = min(
-                        actual_overlap_rounds, last_summarized_index // 2
-                    )
-
-                logger.debug(
-                    f"[{session_id}] 上下文重叠配置: trigger_rounds={trigger_rounds}, "
-                    f"actual_overlap_rounds={actual_overlap_rounds}, context_rounds_added={context_rounds_added}"
-                )
-
-                # 严格限制：每次只总结 trigger_rounds 轮新对话
-                # 计算实际应该总结到哪里（从last_summarized_index开始的trigger_rounds轮）
-                max_new_messages = (
-                    trigger_rounds * 2
-                )  # trigger_rounds轮 = trigger_rounds*2条消息
-                actual_end_index = last_summarized_index + max_new_messages
-
-                # 不能超过当前总消息数
-                if actual_end_index > total_messages:
-                    actual_end_index = total_messages
-
-                # 加上重叠上下文，确定最终范围
-                end_index = actual_end_index
-
-                # 计算本次将要总结的轮数
-                messages_to_summarize = end_index - start_index
-                rounds_to_summarize = messages_to_summarize // 2
-
-                # 计算实际的新消息数（不含重叠部分）
-                new_messages = end_index - last_summarized_index
-                new_rounds = new_messages // 2
-
-                logger.info(
-                    f" [{session_id}] 滑动窗口总结: "
-                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
-                    f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息），"
-                    f"其中包含 {context_rounds_added} 轮上下文 + {new_rounds} 轮新内容，"
-                    f"上次总结位置 {last_summarized_index}"
-                )
-
-                # 检查是否有足够的新消息需要总结
-                if end_index <= start_index:
+                # 确保至少有2条消息（1轮对话）可以总结
+                if end_index - start_index < 2:
                     logger.debug(
-                        f"[{session_id}] 没有足够的新消息需要总结 "
+                        f"[{session_id}] 消息数不足一轮对话，跳过总结 "
                         f"(start={start_index}, end={end_index})"
                     )
                     return
 
-                if new_rounds < 1:
-                    logger.debug(f"[{session_id}] 没有新消息需要总结")
-                    return
+                messages_to_summarize = end_index - start_index
+                rounds_to_summarize = messages_to_summarize // 2
+
+                logger.info(
+                    f" [{session_id}] 滑动窗口总结: "
+                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
+                    f"本次总结 {rounds_to_summarize} 轮（{messages_to_summarize} 条消息）"
+                )
 
                 # 获取需要总结的消息
                 history_messages = await self.conversation_manager.get_messages_range(
@@ -994,7 +1221,7 @@ class LivingMemoryPlugin(Star):
                                                 history_messages[i],
                                                 history_messages[i + 1],
                                                 session_id,
-                                                persona_id,
+                                                persona_id or "",
                                                 i // 2,
                                             )
                                             if success:
@@ -1034,7 +1261,7 @@ class LivingMemoryPlugin(Star):
                                             history_messages[i],
                                             history_messages[i + 1],
                                             session_id,
-                                            persona_id,
+                                            persona_id or "",
                                             i // 2,
                                         )
                                         if success:
@@ -1129,8 +1356,10 @@ class LivingMemoryPlugin(Star):
 
     def _get_session_id(self, event: AstrMessageEvent) -> str:
         """从event获取session_id的辅助方法"""
-        # 修复：直接使用 event.session_id，避免不一致问题
-        return event.session_id or "default"
+        # 使用 unified_msg_origin 作为 session_id，确保多Bot场景下的唯一性
+        if not event.unified_msg_origin:
+            raise ValueError("无法获取 unified_msg_origin，event 对象可能不完整")
+        return event.unified_msg_origin
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""
