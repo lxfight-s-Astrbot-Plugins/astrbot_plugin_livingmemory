@@ -40,7 +40,7 @@
         "description": "监听端口",
         "hint": "WebUI 服务监听端口。请确保端口未被占用，避免与 AstrBot 主端口（默认 6185）冲突。",
         "type": "int",
-        "default": 8080
+        "default": 8888
       },
       "access_password": {
         "description": "访问密码",
