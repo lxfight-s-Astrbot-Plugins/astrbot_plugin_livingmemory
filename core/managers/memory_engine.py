@@ -13,11 +13,11 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from .retrieval.bm25_retriever import BM25Retriever
-from .retrieval.hybrid_retriever import HybridResult, HybridRetriever
-from .retrieval.rrf_fusion import RRFFusion
-from .retrieval.vector_retriever import VectorRetriever
-from .text_processor import TextProcessor
+from ..processors.text_processor import TextProcessor
+from ..retrieval.bm25_retriever import BM25Retriever
+from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
+from ..retrieval.rrf_fusion import RRFFusion
+from ..retrieval.vector_retriever import VectorRetriever
 
 
 def _extract_session_uuid(session_id: str | None) -> str | None:

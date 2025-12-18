@@ -17,8 +17,8 @@ from typing import Any
 
 from astrbot.api import logger
 
-from ..core.conversation_models import Message, Session
-from ..storage.conversation_store import ConversationStore
+from ...storage.conversation_store import ConversationStore
+from ..models.conversation_models import Message, Session
 
 
 class ConversationManager:

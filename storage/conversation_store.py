@@ -10,7 +10,7 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from ..core.conversation_models import Message, Session, serialize_to_json
+from ..core.models.conversation_models import Message, Session, serialize_to_json
 
 
 class ConversationStore:

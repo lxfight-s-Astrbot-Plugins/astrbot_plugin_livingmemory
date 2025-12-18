@@ -9,7 +9,7 @@ from typing import Any
 
 import aiosqlite
 
-from ..text_processor import TextProcessor
+from ..processors.text_processor import TextProcessor
 
 
 @dataclass

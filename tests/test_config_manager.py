@@ -2,7 +2,6 @@
 测试ConfigManager
 """
 
-import pytest
 
 from core.config_manager import ConfigManager
 

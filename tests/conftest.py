@@ -4,10 +4,9 @@ pytest 配置文件
 """
 
 import asyncio
-import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import AsyncGenerator, Generator
 
 import pytest
 

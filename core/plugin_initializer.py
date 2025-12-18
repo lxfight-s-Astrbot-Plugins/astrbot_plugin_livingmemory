@@ -6,37 +6,37 @@
 import asyncio
 import os
 import time
-from pathlib import Path
-from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.star import Context, StarTools
+from astrbot.api.star import Context
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from astrbot.core.provider.provider import EmbeddingProvider
 
-from .config_manager import ConfigManager
-from .conversation_manager import ConversationManager
-from .exceptions import InitializationError, ProviderNotReadyError
-from .index_validator import IndexValidator
-from .memory_engine import MemoryEngine
-from .memory_processor import MemoryProcessor
 from ..storage.conversation_store import ConversationStore
 from ..storage.db_migration import DBMigration
+from .base.config_manager import ConfigManager
+from .base.exceptions import InitializationError, ProviderNotReadyError
+from .managers.conversation_manager import ConversationManager
+from .managers.memory_engine import MemoryEngine
+from .processors.memory_processor import MemoryProcessor
+from .validators.index_validator import IndexValidator
 
 
 class PluginInitializer:
     """插件初始化器"""
 
-    def __init__(self, context: Context, config_manager: ConfigManager):
+    def __init__(self, context: Context, config_manager: ConfigManager, data_dir: str):
         """
         初始化插件初始化器
 
         Args:
             context: AstrBot上下文
             config_manager: 配置管理器
+            data_dir: 插件数据目录路径
         """
         self.context = context
         self.config_manager = config_manager
+        self.data_dir = data_dir
 
         # 组件实例
         self.embedding_provider: EmbeddingProvider | None = None
@@ -190,9 +190,14 @@ class PluginInitializer:
                     logger.info(f"成功从配置加载 LLM Provider: {llm_id}")
 
         if not self.llm_provider:
-            self.llm_provider = self.context.get_using_provider()
-            if not silent and self.llm_provider:
-                logger.info("使用 AstrBot 当前默认的 LLM Provider。")
+            try:
+                self.llm_provider = self.context.get_using_provider()
+                if not silent and self.llm_provider:
+                    logger.info("使用 AstrBot 当前默认的 LLM Provider。")
+            except (ValueError, Exception) as e:
+                if not silent:
+                    logger.debug(f"获取默认 LLM Provider 失败: {e}")
+                self.llm_provider = None
 
     async def _complete_initialization(self):
         """完成完整的初始化流程"""
@@ -203,16 +208,15 @@ class PluginInitializer:
 
         try:
             # 初始化数据库
-            data_dir = StarTools.get_data_dir()
-            db_path = os.path.join(data_dir, "livingmemory.db")
-            index_path = os.path.join(data_dir, "livingmemory.index")
+            db_path = os.path.join(self.data_dir, "livingmemory.db")
+            index_path = os.path.join(self.data_dir, "livingmemory.index")
 
             if not self.embedding_provider:
                 raise ProviderNotReadyError("Embedding Provider 未初始化")
 
             self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
             await self.db.initialize()
-            logger.info(f"数据库已初始化。数据目录: {data_dir}")
+            logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
 
             # 初始化数据库迁移管理器
             self.db_migration = DBMigration(db_path)
@@ -222,7 +226,7 @@ class PluginInitializer:
                 await self._check_and_migrate_database()
 
             # 初始化MemoryEngine
-            stopwords_dir = os.path.join(data_dir, "stopwords")
+            stopwords_dir = os.path.join(self.data_dir, "stopwords")
             os.makedirs(stopwords_dir, exist_ok=True)
 
             memory_engine_config = {
@@ -245,7 +249,7 @@ class PluginInitializer:
             logger.info("✅ MemoryEngine 已初始化")
 
             # 初始化 ConversationManager
-            conversation_db_path = os.path.join(data_dir, "conversations.db")
+            conversation_db_path = os.path.join(self.data_dir, "conversations.db")
             conversation_store = ConversationStore(conversation_db_path)
             await conversation_store.initialize()
 

@@ -5,7 +5,11 @@
 
 from typing import Any
 
-from .config_validator import get_default_config, merge_config_with_defaults, validate_config
+from .config_validator import (
+    get_default_config,
+    merge_config_with_defaults,
+    validate_config,
+)
 from .exceptions import ConfigurationError
 
 
@@ -32,7 +36,7 @@ class ConfigManager:
             # 验证配置
             self._config_obj = validate_config(merged_config)
             self._config = self._config_obj.model_dump()
-        except Exception as e:
+        except Exception:
             # 配置验证失败，使用默认配置
             try:
                 self._config = get_default_config()

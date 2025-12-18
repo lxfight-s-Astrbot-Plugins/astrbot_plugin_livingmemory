@@ -15,7 +15,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
-from ..text_processor import TextProcessor
+from ..processors.text_processor import TextProcessor
 from .stopwords_manager import StopwordsManager, get_stopwords_manager
 
 
@@ -272,7 +272,7 @@ def format_memories_for_injection(memories: list) -> str:
     添加明确的说明文本，告知 LLM 这些是历史对话记忆。
     """
     # 延迟导入避免循环依赖
-    from ..constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+    from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
     if not memories:
         return ""

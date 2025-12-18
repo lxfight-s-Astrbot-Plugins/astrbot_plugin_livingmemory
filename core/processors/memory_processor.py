@@ -9,7 +9,7 @@ from typing import Any
 
 from astrbot.api import logger
 
-from .conversation_models import Message
+from ..models.conversation_models import Message
 
 
 class MemoryProcessor:
@@ -34,7 +34,7 @@ class MemoryProcessor:
 
     def _load_prompts(self) -> None:
         """从外部文件加载提示词模板"""
-        prompt_dir = Path(__file__).parent / "prompts"
+        prompt_dir = Path(__file__).parent.parent / "prompts"
 
         try:
             # 加载私聊提示词

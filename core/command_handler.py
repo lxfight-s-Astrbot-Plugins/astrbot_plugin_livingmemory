@@ -4,17 +4,16 @@
 """
 
 import os
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import AsyncGenerator
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.event.filter import PermissionType
 
-from .config_manager import ConfigManager
-from .conversation_manager import ConversationManager
-from .index_validator import IndexValidator
-from .memory_engine import MemoryEngine
+from .base.config_manager import ConfigManager
+from .managers.conversation_manager import ConversationManager
+from .managers.memory_engine import MemoryEngine
+from .validators.index_validator import IndexValidator
 
 
 class CommandHandler:

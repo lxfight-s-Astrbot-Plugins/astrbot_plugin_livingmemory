@@ -295,9 +295,10 @@ body::before {
 }
 
 .login-theme-toggle {
-  position: fixed;
-  top: var(--space-4);
-  right: var(--space-4);
+  position: fixed !important;
+  top: var(--space-4) !important;
+  right: var(--space-4) !important;
+  left: auto !important;
   z-index: 100;
   padding: var(--space-3);
   width: 2.75rem;

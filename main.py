@@ -1,19 +1,20 @@
 """
-main.py - LivingMemory 插件主文件（重构版）
+main.py - LivingMemory 插件主文件
 负责插件注册、初始化和生命周期管理
 """
 
 import asyncio
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.provider import LLMResponse, ProviderRequest
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
 
+from .core.base.config_manager import ConfigManager
 from .core.command_handler import CommandHandler
-from .core.config_manager import ConfigManager
 from .core.event_handler import EventHandler
 from .core.plugin_initializer import PluginInitializer
 from .webui import WebUIServer
@@ -33,11 +34,14 @@ class LivingMemoryPlugin(Star):
         super().__init__(context)
         self.context = context
 
+        # 获取插件数据目录
+        data_dir = str(StarTools.get_data_dir())
+
         # 初始化配置管理器
         self.config_manager = ConfigManager(config)
 
         # 初始化插件初始化器
-        self.initializer = PluginInitializer(context, self.config_manager)
+        self.initializer = PluginInitializer(context, self.config_manager, data_dir)
 
         # 事件处理器和命令处理器（初始化后创建）
         self.event_handler: EventHandler | None = None

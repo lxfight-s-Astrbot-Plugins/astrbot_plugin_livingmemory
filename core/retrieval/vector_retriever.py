@@ -8,7 +8,7 @@ from typing import Any
 
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
-from ..text_processor import TextProcessor
+from ..processors.text_processor import TextProcessor
 
 
 @dataclass

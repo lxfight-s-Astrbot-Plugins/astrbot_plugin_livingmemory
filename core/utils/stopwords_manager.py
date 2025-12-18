@@ -1,29 +1,14 @@
 """
-停用词管理器 - 自动下载和管理停用词表
+停用词管理器 - 管理停用词表
 """
 
-import asyncio
 from pathlib import Path
-
-import aiohttp
 
 from astrbot.api import logger
 
 
 class StopwordsManager:
     """停用词管理器"""
-
-    # 默认停用词表 URL
-    DEFAULT_STOPWORDS_URLS = {
-        "hit": "https://raw.githubusercontent.com/Northriven/Stopwords/main/stopwords_hit.txt",
-        "baidu": "https://raw.githubusercontent.com/goto456/stopwords/master/baidu_stopwords.txt",
-        "cn": "https://raw.githubusercontent.com/goto456/stopwords/master/cn_stopwords.txt",
-    }
-
-    # 备用 URL（使用国内镜像）
-    FALLBACK_URLS = {
-        "hit": "https://gitee.com/mirrors/stopwords/raw/master/stopwords_hit.txt",
-    }
 
     def __init__(
         self,
@@ -33,17 +18,18 @@ class StopwordsManager:
         初始化停用词管理器
 
         Args:
-            stopwords_dir: 停用词文件存储目录（可选，如果未提供则使用临时目录）
+            stopwords_dir: 停用词文件存储目录（可选，如果未提供则使用内置停用词）
         """
+        # 获取内置停用词目录（仓库中的 static/stopwords）
+        self.builtin_stopwords_dir = Path(__file__).parent.parent.parent / "static" / "stopwords"
+
+        # 用户自定义停用词目录（用于保存用户添加的停用词）
         if stopwords_dir:
-            self.stopwords_dir = Path(stopwords_dir)
+            self.custom_stopwords_dir = Path(stopwords_dir)
+            self.custom_stopwords_dir.mkdir(parents=True, exist_ok=True)
         else:
-            # 使用临时目录作为后备方案
-            import tempfile
+            self.custom_stopwords_dir = None
 
-            self.stopwords_dir = Path(tempfile.gettempdir()) / "astrbot_stopwords"
-
-        self.stopwords_dir.mkdir(parents=True, exist_ok=True)
         self.stopwords: set[str] = set()
         self.custom_stopwords: set[str] = set()
 
@@ -51,15 +37,13 @@ class StopwordsManager:
         self,
         source: str = "hit",
         custom_words: list | None = None,
-        auto_download: bool = True,
     ) -> set[str]:
         """
         加载停用词表
 
         Args:
-            source: 停用词来源 ("hit", "baidu", "cn" 或自定义文件路径)
+            source: 停用词来源 ("hit" 或自定义文件路径)
             custom_words: 用户自定义停用词列表
-            auto_download: 如果本地文件不存在，是否自动下载
 
         Returns:
             Set[str]: 停用词集合
@@ -67,25 +51,16 @@ class StopwordsManager:
         logger.info(f"开始加载停用词表: source={source}")
 
         # 1. 加载标准停用词表
-        if source in self.DEFAULT_STOPWORDS_URLS:
-            # 使用预定义的停用词源
+        if source == "hit":
+            # 从仓库内置目录加载
             filename = f"stopwords_{source}.txt"
-            filepath = self.stopwords_dir / filename
+            filepath = self.builtin_stopwords_dir / filename
 
-            if not filepath.exists() and auto_download:
-                logger.info(f"本地停用词文件不存在，开始下载: {filename}")
-                success = await self._download_stopwords(source, filepath)
-                if not success:
-                    logger.error(f"下载停用词表失败: {source}")
-                    # 使用内置的基础停用词
-                    self.stopwords = self._get_builtin_stopwords()
-                    logger.info(f"使用内置停用词表，共 {len(self.stopwords)} 个词")
-                else:
-                    self.stopwords = await self._load_from_file(filepath)
-            elif filepath.exists():
+            if filepath.exists():
                 self.stopwords = await self._load_from_file(filepath)
+                logger.info(f"从内置目录加载停用词: {filepath}")
             else:
-                logger.warning(f"停用词文件不存在且未启用自动下载: {filepath}")
+                logger.warning(f"内置停用词文件不存在: {filepath}，使用后备停用词")
                 self.stopwords = self._get_builtin_stopwords()
         else:
             # 使用自定义文件路径
@@ -102,76 +77,9 @@ class StopwordsManager:
             self.stopwords.update(self.custom_stopwords)
             logger.info(f"添加自定义停用词: {len(custom_words)} 个")
 
-        logger.info(f" 停用词表加载完成，共 {len(self.stopwords)} 个词")
+        logger.info(f"停用词表加载完成，共 {len(self.stopwords)} 个词")
         return self.stopwords
 
-    async def _download_stopwords(self, source: str, filepath: Path) -> bool:
-        """
-        下载停用词表
-
-        Args:
-            source: 停用词来源
-            filepath: 保存路径
-
-        Returns:
-            bool: 是否成功
-        """
-        url = self.DEFAULT_STOPWORDS_URLS.get(source)
-        if not url:
-            logger.error(f"未知的停用词来源: {source}")
-            return False
-
-        # 尝试主 URL
-        success = await self._download_from_url(url, filepath)
-
-        # 如果失败，尝试备用 URL
-        if not success and source in self.FALLBACK_URLS:
-            logger.info("主 URL 下载失败，尝试备用 URL...")
-            fallback_url = self.FALLBACK_URLS[source]
-            success = await self._download_from_url(fallback_url, filepath)
-
-        return success
-
-    async def _download_from_url(
-        self, url: str, filepath: Path, timeout: int = 30
-    ) -> bool:
-        """
-        从 URL 下载文件
-
-        Args:
-            url: 下载链接
-            filepath: 保存路径
-            timeout: 超时时间（秒）
-
-        Returns:
-            bool: 是否成功
-        """
-        try:
-            logger.debug(f"正在从 {url} 下载...")
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=timeout)
-                ) as response:
-                    if response.status == 200:
-                        content = await response.text(encoding="utf-8")
-
-                        # 保存到文件
-                        with open(filepath, "w", encoding="utf-8") as f:
-                            f.write(content)
-
-                        logger.info(f" 停用词表下载成功: {filepath}")
-                        return True
-                    else:
-                        logger.error(f"下载失败，HTTP 状态码: {response.status}")
-                        return False
-
-        except asyncio.TimeoutError:
-            logger.error(f"下载超时: {url}")
-            return False
-        except Exception as e:
-            logger.error(f"下载停用词表时发生错误: {type(e).__name__}: {e}")
-            return False
 
     async def _load_from_file(self, filepath: Path) -> set[str]:
         """
@@ -416,10 +324,14 @@ class StopwordsManager:
         保存自定义停用词到文件
 
         Args:
-            filepath: 保存路径，默认为 data/resources/custom_stopwords.txt
+            filepath: 保存路径，默认为用户自定义目录下的 custom_stopwords.txt
         """
         if not filepath:
-            filepath = self.stopwords_dir / "custom_stopwords.txt"
+            if self.custom_stopwords_dir:
+                filepath = self.custom_stopwords_dir / "custom_stopwords.txt"
+            else:
+                logger.warning("未设置自定义停用词目录，无法保存")
+                return
 
         try:
             with open(filepath, "w", encoding="utf-8") as f:
@@ -433,42 +345,25 @@ class StopwordsManager:
 
     async def get_stopwords(self, source: str = "hit") -> str | None:
         """
-        确保本地存在可用的停用词文件并返回其路径。
+        获取停用词文件路径。
 
-        优先返回缓存/已下载文件；如未找到，会尝试下载；
-        若下载失败，则写入内置后备停用词到本地并返回路径。
+        从仓库内置目录返回停用词文件路径。
 
         Args:
-            source: 停用词来源 ("hit"/"baidu"/"cn")
+            source: 停用词来源 ("hit")
 
         Returns:
             停用词文件的绝对路径字符串；若发生异常则返回 None。
         """
         try:
             filename = f"stopwords_{source}.txt"
-            filepath = self.stopwords_dir / filename
+            filepath = self.builtin_stopwords_dir / filename
 
-            # 已存在，直接返回
+            # 检查内置文件是否存在
             if filepath.exists():
                 return str(filepath)
-
-            # 尝试下载
-            downloaded = await self._download_stopwords(source, filepath)
-            if downloaded and filepath.exists():
-                return str(filepath)
-
-            # 下载失败：写入内置后备停用词
-            builtin = self._get_builtin_stopwords()
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    for w in sorted(builtin):
-                        f.write(f"{w}\n")
-                logger.warning(
-                    f"未能下载 {source} 停用词，已写入内置后备停用词到: {filepath}"
-                )
-                return str(filepath)
-            except Exception as e:
-                logger.error(f"写入内置停用词失败: {e}")
+            else:
+                logger.warning(f"内置停用词文件不存在: {filepath}")
                 return None
         except Exception as e:
             logger.error(f"获取停用词文件失败: {e}")

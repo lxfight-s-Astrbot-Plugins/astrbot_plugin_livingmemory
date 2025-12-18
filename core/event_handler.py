@@ -12,12 +12,12 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse, ProviderRequest
 
-from .chatroom_parser import ChatroomContextParser
-from .config_manager import ConfigManager
-from .conversation_manager import ConversationManager
-from .memory_engine import MemoryEngine
-from .memory_processor import MemoryProcessor
-from .message_utils import store_round_with_length_check
+from .base.config_manager import ConfigManager
+from .managers.conversation_manager import ConversationManager
+from .managers.memory_engine import MemoryEngine
+from .processors.chatroom_parser import ChatroomContextParser
+from .processors.memory_processor import MemoryProcessor
+from .processors.message_utils import store_round_with_length_check
 from .utils import (
     OperationContext,
     format_memories_for_injection,
@@ -431,7 +431,7 @@ class EventHandler:
         """从对话历史和system_prompt中删除之前注入的记忆片段"""
         import re
 
-        from .constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+        from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
         removed_count = 0
 
