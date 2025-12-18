@@ -23,40 +23,58 @@ jobs:
       - name: Get current version
         id: current_version
         run: |
+          echo "📋 读取 metadata.yaml 中的版本信息..."
           VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Current version: $VERSION"
+          echo "✅ 当前版本: $VERSION"
       
-      - name: Get previous version
+      - name: Get previous version from latest tag
         id: previous_version
         run: |
-          git checkout HEAD~1 metadata.yaml 2>/dev/null || echo "No previous version"
-          PREV_VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}' 2>/dev/null || echo "none")
-          git checkout HEAD metadata.yaml
+          # 获取最新的标签版本
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LATEST_TAG" ]; then
+            # 移除 'v' 前缀
+            PREV_VERSION="${LATEST_TAG#v}"
+            echo "✅ 找到最新标签: $LATEST_TAG (版本: $PREV_VERSION)"
+          else
+            PREV_VERSION="none"
+            echo "⚠️ 未找到任何标签，这可能是首次发布"
+          fi
           echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
           echo "Previous version: $PREV_VERSION"
       
       - name: Check if version changed
         id: version_changed
         run: |
-          if [ "${{ steps.current_version.outputs.version }}" != "${{ steps.previous_version.outputs.prev_version }}" ]; then
+          CURRENT="${{ steps.current_version.outputs.version }}"
+          PREVIOUS="${{ steps.previous_version.outputs.prev_version }}"
+
+          echo "🔍 版本比较:"
+          echo "  - 当前版本: $CURRENT"
+          echo "  - 上一版本: $PREVIOUS"
+
+          if [ "$CURRENT" != "$PREVIOUS" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed from ${{ steps.previous_version.outputs.prev_version }} to ${{ steps.current_version.outputs.version }}"
+            echo "✅ 版本已更新: $PREVIOUS → $CURRENT"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version not changed"
+            echo "ℹ️ 版本未变化: $CURRENT"
           fi
       
       - name: Check if tag exists
         id: check_tag
         if: steps.version_changed.outputs.changed == 'true'
         run: |
-          if git rev-parse "v${{ steps.current_version.outputs.version }}" >/dev/null 2>&1; then
+          TAG_NAME="v${{ steps.current_version.outputs.version }}"
+          echo "🔍 检查标签是否存在: $TAG_NAME"
+
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Tag v${{ steps.current_version.outputs.version }} already exists"
+            echo "⚠️ 标签 $TAG_NAME 已存在，跳过发布"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Tag v${{ steps.current_version.outputs.version }} does not exist"
+            echo "✅ 标签 $TAG_NAME 不存在，准备创建发布"
           fi
       
       - name: Get plugin info
