@@ -663,3 +663,117 @@ class ConversationStore:
             )
 
         return messages
+
+    async def sync_message_counts(self) -> dict[str, int]:
+        """
+        同步所有会话的 message_count 与实际消息数量
+
+        用于修复 message_count 不一致的问题（如删除消息后未更新计数）
+
+        Returns:
+            Dict[str, int]: {session_id: 修正后的count}
+        """
+        if self.connection is None:
+            return {}
+
+        fixed_sessions = {}
+
+        try:
+            # 获取所有会话及其记录的 message_count
+            async with self.connection.execute(
+                "SELECT session_id, message_count FROM sessions"
+            ) as cursor:
+                sessions = await cursor.fetchall()
+
+            for session_row in sessions:
+                session_id = session_row["session_id"]
+                recorded_count = session_row["message_count"]
+
+                # 获取实际消息数量
+                actual_count = await self.get_message_count(session_id)
+
+                # 如果不一致，进行修复
+                if recorded_count != actual_count:
+                    await self.connection.execute(
+                        """
+                        UPDATE sessions
+                        SET message_count = ?
+                        WHERE session_id = ?
+                        """,
+                        (actual_count, session_id),
+                    )
+                    fixed_sessions[session_id] = actual_count
+                    logger.info(
+                        f"[ConversationStore] 修复会话 message_count: "
+                        f"{session_id} ({recorded_count} -> {actual_count})"
+                    )
+
+            if fixed_sessions:
+                await self.connection.commit()
+                logger.info(
+                    f"[ConversationStore] 共修复 {len(fixed_sessions)} 个会话的 message_count"
+                )
+            else:
+                logger.info("[ConversationStore] 所有会话的 message_count 均正确，无需修复")
+
+            return fixed_sessions
+
+        except Exception as e:
+            logger.error(f"同步 message_count 失败: {e}", exc_info=True)
+            return {}
+
+    async def reset_summarized_index_if_needed(self, session_id: str) -> bool:
+        """
+        检查并重置 last_summarized_index（如果它超出实际消息范围）
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            bool: 是否进行了重置
+        """
+        if self.connection is None:
+            return False
+
+        try:
+            # 获取会话信息
+            async with self.connection.execute(
+                "SELECT metadata, message_count FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+
+            if not row:
+                return False
+
+            import json
+
+            metadata_str = row["metadata"] or "{}"
+            metadata = json.loads(metadata_str)
+            message_count = row["message_count"]
+
+            last_summarized_index = metadata.get("last_summarized_index", 0)
+
+            # 如果 last_summarized_index 超出实际消息数量，重置为0
+            if last_summarized_index > message_count:
+                metadata["last_summarized_index"] = 0
+                await self.connection.execute(
+                    """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                    """,
+                    (json.dumps(metadata, ensure_ascii=False), session_id),
+                )
+                await self.connection.commit()
+                logger.warning(
+                    f"[ConversationStore] 重置 last_summarized_index: "
+                    f"{session_id} ({last_summarized_index} -> 0, 实际消息数={message_count})"
+                )
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"检查 last_summarized_index 失败: {e}", exc_info=True)
+            return False

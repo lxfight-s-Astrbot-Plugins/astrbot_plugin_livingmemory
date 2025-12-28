@@ -586,7 +586,10 @@ class EventHandler:
                 and self.conversation_manager.store.connection
             ):
                 try:
-                    await self.conversation_manager.store.connection.execute(
+                    conn = self.conversation_manager.store.connection
+
+                    # 删除最旧的消息
+                    await conn.execute(
                         """
                         DELETE FROM messages
                         WHERE id IN (
@@ -598,7 +601,18 @@ class EventHandler:
                         """,
                         (session_id, to_delete),
                     )
-                    await self.conversation_manager.store.connection.commit()
+
+                    # 同步更新 sessions 表的 message_count
+                    await conn.execute(
+                        """
+                        UPDATE sessions
+                        SET message_count = message_count - ?
+                        WHERE session_id = ?
+                        """,
+                        (to_delete, session_id),
+                    )
+
+                    await conn.commit()
 
                     logger.info(
                         f"[{session_id}] 消息数量超过上限({max_messages}),已删除最旧的{to_delete}条消息"

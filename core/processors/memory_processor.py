@@ -168,7 +168,12 @@ class MemoryProcessor:
         for msg in messages:
             # 使用Message对象的format_for_llm方法
             formatted = msg.format_for_llm(include_sender_name=bool(msg.group_id))
-            formatted_lines.append(f"{formatted['role']}: {formatted['content']}")
+            # 群聊场景：content已包含发送者前缀，直接使用
+            # 私聊场景：添加role前缀
+            if msg.group_id:
+                formatted_lines.append(formatted['content'])
+            else:
+                formatted_lines.append(f"{formatted['role']}: {formatted['content']}")
         return "\n".join(formatted_lines)
 
     def _parse_llm_response(

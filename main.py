@@ -60,13 +60,22 @@ class LivingMemoryPlugin(Star):
             success = await self.initializer.initialize()
 
             if success:
+                # 检查必要组件是否初始化成功
+                if not all([
+                    self.initializer.memory_engine,
+                    self.initializer.memory_processor,
+                    self.initializer.conversation_manager,
+                ]):
+                    logger.error("插件初始化不完整：部分核心组件未能初始化")
+                    return
+
                 # 创建事件处理器
                 self.event_handler = EventHandler(
                     context=self.context,
                     config_manager=self.config_manager,
-                    memory_engine=self.initializer.memory_engine,
-                    memory_processor=self.initializer.memory_processor,
-                    conversation_manager=self.initializer.conversation_manager,
+                    memory_engine=self.initializer.memory_engine,  # type: ignore[arg-type]
+                    memory_processor=self.initializer.memory_processor,  # type: ignore[arg-type]
+                    conversation_manager=self.initializer.conversation_manager,  # type: ignore[arg-type]
                 )
 
                 # 创建命令处理器

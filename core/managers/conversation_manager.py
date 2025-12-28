@@ -103,6 +103,12 @@ class ConversationManager:
         elif hasattr(event, "sender_name"):
             sender_name = event.sender_name
 
+        # 调试日志：记录获取到的发送者信息
+        logger.debug(
+            f"[add_message_from_event] [{session_id}] 发送者信息: "
+            f"sender_id={sender_id}, sender_name='{sender_name}', role={role}"
+        )
+
         # 判断是否群聊
         if hasattr(event, "is_group"):
             is_group = event.is_group()
@@ -431,17 +437,67 @@ class ConversationManager:
         Returns:
             Message对象列表
         """
-        # 获取所有消息
+        # 先获取会话信息以确定消息总数
+        session_info = await self.get_session_info(session_id)
+        if not session_info:
+            logger.warning(f"[get_messages_range] 会话 {session_id} 不存在")
+            return []
+
+        total_messages = session_info.message_count
+
+        # 确定实际需要获取的范围
+        actual_end = end_index if end_index is not None else total_messages
+
+        # 验证索引范围
+        if start_index < 0 or start_index >= total_messages:
+            logger.warning(
+                f"[get_messages_range] [{session_id}] 起始索引 {start_index} 超出范围 [0, {total_messages})"
+            )
+            return []
+
+        if actual_end > total_messages:
+            logger.warning(
+                f"[get_messages_range] [{session_id}] 结束索引 {actual_end} 超出范围，调整为 {total_messages}"
+            )
+            actual_end = total_messages
+
+        if start_index >= actual_end:
+            logger.warning(
+                f"[get_messages_range] [{session_id}] 起始索引 {start_index} >= 结束索引 {actual_end}，返回空列表"
+            )
+            return []
+
+        # 计算需要获取的消息数量
+        needed_count = actual_end - start_index
+
+        # 使用足够大的limit来获取所有消息（或者至少能覆盖所需范围）
+        # 如果消息总数很大，我们需要确保limit足够
+        fetch_limit = max(actual_end, total_messages)
+
+        logger.debug(
+            f"[get_messages_range] [{session_id}] 准备获取消息: "
+            f"总数={total_messages}, 范围=[{start_index}:{actual_end}], "
+            f"需要={needed_count}条, fetch_limit={fetch_limit}"
+        )
+
+        # 获取消息（按时间升序）
         all_messages = await self.store.get_messages(
             session_id=session_id,
-            limit=10000,  # 使用足够大的limit
+            limit=fetch_limit,
+        )
+
+        logger.debug(
+            f"[get_messages_range] [{session_id}] 实际获取到 {len(all_messages)} 条消息"
         )
 
         # 应用索引切片
-        if end_index is None:
-            return all_messages[start_index:]
-        else:
-            return all_messages[start_index:end_index]
+        result = all_messages[start_index:actual_end]
+
+        logger.info(
+            f"[get_messages_range] [{session_id}] 返回 {len(result)} 条消息 (索引 {start_index} 到 {actual_end})"
+        )
+
+        return result
 
     async def update_session_metadata(
         self, session_id: str, key: str, value: Any

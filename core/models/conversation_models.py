@@ -93,8 +93,11 @@ class Message:
                 "%Y-%m-%d %H:%M:%S"
             )
 
+            # 确定显示的发送者名称：优先使用昵称，否则使用ID
+            display_name = self.sender_name if self.sender_name else self.sender_id or "未知"
+
             # 构建发送者信息前缀
-            sender_info = f"[{sender_type}: {self.sender_name or '未知'} | ID: {self.sender_id} | {time_str}]"
+            sender_info = f"[{sender_type}: {display_name} | ID: {self.sender_id} | {time_str}]"
             content = f"{sender_info} {content}"
 
         return {"role": self.role, "content": content}

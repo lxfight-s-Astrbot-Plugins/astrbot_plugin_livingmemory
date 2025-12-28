@@ -262,6 +262,9 @@ class PluginInitializer:
             )
             logger.info("✅ ConversationManager 已初始化")
 
+            # 自动修复 message_count 不一致问题
+            await self._repair_message_counts(conversation_store)
+
             # 初始化 MemoryProcessor
             if not self.llm_provider:
                 raise ProviderNotReadyError("LLM Provider 未初始化")
@@ -369,6 +372,20 @@ class PluginInitializer:
 
         except Exception as e:
             logger.error(f"自动重建索引失败: {e}", exc_info=True)
+
+    async def _repair_message_counts(self, conversation_store: ConversationStore):
+        """修复会话表中 message_count 与实际消息数量不一致的问题"""
+        try:
+            logger.info("🔍 检查并修复 message_count 一致性...")
+            fixed_sessions = await conversation_store.sync_message_counts()
+
+            if fixed_sessions:
+                logger.info(f"✅ 已修复 {len(fixed_sessions)} 个会话的 message_count")
+            else:
+                logger.debug("✅ 所有会话的 message_count 均正确")
+
+        except Exception as e:
+            logger.error(f"修复 message_count 失败: {e}", exc_info=True)
 
     @property
     def is_initialized(self) -> bool:
