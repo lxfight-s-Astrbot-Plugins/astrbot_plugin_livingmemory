@@ -184,8 +184,8 @@ class LivingMemoryPlugin(Star):
         """长期记忆管理命令组 /lmem"""
         pass
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("status")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_status(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
         """[管理员] 显示记忆系统状态"""
         if not await self.initializer.ensure_initialized():
@@ -199,8 +199,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_status(event):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("search")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[str, None]:
@@ -216,8 +216,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_search(event, query, k):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_forget(
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[str, None]:
@@ -233,8 +233,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_forget(event, doc_id):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("rebuild-index")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_rebuild_index(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[str, None]:
@@ -250,8 +250,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_rebuild_index(event):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("webui")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_webui(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
         """[管理员] 显示WebUI访问信息"""
         if not await self.initializer.ensure_initialized():
@@ -265,8 +265,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_webui(event):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("reset")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_reset(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
         """[管理员] 重置当前会话的长期记忆上下文"""
         if not await self.initializer.ensure_initialized():
@@ -280,8 +280,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_reset(event):
             yield message
 
-    @permission_type(PermissionType.ADMIN)
     @lmem_group.command("help")
+    @permission_type(PermissionType.ADMIN)
     async def lmem_help(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
         """[管理员] 显示帮助信息"""
         if not self.command_handler:
