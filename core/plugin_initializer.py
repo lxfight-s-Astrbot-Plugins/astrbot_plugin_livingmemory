@@ -465,7 +465,7 @@ class PluginInitializer:
 
             old_index = faiss.read_index(index_path)
             old_dim = old_index.d
-            new_dim = self.embedding_provider.get_dim() # type: ignore
+            new_dim = self.embedding_provider.get_dim()  # type: ignore
 
             if old_dim != new_dim:
                 logger.warning(

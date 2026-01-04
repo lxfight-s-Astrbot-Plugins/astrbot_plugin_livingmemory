@@ -269,11 +269,35 @@ class EventHandler:
                     f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
                 )
 
+            # 检查响应内容是否有效（过滤空回复和错误）
+            response_text = resp.completion_text
+            if not response_text or not response_text.strip():
+                logger.debug(f"[{session_id}] 模型返回空回复，跳过记录")
+                return
+
+            # 检查是否为错误响应
+            error_indicators = [
+                "api error",
+                "request failed",
+                "rate limit",
+                "timeout",
+                "connection error",
+                "服务暂时不可用",
+                "请求失败",
+                "接口错误",
+            ]
+            response_lower = response_text.lower()
+            if any(indicator in response_lower for indicator in error_indicators):
+                logger.debug(
+                    f"[{session_id}] 检测到错误响应，跳过记录: {response_text[:50]}..."
+                )
+                return
+
             # 添加助手响应
             await self.conversation_manager.add_message_from_event(
                 event=event,
                 role="assistant",
-                content=resp.completion_text,
+                content=response_text,
             )
             logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
 
