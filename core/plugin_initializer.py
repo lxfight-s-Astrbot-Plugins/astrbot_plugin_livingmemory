@@ -214,6 +214,9 @@ class PluginInitializer:
             if not self.embedding_provider:
                 raise ProviderNotReadyError("Embedding Provider 未初始化")
 
+            # 检查索引文件维度与当前 embedding provider 维度是否一致
+            await self._check_and_fix_dimension_mismatch(index_path)
+
             self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
             await self.db.initialize()
             logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
@@ -442,3 +445,41 @@ class PluginInitializer:
             await asyncio.sleep(0.2)
 
         return self._initialization_complete
+
+    async def _check_and_fix_dimension_mismatch(self, index_path: str) -> None:
+        """
+        检查 FAISS 索引维度与当前 embedding provider 维度是否一致
+
+        当用户更换 embedding provider 后，旧索引的维度可能与新模型不匹配，
+        导致 FAISS 插入时报错 "assert d == self.d"。
+        此方法检测并自动删除不兼容的旧索引，让系统重建。
+
+        Args:
+            index_path: FAISS 索引文件路径
+        """
+        if not os.path.exists(index_path):
+            return
+
+        try:
+            import faiss
+
+            old_index = faiss.read_index(index_path)
+            old_dim = old_index.d
+            new_dim = self.embedding_provider.get_dim() # type: ignore
+
+            if old_dim != new_dim:
+                logger.warning(
+                    f"⚠️ 检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
+                    f"当前 Embedding Provider 维度={new_dim}"
+                )
+                logger.warning(
+                    "这通常是因为更换了 Embedding 模型导致的。"
+                    "旧索引将被删除，系统会自动重建索引。"
+                )
+
+                os.remove(index_path)
+                logger.info(f"✅ 已删除不兼容的旧索引文件: {index_path}")
+                logger.info("⚠️ 注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+
+        except Exception as e:
+            logger.error(f"检查索引维度时出错: {e}", exc_info=True)
