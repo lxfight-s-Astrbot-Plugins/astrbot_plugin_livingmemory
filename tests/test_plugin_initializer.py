@@ -79,14 +79,16 @@ def test_initialize_providers_with_config(mock_context, config_manager):
 
     # 配置返回mock provider
     mock_context.get_provider_by_id = Mock(
-        side_effect=lambda id: mock_embedding_provider if "embedding" in id else mock_llm_provider
+        side_effect=lambda id: mock_embedding_provider
+        if "embedding" in id
+        else mock_llm_provider
     )
 
     # 创建带配置的初始化器
     config = {
         "provider_settings": {
             "embedding_provider_id": "test_embedding",
-            "llm_provider_id": "test_llm"
+            "llm_provider_id": "test_llm",
         }
     }
     config_manager = ConfigManager(config)
@@ -107,7 +109,9 @@ def test_initialize_providers_fallback(mock_context, config_manager):
 
     # 配置回退行为
     mock_context.get_provider_by_id = Mock(return_value=None)
-    mock_context.get_all_embedding_providers = Mock(return_value=[mock_embedding_provider])
+    mock_context.get_all_embedding_providers = Mock(
+        return_value=[mock_embedding_provider]
+    )
     mock_context.get_using_provider = Mock(return_value=mock_llm_provider)
 
     initializer = PluginInitializer(mock_context, config_manager, "/tmp/test_data")
@@ -137,4 +141,7 @@ def test_provider_check_attempts_tracking(plugin_initializer):
 def test_max_provider_attempts_limit(plugin_initializer):
     """测试Provider最大尝试次数限制"""
     assert plugin_initializer._max_provider_attempts == 60
-    assert plugin_initializer._provider_check_attempts < plugin_initializer._max_provider_attempts
+    assert (
+        plugin_initializer._provider_check_attempts
+        < plugin_initializer._max_provider_attempts
+    )

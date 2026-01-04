@@ -21,7 +21,9 @@ class StopwordsManager:
             stopwords_dir: 停用词文件存储目录（可选，如果未提供则使用内置停用词）
         """
         # 获取内置停用词目录（仓库中的 static/stopwords）
-        self.builtin_stopwords_dir = Path(__file__).parent.parent.parent / "static" / "stopwords"
+        self.builtin_stopwords_dir = (
+            Path(__file__).parent.parent.parent / "static" / "stopwords"
+        )
 
         # 用户自定义停用词目录（用于保存用户添加的停用词）
         if stopwords_dir:
@@ -79,7 +81,6 @@ class StopwordsManager:
 
         logger.info(f"停用词表加载完成，共 {len(self.stopwords)} 个词")
         return self.stopwords
-
 
     async def _load_from_file(self, filepath: Path) -> set[str]:
         """

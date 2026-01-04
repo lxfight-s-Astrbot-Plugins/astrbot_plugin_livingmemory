@@ -19,11 +19,13 @@ def config_manager():
 def mock_memory_engine():
     """创建mock的记忆引擎"""
     engine = Mock()
-    engine.get_statistics = AsyncMock(return_value={
-        "total_memories": 100,
-        "sessions": {"session1": 10},
-        "newest_memory": 1234567890.0,
-    })
+    engine.get_statistics = AsyncMock(
+        return_value={
+            "total_memories": 100,
+            "sessions": {"session1": 10},
+            "newest_memory": 1234567890.0,
+        }
+    )
     engine.search_memories = AsyncMock(return_value=[])
     engine.delete_memory = AsyncMock(return_value=True)
     engine.db_path = "/tmp/test.db"
@@ -42,29 +44,30 @@ def mock_conversation_manager():
 def mock_index_validator():
     """创建mock的索引验证器"""
     validator = Mock()
-    validator.check_consistency = AsyncMock(return_value=Mock(
-        is_consistent=True,
-        needs_rebuild=False,
-        reason="索引正常",
-        documents_count=100,
-        bm25_count=100,
-        vector_count=100,
-    ))
-    validator.rebuild_indexes = AsyncMock(return_value={
-        "success": True,
-        "processed": 100,
-        "errors": 0,
-        "total": 100,
-    })
+    validator.check_consistency = AsyncMock(
+        return_value=Mock(
+            is_consistent=True,
+            needs_rebuild=False,
+            reason="索引正常",
+            documents_count=100,
+            bm25_count=100,
+            vector_count=100,
+        )
+    )
+    validator.rebuild_indexes = AsyncMock(
+        return_value={
+            "success": True,
+            "processed": 100,
+            "errors": 0,
+            "total": 100,
+        }
+    )
     return validator
 
 
 @pytest.fixture
 def command_handler(
-    config_manager,
-    mock_memory_engine,
-    mock_conversation_manager,
-    mock_index_validator
+    config_manager, mock_memory_engine, mock_conversation_manager, mock_index_validator
 ):
     """创建命令处理器"""
     return CommandHandler(
@@ -208,14 +211,16 @@ async def test_handle_rebuild_index(command_handler):
 async def test_handle_rebuild_index_needed(command_handler, mock_index_validator):
     """测试需要重建索引的情况"""
     # 配置mock返回需要重建
-    mock_index_validator.check_consistency = AsyncMock(return_value=Mock(
-        is_consistent=False,
-        needs_rebuild=True,
-        reason="索引不一致",
-        documents_count=100,
-        bm25_count=90,
-        vector_count=95,
-    ))
+    mock_index_validator.check_consistency = AsyncMock(
+        return_value=Mock(
+            is_consistent=False,
+            needs_rebuild=True,
+            reason="索引不一致",
+            documents_count=100,
+            bm25_count=90,
+            vector_count=95,
+        )
+    )
 
     mock_event = Mock()
 

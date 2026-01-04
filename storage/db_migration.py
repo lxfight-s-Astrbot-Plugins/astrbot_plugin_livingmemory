@@ -259,7 +259,9 @@ class DBMigration:
                     WHERE type='table' AND name='documents'
                 """)
                 has_table_row = await cursor.fetchone()
-                has_table = (has_table_row[0] if has_table_row and len(has_table_row) > 0 else 0) > 0
+                has_table = (
+                    has_table_row[0] if has_table_row and len(has_table_row) > 0 else 0
+                ) > 0
 
                 if not has_table:
                     logger.info("ℹ️ 未找到documents表，创建新数据库")

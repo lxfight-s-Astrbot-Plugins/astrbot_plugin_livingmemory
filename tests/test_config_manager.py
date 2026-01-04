@@ -2,7 +2,6 @@
 测试ConfigManager
 """
 
-
 from core.config_manager import ConfigManager
 
 
@@ -28,11 +27,7 @@ def test_config_manager_get():
 
 def test_config_manager_nested_get():
     """测试嵌套配置获取"""
-    config = ConfigManager({
-        "section1": {
-            "key1": "value1"
-        }
-    })
+    config = ConfigManager({"section1": {"key1": "value1"}})
 
     # 测试嵌套键访问
     value = config.get("section1.key1")
@@ -45,11 +40,7 @@ def test_config_manager_nested_get():
 
 def test_config_manager_get_section():
     """测试配置节获取"""
-    config = ConfigManager({
-        "provider_settings": {
-            "llm_provider_id": "test_provider"
-        }
-    })
+    config = ConfigManager({"provider_settings": {"llm_provider_id": "test_provider"}})
 
     section = config.get_section("provider_settings")
     assert isinstance(section, dict)

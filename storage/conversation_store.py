@@ -714,7 +714,9 @@ class ConversationStore:
                     f"[ConversationStore] 共修复 {len(fixed_sessions)} 个会话的 message_count"
                 )
             else:
-                logger.info("[ConversationStore] 所有会话的 message_count 均正确，无需修复")
+                logger.info(
+                    "[ConversationStore] 所有会话的 message_count 均正确，无需修复"
+                )
 
             return fixed_sessions
 

@@ -61,11 +61,13 @@ class LivingMemoryPlugin(Star):
 
             if success:
                 # 检查必要组件是否初始化成功
-                if not all([
-                    self.initializer.memory_engine,
-                    self.initializer.memory_processor,
-                    self.initializer.conversation_manager,
-                ]):
+                if not all(
+                    [
+                        self.initializer.memory_engine,
+                        self.initializer.memory_processor,
+                        self.initializer.conversation_manager,
+                    ]
+                ):
                     logger.error("插件初始化不完整：部分核心组件未能初始化")
                     return
 
@@ -162,7 +164,9 @@ class LivingMemoryPlugin(Star):
         await self.event_handler.handle_memory_recall(event, req)
 
     @filter.on_llm_response()
-    async def handle_memory_reflection(self, event: AstrMessageEvent, resp: LLMResponse):
+    async def handle_memory_reflection(
+        self, event: AstrMessageEvent, resp: LLMResponse
+    ):
         """[事件钩子] 在 LLM 响应后，检查是否需要进行反思和记忆存储"""
         if not await self.initializer.ensure_initialized():
             logger.debug("插件未完成初始化，跳过记忆反思")
@@ -214,7 +218,9 @@ class LivingMemoryPlugin(Star):
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("forget")
-    async def lmem_forget(self, event: AstrMessageEvent, doc_id: int) -> AsyncGenerator[str, None]:
+    async def lmem_forget(
+        self, event: AstrMessageEvent, doc_id: int
+    ) -> AsyncGenerator[str, None]:
         """[管理员] 删除指定记忆"""
         if not await self.initializer.ensure_initialized():
             yield self._get_initialization_status_message()
@@ -229,7 +235,9 @@ class LivingMemoryPlugin(Star):
 
     @permission_type(PermissionType.ADMIN)
     @lmem_group.command("rebuild-index")
-    async def lmem_rebuild_index(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def lmem_rebuild_index(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[str, None]:
         """[管理员] 手动重建索引"""
         if not await self.initializer.ensure_initialized():
             yield self._get_initialization_status_message()

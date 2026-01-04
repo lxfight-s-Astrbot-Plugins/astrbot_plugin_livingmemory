@@ -231,11 +231,21 @@ class PluginInitializer:
 
             memory_engine_config = {
                 "rrf_k": self.config_manager.get("fusion_strategy.rrf_k", 60),
-                "decay_rate": self.config_manager.get("importance_decay.decay_rate", 0.01),
-                "importance_weight": self.config_manager.get("recall_engine.importance_weight", 1.0),
-                "fallback_enabled": self.config_manager.get("recall_engine.fallback_to_vector", True),
-                "cleanup_days_threshold": self.config_manager.get("forgetting_agent.cleanup_days_threshold", 30),
-                "cleanup_importance_threshold": self.config_manager.get("forgetting_agent.cleanup_importance_threshold", 0.3),
+                "decay_rate": self.config_manager.get(
+                    "importance_decay.decay_rate", 0.01
+                ),
+                "importance_weight": self.config_manager.get(
+                    "recall_engine.importance_weight", 1.0
+                ),
+                "fallback_enabled": self.config_manager.get(
+                    "recall_engine.fallback_to_vector", True
+                ),
+                "cleanup_days_threshold": self.config_manager.get(
+                    "forgetting_agent.cleanup_days_threshold", 30
+                ),
+                "cleanup_importance_threshold": self.config_manager.get(
+                    "forgetting_agent.cleanup_importance_threshold", 0.3
+                ),
                 "stopwords_path": stopwords_dir,
             }
 
@@ -333,10 +343,15 @@ class PluginInitializer:
                 return
 
             # 检查v1迁移状态
-            needs_migration_rebuild, pending_count = await self.index_validator.get_migration_status()
+            (
+                needs_migration_rebuild,
+                pending_count,
+            ) = await self.index_validator.get_migration_status()
 
             if needs_migration_rebuild:
-                logger.info(f"🔄 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）")
+                logger.info(
+                    f"🔄 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）"
+                )
                 logger.info("🔨 开始自动重建索引...")
 
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)

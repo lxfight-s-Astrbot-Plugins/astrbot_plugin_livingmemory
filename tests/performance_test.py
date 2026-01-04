@@ -16,6 +16,7 @@ class PerformanceTest:
 
     def measure_time(self, name: str):
         """装饰器：测量函数执行时间"""
+
         def decorator(func):
             async def wrapper(*args, **kwargs):
                 start_time = time.time()
@@ -25,7 +26,9 @@ class PerformanceTest:
                 self.results.append((name, duration))
                 print(f"✓ {name}: {duration:.4f}秒")
                 return result
+
             return wrapper
+
         return decorator
 
     async def test_config_loading(self):
@@ -86,12 +89,14 @@ class PerformanceTest:
         """测试配置访问性能"""
         from core.config_manager import ConfigManager
 
-        config = ConfigManager({
-            "section1": {
-                "key1": "value1",
-                "key2": "value2",
+        config = ConfigManager(
+            {
+                "section1": {
+                    "key1": "value1",
+                    "key2": "value2",
+                }
             }
-        })
+        )
 
         @self.measure_time("配置访问")
         async def access_config():
@@ -162,6 +167,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

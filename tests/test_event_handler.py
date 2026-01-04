@@ -64,7 +64,7 @@ def event_handler(
     config_manager,
     mock_memory_engine,
     mock_memory_processor,
-    mock_conversation_manager
+    mock_conversation_manager,
 ):
     """创建事件处理器"""
     return EventHandler(
@@ -126,7 +126,9 @@ def test_dedup_cache_size_limit(event_handler):
         event_handler._mark_message_processed(f"message_{i}")
 
     # 验证缓存大小不超过限制
-    assert len(event_handler._message_dedup_cache) <= event_handler._dedup_cache_max_size
+    assert (
+        len(event_handler._message_dedup_cache) <= event_handler._dedup_cache_max_size
+    )
 
 
 def test_dedup_cache_ttl_cleanup(event_handler):
@@ -186,7 +188,9 @@ async def test_handle_memory_recall_with_results(event_handler, mock_memory_engi
     mock_req.prompt = "测试查询"
     mock_req.system_prompt = None
 
-    with patch("core.event_handler.get_persona_id", new_callable=AsyncMock) as mock_get_persona:
+    with patch(
+        "core.event_handler.get_persona_id", new_callable=AsyncMock
+    ) as mock_get_persona:
         mock_get_persona.return_value = "test_persona"
 
         await event_handler.handle_memory_recall(mock_event, mock_req)

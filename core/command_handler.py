@@ -118,7 +118,9 @@ class CommandHandler:
             logger.error(f"搜索失败: {e}", exc_info=True)
             yield f"❌ 搜索失败: {str(e)}"
 
-    async def handle_forget(self, event: AstrMessageEvent, doc_id: int) -> AsyncGenerator[str, None]:
+    async def handle_forget(
+        self, event: AstrMessageEvent, doc_id: int
+    ) -> AsyncGenerator[str, None]:
         """处理 /lmem forget 命令"""
         if not self.memory_engine:
             yield "❌ 记忆引擎未初始化"
@@ -134,7 +136,9 @@ class CommandHandler:
             logger.error(f"删除失败: {e}", exc_info=True)
             yield f"❌ 删除失败: {str(e)}"
 
-    async def handle_rebuild_index(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def handle_rebuild_index(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[str, None]:
         """处理 /lmem rebuild-index 命令"""
         if not self.memory_engine or not self.index_validator:
             yield "❌ 记忆引擎或索引验证器未初始化"

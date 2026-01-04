@@ -60,7 +60,9 @@ class EventHandler:
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """捕获所有群聊消息用于记忆存储"""
         # 检查配置
-        if not self.config_manager.get("session_manager.enable_full_group_capture", True):
+        if not self.config_manager.get(
+            "session_manager.enable_full_group_capture", True
+        ):
             return
 
         # 只处理群聊消息
@@ -71,7 +73,9 @@ class EventHandler:
             session_id = event.unified_msg_origin
 
             # 检测异常session_id
-            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+            if session_id and (
+                "Error:" in session_id or "error:" in session_id.lower()
+            ):
                 logger.warning(
                     f"检测到异常的session_id: {session_id}。"
                     f"这可能是平台适配器初始化问题，建议检查平台配置。"
@@ -125,7 +129,9 @@ class EventHandler:
             logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
 
             # 检测异常session_id
-            if session_id and ("Error:" in session_id or "error:" in session_id.lower()):
+            if session_id and (
+                "Error:" in session_id or "error:" in session_id.lower()
+            ):
                 logger.warning(
                     f"[{session_id}] 检测到异常的session_id，这可能导致记忆功能异常。"
                 )
@@ -137,8 +143,12 @@ class EventHandler:
 
                 # 获取过滤配置
                 filtering_config = self.config_manager.filtering_settings
-                use_persona_filtering = filtering_config.get("use_persona_filtering", True)
-                use_session_filtering = filtering_config.get("use_session_filtering", True)
+                use_persona_filtering = filtering_config.get(
+                    "use_persona_filtering", True
+                )
+                use_session_filtering = filtering_config.get(
+                    "use_session_filtering", True
+                )
 
                 persona_id = await get_persona_id(self.context, event)
 
@@ -170,7 +180,9 @@ class EventHandler:
                 )
 
                 if recalled_memories:
-                    logger.info(f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆")
+                    logger.info(
+                        f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆"
+                    )
 
                     # 格式化并注入记忆
                     memory_list = [
@@ -208,7 +220,9 @@ class EventHandler:
                             f"[{session_id}] 成功向用户消息后注入 {len(recalled_memories)} 条记忆"
                         )
                     else:
-                        req.system_prompt = memory_str + "\n" + (req.system_prompt or "")
+                        req.system_prompt = (
+                            memory_str + "\n" + (req.system_prompt or "")
+                        )
                         logger.info(
                             f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
                         )
@@ -218,7 +232,9 @@ class EventHandler:
                 # 存储用户消息（仅私聊）
                 is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
                 if not is_group and req.prompt:
-                    message_to_store = ChatroomContextParser.extract_actual_message(req.prompt)
+                    message_to_store = ChatroomContextParser.extract_actual_message(
+                        req.prompt
+                    )
                     await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
@@ -228,9 +244,13 @@ class EventHandler:
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
 
-    async def handle_memory_reflection(self, event: AstrMessageEvent, resp: LLMResponse):
+    async def handle_memory_reflection(
+        self, event: AstrMessageEvent, resp: LLMResponse
+    ):
         """在 LLM 响应后，检查是否需要进行反思和记忆存储"""
-        logger.debug(f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}")
+        logger.debug(
+            f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
+        )
 
         if resp.role != "assistant":
             return
@@ -260,15 +280,21 @@ class EventHandler:
             # 获取会话信息
             session_info = await self.conversation_manager.get_session_info(session_id)
             if not session_info:
-                logger.warning(f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思")
+                logger.warning(
+                    f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思"
+                )
                 return
 
             # 检查是否满足总结条件
-            trigger_rounds = self.config_manager.get("reflection_engine.summary_trigger_rounds", 10)
+            trigger_rounds = self.config_manager.get(
+                "reflection_engine.summary_trigger_rounds", 10
+            )
 
             # 获取上次总结的位置
-            last_summarized_index = await self.conversation_manager.get_session_metadata(
-                session_id, "last_summarized_index", 0
+            last_summarized_index = (
+                await self.conversation_manager.get_session_metadata(
+                    session_id, "last_summarized_index", 0
+                )
             )
 
             # 计算未总结的消息数量
@@ -311,7 +337,9 @@ class EventHandler:
                     session_id=session_id, start_index=start_index, end_index=end_index
                 )
 
-                logger.info(f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结")
+                logger.info(
+                    f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结"
+                )
 
                 persona_id = await get_persona_id(self.context, event)
 
@@ -326,15 +354,23 @@ class EventHandler:
             logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
 
     async def _storage_task(
-        self, session_id: str, history_messages: list, persona_id: str | None, end_index: int
+        self,
+        session_id: str,
+        history_messages: list,
+        persona_id: str | None,
+        end_index: int,
     ):
         """后台存储任务"""
         async with OperationContext("记忆存储", session_id):
             try:
                 # 判断是否为群聊
-                is_group_chat = bool(history_messages[0].group_id if history_messages else False)
+                is_group_chat = bool(
+                    history_messages[0].group_id if history_messages else False
+                )
 
-                logger.info(f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}")
+                logger.info(
+                    f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}"
+                )
 
                 # 使用 MemoryProcessor 处理对话历史
                 if self.memory_processor:
@@ -346,7 +382,11 @@ class EventHandler:
                             "reflection_engine.save_original_conversation", False
                         )
 
-                        content, metadata, importance = await self.memory_processor.process_conversation(
+                        (
+                            content,
+                            metadata,
+                            importance,
+                        ) = await self.memory_processor.process_conversation(
                             messages=history_messages,
                             is_group_chat=is_group_chat,
                             save_original=save_original,
@@ -357,7 +397,10 @@ class EventHandler:
                             f"重要性={importance:.2f}"
                         )
                     except Exception as e:
-                        logger.error(f"[{session_id}] LLM处理失败,使用降级方案: {e}", exc_info=True)
+                        logger.error(
+                            f"[{session_id}] LLM处理失败,使用降级方案: {e}",
+                            exc_info=True,
+                        )
                         # 降级方案：逐轮存储
                         await self._fallback_storage(
                             session_id, history_messages, persona_id, end_index
@@ -396,7 +439,11 @@ class EventHandler:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
 
     async def _fallback_storage(
-        self, session_id: str, history_messages: list, persona_id: str | None, end_index: int
+        self,
+        session_id: str,
+        history_messages: list,
+        persona_id: str | None,
+        end_index: int,
     ):
         """降级存储策略"""
         logger.warning(f"[{session_id}] 使用降级策略：逐轮存储")
@@ -419,7 +466,9 @@ class EventHandler:
                 else:
                     skipped_count += 1
 
-        logger.info(f"[{session_id}] 降级存储完成：成功{stored_count}轮，跳过{skipped_count}轮")
+        logger.info(
+            f"[{session_id}] 降级存储完成：成功{stored_count}轮，跳过{skipped_count}轮"
+        )
 
         # 更新已总结位置
         if self.conversation_manager:
@@ -427,7 +476,9 @@ class EventHandler:
                 session_id, "last_summarized_index", end_index
             )
 
-    def _remove_injected_memories_from_context(self, req: ProviderRequest, session_id: str) -> int:
+    def _remove_injected_memories_from_context(
+        self, req: ProviderRequest, session_id: str
+    ) -> int:
         """从对话历史和system_prompt中删除之前注入的记忆片段"""
         import re
 
@@ -449,8 +500,12 @@ class EventHandler:
                             + r".*?"
                             + re.escape(MEMORY_INJECTION_FOOTER)
                         )
-                        cleaned_prompt = re.sub(pattern, "", original_prompt, flags=re.DOTALL)
-                        cleaned_prompt = re.sub(r"\n{3,}", "\n\n", cleaned_prompt).strip()
+                        cleaned_prompt = re.sub(
+                            pattern, "", original_prompt, flags=re.DOTALL
+                        )
+                        cleaned_prompt = re.sub(
+                            r"\n{3,}", "\n\n", cleaned_prompt
+                        ).strip()
                         req.system_prompt = cleaned_prompt
 
                         if cleaned_prompt != original_prompt:
@@ -458,7 +513,7 @@ class EventHandler:
 
             # 清理对话历史
             if hasattr(req, "contexts") and req.contexts:
-                original_length = len(req.contexts)
+                # original_length = len(req.contexts)
                 filtered_contexts = []
 
                 for msg in req.contexts:
@@ -476,7 +531,9 @@ class EventHandler:
                 req.contexts = filtered_contexts
 
             if removed_count > 0:
-                logger.info(f"[{session_id}] 成功清理旧记忆片段，共删除 {removed_count} 处注入内容")
+                logger.info(
+                    f"[{session_id}] 成功清理旧记忆片段，共删除 {removed_count} 处注入内容"
+                )
 
         except Exception as e:
             logger.error(f"[{session_id}] 删除注入记忆时发生错误: {e}", exc_info=True)
@@ -572,7 +629,9 @@ class EventHandler:
         if not self.conversation_manager:
             return
 
-        max_messages = self.config_manager.get("session_manager.max_messages_per_session", 1000)
+        max_messages = self.config_manager.get(
+            "session_manager.max_messages_per_session", 1000
+        )
 
         session_info = await self.conversation_manager.get_session_info(session_id)
         if not session_info:

@@ -21,11 +21,13 @@ def integration_setup():
     mock_memory_engine = Mock()
     mock_memory_engine.search_memories = AsyncMock(return_value=[])
     mock_memory_engine.add_memory = AsyncMock(return_value=1)
-    mock_memory_engine.get_statistics = AsyncMock(return_value={
-        "total_memories": 0,
-        "sessions": {},
-        "newest_memory": None,
-    })
+    mock_memory_engine.get_statistics = AsyncMock(
+        return_value={
+            "total_memories": 0,
+            "sessions": {},
+            "newest_memory": None,
+        }
+    )
 
     mock_memory_processor = Mock()
     mock_memory_processor.process_conversation = AsyncMock(
@@ -84,7 +86,9 @@ async def test_full_memory_workflow(integration_setup):
     mock_req.system_prompt = None
 
     # 2. 处理记忆召回（应该没有记忆）
-    with patch("core.event_handler.get_persona_id", new_callable=AsyncMock) as mock_get_persona:
+    with patch(
+        "core.event_handler.get_persona_id", new_callable=AsyncMock
+    ) as mock_get_persona:
         mock_get_persona.return_value = "test_persona"
         await event_handler.handle_memory_recall(mock_event, mock_req)
 
@@ -172,7 +176,9 @@ async def test_multiple_messages_workflow(integration_setup):
         mock_req.prompt = f"用户消息 {i}"
         mock_req.system_prompt = None
 
-        with patch("core.event_handler.get_persona_id", new_callable=AsyncMock) as mock_get_persona:
+        with patch(
+            "core.event_handler.get_persona_id", new_callable=AsyncMock
+        ) as mock_get_persona:
             mock_get_persona.return_value = "test_persona"
             await event_handler.handle_memory_recall(mock_event, mock_req)
 

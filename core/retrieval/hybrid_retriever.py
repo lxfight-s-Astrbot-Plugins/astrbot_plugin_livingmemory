@@ -214,25 +214,21 @@ class HybridRetriever:
         # 转换结果类型以匹配RRF融合器期望的类型
         rrf_bm25_results = [
             BM25Result(
-                doc_id=r.doc_id,
-                score=r.score,
-                content=r.content,
-                metadata=r.metadata
+                doc_id=r.doc_id, score=r.score, content=r.content, metadata=r.metadata
             )
             for r in valid_bm25
         ]
 
         rrf_vector_results = [
             VectorResult(
-                doc_id=r.doc_id,
-                score=r.score,
-                content=r.content,
-                metadata=r.metadata
+                doc_id=r.doc_id, score=r.score, content=r.content, metadata=r.metadata
             )
             for r in valid_vector
         ]
 
-        fused_results = self.rrf_fusion.fuse(rrf_bm25_results, rrf_vector_results, top_k=k)
+        fused_results = self.rrf_fusion.fuse(
+            rrf_bm25_results, rrf_vector_results, top_k=k
+        )
 
         if not fused_results:
             return []
