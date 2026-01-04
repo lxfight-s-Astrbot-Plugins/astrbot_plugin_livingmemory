@@ -6,7 +6,10 @@
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+
+from astrbot.api import logger
 
 
 @dataclass
@@ -78,7 +81,6 @@ class Message:
         Returns:
             Dict: {"role": "user/assistant", "content": "..."}
         """
-        from datetime import datetime
 
         content = self.content
 
@@ -86,7 +88,6 @@ class Message:
         if include_sender_name and self.group_id:
             # 判断是否为Bot消息
             is_bot = self.metadata.get("is_bot_message", False)
-            sender_type = "Bot" if is_bot else "用户"
 
             # 格式化时间
             time_str = datetime.fromtimestamp(self.timestamp).strftime(
@@ -94,10 +95,26 @@ class Message:
             )
 
             # 确定显示的发送者名称：优先使用昵称，否则使用ID
-            display_name = self.sender_name if self.sender_name else self.sender_id or "未知"
+            display_name = (
+                self.sender_name if self.sender_name else self.sender_id or "未知"
+            )
+
+            # Debug: 记录发送者信息获取情况
+            logger.debug(
+                f"[format_for_llm] 消息格式化: "
+                f"sender_id={self.sender_id}, sender_name={self.sender_name}, "
+                f"display_name={display_name}, is_bot={is_bot}, role={self.role}"
+            )
 
             # 构建发送者信息前缀
-            sender_info = f"[{sender_type}: {display_name} | ID: {self.sender_id} | {time_str}]"
+            # Bot消息使用 [Bot: 昵称] 格式
+            # 其他群成员直接使用 [昵称] 格式，让LLM能清晰识别每个发送者
+            if is_bot:
+                sender_info = (
+                    f"[Bot: {display_name} | ID: {self.sender_id} | {time_str}]"
+                )
+            else:
+                sender_info = f"[{display_name} | ID: {self.sender_id} | {time_str}]"
             content = f"{sender_info} {content}"
 
         return {"role": self.role, "content": content}

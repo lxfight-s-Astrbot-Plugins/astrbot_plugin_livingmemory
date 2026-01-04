@@ -103,17 +103,28 @@ class ConversationManager:
         elif hasattr(event, "sender_name"):
             sender_name = event.sender_name
 
-        # 调试日志：记录获取到的发送者信息
-        logger.debug(
-            f"[add_message_from_event] [{session_id}] 发送者信息: "
-            f"sender_id={sender_id}, sender_name='{sender_name}', role={role}"
-        )
+        # Debug: 记录原始 message_obj.sender 信息
+        if hasattr(event, "message_obj") and hasattr(event.message_obj, "sender"):
+            raw_sender = event.message_obj.sender
+            logger.debug(
+                f"[add_message_from_event] [{session_id}] 原始sender对象: "
+                f"user_id={getattr(raw_sender, 'user_id', 'N/A')}, "
+                f"nickname={getattr(raw_sender, 'nickname', 'N/A')}"
+            )
 
         # 判断是否群聊
+        is_group = False
         if hasattr(event, "is_group"):
             is_group = event.is_group()
             if is_group:
                 group_id = session_id  # 群聊时session_id即为group_id
+
+        # 调试日志：记录最终获取到的发送者信息
+        logger.debug(
+            f"[add_message_from_event] [{session_id}] 最终发送者信息: "
+            f"sender_id={sender_id}, sender_name='{sender_name}', "
+            f"role={role}, is_group={is_group}, group_id={group_id}"
+        )
 
         # 获取平台名称（字符串）
         platform = (
