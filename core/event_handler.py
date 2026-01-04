@@ -285,6 +285,22 @@ class EventHandler:
                 )
                 return
 
+            # 获取实际消息数量（用于数据一致性检查）
+            actual_message_count = (
+                await self.conversation_manager.store.get_message_count(session_id)
+            )
+
+            # 数据一致性检查
+            if session_info.message_count != actual_message_count:
+                logger.warning(
+                    f"[DEBUG-Reflection] [{session_id}] 数据不一致! "
+                    f"sessions表记录={session_info.message_count}, "
+                    f"实际消息数={actual_message_count}"
+                )
+
+            # 使用实际消息数量
+            total_messages = actual_message_count
+
             # 检查是否满足总结条件
             trigger_rounds = self.config_manager.get(
                 "reflection_engine.summary_trigger_rounds", 10
@@ -297,8 +313,18 @@ class EventHandler:
                 )
             )
 
+            # 检查 last_summarized_index 是否超出实际消息数量
+            if last_summarized_index > total_messages:
+                logger.warning(
+                    f"[DEBUG-Reflection] [{session_id}] last_summarized_index({last_summarized_index}) "
+                    f"> 实际消息数({total_messages})，重置为0"
+                )
+                last_summarized_index = 0
+                await self.conversation_manager.update_session_metadata(
+                    session_id, "last_summarized_index", 0
+                )
+
             # 计算未总结的消息数量
-            total_messages = session_info.message_count
             unsummarized_messages = total_messages - last_summarized_index
             unsummarized_rounds = unsummarized_messages // 2
 
@@ -633,48 +659,68 @@ class EventHandler:
             "session_manager.max_messages_per_session", 1000
         )
 
-        session_info = await self.conversation_manager.get_session_info(session_id)
-        if not session_info:
+        if (
+            not self.conversation_manager.store
+            or not self.conversation_manager.store.connection
+        ):
             return
 
-        if session_info.message_count > max_messages:
-            to_delete = session_info.message_count - max_messages
+        try:
+            conn = self.conversation_manager.store.connection
 
-            if (
-                self.conversation_manager.store
-                and self.conversation_manager.store.connection
-            ):
-                try:
-                    conn = self.conversation_manager.store.connection
+            # 获取实际消息数量（而非 sessions 表中可能不准确的 message_count）
+            actual_count = await self.conversation_manager.store.get_message_count(
+                session_id
+            )
 
-                    # 删除最旧的消息
-                    await conn.execute(
-                        """
-                        DELETE FROM messages
-                        WHERE id IN (
-                            SELECT id FROM messages
-                            WHERE session_id = ?
-                            ORDER BY timestamp ASC
-                            LIMIT ?
-                        )
-                        """,
-                        (session_id, to_delete),
-                    )
+            if actual_count <= max_messages:
+                return
 
-                    # 同步更新 sessions 表的 message_count
-                    await conn.execute(
-                        """
-                        UPDATE sessions
-                        SET message_count = message_count - ?
-                        WHERE session_id = ?
-                        """,
-                        (to_delete, session_id),
-                    )
+            to_delete = actual_count - max_messages
 
-                    await conn.commit()
+            # 删除最旧的消息
+            cursor = await conn.execute(
+                """
+                DELETE FROM messages
+                WHERE id IN (
+                    SELECT id FROM messages
+                    WHERE session_id = ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                )
+                """,
+                (session_id, to_delete),
+            )
 
-                    logger.info(
-                        f"[{session_id}] 消息数量超过上限({max_messages}),已删除最旧的{to_delete}条消息"
-                    )
-                except Exception as e:
-                    logger.error(f"删除旧消息失败: {e}", exc_info=True)
+            # 获取实际删除的行数
+            actually_deleted = cursor.rowcount
+
+            # 使用实际删除后的消息数量来更新 sessions 表
+            # 重新获取实际消息数以确保准确
+            new_actual_count = await self.conversation_manager.store.get_message_count(
+                session_id
+            )
+
+            await conn.execute(
+                """
+                UPDATE sessions
+                SET message_count = ?
+                WHERE session_id = ?
+                """,
+                (new_actual_count, session_id),
+            )
+
+            await conn.commit()
+
+            # 清除缓存
+            if session_id in self.conversation_manager._cache:
+                del self.conversation_manager._cache[session_id]
+
+            logger.info(
+                f"[{session_id}] 消息数量超过上限({max_messages}): "
+                f"实际消息数={actual_count}, 预期删除={to_delete}, "
+                f"实际删除={actually_deleted}, 删除后={new_actual_count}"
+            )
+
+        except Exception as e:
+            logger.error(f"删除旧消息失败: {e}", exc_info=True)

@@ -664,6 +664,64 @@ class ConversationStore:
 
         return messages
 
+    async def get_messages_range(
+        self, session_id: str, offset: int = 0, limit: int = 50
+    ) -> list[Message]:
+        """
+        按范围获取会话消息（使用 SQL OFFSET/LIMIT）
+
+        Args:
+            session_id: 会话ID
+            offset: 跳过的消息数量（从最旧的开始计算）
+            limit: 获取的消息数量
+
+        Returns:
+            List[Message]: 消息列表（按时间升序）
+        """
+        if self.connection is None:
+            return []
+
+        # 使用子查询确保按时间升序后再应用 OFFSET/LIMIT
+        query = """
+            SELECT id, session_id, role, content, sender_id, sender_name,
+                   group_id, platform, timestamp, metadata
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ? OFFSET ?
+        """
+
+        async with self.connection.execute(
+            query, (session_id, limit, offset)
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        messages = []
+        for row in rows:
+            messages.append(
+                Message.from_dict(
+                    {
+                        "id": row["id"],
+                        "session_id": row["session_id"],
+                        "role": row["role"],
+                        "content": row["content"],
+                        "sender_id": row["sender_id"],
+                        "sender_name": row["sender_name"],
+                        "group_id": row["group_id"],
+                        "platform": row["platform"],
+                        "timestamp": row["timestamp"],
+                        "metadata": row["metadata"],
+                    }
+                )
+            )
+
+        logger.debug(
+            f"[get_messages_range] session={session_id}, offset={offset}, "
+            f"limit={limit}, 实际获取={len(messages)}条"
+        )
+
+        return messages
+
     async def sync_message_counts(self) -> dict[str, int]:
         """
         同步所有会话的 message_count 与实际消息数量

@@ -454,15 +454,35 @@ class ConversationManager:
             logger.warning(f"[get_messages_range] 会话 {session_id} 不存在")
             return []
 
-        total_messages = session_info.message_count
+        recorded_count = session_info.message_count
+
+        # 获取实际消息数量（用于一致性检查）
+        actual_count = await self.store.get_message_count(session_id)
+
+        # 数据一致性检查：如果 sessions 表记录的 message_count 与实际不符
+        if recorded_count != actual_count:
+            logger.warning(
+                f"[get_messages_range] [{session_id}] 数据不一致! "
+                f"sessions表记录={recorded_count}, 实际消息数={actual_count}，正在同步..."
+            )
+            # 使用实际消息数量，并触发同步修复
+            await self.store.sync_message_counts()
+
+        total_messages = actual_count  # 使用实际消息数量
 
         # 确定实际需要获取的范围
         actual_end = end_index if end_index is not None else total_messages
 
         # 验证索引范围
-        if start_index < 0 or start_index >= total_messages:
+        if start_index < 0:
             logger.warning(
-                f"[get_messages_range] [{session_id}] 起始索引 {start_index} 超出范围 [0, {total_messages})"
+                f"[get_messages_range] [{session_id}] 起始索引 {start_index} < 0，调整为 0"
+            )
+            start_index = 0
+
+        if start_index >= total_messages:
+            logger.warning(
+                f"[get_messages_range] [{session_id}] 起始索引 {start_index} >= 实际消息总数 {total_messages}，返回空列表"
             )
             return []
 
@@ -481,28 +501,18 @@ class ConversationManager:
         # 计算需要获取的消息数量
         needed_count = actual_end - start_index
 
-        # 使用足够大的limit来获取所有消息（或者至少能覆盖所需范围）
-        # 如果消息总数很大，我们需要确保limit足够
-        fetch_limit = max(actual_end, total_messages)
-
         logger.debug(
             f"[get_messages_range] [{session_id}] 准备获取消息: "
-            f"总数={total_messages}, 范围=[{start_index}:{actual_end}], "
-            f"需要={needed_count}条, fetch_limit={fetch_limit}"
+            f"实际总数={total_messages}, 范围=[{start_index}:{actual_end}], "
+            f"需要={needed_count}条"
         )
 
-        # 获取消息（按时间升序）
-        all_messages = await self.store.get_messages(
+        # 使用 store 的 get_messages_range 方法（基于 OFFSET/LIMIT）
+        result = await self.store.get_messages_range(
             session_id=session_id,
-            limit=fetch_limit,
+            offset=start_index,
+            limit=needed_count,
         )
-
-        logger.debug(
-            f"[get_messages_range] [{session_id}] 实际获取到 {len(all_messages)} 条消息"
-        )
-
-        # 应用索引切片
-        result = all_messages[start_index:actual_end]
 
         logger.info(
             f"[get_messages_range] [{session_id}] 返回 {len(result)} 条消息 (索引 {start_index} 到 {actual_end})"
