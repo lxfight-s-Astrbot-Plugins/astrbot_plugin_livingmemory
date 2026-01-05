@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
 from .base.config_manager import ConfigManager
 from .managers.conversation_manager import ConversationManager
@@ -46,10 +46,12 @@ class CommandHandler:
         self.webui_server = webui_server
         self.get_initialization_status = initialization_status_callback
 
-    async def handle_status(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def handle_status(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem status 命令"""
         if not self.memory_engine:
-            yield "❌ 记忆引擎未初始化"
+            yield event.plain_result("❌ 记忆引擎未初始化")
             return
 
         try:
@@ -79,17 +81,17 @@ class CommandHandler:
 使用 /lmem search <关键词> 搜索记忆
 使用 /lmem webui 访问管理界面"""
 
-            yield message
+            yield event.plain_result(message)
         except Exception as e:
             logger.error(f"获取状态失败: {e}", exc_info=True)
-            yield f"❌ 获取状态失败: {str(e)}"
+            yield event.plain_result(f"❌ 获取状态失败: {str(e)}")
 
     async def handle_search(
         self, event: AstrMessageEvent, query: str, k: int = 5
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem search 命令"""
         if not self.memory_engine:
-            yield "❌ 记忆引擎未初始化"
+            yield event.plain_result("❌ 记忆引擎未初始化")
             return
 
         try:
@@ -99,7 +101,7 @@ class CommandHandler:
             )
 
             if not results:
-                yield f"🔍 未找到与 '{query}' 相关的记忆"
+                yield event.plain_result(f"🔍 未找到与 '{query}' 相关的记忆")
                 return
 
             message = f"🔍 找到 {len(results)} 条相关记忆:\n\n"
@@ -113,45 +115,45 @@ class CommandHandler:
                 message += f"{i}. [得分:{score:.2f}] {content}\n"
                 message += f"   ID: {result.doc_id}\n\n"
 
-            yield message
+            yield event.plain_result(message)
         except Exception as e:
             logger.error(f"搜索失败: {e}", exc_info=True)
-            yield f"❌ 搜索失败: {str(e)}"
+            yield event.plain_result(f"❌ 搜索失败: {str(e)}")
 
     async def handle_forget(
         self, event: AstrMessageEvent, doc_id: int
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem forget 命令"""
         if not self.memory_engine:
-            yield "❌ 记忆引擎未初始化"
+            yield event.plain_result("❌ 记忆引擎未初始化")
             return
 
         try:
             success = await self.memory_engine.delete_memory(doc_id)
             if success:
-                yield f"✅ 已删除记忆 #{doc_id}"
+                yield event.plain_result(f"✅ 已删除记忆 #{doc_id}")
             else:
-                yield f"❌ 删除失败，记忆 #{doc_id} 不存在"
+                yield event.plain_result(f"❌ 删除失败，记忆 #{doc_id} 不存在")
         except Exception as e:
             logger.error(f"删除失败: {e}", exc_info=True)
-            yield f"❌ 删除失败: {str(e)}"
+            yield event.plain_result(f"❌ 删除失败: {str(e)}")
 
     async def handle_rebuild_index(
         self, event: AstrMessageEvent
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem rebuild-index 命令"""
         if not self.memory_engine or not self.index_validator:
-            yield "❌ 记忆引擎或索引验证器未初始化"
+            yield event.plain_result("❌ 记忆引擎或索引验证器未初始化")
             return
 
         try:
-            yield "🔨 开始检查索引状态..."
+            yield event.plain_result("🔨 开始检查索引状态...")
 
             # 检查索引一致性
             status = await self.index_validator.check_consistency()
 
             if status.is_consistent and not status.needs_rebuild:
-                yield f"✅ 索引状态正常: {status.reason}"
+                yield event.plain_result(f"✅ 索引状态正常: {status.reason}")
                 return
 
             # 显示当前状态
@@ -162,7 +164,7 @@ class CommandHandler:
 • 问题: {status.reason}
 
 🔨 开始重建索引..."""
-            yield status_msg
+            yield event.plain_result(status_msg)
 
             # 执行重建
             result = await self.index_validator.rebuild_indexes(self.memory_engine)
@@ -176,15 +178,19 @@ class CommandHandler:
 • 总计: {result["total"]} 条
 
 现在可以正常使用召回功能了！"""
-                yield result_msg
+                yield event.plain_result(result_msg)
             else:
-                yield f"❌ 重建失败: {result.get('message', '未知错误')}"
+                yield event.plain_result(
+                    f"❌ 重建失败: {result.get('message', '未知错误')}"
+                )
 
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
-            yield f"❌ 重建索引失败: {str(e)}"
+            yield event.plain_result(f"❌ 重建索引失败: {str(e)}")
 
-    async def handle_webui(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def handle_webui(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem webui 命令"""
         webui_url = self._get_webui_url()
 
@@ -212,24 +218,28 @@ class CommandHandler:
 
 在WebUI中可以进行更复杂的操作!"""
 
-        yield message
+        yield event.plain_result(message)
 
-    async def handle_reset(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def handle_reset(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem reset 命令"""
         if not self.conversation_manager:
-            yield "❌ 会话管理器未初始化"
+            yield event.plain_result("❌ 会话管理器未初始化")
             return
 
         session_id = event.unified_msg_origin
         try:
             await self.conversation_manager.clear_session(session_id)
             message = "✅ 当前会话的长期记忆上下文已重置。\n\n下一次记忆总结将从现在开始，不会再包含之前的对话内容。"
-            yield message
+            yield event.plain_result(message)
         except Exception as e:
             logger.error(f"手动重置记忆上下文失败: {e}", exc_info=True)
-            yield f"❌ 重置失败: {str(e)}"
+            yield event.plain_result(f"❌ 重置失败: {str(e)}")
 
-    async def handle_help(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def handle_help(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem help 命令"""
         message = """📖 LivingMemory 使用指南
 
@@ -251,7 +261,7 @@ class CommandHandler:
 
 📚 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
 
-        yield message
+        yield event.plain_result(message)
 
     def _get_webui_url(self) -> str | None:
         """获取 WebUI 访问地址"""

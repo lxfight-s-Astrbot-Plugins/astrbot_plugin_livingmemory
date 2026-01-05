@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
@@ -180,112 +180,119 @@ class LivingMemoryPlugin(Star):
     # ==================== 命令处理 ====================
 
     @filter.command_group("lmem")
-    def lmem_group(self):
+    def lmem(self):
         """长期记忆管理命令组 /lmem"""
         pass
 
-    @lmem_group.command("status")
-    @permission_type(PermissionType.ADMIN)
-    async def lmem_status(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    # @permission_type(PermissionType.ADMIN)
+    @lmem.command("status", priority=10)
+    async def status(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示记忆系统状态"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
-
         async for message in self.command_handler.handle_status(event):
             yield message
 
-    @lmem_group.command("search")
+    @lmem.command("search", priority=10)
     @permission_type(PermissionType.ADMIN)
-    async def lmem_search(
+    async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 搜索记忆"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_search(event, query, k):
             yield message
 
-    @lmem_group.command("forget")
+    @lmem.command("forget")
     @permission_type(PermissionType.ADMIN)
-    async def lmem_forget(
+    async def forget(
         self, event: AstrMessageEvent, doc_id: int
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 删除指定记忆"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_forget(event, doc_id):
             yield message
 
-    @lmem_group.command("rebuild-index")
+    @lmem.command("rebuild-index")
     @permission_type(PermissionType.ADMIN)
-    async def lmem_rebuild_index(
+    async def rebuild_index(
         self, event: AstrMessageEvent
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 手动重建索引"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_rebuild_index(event):
             yield message
 
-    @lmem_group.command("webui")
+    @lmem.command("webui")
     @permission_type(PermissionType.ADMIN)
-    async def lmem_webui(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def webui(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示WebUI访问信息"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_webui(event):
             yield message
 
-    @lmem_group.command("reset")
+    @lmem.command("reset")
     @permission_type(PermissionType.ADMIN)
-    async def lmem_reset(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def reset(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 重置当前会话的长期记忆上下文"""
         if not await self.initializer.ensure_initialized():
-            yield self._get_initialization_status_message()
+            yield event.plain_result(self._get_initialization_status_message())
             return
 
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_reset(event):
             yield message
 
-    @lmem_group.command("help")
+    @lmem.command("help")
     @permission_type(PermissionType.ADMIN)
-    async def lmem_help(self, event: AstrMessageEvent) -> AsyncGenerator[str, None]:
+    async def help(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示帮助信息"""
         if not self.command_handler:
-            yield "❌ 命令处理器未初始化"
+            yield event.plain_result("❌ 命令处理器未初始化")
             return
 
         async for message in self.command_handler.handle_help(event):
