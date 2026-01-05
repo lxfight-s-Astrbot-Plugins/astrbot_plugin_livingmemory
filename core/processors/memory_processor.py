@@ -4,6 +4,7 @@
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -164,29 +165,47 @@ class MemoryProcessor:
         Returns:
             格式化后的对话文本
         """
-        from astrbot.api import logger
+
+
 
         formatted_lines = []
         for i, msg in enumerate(messages):
-            # Debug: 记录每条消息的原始信息
             logger.debug(
                 f"[_format_conversation] 消息#{i}: "
                 f"sender_id={msg.sender_id}, sender_name={msg.sender_name}, "
                 f"role={msg.role}, group_id={msg.group_id}"
             )
 
-            # 使用Message对象的format_for_llm方法
-            formatted = msg.format_for_llm(include_sender_name=bool(msg.group_id))
-            # 群聊场景：content已包含发送者前缀，直接使用
-            # 私聊场景：添加role前缀
             if msg.group_id:
+                # 群聊场景：使用Message对象的format_for_llm方法
+                formatted = msg.format_for_llm(include_sender_name=True)
                 formatted_lines.append(formatted["content"])
-                # Debug: 记录格式化后的消息
                 logger.debug(
                     f"[_format_conversation] 消息#{i} 格式化结果(群聊): {formatted['content'][:100]}..."
                 )
             else:
-                formatted_lines.append(f"{formatted['role']}: {formatted['content']}")
+                # 私聊场景：也使用 [昵称 | ID: xxx | 时间] 格式
+                time_str = datetime.fromtimestamp(msg.timestamp).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                display_name = (
+                    msg.sender_name if msg.sender_name else msg.sender_id or "未知"
+                )
+                is_bot = (
+                    msg.metadata.get("is_bot_message", False) or msg.role == "assistant"
+                )
+
+                if is_bot:
+                    sender_info = (
+                        f"[Bot: {display_name} | ID: {msg.sender_id} | {time_str}]"
+                    )
+                else:
+                    sender_info = f"[{display_name} | ID: {msg.sender_id} | {time_str}]"
+
+                formatted_lines.append(f"{sender_info} {msg.content}")
+                logger.debug(
+                    f"[_format_conversation] 消息#{i} 格式化结果(私聊): {sender_info[:50]}..."
+                )
         return "\n".join(formatted_lines)
 
     def _parse_llm_response(
