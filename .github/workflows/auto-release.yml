@@ -9,216 +9,114 @@ on:
       - 'metadata.yaml'
 
 jobs:
-  check-version-and-release:
+  check-version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
+    outputs:
+      version_changed: ${{ steps.check.outputs.changed }}
+      new_version: ${{ steps.check.outputs.version }}
+      old_version: ${{ steps.check.outputs.old_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      
-      - name: Get current version
-        id: current_version
+
+      - name: Check version change
+        id: check
         run: |
-          echo "📋 读取 metadata.yaml 中的版本信息..."
-          VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "✅ 当前版本: $VERSION"
-      
-      - name: Get previous version from latest tag
-        id: previous_version
-        run: |
-          # 获取最新的标签版本
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LATEST_TAG" ]; then
-            # 移除 'v' 前缀
-            PREV_VERSION="${LATEST_TAG#v}"
-            echo "✅ 找到最新标签: $LATEST_TAG (版本: $PREV_VERSION)"
+          # 获取当前版本
+          CURRENT_VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}')
+          echo "Current version: $CURRENT_VERSION"
+
+          # 获取上一次提交的版本
+          git checkout HEAD~1 -- metadata.yaml 2>/dev/null || echo "First commit"
+          if [ -f metadata.yaml ]; then
+            PREVIOUS_VERSION=$(grep '^version:' metadata.yaml | awk '{print $2}')
+            git checkout HEAD -- metadata.yaml
           else
-            PREV_VERSION="none"
-            echo "⚠️ 未找到任何标签，这可能是首次发布"
+            PREVIOUS_VERSION="none"
           fi
-          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-          echo "Previous version: $PREV_VERSION"
-      
-      - name: Check if version changed
-        id: version_changed
-        run: |
-          CURRENT="${{ steps.current_version.outputs.version }}"
-          PREVIOUS="${{ steps.previous_version.outputs.prev_version }}"
+          echo "Previous version: $PREVIOUS_VERSION"
 
-          echo "🔍 版本比较:"
-          echo "  - 当前版本: $CURRENT"
-          echo "  - 上一版本: $PREVIOUS"
-
-          if [ "$CURRENT" != "$PREVIOUS" ]; then
+          # 比较版本
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "✅ 版本已更新: $PREVIOUS → $CURRENT"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "old_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ 版本未变化: $CURRENT"
+            echo "No version change detected"
           fi
-      
-      - name: Check if tag exists
-        id: check_tag
-        if: steps.version_changed.outputs.changed == 'true'
-        run: |
-          TAG_NAME="v${{ steps.current_version.outputs.version }}"
-          echo "🔍 检查标签是否存在: $TAG_NAME"
 
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "⚠️ 标签 $TAG_NAME 已存在，跳过发布"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "✅ 标签 $TAG_NAME 不存在，准备创建发布"
-          fi
-      
-      - name: Get plugin info
-        id: plugin_info
-        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+  create-release:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
         run: |
-          NAME=$(grep '^name:' metadata.yaml | awk '{print $2}')
-          AUTHOR=$(grep '^author:' metadata.yaml | awk '{print $2}')
-          DESC=$(grep '^description:' metadata.yaml | cut -d':' -f2- | sed 's/^ *//')
-          echo "name=$NAME" >> $GITHUB_OUTPUT
-          echo "author=$AUTHOR" >> $GITHUB_OUTPUT
-          echo "description=$DESC" >> $GITHUB_OUTPUT
-      
-      - name: Extract changelog
-        id: extract_changelog
-        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
-        run: |
-          # 尝试从 CHANGELOG.md 或 README.md 中提取版本更新日志
-          CHANGELOG=""
-          
-          # 检查是否存在 CHANGELOG.md
-          if [ -f "CHANGELOG.md" ]; then
-            echo "📝 找到 CHANGELOG.md，提取版本 ${{ steps.current_version.outputs.version }} 的更新日志..."
-            # 提取当前版本的更新内容
-            CHANGELOG=$(awk '/## .*${{ steps.current_version.outputs.version }}/,/## .*[0-9]+\.[0-9]+\.[0-9]+/ {
-              if (/## .*[0-9]+\.[0-9]+\.[0-9]+/ && !/## .*${{ steps.current_version.outputs.version }}/) exit;
-              print
-            }' CHANGELOG.md | sed '1d')
-          fi
-          
-          # 如果没有找到更新日志，使用 git log 获取提交信息
-          if [ -z "$CHANGELOG" ]; then
-            echo "📝 从 Git 提交历史生成更新日志..."
-            
-            # 获取上一个版本的标签
-            PREV_TAG="v${{ steps.previous_version.outputs.prev_version }}"
-            
-            # 检查上一个版本标签是否存在
-            if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-              echo "✅ 找到上一个版本标签: $PREV_TAG"
-              echo "📊 获取从 $PREV_TAG 到当前版本的所有提交记录..."
-              # 从上一个版本标签到 HEAD 的所有提交
-              CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD | grep -v "Merge\|merge")
-            else
-              echo "⚠️ 未找到上一个版本标签 $PREV_TAG，尝试使用提交历史..."
-              # 尝试获取最近的标签
-              LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-              
-              if [ -n "$LAST_TAG" ]; then
-                echo "✅ 找到最近的标签: $LAST_TAG"
-                echo "📊 获取从 $LAST_TAG 到当前版本的所有提交记录..."
-                CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG"..HEAD | grep -v "Merge\|merge")
+          NEW_VERSION="${{ needs.check-version.outputs.new_version }}"
+          OLD_VERSION="${{ needs.check-version.outputs.old_version }}"
+
+          echo "## 🎉 Release $NEW_VERSION" > changelog.md
+          echo "" >> changelog.md
+
+          # 如果有上一个版本标签，生成两个版本之间的提交日志
+          if git rev-parse "$OLD_VERSION" >/dev/null 2>&1; then
+            echo "### 📝 Changes since $OLD_VERSION" >> changelog.md
+            echo "" >> changelog.md
+
+            # 获取提交信息并分类
+            git log "$OLD_VERSION..HEAD" --pretty=format:"%s|||%h|||%an" --no-merges | while IFS='|||' read -r subject hash author; do
+              # 根据提交信息的前缀进行分类
+              if echo "$subject" | grep -qiE "^(feat|feature):"; then
+                echo "- ✨ **Feature**: ${subject#*: } (${hash})" >> changelog.md
+              elif echo "$subject" | grep -qiE "^fix:"; then
+                echo "- 🐛 **Fix**: ${subject#*: } (${hash})" >> changelog.md
+              elif echo "$subject" | grep -qiE "^docs:"; then
+                echo "- 📚 **Docs**: ${subject#*: } (${hash})" >> changelog.md
+              elif echo "$subject" | grep -qiE "^(refactor|style|perf|test|chore):"; then
+                prefix=$(echo "$subject" | cut -d: -f1)
+                echo "- 🔧 **${prefix^}**: ${subject#*: } (${hash})" >> changelog.md
               else
-                echo "⚠️ 未找到任何标签，获取所有提交记录..."
-                # 获取所有提交记录
-                CHANGELOG=$(git log --pretty=format:"- %s (%h)" | grep -v "Merge\|merge")
+                echo "- 📌 $subject (${hash})" >> changelog.md
               fi
-            fi
-            
-            # 如果仍然没有提交记录，使用最近一次提交
-            if [ -z "$CHANGELOG" ]; then
-              echo "⚠️ 未找到提交记录，使用最近一次提交..."
-              CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD~1..HEAD | grep -v "Merge\|merge")
-            fi
+            done
+          else
+            echo "### 📝 Changes" >> changelog.md
+            echo "" >> changelog.md
+            echo "Initial release or no previous version tag found." >> changelog.md
+            echo "" >> changelog.md
+            echo "#### Recent commits:" >> changelog.md
+            git log -10 --pretty=format:"- %s (%h)" --no-merges >> changelog.md
           fi
-          
-          # 保存到临时文件
-          echo "$CHANGELOG" > changelog_content.txt
-          
-          # 输出预览
-          echo "================================"
-          echo "📋 更新日志内容:"
-          echo "================================"
-          cat changelog_content.txt
-          echo "================================"
-          echo "📊 提交数量: $(wc -l < changelog_content.txt)"
-          echo "================================"
-      
-      - name: Generate release notes
-        id: release_notes
-        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
-        run: |
-          # 读取提取的更新日志
-          CHANGELOG_CONTENT=$(cat changelog_content.txt)
-          
-          # 如果更新日志为空，使用默认内容
-          if [ -z "$CHANGELOG_CONTENT" ]; then
-            CHANGELOG_CONTENT="- 版本更新到 \`${{ steps.current_version.outputs.version }}\`"
-          fi
-          
-          cat << EOF > release_notes.md
-          ## ${{ steps.plugin_info.outputs.name }} v${{ steps.current_version.outputs.version }}
-          
-          **插件名称**: ${{ steps.plugin_info.outputs.name }}
-          **作者**: ${{ steps.plugin_info.outputs.author }}
-          **描述**: ${{ steps.plugin_info.outputs.description }}
-          
-          ### 📋 更新内容
-          
-          $CHANGELOG_CONTENT
-          
-          ### 📦 安装方式
-          
-          请参考项目 [README](https://github.com/${{ github.repository }}) 文档进行安装。
-          
-          ### 🔄 从 v${{ steps.previous_version.outputs.prev_version }} 升级
-          
-          \`\`\`bash
-          # 如果使用 git 管理
-          git pull origin main
-          
-          # 或下载最新版本并替换文件
-          \`\`\`
-          
-          ---
-          
-          **完整变更日志**: [\`v${{ steps.previous_version.outputs.prev_version }}...v${{ steps.current_version.outputs.version }}\`](https://github.com/${{ github.repository }}/compare/v${{ steps.previous_version.outputs.prev_version }}...v${{ steps.current_version.outputs.version }})
-          
-          *此版本由 GitHub Actions 自动发布 🤖*
-          EOF
-          cat release_notes.md
-      
+
+          echo "" >> changelog.md
+          echo "---" >> changelog.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$OLD_VERSION...$NEW_VERSION" >> changelog.md
+
       - name: Create Release
-        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.current_version.outputs.version }}
-          name: Release v${{ steps.current_version.outputs.version }}
-          body_path: release_notes.md
+          tag_name: ${{ needs.check-version.outputs.new_version }}
+          name: Release ${{ needs.check-version.outputs.new_version }}
+          body_path: changelog.md
           draft: false
           prerelease: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Release created
-        if: steps.version_changed.outputs.changed == 'true' && steps.check_tag.outputs.exists == 'false'
+
+      - name: Notify release created
         run: |
-          echo "✅ Release v${{ steps.current_version.outputs.version }} created successfully!"
-      
-      - name: Skip release
-        if: steps.version_changed.outputs.changed == 'false' || steps.check_tag.outputs.exists == 'true'
-        run: |
-          if [ "${{ steps.version_changed.outputs.changed }}" == "false" ]; then
-            echo "ℹ️ Version not changed, skipping release"
-          elif [ "${{ steps.check_tag.outputs.exists }}" == "true" ]; then
-            echo "ℹ️ Tag already exists, skipping release"
-          fi
+          echo "✅ Release ${{ needs.check-version.outputs.new_version }} has been created successfully!"
+          echo "🔗 View release at: https://github.com/${{ github.repository }}/releases/tag/${{ needs.check-version.outputs.new_version }}"
