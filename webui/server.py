@@ -442,7 +442,14 @@ class WebUIServer:
                         metadata_filters={}, limit=page_size, offset=offset
                     )
 
-                    memories = all_docs
+                    # 按创建时间降序排序（最新的在前面）
+                    memories = sorted(
+                        all_docs,
+                        key=lambda x: x["metadata"].get("create_time", 0)
+                        if isinstance(x["metadata"], dict)
+                        else 0,
+                        reverse=True,
+                    )
 
                 # 解析 metadata 字段（从 JSON 字符串转为字典）
                 import json
