@@ -551,6 +551,65 @@ class MemoryEngine:
         """
         return await self.update_memory(memory_id, {"importance": new_importance})
 
+    async def apply_daily_decay(self, decay_rate: float, days: int = 1) -> int:
+        """
+        批量应用重要性衰减
+
+        Args:
+            decay_rate: 每日衰减率 (0-1)
+            days: 衰减天数（用于补偿错过的天数）
+
+        Returns:
+            int: 受影响的记忆数量
+        """
+        if decay_rate <= 0 or days <= 0:
+            return 0
+
+        if self.db_connection is None:
+            logger.error("[衰减] 数据库连接未初始化")
+            return 0
+
+        try:
+            # 计算衰减因子：(1 - decay_rate) ^ days
+            decay_factor = (1 - decay_rate) ** days
+
+            # 使用 SQL 批量更新所有记忆的 importance
+            # 公式：new_importance = importance * decay_factor
+            # 最小值限制为 0.01，避免完全衰减到 0
+            cursor = await self.db_connection.execute(
+                """
+                UPDATE documents
+                SET metadata = json_set(
+                    metadata,
+                    '$.importance',
+                    MAX(0.01, ROUND(
+                        COALESCE(
+                            json_extract(metadata, '$.importance'),
+                            0.5
+                        ) * ?,
+                        4
+                    ))
+                )
+                WHERE json_extract(metadata, '$.importance') IS NOT NULL
+                   OR metadata LIKE '%"importance"%'
+                """,
+                (decay_factor,),
+            )
+
+            await self.db_connection.commit()
+            affected = cursor.rowcount
+
+            logger.info(
+                f"[衰减] 批量衰减完成: 衰减率={decay_rate}, 天数={days}, "
+                f"衰减因子={decay_factor:.4f}, 影响记录={affected}"
+            )
+
+            return affected
+
+        except Exception as e:
+            logger.error(f"[衰减] 批量衰减失败: {e}", exc_info=True)
+            return 0
+
     async def update_access_time(self, memory_id: int) -> bool:
         """
         更新最后访问时间

@@ -166,8 +166,6 @@ class MemoryProcessor:
             格式化后的对话文本
         """
 
-
-
         formatted_lines = []
         for i, msg in enumerate(messages):
             logger.debug(

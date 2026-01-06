@@ -19,6 +19,7 @@ from .base.exceptions import InitializationError, ProviderNotReadyError
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
+from .schedulers.decay_scheduler import DecayScheduler
 from .validators.index_validator import IndexValidator
 
 
@@ -47,6 +48,7 @@ class PluginInitializer:
         self.db_migration: DBMigration | None = None
         self.conversation_manager: ConversationManager | None = None
         self.index_validator: IndexValidator | None = None
+        self.decay_scheduler: DecayScheduler | None = None
 
         # 初始化状态
         self._initialization_complete = False
@@ -296,6 +298,18 @@ class PluginInitializer:
                     await self.memory_engine.text_processor.async_init()
                     logger.info("✅ TextProcessor 停用词已加载")
 
+            # 启动重要性衰减调度器
+            decay_rate = self.config_manager.get("importance_decay.decay_rate", 0.01)
+            if decay_rate > 0 and self.memory_engine:
+                scheduler = DecayScheduler(
+                    memory_engine=self.memory_engine,
+                    decay_rate=decay_rate,
+                    data_dir=self.data_dir,
+                )
+                await scheduler.start()
+                self.decay_scheduler = scheduler
+                logger.info("✅ DecayScheduler 已启动")
+
             # 标记初始化完成
             self._initialization_complete = True
             logger.info("✅ LivingMemory 插件初始化成功！")
@@ -483,3 +497,9 @@ class PluginInitializer:
 
         except Exception as e:
             logger.error(f"检查索引维度时出错: {e}", exc_info=True)
+
+    async def stop_scheduler(self) -> None:
+        """停止衰减调度器"""
+        if self.decay_scheduler:
+            await self.decay_scheduler.stop()
+            self.decay_scheduler = None

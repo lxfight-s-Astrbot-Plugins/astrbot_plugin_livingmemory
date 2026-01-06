@@ -307,6 +307,9 @@ class LivingMemoryPlugin(Star):
         # 停止 WebUI
         await self._stop_webui()
 
+        # 停止衰减调度器
+        await self.initializer.stop_scheduler()
+
         # 关闭 ConversationManager
         if (
             self.initializer.conversation_manager
