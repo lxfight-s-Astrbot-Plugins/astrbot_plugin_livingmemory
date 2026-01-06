@@ -2,7 +2,9 @@
 记忆处理器 - 使用LLM将对话历史处理为结构化记忆
 """
 
+import asyncio
 import json
+import random
 import re
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +68,85 @@ class MemoryProcessor:
 {{"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "participants": ["参与者"], "sentiment": "neutral", "importance": 0.5}}
 """
 
+    async def _call_llm_with_retry(
+        self, prompt: str, system_prompt: str, max_retries: int = 3
+    ) -> str:
+        """
+        带指数退避的 LLM 调用
+
+        Args:
+            prompt: 提示词
+            system_prompt: 系统提示词
+            max_retries: 最大重试次数
+
+        Returns:
+            LLM 响应文本
+        """
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = await self.llm_provider.text_chat(
+                    prompt=prompt, system_prompt=system_prompt
+                )
+                return response.completion_text
+            except Exception as e:
+                last_error = e
+                if attempt == max_retries - 1:
+                    raise
+                wait_time = (2**attempt) + random.uniform(0, 1)
+                logger.warning(
+                    f"[MemoryProcessor] LLM 调用失败，{wait_time:.1f}s 后重试 "
+                    f"({attempt + 1}/{max_retries}): {e}"
+                )
+                await asyncio.sleep(wait_time)
+        if last_error:
+            raise last_error
+        raise RuntimeError("LLM 调用失败，未捕获到具体异常")
+
+    def _try_fix_json(self, text: str) -> str:
+        """
+        尝试修复损坏的 JSON 字符串
+
+        Args:
+            text: 可能损坏的 JSON 字符串
+
+        Returns:
+            修复后的 JSON 字符串
+        """
+        fixed = text.strip()
+
+        # 移除 markdown 代码块标记
+        if fixed.startswith("```json"):
+            fixed = fixed[7:]
+        elif fixed.startswith("```"):
+            fixed = fixed[3:]
+        if fixed.endswith("```"):
+            fixed = fixed[:-3]
+        fixed = fixed.strip()
+
+        # 修复未闭合的字符串（截断的 JSON）
+        open_quotes = fixed.count('"') - fixed.count('\\"')
+        if open_quotes % 2 != 0:
+            fixed += '"'
+
+        # 修复未闭合的数组
+        open_brackets = fixed.count("[") - fixed.count("]")
+        if open_brackets > 0:
+            fixed += "]" * open_brackets
+
+        # 修复未闭合的对象
+        open_braces = fixed.count("{") - fixed.count("}")
+        if open_braces > 0:
+            fixed += "}" * open_braces
+
+        # 移除尾部逗号（JSON 不允许）
+        fixed = re.sub(r",(\s*[}\]])", r"\1", fixed)
+
+        # 修复常见的转义问题
+        fixed = fixed.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+        return fixed
+
     async def process_conversation(
         self,
         messages: list[Message],
@@ -112,25 +193,21 @@ class MemoryProcessor:
                 f"[MemoryProcessor] 发送给LLM的对话内容（前500字符）:\n{conversation_text[:500]}"
             )
 
-            system_prompt = "你是一个专业的对话分析助手,擅长提取对话中的关键信息。"
+            system_prompt = "你是一个专业的对话分析助手,擅长提取对话中的关键信息。请严格按照JSON格式输出。"
             logger.debug(f"[MemoryProcessor] System Prompt: {system_prompt}")
 
-            llm_response = await self.llm_provider.text_chat(
+            llm_response_text = await self._call_llm_with_retry(
                 prompt=prompt,
                 system_prompt=system_prompt,
             )
 
             logger.info(
-                f"[MemoryProcessor]  LLM 响应成功，响应长度={len(llm_response.completion_text)}"
+                f"[MemoryProcessor]  LLM 响应成功，响应长度={len(llm_response_text)}"
             )
-            logger.debug(
-                f"[MemoryProcessor] LLM 原始响应内容:\n{llm_response.completion_text}"
-            )
+            logger.debug(f"[MemoryProcessor] LLM 原始响应内容:\n{llm_response_text}")
 
             # 4. 解析LLM响应
-            structured_data = self._parse_llm_response(
-                llm_response.completion_text, is_group_chat
-            )
+            structured_data = self._parse_llm_response(llm_response_text, is_group_chat)
 
             # 5. 构建存储格式
             content, metadata = self._build_storage_format(
@@ -246,6 +323,14 @@ class MemoryProcessor:
 
             # 解析JSON
             data = json.loads(cleaned_text)
+
+            # 类型检查：确保解析结果是 dict
+            if not isinstance(data, dict):
+                logger.warning(
+                    f"[MemoryProcessor] JSON 解析结果不是 dict，类型为 {type(data).__name__}"
+                )
+                raise ValueError(f"期望 dict 类型，实际为 {type(data).__name__}")
+
             logger.info("[MemoryProcessor] JSON 解析成功")
             logger.debug(f"[MemoryProcessor] 解析得到的字段: {list(data.keys())}")
 
@@ -297,11 +382,23 @@ class MemoryProcessor:
 
             return data
 
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"[MemoryProcessor]  JSON 解析失败: {e}")
             logger.debug(
                 f"[MemoryProcessor] 解析失败的内容（前200字符）: {response_text[:200]}"
             )
+
+            # 尝试修复 JSON 后再解析
+            logger.info("[MemoryProcessor] 尝试修复 JSON 后重新解析")
+            try:
+                fixed_text = self._try_fix_json(response_text)
+                data = json.loads(fixed_text)
+                if isinstance(data, dict):
+                    logger.info("[MemoryProcessor] JSON 修复后解析成功")
+                    return self._normalize_parsed_data(data, is_group_chat)
+            except (json.JSONDecodeError, ValueError) as fix_err:
+                logger.debug(f"[MemoryProcessor] JSON 修复后仍无法解析: {fix_err}")
+
             logger.info("[MemoryProcessor] 尝试使用正则表达式提取 JSON")
             # 尝试正则提取
             return self._extract_by_regex(response_text, is_group_chat)
@@ -451,6 +548,36 @@ class MemoryProcessor:
             metadata["participants"] = structured_data["participants"]
 
         return content, metadata
+
+    def _normalize_parsed_data(self, data: dict, is_group_chat: bool) -> dict[str, Any]:
+        """
+        规范化解析后的数据（补充缺失字段、类型转换）
+
+        Args:
+            data: 解析后的原始字典
+            is_group_chat: 是否为群聊
+
+        Returns:
+            规范化后的字典
+        """
+        required_fields = ["summary", "topics", "key_facts", "sentiment", "importance"]
+        if is_group_chat:
+            required_fields.append("participants")
+
+        for field in required_fields:
+            if field not in data:
+                data[field] = self._get_default_value(field)
+
+        data["summary"] = str(data.get("summary", ""))
+        data["topics"] = self._ensure_list(data.get("topics", []))[:5]
+        data["key_facts"] = self._ensure_list(data.get("key_facts", []))[:5]
+        data["sentiment"] = self._validate_sentiment(data.get("sentiment", "neutral"))
+        data["importance"] = self._validate_importance(data.get("importance", 0.5))
+
+        if is_group_chat:
+            data["participants"] = self._ensure_list(data.get("participants", []))
+
+        return data
 
     def _ensure_list(self, value: Any) -> list[str]:
         """确保值是字符串列表"""
