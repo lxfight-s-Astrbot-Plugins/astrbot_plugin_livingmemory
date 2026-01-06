@@ -417,6 +417,9 @@ class EventHandler:
                 is_group_chat = bool(
                     history_messages[0].group_id if history_messages else False
                 )
+                # 备用判断：从 session_id 解析（防御性编程）
+                if not is_group_chat and "GroupMessage" in session_id:
+                    is_group_chat = True
 
                 logger.info(
                     f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}"

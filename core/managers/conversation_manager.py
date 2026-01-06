@@ -16,6 +16,7 @@ from collections import OrderedDict
 from typing import Any
 
 from astrbot.api import logger
+from astrbot.api.platform import MessageType
 
 from ...storage.conversation_store import ConversationStore
 from ..models.conversation_models import Message, Session
@@ -112,10 +113,10 @@ class ConversationManager:
                 f"nickname={getattr(raw_sender, 'nickname', 'N/A')}"
             )
 
-        # 判断是否群聊
+        # 判断是否群聊（使用 get_message_type 而非 is_group，更可靠）
         is_group = False
-        if hasattr(event, "is_group"):
-            is_group = event.is_group()
+        if hasattr(event, "get_message_type"):
+            is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
             if is_group:
                 group_id = session_id  # 群聊时session_id即为group_id
 
