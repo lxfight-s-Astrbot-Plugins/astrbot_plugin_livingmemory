@@ -54,18 +54,18 @@ class MemoryProcessor:
 
         except Exception as e:
             logger.error(f"[MemoryProcessor] 加载提示词模板失败: {e}")
-            # 使用简单的后备提示词
+            # 使用简单的后备提示词（注意：使用 replace 替换，无需转义大括号）
             self.private_chat_prompt = """分析以下对话并生成JSON格式的记忆:
 {conversation}
 
 输出格式:
-{{"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "sentiment": "neutral", "importance": 0.5}}
+{"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "sentiment": "neutral", "importance": 0.5}
 """
             self.group_chat_prompt = """分析以下群聊对话并生成JSON格式的记忆:
 {conversation}
 
 输出格式:
-{{"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "participants": ["参与者"], "sentiment": "neutral", "importance": 0.5}}
+{"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "participants": ["参与者"], "sentiment": "neutral", "importance": 0.5}
 """
 
     async def _call_llm_with_retry(
@@ -177,10 +177,13 @@ class MemoryProcessor:
         conversation_text = self._format_conversation(messages)
 
         # 2. 选择合适的提示词模板
+        # 使用 replace 而非 format，避免对话内容中的大括号导致解析错误
         if is_group_chat:
-            prompt = self.group_chat_prompt.format(conversation=conversation_text)
+            prompt = self.group_chat_prompt.replace("{conversation}", conversation_text)
         else:
-            prompt = self.private_chat_prompt.format(conversation=conversation_text)
+            prompt = self.private_chat_prompt.replace(
+                "{conversation}", conversation_text
+            )
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"
@@ -229,8 +232,8 @@ class MemoryProcessor:
 
         except Exception as e:
             logger.error(f"[MemoryProcessor] 处理对话历史失败: {e}", exc_info=True)
-            # 降级处理:使用简单的文本拼接
-            return self._create_fallback_memory(conversation_text, is_group_chat)
+            # 不再降级处理，直接向上抛出异常，由调用方处理重试逻辑
+            raise
 
     def _format_conversation(self, messages: list[Message]) -> str:
         """
@@ -626,29 +629,3 @@ class MemoryProcessor:
         if is_group_chat:
             data["participants"] = []
         return data
-
-    def _create_fallback_memory(
-        self, conversation_text: str, is_group_chat: bool
-    ) -> tuple[str, dict[str, Any], float]:
-        """
-        创建降级记忆(当LLM处理失败时)
-
-        Args:
-            conversation_text: 对话文本
-            is_group_chat: 是否为群聊
-
-        Returns:
-            (content, metadata, importance) 元组
-        """
-        logger.warning("使用降级方案创建记忆")
-
-        content = conversation_text
-        metadata = {
-            "topics": [],
-            "key_facts": [],
-            "sentiment": "neutral",
-            "interaction_type": "group_chat" if is_group_chat else "private_chat",
-        }
-        importance = 0.5
-
-        return content, metadata, importance

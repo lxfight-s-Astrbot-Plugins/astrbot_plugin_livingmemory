@@ -17,7 +17,6 @@ from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.chatroom_parser import ChatroomContextParser
 from .processors.memory_processor import MemoryProcessor
-from .processors.message_utils import store_round_with_length_check
 from .utils import (
     OperationContext,
     format_memories_for_injection,
@@ -352,11 +351,17 @@ class EventHandler:
             unsummarized_messages = total_messages - last_summarized_index
             unsummarized_rounds = unsummarized_messages // 2
 
+            # 检查是否有待处理的失败总结
+            pending_summary = await self.conversation_manager.get_session_metadata(
+                session_id, "pending_summary", None
+            )
+
             logger.info(
                 f"[DEBUG-Reflection] [{session_id}] 总消息数: {total_messages}, "
                 f"上次总结位置: {last_summarized_index}, "
                 f"未总结轮数: {unsummarized_rounds}, "
-                f"触发阈值: {trigger_rounds}轮"
+                f"触发阈值: {trigger_rounds}轮, "
+                f"待处理失败总结: {pending_summary is not None}"
             )
 
             # 当未总结的轮数达到触发阈值时进行总结
@@ -365,9 +370,37 @@ class EventHandler:
                     f"[{session_id}] 未总结轮数达到 {unsummarized_rounds} 轮，启动记忆反思任务"
                 )
 
-                # 计算总结范围
+                # 计算总结范围（考虑待处理的失败总结）
                 start_index = last_summarized_index
                 end_index = total_messages
+                retry_count = 0
+
+                # 如果有待处理的失败总结，合并范围
+                if pending_summary:
+                    pending_start = pending_summary.get("start_index", start_index)
+                    retry_count = pending_summary.get("retry_count", 0)
+
+                    # 检查是否已达到最大重试次数
+                    if retry_count >= 3:
+                        logger.warning(
+                            f"[{session_id}] 待处理总结已连续失败 {retry_count} 次，放弃该范围 "
+                            f"[{pending_start}:{pending_summary.get('end_index', end_index)}]"
+                        )
+                        # 清除待处理记录，更新 last_summarized_index 到当前位置
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "pending_summary", None
+                        )
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "last_summarized_index", end_index
+                        )
+                        return
+
+                    # 合并范围：使用待处理的起始位置
+                    start_index = pending_start
+                    logger.info(
+                        f"[{session_id}] 合并待处理失败总结，新范围 [{start_index}:{end_index}], "
+                        f"重试次数: {retry_count + 1}/3"
+                    )
 
                 if end_index - start_index < 2:
                     logger.debug(f"[{session_id}] 消息数不足一轮对话，跳过总结")
@@ -396,7 +429,12 @@ class EventHandler:
                 # 创建后台任务进行存储
                 asyncio.create_task(
                     self._storage_task(
-                        session_id, history_messages, persona_id, end_index
+                        session_id,
+                        history_messages,
+                        persona_id,
+                        start_index,
+                        end_index,
+                        retry_count,
                     )
                 )
 
@@ -408,9 +446,21 @@ class EventHandler:
         session_id: str,
         history_messages: list,
         persona_id: str | None,
+        start_index: int,
         end_index: int,
+        retry_count: int = 0,
     ):
-        """后台存储任务"""
+        """
+        后台存储任务
+
+        Args:
+            session_id: 会话ID
+            history_messages: 待总结的消息列表
+            persona_id: 人格ID
+            start_index: 总结范围起始索引
+            end_index: 总结范围结束索引
+            retry_count: 当前重试次数
+        """
         async with OperationContext("记忆存储", session_id):
             try:
                 # 判断是否为群聊
@@ -422,47 +472,49 @@ class EventHandler:
                     is_group_chat = True
 
                 logger.info(
-                    f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}"
+                    f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}, "
+                    f"范围=[{start_index}:{end_index}], 重试次数={retry_count}"
                 )
 
                 # 使用 MemoryProcessor 处理对话历史
-                if self.memory_processor:
-                    try:
-                        logger.info(
-                            f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
-                        )
-                        save_original = self.config_manager.get(
-                            "reflection_engine.save_original_conversation", False
-                        )
+                if not self.memory_processor:
+                    logger.error(f"[{session_id}] MemoryProcessor 未初始化，记录待重试")
+                    await self._record_pending_summary(
+                        session_id, start_index, end_index, retry_count
+                    )
+                    return
 
-                        (
-                            content,
-                            metadata,
-                            importance,
-                        ) = await self.memory_processor.process_conversation(
-                            messages=history_messages,
-                            is_group_chat=is_group_chat,
-                            save_original=save_original,
-                        )
-                        logger.info(
-                            f"[{session_id}] 已使用LLM生成结构化记忆, "
-                            f"主题={metadata.get('topics', [])}, "
-                            f"重要性={importance:.2f}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"[{session_id}] LLM处理失败,使用降级方案: {e}",
-                            exc_info=True,
-                        )
-                        # 降级方案：逐轮存储
-                        await self._fallback_storage(
-                            session_id, history_messages, persona_id, end_index
-                        )
-                        return
-                else:
-                    # MemoryProcessor未初始化，使用降级策略
-                    await self._fallback_storage(
-                        session_id, history_messages, persona_id, end_index
+                try:
+                    logger.info(
+                        f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
+                    )
+                    save_original = self.config_manager.get(
+                        "reflection_engine.save_original_conversation", False
+                    )
+
+                    (
+                        content,
+                        metadata,
+                        importance,
+                    ) = await self.memory_processor.process_conversation(
+                        messages=history_messages,
+                        is_group_chat=is_group_chat,
+                        save_original=save_original,
+                    )
+                    logger.info(
+                        f"[{session_id}] 已使用LLM生成结构化记忆, "
+                        f"主题={metadata.get('topics', [])}, "
+                        f"重要性={importance:.2f}"
+                    )
+
+                except Exception as e:
+                    # LLM处理失败，记录待重试信息
+                    logger.error(
+                        f"[{session_id}] LLM处理失败 (重试 {retry_count + 1}/3): {e}",
+                        exc_info=True,
+                    )
+                    await self._record_pending_summary(
+                        session_id, start_index, end_index, retry_count
                     )
                     return
 
@@ -480,64 +532,75 @@ class EventHandler:
                         f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
                     )
 
-                # 更新已总结的位置
+                # 成功：更新已总结的位置，清除待处理记录
                 if self.conversation_manager:
                     await self.conversation_manager.update_session_metadata(
                         session_id, "last_summarized_index", end_index
                     )
+                    await self.conversation_manager.update_session_metadata(
+                        session_id, "pending_summary", None
+                    )
                     logger.info(
                         f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
                     )
+
             except Exception as e:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
+                await self._record_pending_summary(
+                    session_id, start_index, end_index, retry_count
+                )
 
-    async def _fallback_storage(
+    async def _record_pending_summary(
         self,
         session_id: str,
-        history_messages: list,
-        persona_id: str | None,
+        start_index: int,
         end_index: int,
+        current_retry_count: int,
     ):
-        """降级存储策略"""
-        logger.warning(f"[{session_id}] 使用降级策略：逐轮存储")
+        """
+        记录待处理的失败总结信息
 
-        stored_count = 0
-        skipped_count = 0
+        Args:
+            session_id: 会话ID
+            start_index: 总结范围起始索引
+            end_index: 总结范围结束索引
+            current_retry_count: 当前重试次数
+        """
+        if not self.conversation_manager:
+            return
 
-        for i in range(0, len(history_messages) - 1, 2):
-            if i + 1 < len(history_messages):
-                success, error = await store_round_with_length_check(
-                    self.memory_engine,
-                    history_messages[i],
-                    history_messages[i + 1],
-                    session_id,
-                    persona_id or "",
-                    i // 2,
-                )
-                if success:
-                    stored_count += 1
-                else:
-                    skipped_count += 1
+        new_retry_count = current_retry_count + 1
+        pending_summary = {
+            "start_index": start_index,
+            "end_index": end_index,
+            "retry_count": new_retry_count,
+        }
 
-        logger.info(
-            f"[{session_id}] 降级存储完成：成功{stored_count}轮，跳过{skipped_count}轮"
+        await self.conversation_manager.update_session_metadata(
+            session_id, "pending_summary", pending_summary
         )
 
-        # 更新已总结位置
-        if self.conversation_manager:
-            await self.conversation_manager.update_session_metadata(
-                session_id, "last_summarized_index", end_index
-            )
+        logger.warning(
+            f"[{session_id}] 记录待重试总结: 范围=[{start_index}:{end_index}], "
+            f"重试次数={new_retry_count}/3"
+        )
 
     def _remove_injected_memories_from_context(
         self, req: ProviderRequest, session_id: str
     ) -> int:
-        """从对话历史和system_prompt中删除之前注入的记忆片段"""
+        """从对话历史、system_prompt和prompt中删除之前注入的记忆片段"""
         import re
 
         from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
         removed_count = 0
+
+        # 编译清理正则
+        pattern = (
+            re.escape(MEMORY_INJECTION_HEADER)
+            + r".*?"
+            + re.escape(MEMORY_INJECTION_FOOTER)
+        )
 
         try:
             # 清理 system_prompt
@@ -548,11 +611,6 @@ class EventHandler:
                         MEMORY_INJECTION_HEADER in original_prompt
                         and MEMORY_INJECTION_FOOTER in original_prompt
                     ):
-                        pattern = (
-                            re.escape(MEMORY_INJECTION_HEADER)
-                            + r".*?"
-                            + re.escape(MEMORY_INJECTION_FOOTER)
-                        )
                         cleaned_prompt = re.sub(
                             pattern, "", original_prompt, flags=re.DOTALL
                         )
@@ -563,6 +621,28 @@ class EventHandler:
 
                         if cleaned_prompt != original_prompt:
                             removed_count += 1
+
+            # 清理 prompt（处理 user_message_before/after 注入方式）
+            if hasattr(req, "prompt") and req.prompt:
+                if isinstance(req.prompt, str):
+                    original_prompt = req.prompt
+                    if (
+                        MEMORY_INJECTION_HEADER in original_prompt
+                        and MEMORY_INJECTION_FOOTER in original_prompt
+                    ):
+                        cleaned_prompt = re.sub(
+                            pattern, "", original_prompt, flags=re.DOTALL
+                        )
+                        cleaned_prompt = re.sub(
+                            r"\n{3,}", "\n\n", cleaned_prompt
+                        ).strip()
+                        req.prompt = cleaned_prompt
+
+                        if cleaned_prompt != original_prompt:
+                            removed_count += 1
+                            logger.debug(
+                                f"[{session_id}] 已从 req.prompt 中清理旧记忆片段"
+                            )
 
             # 清理对话历史
             if hasattr(req, "contexts") and req.contexts:
