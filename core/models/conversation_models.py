@@ -58,6 +58,14 @@ class Message:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Message":
         """从字典创建 Message 对象"""
+        # 处理 metadata 可能是 JSON 字符串的情况
+        metadata = data.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
+
         return cls(
             id=data.get("id", 0),
             session_id=data["session_id"],
@@ -68,7 +76,7 @@ class Message:
             group_id=data.get("group_id"),
             platform=data.get("platform"),
             timestamp=data.get("timestamp", time.time()),
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def format_for_llm(self, include_sender_name: bool = True) -> dict[str, str]:
