@@ -178,15 +178,21 @@ async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | Non
     如果当前会话没有特定人格，则返回 AstrBot 的默认人格。
     """
     try:
-        session_id = await context.conversation_manager.get_curr_conversation_id(
-            event.unified_msg_origin
-        )
+        umo = event.unified_msg_origin
+        session_id = await context.conversation_manager.get_curr_conversation_id(umo)
         if session_id is None:
+            logger.debug(f"[get_persona_id] [{umo}] 无当前会话，返回 None")
             return None
+
         conversation = await context.conversation_manager.get_conversation(
-            event.unified_msg_origin, session_id
+            umo, session_id
         )
         persona_id = conversation.persona_id if conversation else None
+
+        logger.debug(
+            f"[get_persona_id] [{umo}] 会话={session_id}, "
+            f"会话人格={persona_id or '未设置'}"
+        )
 
         # 如果无人格或明确设置为None，则使用该会话配置的默认人格
         if not persona_id or persona_id == "[%None]":
@@ -194,7 +200,11 @@ async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | Non
                 umo=event.unified_msg_origin
             )
             persona_id = default_persona["name"] if default_persona else None
+            logger.debug(
+                f"[get_persona_id] [{umo}] 使用默认人格: {persona_id or '未设置'}"
+            )
 
+        logger.info(f"[get_persona_id] [{umo}] 最终使用人格: {persona_id or '无'}")
         return persona_id
     except Exception as e:
         # 在某些情况下（如无会话），获取可能会失败，返回 None

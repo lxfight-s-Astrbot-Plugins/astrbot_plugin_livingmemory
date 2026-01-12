@@ -473,7 +473,8 @@ class EventHandler:
 
                 logger.info(
                     f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}, "
-                    f"范围=[{start_index}:{end_index}], 重试次数={retry_count}"
+                    f"范围=[{start_index}:{end_index}], 重试次数={retry_count}, "
+                    f"当前人格={persona_id or '未设置'}"
                 )
 
                 # 使用 MemoryProcessor 处理对话历史
@@ -500,6 +501,7 @@ class EventHandler:
                         messages=history_messages,
                         is_group_chat=is_group_chat,
                         save_original=save_original,
+                        persona_id=persona_id,
                     )
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "

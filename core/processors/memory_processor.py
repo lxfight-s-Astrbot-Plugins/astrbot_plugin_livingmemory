@@ -23,14 +23,16 @@ class MemoryProcessor:
     支持私聊和群聊两种场景的不同处理策略。
     """
 
-    def __init__(self, llm_provider):
+    def __init__(self, llm_provider, context=None):
         """
         初始化记忆处理器
 
         Args:
             llm_provider: LLM提供者实例(Provider类型)
+            context: AstrBot上下文,用于获取人格管理器
         """
         self.llm_provider = llm_provider
+        self.context = context
 
         # 加载提示词模板
         self._load_prompts()
@@ -67,6 +69,79 @@ class MemoryProcessor:
 输出格式:
 {"summary": "摘要", "topics": ["主题"], "key_facts": ["事实"], "participants": ["参与者"], "sentiment": "neutral", "importance": 0.5}
 """
+
+    async def _build_system_prompt_with_persona(self, persona_id: str | None) -> str:
+        """
+        构建包含人格提示的 system_prompt
+
+        Args:
+            persona_id: 人格ID
+
+        Returns:
+            str: 包含人格提示的 system_prompt
+        """
+        base_prompt = "你是一个专业的对话分析助手,擅长提取对话中的关键信息。请严格按照JSON格式输出。"
+
+        if not persona_id:
+            logger.debug("[MemoryProcessor] 未指定人格ID，使用基础提示词")
+            return base_prompt
+
+        if not self.context:
+            logger.debug("[MemoryProcessor] Context 未设置，使用基础提示词")
+            return base_prompt
+
+        try:
+            persona_manager = getattr(self.context, "persona_manager", None)
+            if not persona_manager:
+                logger.warning(
+                    "[MemoryProcessor] persona_manager 不可用，使用基础提示词"
+                )
+                return base_prompt
+
+            persona = await persona_manager.get_persona(persona_id)
+            if not persona:
+                logger.warning(
+                    f"[MemoryProcessor] 人格 '{persona_id}' 不存在，使用基础提示词"
+                )
+                return base_prompt
+
+            if not persona.system_prompt:
+                logger.debug(
+                    f"[MemoryProcessor] 人格 '{persona_id}' 无 system_prompt，使用基础提示词"
+                )
+                return base_prompt
+
+            persona_prompt = persona.system_prompt.strip()
+            if not persona_prompt:
+                logger.debug(
+                    f"[MemoryProcessor] 人格 '{persona_id}' 的 system_prompt 为空，使用基础提示词"
+                )
+                return base_prompt
+
+            logger.info(
+                f"[MemoryProcessor] 成功加载人格 '{persona_id}' 的提示词 "
+                f"(长度={len(persona_prompt)}字符)"
+            )
+            logger.debug(f"[MemoryProcessor] 人格提示词预览: {persona_prompt[:100]}...")
+
+            enhanced_prompt = (
+                f"{base_prompt}\n\n"
+                f"## 人格设定\n"
+                f"你需要以以下人格视角来总结对话记忆，确保记忆内容符合该人格的语言风格和行为特点：\n"
+                f"{persona_prompt}\n\n"
+                f"请在总结时体现这个人格的特点，包括语气、用词习惯和关注点。"
+            )
+
+            return enhanced_prompt
+
+        except ValueError as e:
+            logger.warning(f"[MemoryProcessor] 人格 '{persona_id}' 不存在: {e}")
+            return base_prompt
+        except Exception as e:
+            logger.error(
+                f"[MemoryProcessor] 获取人格提示词时发生错误: {e}", exc_info=True
+            )
+            return base_prompt
 
     async def _call_llm_with_retry(
         self, prompt: str, system_prompt: str, max_retries: int = 3
@@ -152,6 +227,7 @@ class MemoryProcessor:
         messages: list[Message],
         is_group_chat: bool = False,
         save_original: bool = False,
+        persona_id: str | None = None,
     ) -> tuple[str, dict[str, Any], float]:
         """
         处理对话历史,生成结构化记忆
@@ -160,6 +236,7 @@ class MemoryProcessor:
             messages: 消息列表(Message对象)
             is_group_chat: 是否为群聊
             save_original: 是否保存原始对话历史（默认False，只保存LLM生成的总结）
+            persona_id: 人格ID,用于获取人格提示词
 
         Returns:
             tuple: (content, metadata, importance)
@@ -196,8 +273,9 @@ class MemoryProcessor:
                 f"[MemoryProcessor] 发送给LLM的对话内容（前500字符）:\n{conversation_text[:500]}"
             )
 
-            system_prompt = "你是一个专业的对话分析助手,擅长提取对话中的关键信息。请严格按照JSON格式输出。"
-            logger.debug(f"[MemoryProcessor] System Prompt: {system_prompt}")
+            # 构建 system_prompt，嵌入人格提示
+            system_prompt = await self._build_system_prompt_with_persona(persona_id)
+            logger.debug(f"[MemoryProcessor] System Prompt: {system_prompt[:200]}...")
 
             llm_response_text = await self._call_llm_with_retry(
                 prompt=prompt,

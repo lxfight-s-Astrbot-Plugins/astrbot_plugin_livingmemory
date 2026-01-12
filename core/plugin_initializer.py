@@ -283,7 +283,7 @@ class PluginInitializer:
             # 初始化 MemoryProcessor
             if not self.llm_provider:
                 raise ProviderNotReadyError("LLM Provider 未初始化")
-            self.memory_processor = MemoryProcessor(self.llm_provider)
+            self.memory_processor = MemoryProcessor(self.llm_provider, self.context)
             logger.info("✅ MemoryProcessor 已初始化")
 
             # 初始化索引验证器并自动重建索引
