@@ -94,10 +94,18 @@ class CommandHandler:
             yield event.plain_result("❌ 记忆引擎未初始化")
             return
 
+        # 输入验证
+        if not query or not query.strip():
+            yield event.plain_result("❌ 查询关键词不能为空")
+            return
+
+        # 限制k的范围为1-100
+        k = max(1, min(k, 100))
+
         try:
             session_id = event.unified_msg_origin
             results = await self.memory_engine.search_memories(
-                query=query, k=k, session_id=session_id
+                query=query.strip(), k=k, session_id=session_id
             )
 
             if not results:
@@ -126,6 +134,11 @@ class CommandHandler:
         """处理 /lmem forget 命令"""
         if not self.memory_engine:
             yield event.plain_result("❌ 记忆引擎未初始化")
+            return
+
+        # 输入验证
+        if doc_id < 0:
+            yield event.plain_result("❌ 记忆ID必须为非负整数")
             return
 
         try:

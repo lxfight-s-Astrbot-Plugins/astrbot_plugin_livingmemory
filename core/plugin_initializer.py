@@ -111,8 +111,10 @@ class PluginInitializer:
         return False
 
     async def _retry_initialization(self):
-        """后台重试初始化任务"""
-        retry_interval = 2.0
+        """后台重试初始化任务（指数退避策略）"""
+        base_interval = 2.0
+        max_interval = 30.0
+        current_interval = base_interval
         log_interval = 5
 
         while (
@@ -120,14 +122,15 @@ class PluginInitializer:
             and not self._initialization_failed
             and self._provider_check_attempts < self._max_provider_attempts
         ):
-            await asyncio.sleep(retry_interval)
+            await asyncio.sleep(current_interval)
 
             self._initialize_providers(silent=True)
             self._provider_check_attempts += 1
 
             if self._provider_check_attempts % log_interval == 0:
                 logger.info(
-                    f"⏳ 等待 Provider 就绪中...（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次）"
+                    f"⏳ 等待 Provider 就绪中...（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次，"
+                    f"下次重试间隔 {current_interval:.1f}s）"
                 )
 
             if self.embedding_provider and self.llm_provider:
@@ -145,6 +148,9 @@ class PluginInitializer:
                     self._initialization_failed = True
                     self._initialization_error = str(e)
                 break
+
+            # 指数退避，最大30秒
+            current_interval = min(current_interval * 1.5, max_interval)
 
         if not self._initialization_complete and not self._initialization_failed:
             logger.error(

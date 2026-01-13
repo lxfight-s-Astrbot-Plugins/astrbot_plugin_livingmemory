@@ -50,8 +50,18 @@ class LivingMemoryPlugin(Star):
         # WebUI 服务句柄
         self.webui_server: WebUIServer | None = None
 
+        # 后台任务跟踪集合
+        self._background_tasks: set[asyncio.Task] = set()
+
         # 启动非阻塞的初始化任务
-        asyncio.create_task(self._initialize_plugin())
+        self._create_tracked_task(self._initialize_plugin())
+
+    def _create_tracked_task(self, coro) -> asyncio.Task:
+        """创建并跟踪后台任务"""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def _initialize_plugin(self):
         """初始化插件"""
@@ -303,6 +313,19 @@ class LivingMemoryPlugin(Star):
     async def terminate(self):
         """插件停止时的清理逻辑"""
         logger.info("LivingMemory 插件正在停止...")
+
+        # 取消所有后台任务
+        if self._background_tasks:
+            logger.info(f"正在取消 {len(self._background_tasks)} 个后台任务...")
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
+        # 通知EventHandler停止（如果有正在运行的存储任务）
+        if self.event_handler:
+            await self.event_handler.shutdown()
 
         # 停止 WebUI
         await self._stop_webui()

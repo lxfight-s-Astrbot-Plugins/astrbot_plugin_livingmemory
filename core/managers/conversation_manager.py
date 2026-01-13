@@ -10,6 +10,7 @@
 - AstrBot事件集成
 """
 
+import asyncio
 import json
 import time
 from collections import OrderedDict
@@ -57,6 +58,8 @@ class ConversationManager:
 
         # LRU缓存: {session_id: (messages, last_access_time)}
         self._cache: OrderedDict = OrderedDict()
+        # 缓存锁，保护并发访问
+        self._cache_lock = asyncio.Lock()
 
         logger.info(
             f"[ConversationManager] 初始化完成: "
@@ -192,8 +195,9 @@ class ConversationManager:
         message.id = message_id
 
         # 使缓存失效(下次获取时重新加载)
-        if session_id in self._cache:
-            del self._cache[session_id]
+        async with self._cache_lock:
+            if session_id in self._cache:
+                del self._cache[session_id]
 
         logger.debug(
             f"[ConversationManager] 添加消息: session={session_id}, "
@@ -271,7 +275,7 @@ class ConversationManager:
 
         # 尝试从缓存获取
         if use_cache:
-            cached_messages = self._get_from_cache(session_id)
+            cached_messages = await self._get_from_cache(session_id)
             if cached_messages is not None:
                 # 从缓存中截取需要的数量
                 return cached_messages[-limit:] if limit else cached_messages
@@ -283,7 +287,7 @@ class ConversationManager:
 
         # 更新缓存(仅当不是过滤查询时)
         if not sender_id and use_cache:
-            self._update_cache(session_id, messages)
+            await self._update_cache(session_id, messages)
 
         return messages
 
@@ -359,8 +363,9 @@ class ConversationManager:
         await self.store.delete_session_messages(session_id)
 
         # 清除缓存
-        if session_id in self._cache:
-            del self._cache[session_id]
+        async with self._cache_lock:
+            if session_id in self._cache:
+                del self._cache[session_id]
         # 同步重置会话元数据，特别是记忆总结的计数器
         await self.reset_session_metadata(session_id)
 
@@ -381,14 +386,15 @@ class ConversationManager:
         deleted_count = await self.store.delete_old_sessions(days)
 
         # 清空缓存(可能包含已删除的会话)
-        self._cache.clear()
+        async with self._cache_lock:
+            self._cache.clear()
 
         if deleted_count > 0:
             logger.info(f"[ConversationManager] 清理过期会话: {deleted_count}个")
 
         return deleted_count
 
-    def _update_cache(self, session_id: str, messages: list[Message]):
+    async def _update_cache(self, session_id: str, messages: list[Message]):
         """
         更新LRU缓存
 
@@ -396,18 +402,19 @@ class ConversationManager:
             session_id: 会话ID
             messages: 消息列表
         """
-        # 如果已存在,先删除(会被添加到末尾)
-        if session_id in self._cache:
-            del self._cache[session_id]
+        async with self._cache_lock:
+            # 如果已存在,先删除(会被添加到末尾)
+            if session_id in self._cache:
+                del self._cache[session_id]
 
-        # 添加到末尾(最新)
-        self._cache[session_id] = (messages, time.time())
+            # 添加到末尾(最新)
+            self._cache[session_id] = (messages, time.time())
 
-        # 如果超过容量,删除最旧的
-        if len(self._cache) > self.max_cache_size:
-            self._cache.popitem(last=False)  # 删除最前面的(最旧)
+            # 如果超过容量,删除最旧的
+            if len(self._cache) > self.max_cache_size:
+                self._cache.popitem(last=False)  # 删除最前面的(最旧)
 
-    def _get_from_cache(self, session_id: str) -> list[Message] | None:
+    async def _get_from_cache(self, session_id: str) -> list[Message] | None:
         """
         从缓存获取消息
 
@@ -417,14 +424,26 @@ class ConversationManager:
         Returns:
             消息列表,不存在则返回None
         """
-        if session_id in self._cache:
-            messages, _ = self._cache[session_id]
-            # 移到末尾(标记为最新访问)
-            self._cache.move_to_end(session_id)
-            # 更新访问时间
-            self._cache[session_id] = (messages, time.time())
-            return messages
+        async with self._cache_lock:
+            if session_id in self._cache:
+                messages, _ = self._cache[session_id]
+                # 移到末尾(标记为最新访问)
+                self._cache.move_to_end(session_id)
+                # 更新访问时间
+                self._cache[session_id] = (messages, time.time())
+                return messages
         return None
+
+    async def invalidate_cache(self, session_id: str):
+        """
+        使指定会话的缓存失效（公共接口）
+
+        Args:
+            session_id: 会话ID
+        """
+        async with self._cache_lock:
+            if session_id in self._cache:
+                del self._cache[session_id]
 
     def _evict_cache(self):
         """

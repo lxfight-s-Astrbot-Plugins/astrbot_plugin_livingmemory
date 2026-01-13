@@ -56,6 +56,10 @@ class EventHandler:
         self._dedup_cache_max_size = 1000
         self._dedup_cache_ttl = 300
 
+        # 后台存储任务跟踪
+        self._storage_tasks: set[asyncio.Task] = set()
+        self._shutting_down = False
+
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """捕获所有群聊消息用于记忆存储"""
         # 检查配置
@@ -337,14 +341,16 @@ class EventHandler:
             )
 
             # 检查 last_summarized_index 是否超出实际消息数量
+            # 这种情况通常发生在消息被删除后
             if last_summarized_index > total_messages:
                 logger.warning(
                     f"[DEBUG-Reflection] [{session_id}] last_summarized_index({last_summarized_index}) "
-                    f"> 实际消息数({total_messages})，重置为0"
+                    f"> 实际消息数({total_messages})，调整为当前消息总数"
                 )
-                last_summarized_index = 0
+                # 调整为当前消息总数，而非归零（避免重复处理已总结的内容）
+                last_summarized_index = total_messages
                 await self.conversation_manager.update_session_metadata(
-                    session_id, "last_summarized_index", 0
+                    session_id, "last_summarized_index", total_messages
                 )
 
             # 计算未总结的消息数量
@@ -426,17 +432,20 @@ class EventHandler:
 
                 persona_id = await get_persona_id(self.context, event)
 
-                # 创建后台任务进行存储
-                asyncio.create_task(
-                    self._storage_task(
-                        session_id,
-                        history_messages,
-                        persona_id,
-                        start_index,
-                        end_index,
-                        retry_count,
+                # 创建后台任务进行存储（跟踪任务）
+                if not self._shutting_down:
+                    task = asyncio.create_task(
+                        self._storage_task(
+                            session_id,
+                            history_messages,
+                            persona_id,
+                            start_index,
+                            end_index,
+                            retry_count,
+                        )
                     )
-                )
+                    self._storage_tasks.add(task)
+                    task.add_done_callback(self._storage_tasks.discard)
 
         except Exception as e:
             logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
@@ -679,7 +688,7 @@ class EventHandler:
         """检查消息是否已经处理过"""
         current_time = time.time()
 
-        # 清理过期缓存
+        # 批量清理：先清理过期项
         expired_keys = [
             key
             for key, timestamp in self._message_dedup_cache.items()
@@ -688,17 +697,18 @@ class EventHandler:
         for key in expired_keys:
             del self._message_dedup_cache[key]
 
+        # 如果仍然超过上限的80%，批量删除最旧的50%
+        if len(self._message_dedup_cache) > self._dedup_cache_max_size * 0.8:
+            sorted_items = sorted(self._message_dedup_cache.items(), key=lambda x: x[1])
+            to_remove = len(sorted_items) // 2
+            for key, _ in sorted_items[:to_remove]:
+                del self._message_dedup_cache[key]
+
         return message_id in self._message_dedup_cache
 
     def _mark_message_processed(self, message_id: str):
         """标记消息已处理"""
-        current_time = time.time()
-
-        if len(self._message_dedup_cache) >= self._dedup_cache_max_size:
-            oldest_key = min(self._message_dedup_cache.items(), key=lambda x: x[1])[0]
-            del self._message_dedup_cache[oldest_key]
-
-        self._message_dedup_cache[message_id] = current_time
+        self._message_dedup_cache[message_id] = time.time()
 
     def _extract_message_content(self, event: AstrMessageEvent) -> str:
         """提取消息内容,包括非文本消息的类型描述"""
@@ -850,9 +860,8 @@ class EventHandler:
 
             await conn.commit()
 
-            # 清除缓存
-            if session_id in self.conversation_manager._cache:
-                del self.conversation_manager._cache[session_id]
+            # 清除缓存（使用公共接口）
+            await self.conversation_manager.invalidate_cache(session_id)
 
             logger.info(
                 f"[{session_id}] 消息清理完成: "
@@ -862,3 +871,12 @@ class EventHandler:
 
         except Exception as e:
             logger.error(f"[{session_id}] 删除旧消息失败: {e}", exc_info=True)
+
+    async def shutdown(self):
+        """关闭事件处理器，等待所有存储任务完成"""
+        self._shutting_down = True
+        if self._storage_tasks:
+            logger.info(f"等待 {len(self._storage_tasks)} 个存储任务完成...")
+            await asyncio.gather(*self._storage_tasks, return_exceptions=True)
+            self._storage_tasks.clear()
+        logger.info("EventHandler 已关闭")
