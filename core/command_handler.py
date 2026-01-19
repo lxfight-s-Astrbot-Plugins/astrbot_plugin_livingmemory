@@ -250,6 +250,50 @@ class CommandHandler:
             logger.error(f"手动重置记忆上下文失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 重置失败: {str(e)}")
 
+    async def handle_cleanup(
+        self, event: AstrMessageEvent, dry_run: bool = False
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem cleanup 命令 - 清理历史消息中的记忆注入片段"""
+        if not self.conversation_manager or not self.conversation_manager.store:
+            yield event.plain_result("❌ 会话管理器未初始化")
+            return
+
+        session_id = event.unified_msg_origin
+        try:
+            mode_text = "[预演模式]" if dry_run else ""
+            yield event.plain_result(
+                f"🔄 {mode_text}开始清理历史消息中的记忆注入片段..."
+            )
+
+            # 执行清理
+            stats = await self.conversation_manager.store.cleanup_injected_memories(
+                session_id=session_id, dry_run=dry_run
+            )
+
+            if stats.get("error"):
+                yield event.plain_result(
+                    f"❌ 清理失败: {stats.get('message', '未知错误')}"
+                )
+                return
+
+            # 格式化结果
+            message = f"""✅ {mode_text}清理完成!
+
+📊 统计信息:
+• 扫描消息: {stats["scanned"]} 条
+• 匹配记忆片段: {stats["matched"]} 条
+• 清理内容: {stats["cleaned"]} 条
+• 删除消息: {stats["deleted"]} 条
+• 错误: {stats["errors"]} 个
+
+{"💡 这是预演模式,未实际修改数据。使用 /lmem cleanup exec 执行实际清理。" if dry_run else "✨ 数据库已更新,历史消息中的记忆注入片段已清理。"}"""
+
+            yield event.plain_result(message)
+
+        except Exception as e:
+            logger.error(f"清理历史消息失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 清理失败: {str(e)}")
+
     async def handle_help(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -263,6 +307,7 @@ class CommandHandler:
 /lmem rebuild-index       重建v1迁移数据索引
 /lmem webui               打开WebUI管理界面
 /lmem reset               重置当前会话记忆上下文
+/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)
 /lmem help                显示此帮助
 
 💡 使用建议:
@@ -271,6 +316,12 @@ class CommandHandler:
 • 记忆会自动保存对话内容
 • 使用 forget 删除敏感信息
 • v1迁移后需执行 rebuild-index
+• 更新插件后建议执行 cleanup 清理旧数据
+
+📝 cleanup 命令示例:
+  /lmem cleanup          # 预演模式,仅显示统计
+  /lmem cleanup preview  # 同上
+  /lmem cleanup exec     # 执行实际清理
 
 📚 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
 

@@ -606,11 +606,12 @@ class EventHandler:
 
         removed_count = 0
 
-        # 编译清理正则
-        pattern = (
+        # 编译清理正则(使用DOTALL确保.匹配换行符)
+        pattern = re.compile(
             re.escape(MEMORY_INJECTION_HEADER)
             + r".*?"
-            + re.escape(MEMORY_INJECTION_FOOTER)
+            + re.escape(MEMORY_INJECTION_FOOTER),
+            flags=re.DOTALL,
         )
 
         try:
@@ -622,9 +623,7 @@ class EventHandler:
                         MEMORY_INJECTION_HEADER in original_prompt
                         and MEMORY_INJECTION_FOOTER in original_prompt
                     ):
-                        cleaned_prompt = re.sub(
-                            pattern, "", original_prompt, flags=re.DOTALL
-                        )
+                        cleaned_prompt = pattern.sub("", original_prompt)
                         cleaned_prompt = re.sub(
                             r"\n{3,}", "\n\n", cleaned_prompt
                         ).strip()
@@ -632,6 +631,10 @@ class EventHandler:
 
                         if cleaned_prompt != original_prompt:
                             removed_count += 1
+                            logger.debug(
+                                f"[{session_id}] 从system_prompt中清理记忆片段 "
+                                f"(原长度={len(original_prompt)}, 新长度={len(cleaned_prompt)})"
+                            )
 
             # 清理 prompt（处理 user_message_before/after 注入方式）
             if hasattr(req, "prompt") and req.prompt:
@@ -641,9 +644,7 @@ class EventHandler:
                         MEMORY_INJECTION_HEADER in original_prompt
                         and MEMORY_INJECTION_FOOTER in original_prompt
                     ):
-                        cleaned_prompt = re.sub(
-                            pattern, "", original_prompt, flags=re.DOTALL
-                        )
+                        cleaned_prompt = pattern.sub("", original_prompt)
                         cleaned_prompt = re.sub(
                             r"\n{3,}", "\n\n", cleaned_prompt
                         ).strip()
@@ -652,23 +653,49 @@ class EventHandler:
                         if cleaned_prompt != original_prompt:
                             removed_count += 1
                             logger.debug(
-                                f"[{session_id}] 已从 req.prompt 中清理旧记忆片段"
+                                f"[{session_id}] 从req.prompt中清理记忆片段 "
+                                f"(原长度={len(original_prompt)}, 新长度={len(cleaned_prompt)})"
                             )
 
             # 清理对话历史
             if hasattr(req, "contexts") and req.contexts:
-                # original_length = len(req.contexts)
                 filtered_contexts = []
 
                 for msg in req.contexts:
                     content = msg.get("content", "") if isinstance(msg, dict) else ""
                     if isinstance(content, str):
+                        # 检查是否包含记忆注入标记
                         if (
                             MEMORY_INJECTION_HEADER in content
                             and MEMORY_INJECTION_FOOTER in content
                         ):
-                            removed_count += 1
-                            continue
+                            # 尝试从消息内容中删除注入片段
+                            cleaned_content = pattern.sub("", content)
+                            cleaned_content = re.sub(
+                                r"\n{3,}", "\n\n", cleaned_content
+                            ).strip()
+
+                            # 如果清理后内容为空,跳过整条消息
+                            if not cleaned_content:
+                                removed_count += 1
+                                logger.debug(
+                                    f"[{session_id}] 从contexts中删除完整的记忆注入消息 "
+                                    f"(原长度={len(content)})"
+                                )
+                                continue
+
+                            # 如果清理后仍有内容,保留清理后的消息
+                            if cleaned_content != content:
+                                msg_copy = msg.copy() if isinstance(msg, dict) else msg
+                                if isinstance(msg_copy, dict):
+                                    msg_copy["content"] = cleaned_content
+                                filtered_contexts.append(msg_copy)
+                                removed_count += 1
+                                logger.debug(
+                                    f"[{session_id}] 从contexts消息内部清理记忆片段 "
+                                    f"(原长度={len(content)}, 新长度={len(cleaned_content)})"
+                                )
+                                continue
 
                     filtered_contexts.append(msg)
 

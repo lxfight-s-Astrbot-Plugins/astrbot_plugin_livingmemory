@@ -837,3 +837,121 @@ class ConversationStore:
         except Exception as e:
             logger.error(f"检查 last_summarized_index 失败: {e}", exc_info=True)
             return False
+
+    async def cleanup_injected_memories(
+        self, session_id: str | None = None, dry_run: bool = False
+    ) -> dict[str, int | str]:
+        """
+        批量清理数据库中消息内容里的记忆注入片段
+
+        Args:
+            session_id: 指定会话ID,为None则清理所有会话
+            dry_run: 是否为预演模式(只统计不修改)
+
+        Returns:
+            dict: 清理统计信息
+        """
+        import re
+
+        if self.connection is None:
+            return {"error": 1, "message": "数据库连接未初始化"}
+
+        # 注入标记常量
+        MEMORY_INJECTION_HEADER = "<RAG-Faiss-Memory>"
+        MEMORY_INJECTION_FOOTER = "</RAG-Faiss-Memory>"
+
+        # 编译清理正则
+        pattern = re.compile(
+            re.escape(MEMORY_INJECTION_HEADER)
+            + r".*?"
+            + re.escape(MEMORY_INJECTION_FOOTER),
+            flags=re.DOTALL,
+        )
+
+        stats = {
+            "scanned": 0,
+            "matched": 0,
+            "cleaned": 0,
+            "deleted": 0,
+            "errors": 0,
+        }
+
+        try:
+            # 构建查询条件
+            query = """
+                SELECT id, session_id, content
+                FROM messages
+                WHERE content LIKE ?
+            """
+            params = [f"%{MEMORY_INJECTION_HEADER}%"]
+
+            if session_id:
+                query += " AND session_id = ?"
+                params.append(session_id)
+
+            # 查询包含注入标记的消息
+            async with self.connection.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+
+            # 转换为列表以确保类型兼容
+            rows_list = list(rows)
+            stats["scanned"] = len(rows_list)
+
+            for row in rows_list:
+                msg_id = row["id"]
+                msg_session = row["session_id"]
+                original_content = row["content"]
+
+                # 检查是否确实包含完整的注入标记
+                if (
+                    MEMORY_INJECTION_HEADER not in original_content
+                    or MEMORY_INJECTION_FOOTER not in original_content
+                ):
+                    continue
+
+                stats["matched"] += 1
+
+                # 清理内容
+                cleaned_content = pattern.sub("", original_content)
+                cleaned_content = re.sub(r"\n{3,}", "\n\n", cleaned_content).strip()
+
+                # 如果清理后为空,删除消息
+                if not cleaned_content:
+                    if not dry_run:
+                        await self.connection.execute(
+                            "DELETE FROM messages WHERE id = ?", (msg_id,)
+                        )
+                    stats["deleted"] += 1
+                    logger.debug(
+                        f"[cleanup_injected_memories] {'[DRY-RUN] ' if dry_run else ''}删除纯记忆消息: "
+                        f"id={msg_id}, session={msg_session}"
+                    )
+                    continue
+
+                # 如果清理后仍有内容,更新消息
+                if cleaned_content != original_content:
+                    if not dry_run:
+                        await self.connection.execute(
+                            "UPDATE messages SET content = ? WHERE id = ?",
+                            (cleaned_content, msg_id),
+                        )
+                    stats["cleaned"] += 1
+                    logger.debug(
+                        f"[cleanup_injected_memories] {'[DRY-RUN] ' if dry_run else ''}清理消息: "
+                        f"id={msg_id}, 原长度={len(original_content)}, 新长度={len(cleaned_content)}"
+                    )
+
+            if not dry_run:
+                await self.connection.commit()
+
+            logger.info(
+                f"[cleanup_injected_memories] {'[DRY-RUN] ' if dry_run else ''}清理完成: "
+                f"扫描={stats['scanned']}, 匹配={stats['matched']}, "
+                f"清理={stats['cleaned']}, 删除={stats['deleted']}"
+            )
+
+        except Exception as e:
+            stats["errors"] = 1
+            logger.error(f"批量清理记忆注入失败: {e}", exc_info=True)
+
+        return stats

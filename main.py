@@ -295,6 +295,32 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_reset(event):
             yield message
 
+    @lmem.command("cleanup")
+    @permission_type(PermissionType.ADMIN)
+    async def cleanup(
+        self, event: AstrMessageEvent, mode: str = "preview"
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[管理员] 清理历史消息中的记忆注入片段
+
+        Args:
+            mode: 执行模式, "preview"(默认)为预演, "exec"为实际清理
+        """
+        if not await self.initializer.ensure_initialized():
+            yield event.plain_result(self._get_initialization_status_message())
+            return
+
+        if not self.command_handler:
+            yield event.plain_result("❌ 命令处理器未初始化")
+            return
+
+        # 判断是否为执行模式
+        dry_run = mode.lower() != "exec"
+
+        async for message in self.command_handler.handle_cleanup(
+            event, dry_run=dry_run
+        ):
+            yield message
+
     @lmem.command("help")
     @permission_type(PermissionType.ADMIN)
     async def help(
