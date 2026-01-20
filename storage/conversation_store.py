@@ -844,6 +844,9 @@ class ConversationStore:
         """
         批量清理数据库中消息内容里的记忆注入片段
 
+        注意：此方法已废弃，建议使用 CommandHandler.handle_cleanup
+        直接操作 AstrBot 对话历史数据库
+
         Args:
             session_id: 指定会话ID,为None则清理所有会话
             dry_run: 是否为预演模式(只统计不修改)
@@ -854,7 +857,7 @@ class ConversationStore:
         import re
 
         if self.connection is None:
-            return {"error": 1, "message": "数据库连接未初始化"}
+            return {"error": 1, "message": "数据库连接未初始化"}  # type: ignore[return-value]
 
         # 注入标记常量
         MEMORY_INJECTION_HEADER = "<RAG-Faiss-Memory>"
@@ -954,4 +957,4 @@ class ConversationStore:
             stats["errors"] = 1
             logger.error(f"批量清理记忆注入失败: {e}", exc_info=True)
 
-        return stats
+        return stats  # type: ignore[return-value]

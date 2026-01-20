@@ -142,7 +142,13 @@ class EventHandler:
             async with OperationContext("记忆召回", session_id):
                 # 自动删除旧的注入记忆
                 if self.config_manager.get("recall_engine.auto_remove_injected", True):
-                    self._remove_injected_memories_from_context(req, session_id)
+                    removed = self._remove_injected_memories_from_context(
+                        req, session_id
+                    )
+                    if removed > 0:
+                        logger.info(
+                            f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
+                        )
 
                 # 获取过滤配置
                 filtering_config = self.config_manager.filtering_settings
@@ -661,42 +667,98 @@ class EventHandler:
             if hasattr(req, "contexts") and req.contexts:
                 filtered_contexts = []
 
-                for msg in req.contexts:
-                    content = msg.get("content", "") if isinstance(msg, dict) else ""
-                    if isinstance(content, str):
-                        # 检查是否包含记忆注入标记
-                        if (
-                            MEMORY_INJECTION_HEADER in content
-                            and MEMORY_INJECTION_FOOTER in content
-                        ):
-                            # 尝试从消息内容中删除注入片段
-                            cleaned_content = pattern.sub("", content)
-                            cleaned_content = re.sub(
-                                r"\n{3,}", "\n\n", cleaned_content
-                            ).strip()
+                for idx, msg in enumerate(req.contexts):
+                    # 处理三种格式:
+                    # 1. 字符串格式: "user: xxx"
+                    # 2. 字典+字符串内容: {"role": "user", "content": "xxx"}
+                    # 3. 字典+列表内容 (多模态): {"role": "user", "content": [{"type": "text", "text": "xxx"}]}
 
-                            # 如果清理后内容为空,跳过整条消息
+                    if isinstance(msg, str):
+                        # 格式1: 字符串
+                        content = msg
+                    elif isinstance(msg, dict):
+                        content = msg.get("content", "")
+
+                        # 格式2和3: 字典
+                        if not isinstance(content, (str, list)):
+                            # 未知content类型,保留原消息
+                            filtered_contexts.append(msg)
+                            continue
+                    else:
+                        # 未知msg类型,保留原消息
+                        filtered_contexts.append(msg)
+                        continue
+
+                    # 处理字符串内容
+                    if isinstance(content, str):
+                        has_header = MEMORY_INJECTION_HEADER in content
+                        has_footer = MEMORY_INJECTION_FOOTER in content
+
+                        if has_header and has_footer:
+                            cleaned_content = pattern.sub("", content).strip()
+                            cleaned_content = re.sub(r"\n{3,}", "\n\n", cleaned_content)
+
                             if not cleaned_content:
                                 removed_count += 1
-                                logger.debug(
-                                    f"[{session_id}] 从contexts中删除完整的记忆注入消息 "
-                                    f"(原长度={len(content)})"
-                                )
                                 continue
 
-                            # 如果清理后仍有内容,保留清理后的消息
                             if cleaned_content != content:
-                                msg_copy = msg.copy() if isinstance(msg, dict) else msg
-                                if isinstance(msg_copy, dict):
-                                    msg_copy["content"] = cleaned_content
-                                filtered_contexts.append(msg_copy)
                                 removed_count += 1
-                                logger.debug(
-                                    f"[{session_id}] 从contexts消息内部清理记忆片段 "
-                                    f"(原长度={len(content)}, 新长度={len(cleaned_content)})"
-                                )
+                                if isinstance(msg, str):
+                                    filtered_contexts.append(cleaned_content)
+                                else:
+                                    msg_copy = msg.copy()
+                                    msg_copy["content"] = cleaned_content
+                                    filtered_contexts.append(msg_copy)
                                 continue
 
+                    # 处理列表内容 (多模态格式)
+                    elif isinstance(content, list):
+                        cleaned_parts = []
+                        has_changes = False
+
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part.get("text", "")
+                                if isinstance(text, str):
+                                    has_header = MEMORY_INJECTION_HEADER in text
+                                    has_footer = MEMORY_INJECTION_FOOTER in text
+
+                                    if has_header and has_footer:
+                                        cleaned_text = pattern.sub("", text).strip()
+                                        cleaned_text = re.sub(
+                                            r"\n{3,}", "\n\n", cleaned_text
+                                        )
+
+                                        # 如果清理后为空,跳过这个part
+                                        if not cleaned_text:
+                                            has_changes = True
+                                            continue
+
+                                        # 如果清理后有内容,保留清理后的part
+                                        if cleaned_text != text:
+                                            has_changes = True
+                                            removed_count += 1
+                                            part_copy = part.copy()
+                                            part_copy["text"] = cleaned_text
+                                            cleaned_parts.append(part_copy)
+                                            continue
+
+                            cleaned_parts.append(part)
+
+                        # 如果整个content清理后为空,跳过整条消息
+                        if not cleaned_parts:
+                            removed_count += 1
+                            continue
+
+                        # 如果有修改,保存清理后的消息
+                        if has_changes:
+                            msg_copy = msg.copy()
+                            msg_copy["content"] = cleaned_parts
+                            filtered_contexts.append(msg_copy)
+                            continue
+
+                    # 未匹配到记忆标记,保留原消息
                     filtered_contexts.append(msg)
 
                 req.contexts = filtered_contexts

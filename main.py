@@ -92,6 +92,7 @@ class LivingMemoryPlugin(Star):
 
                 # 创建命令处理器
                 self.command_handler = CommandHandler(
+                    context=self.context,
                     config_manager=self.config_manager,
                     memory_engine=self.initializer.memory_engine,
                     conversation_manager=self.initializer.conversation_manager,

@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-01-20
+
+### 修复
+- 修复历史消息清理功能无法处理多模态消息格式的问题
+  - 支持 OpenAI 多模态格式: `{"role": "user", "content": [{"type": "text", "text": "xxx"}]}`
+  - 正确清理 contexts 中 list 类型 content 的记忆注入片段
+  - 修复清理逻辑只处理 string 类型 content 导致的清理失败
+
+### 优化
+- 简化记忆清理日志输出,移除冗余的 DEBUG 级别日志
+- 优化 `_remove_injected_memories_from_context` 方法,支持三种 contexts 格式
+- 改进 cleanup 命令,操作 AstrBot 数据库而非插件自身数据库
+
 ## [2.1.1] - 2026-01-19
 
 ### 新增

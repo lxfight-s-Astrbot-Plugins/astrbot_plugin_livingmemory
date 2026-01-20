@@ -21,6 +21,7 @@ class CommandHandler:
 
     def __init__(
         self,
+        context,
         config_manager: ConfigManager,
         memory_engine: MemoryEngine | None,
         conversation_manager: ConversationManager | None,
@@ -32,6 +33,7 @@ class CommandHandler:
         初始化命令处理器
 
         Args:
+            context: AstrBot Context
             config_manager: 配置管理器
             memory_engine: 记忆引擎
             conversation_manager: 会话管理器
@@ -39,6 +41,7 @@ class CommandHandler:
             webui_server: WebUI服务器
             initialization_status_callback: 初始化状态回调函数
         """
+        self.context = context
         self.config_manager = config_manager
         self.memory_engine = memory_engine
         self.conversation_manager = conversation_manager
@@ -253,28 +256,116 @@ class CommandHandler:
     async def handle_cleanup(
         self, event: AstrMessageEvent, dry_run: bool = False
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """处理 /lmem cleanup 命令 - 清理历史消息中的记忆注入片段"""
-        if not self.conversation_manager or not self.conversation_manager.store:
-            yield event.plain_result("❌ 会话管理器未初始化")
-            return
-
+        """处理 /lmem cleanup 命令 - 清理 AstrBot 历史消息中的记忆注入片段"""
         session_id = event.unified_msg_origin
         try:
             mode_text = "[预演模式]" if dry_run else ""
             yield event.plain_result(
-                f"🔄 {mode_text}开始清理历史消息中的记忆注入片段..."
+                f"🔄 {mode_text}开始清理 AstrBot 历史消息中的记忆注入片段..."
             )
 
-            # 执行清理
-            stats = await self.conversation_manager.store.cleanup_injected_memories(
-                session_id=session_id, dry_run=dry_run
-            )
-
-            if stats.get("error"):
-                yield event.plain_result(
-                    f"❌ 清理失败: {stats.get('message', '未知错误')}"
-                )
+            # 检查 context 是否可用
+            if not self.context:
+                yield event.plain_result("❌ 无法访问 AstrBot Context，清理失败")
                 return
+
+            # 获取当前对话 ID
+            cid = await self.context.conversation_manager.get_curr_conversation_id(
+                session_id
+            )
+            if not cid:
+                yield event.plain_result("❌ 当前会话没有对话历史，无需清理")
+                return
+
+            # 获取对话历史
+            conversation = await self.context.conversation_manager.get_conversation(
+                session_id, cid
+            )
+            if not conversation or not conversation.history:
+                yield event.plain_result("❌ 当前对话历史为空，无需清理")
+                return
+
+            # 清理历史消息中的记忆注入片段
+            import json
+            import re
+
+            from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+            # 解析 history（字符串格式）
+            try:
+                history = json.loads(conversation.history)
+            except json.JSONDecodeError:
+                yield event.plain_result("❌ 解析对话历史失败")
+                return
+
+            # 统计信息
+            stats = {
+                "scanned": len(history),
+                "matched": 0,
+                "cleaned": 0,
+                "deleted": 0,
+            }
+
+            # 编译清理正则
+            pattern = re.compile(
+                re.escape(MEMORY_INJECTION_HEADER)
+                + r".*?"
+                + re.escape(MEMORY_INJECTION_FOOTER),
+                flags=re.DOTALL,
+            )
+
+            # 清理历史消息
+            cleaned_history = []
+            for msg in history:
+                content = msg.get("content", "")
+                if not isinstance(content, str):
+                    cleaned_history.append(msg)
+                    continue
+
+                # 检查是否包含注入标记
+                if (
+                    MEMORY_INJECTION_HEADER in content
+                    and MEMORY_INJECTION_FOOTER in content
+                ):
+                    stats["matched"] += 1
+
+                    # 清理内容
+                    cleaned_content = pattern.sub("", content)
+                    cleaned_content = re.sub(r"\n{3,}", "\n\n", cleaned_content).strip()
+
+                    # 如果清理后为空，跳过该消息
+                    if not cleaned_content:
+                        stats["deleted"] += 1
+                        logger.debug(
+                            f"[cleanup] 删除纯记忆注入消息: role={msg.get('role')}"
+                        )
+                        continue
+
+                    # 如果清理后仍有内容，保留清理后的消息
+                    if cleaned_content != content:
+                        msg_copy = msg.copy()
+                        msg_copy["content"] = cleaned_content
+                        cleaned_history.append(msg_copy)
+                        stats["cleaned"] += 1
+                        logger.debug(
+                            f"[cleanup] 清理消息内部记忆片段: "
+                            f"原长度={len(content)}, 新长度={len(cleaned_content)}"
+                        )
+                        continue
+
+                cleaned_history.append(msg)
+
+            # 如果不是预演模式，更新数据库
+            if not dry_run and (stats["cleaned"] > 0 or stats["deleted"] > 0):
+                await self.context.conversation_manager.update_conversation(
+                    unified_msg_origin=session_id,
+                    conversation_id=cid,
+                    history=cleaned_history,
+                )
+                logger.info(
+                    f"[{session_id}] cleanup 已更新 AstrBot 对话历史: "
+                    f"清理={stats['cleaned']}, 删除={stats['deleted']}"
+                )
 
             # 格式化结果
             message = f"""✅ {mode_text}清理完成!
@@ -284,9 +375,8 @@ class CommandHandler:
 • 匹配记忆片段: {stats["matched"]} 条
 • 清理内容: {stats["cleaned"]} 条
 • 删除消息: {stats["deleted"]} 条
-• 错误: {stats["errors"]} 个
 
-{"💡 这是预演模式,未实际修改数据。使用 /lmem cleanup exec 执行实际清理。" if dry_run else "✨ 数据库已更新,历史消息中的记忆注入片段已清理。"}"""
+{"💡 这是预演模式,未实际修改数据。使用 /lmem cleanup exec 执行实际清理。" if dry_run else "✨ AstrBot 对话历史已更新,记忆注入片段已清理。"}"""
 
             yield event.plain_result(message)
 
