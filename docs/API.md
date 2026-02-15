@@ -378,9 +378,8 @@ except DatabaseError as e:
     "session_timeout": 3600
   },
   "session_manager": {
-    "max_sessions": 100,
-    "session_ttl": 3600,
-    "context_window_size": 50
+    "enable_full_group_capture": true,
+    "max_messages_per_session": 1000
   },
   "recall_engine": {
     "top_k": 5,

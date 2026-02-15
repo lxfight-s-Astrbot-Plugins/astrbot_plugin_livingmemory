@@ -4,16 +4,12 @@
 
 功能:
 - 会话生命周期管理
-- LRU缓存热点会话
-- 上下文窗口管理
 - 群聊场景支持
 - AstrBot事件集成
 """
 
-import asyncio
 import json
 import time
-from collections import OrderedDict
 from typing import Any
 
 from astrbot.api import logger
@@ -29,8 +25,6 @@ class ConversationManager:
 
     功能:
     - 会话生命周期管理
-    - LRU缓存热点会话
-    - 上下文窗口管理
     - 群聊场景支持
     - AstrBot事件集成
     """
@@ -38,39 +32,22 @@ class ConversationManager:
     def __init__(
         self,
         store: ConversationStore,
-        max_cache_size: int = 100,
-        context_window_size: int = 50,
-        session_ttl: int = 3600,
     ):
         """
         初始化会话管理器
 
         Args:
             store: ConversationStore实例
-            max_cache_size: LRU缓存大小
-            context_window_size: 上下文窗口大小(保留最近N条消息)
-            session_ttl: 会话过期时间(秒)
         """
         self.store = store
-        self.max_cache_size = max_cache_size
-        self.context_window_size = context_window_size
-        self.session_ttl = session_ttl
-
-        # LRU缓存: {session_id: (messages, last_access_time)}
-        self._cache: OrderedDict = OrderedDict()
-        # 缓存锁，保护并发访问
-        self._cache_lock = asyncio.Lock()
-
-        logger.info(
-            f"[ConversationManager] 初始化完成: "
-            f"缓存大小={max_cache_size}, 上下文窗口={context_window_size}"
-        )
+        logger.info("[ConversationManager] 初始化完成")
 
     async def add_message_from_event(
         self,
         event: Any,  # AstrBot MessageEvent
         role: str,
         content: str,
+        session_id: str | None = None,
     ) -> Message:
         """
         从AstrBot事件添加消息(自动提取发送者信息)
@@ -83,8 +60,8 @@ class ConversationManager:
         Returns:
             创建的Message对象
         """
-        # 使用 unified_msg_origin 作为会话ID，确保多Bot场景下的唯一性
-        session_id = event.unified_msg_origin
+        # 默认使用 unified_msg_origin 作为会话ID，允许调用方传入更细粒度的会话键
+        effective_session_id = session_id or event.unified_msg_origin
 
         # 提取发送者信息
         sender_id = None
@@ -99,7 +76,7 @@ class ConversationManager:
 
         # 如果还是没有sender_id,使用session_id作为后备
         if not sender_id:
-            sender_id = session_id
+            sender_id = effective_session_id
 
         # 尝试获取发送者昵称
         if hasattr(event, "get_sender_name"):
@@ -111,7 +88,7 @@ class ConversationManager:
         if hasattr(event, "message_obj") and hasattr(event.message_obj, "sender"):
             raw_sender = event.message_obj.sender
             logger.debug(
-                f"[add_message_from_event] [{session_id}] 原始sender对象: "
+                f"[add_message_from_event] [{effective_session_id}] 原始sender对象: "
                 f"user_id={getattr(raw_sender, 'user_id', 'N/A')}, "
                 f"nickname={getattr(raw_sender, 'nickname', 'N/A')}"
             )
@@ -121,11 +98,12 @@ class ConversationManager:
         if hasattr(event, "get_message_type"):
             is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
             if is_group:
-                group_id = session_id  # 群聊时session_id即为group_id
+                # 群组ID保持为消息来源标识，而不是插件内部会话键
+                group_id = event.unified_msg_origin
 
         # 调试日志：记录最终获取到的发送者信息
         logger.debug(
-            f"[add_message_from_event] [{session_id}] 最终发送者信息: "
+            f"[add_message_from_event] [{effective_session_id}] 最终发送者信息: "
             f"sender_id={sender_id}, sender_name='{sender_name}', "
             f"role={role}, is_group={is_group}, group_id={group_id}"
         )
@@ -138,7 +116,7 @@ class ConversationManager:
         )
 
         return await self.add_message(
-            session_id=session_id,
+            session_id=effective_session_id,
             role=role,
             content=content,
             sender_id=sender_id,
@@ -194,11 +172,6 @@ class ConversationManager:
         message_id = await self.store.add_message(message)
         message.id = message_id
 
-        # 使缓存失效(下次获取时重新加载)
-        async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
-
         logger.debug(
             f"[ConversationManager] 添加消息: session={session_id}, "
             f"role={role}, sender={sender_id}"
@@ -212,84 +185,6 @@ class ConversationManager:
             )
 
         return message
-
-    async def get_context(
-        self,
-        session_id: str,
-        max_messages: int | None = None,
-        sender_id: str | None = None,
-        format_for_llm: bool = True,
-    ) -> list[dict[str, str]]:
-        """
-        获取会话上下文(用于LLM)
-
-        Args:
-            session_id: 会话ID
-            max_messages: 最大消息数(None则使用context_window_size)
-            sender_id: 过滤特定发送者(群聊场景)
-            format_for_llm: 是否格式化为LLM格式
-
-        Returns:
-            消息列表,格式: [{"role": "user", "content": "..."}, ...]
-        """
-        limit = max_messages or self.context_window_size
-
-        # 获取消息
-        messages = await self.get_messages(
-            session_id=session_id, limit=limit, sender_id=sender_id, use_cache=True
-        )
-
-        if format_for_llm:
-            # 格式化为LLM格式
-            # 只在群聊场景(有group_id)时添加发送者名称前缀
-            return [
-                msg.format_for_llm(include_sender_name=bool(msg.group_id))
-                for msg in messages
-            ]
-        else:
-            # 返回原始格式
-            return [msg.to_dict() for msg in messages]
-
-    async def get_messages(
-        self,
-        session_id: str,
-        limit: int = 50,
-        sender_id: str | None = None,
-        use_cache: bool = True,
-    ) -> list[Message]:
-        """
-        获取会话消息
-
-        Args:
-            session_id: 会话ID
-            limit: 限制数量
-            sender_id: 过滤发送者
-            use_cache: 是否使用缓存
-
-        Returns:
-            Message对象列表
-        """
-        # 如果指定了sender_id,不使用缓存(需要过滤)
-        if sender_id:
-            use_cache = False
-
-        # 尝试从缓存获取
-        if use_cache:
-            cached_messages = await self._get_from_cache(session_id)
-            if cached_messages is not None:
-                # 从缓存中截取需要的数量
-                return cached_messages[-limit:] if limit else cached_messages
-
-        # 从数据库获取
-        messages = await self.store.get_messages(
-            session_id=session_id, limit=limit, sender_id=sender_id
-        )
-
-        # 更新缓存(仅当不是过滤查询时)
-        if not sender_id and use_cache:
-            await self._update_cache(session_id, messages)
-
-        return messages
 
     async def create_or_get_session(
         self, session_id: str, platform: str = "unknown"
@@ -318,6 +213,67 @@ class ConversationManager:
 
         return session
 
+    async def get_context(
+        self,
+        session_id: str,
+        max_messages: int | None = None,
+        sender_id: str | None = None,
+        format_for_llm: bool = True,
+    ) -> list[dict[str, str]]:
+        """
+        获取会话上下文(用于LLM)
+
+        Args:
+            session_id: 会话ID
+            max_messages: 最大消息数（None 时使用默认 50）
+            sender_id: 过滤特定发送者(群聊场景)
+            format_for_llm: 是否格式化为LLM格式
+
+        Returns:
+            消息列表,格式: [{"role": "user", "content": "..."}, ...]
+        """
+        limit = max_messages if max_messages is not None else 50
+        if limit <= 0:
+            return []
+
+        messages = await self.get_messages(
+            session_id=session_id,
+            limit=limit,
+            sender_id=sender_id,
+        )
+
+        if format_for_llm:
+            # 只在群聊场景(有group_id)时添加发送者名称前缀
+            return [
+                msg.format_for_llm(include_sender_name=bool(msg.group_id))
+                for msg in messages
+            ]
+
+        return [msg.to_dict() for msg in messages]
+
+    async def get_messages(
+        self,
+        session_id: str,
+        limit: int = 50,
+        sender_id: str | None = None,
+    ) -> list[Message]:
+        """
+        获取会话消息
+
+        Args:
+            session_id: 会话ID
+            limit: 限制数量
+            sender_id: 过滤发送者
+
+        Returns:
+            Message对象列表（按时间升序）
+        """
+        if limit <= 0:
+            return []
+        return await self.store.get_messages(
+            session_id=session_id, limit=limit, sender_id=sender_id
+        )
+
     async def get_session_info(self, session_id: str) -> Session | None:
         """
         获取会话信息
@@ -340,12 +296,12 @@ class ConversationManager:
             logger.warning(f"[DEBUG-SessionInfo] [{session_id}] 会话不存在")
         return session
 
-    async def get_recent_sessions(self, limit: int = 10) -> list[Session]:
+    async def get_recent_sessions(self, limit: int | None = 10) -> list[Session]:
         """
         获取最近活跃的会话
 
         Args:
-            limit: 返回数量限制
+            limit: 返回数量限制，None 表示不限制
 
         Returns:
             Session对象列表
@@ -362,97 +318,10 @@ class ConversationManager:
         # 删除数据库中的消息
         await self.store.delete_session_messages(session_id)
 
-        # 清除缓存
-        async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
         # 同步重置会话元数据，特别是记忆总结的计数器
         await self.reset_session_metadata(session_id)
 
         logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
-
-    async def cleanup_expired_sessions(self) -> int:
-        """
-        清理过期会话
-
-        Returns:
-            清理的会话数量
-        """
-        # 计算过期时间(以天为单位)
-        days = self.session_ttl // (24 * 3600)
-        if days < 1:
-            days = 30  # 默认30天
-
-        deleted_count = await self.store.delete_old_sessions(days)
-
-        # 清空缓存(可能包含已删除的会话)
-        async with self._cache_lock:
-            self._cache.clear()
-
-        if deleted_count > 0:
-            logger.info(f"[ConversationManager] 清理过期会话: {deleted_count}个")
-
-        return deleted_count
-
-    async def _update_cache(self, session_id: str, messages: list[Message]):
-        """
-        更新LRU缓存
-
-        Args:
-            session_id: 会话ID
-            messages: 消息列表
-        """
-        async with self._cache_lock:
-            # 如果已存在,先删除(会被添加到末尾)
-            if session_id in self._cache:
-                del self._cache[session_id]
-
-            # 添加到末尾(最新)
-            self._cache[session_id] = (messages, time.time())
-
-            # 如果超过容量,删除最旧的
-            if len(self._cache) > self.max_cache_size:
-                self._cache.popitem(last=False)  # 删除最前面的(最旧)
-
-    async def _get_from_cache(self, session_id: str) -> list[Message] | None:
-        """
-        从缓存获取消息
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            消息列表,不存在则返回None
-        """
-        async with self._cache_lock:
-            if session_id in self._cache:
-                messages, _ = self._cache[session_id]
-                # 移到末尾(标记为最新访问)
-                self._cache.move_to_end(session_id)
-                # 更新访问时间
-                self._cache[session_id] = (messages, time.time())
-                return messages
-        return None
-
-    async def invalidate_cache(self, session_id: str):
-        """
-        使指定会话的缓存失效（公共接口）
-
-        Args:
-            session_id: 会话ID
-        """
-        async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
-
-    def _evict_cache(self):
-        """
-        LRU缓存驱逐(超过max_cache_size时)
-
-        这个方法在_update_cache中已经处理,这里保留作为显式接口
-        """
-        while len(self._cache) > self.max_cache_size:
-            self._cache.popitem(last=False)
 
     async def get_messages_range(
         self, session_id: str, start_index: int = 0, end_index: int | None = None
@@ -640,20 +509,12 @@ def create_conversation_manager(
 
     Args:
         db_path: 数据库路径
-        config: 配置字典,可包含:
-            - max_cache_size: LRU缓存大小
-            - context_window_size: 上下文窗口大小
-            - session_ttl: 会话过期时间
+        config: 预留参数（当前未使用）
 
     Returns:
         ConversationManager实例
     """
-    config = config or {}
+    _ = config
     store = ConversationStore(db_path)
 
-    return ConversationManager(
-        store=store,
-        max_cache_size=config.get("max_cache_size", 100),
-        context_window_size=config.get("context_window_size", 50),
-        session_ttl=config.get("session_ttl", 3600),
-    )
+    return ConversationManager(store=store)

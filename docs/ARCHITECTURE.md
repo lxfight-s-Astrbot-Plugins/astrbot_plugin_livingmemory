@@ -48,7 +48,6 @@ astrbot_plugin_livingmemory/
 │   │   ├── hybrid_retriever.py      # 混合检索器
 │   │   ├── bm25_retriever.py        # BM25检索器
 │   │   ├── vector_retriever.py      # 向量检索器
-│   │   ├── sparse_retriever.py      # 稀疏检索器
 │   │   └── rrf_fusion.py            # RRF融合器
 │   │
 │   ├── utils/                       # 工具层

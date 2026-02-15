@@ -274,12 +274,8 @@ class PluginInitializer:
             conversation_store = ConversationStore(conversation_db_path)
             await conversation_store.initialize()
 
-            session_config = self.config_manager.session_manager
             self.conversation_manager = ConversationManager(
                 store=conversation_store,
-                max_cache_size=session_config.get("max_sessions", 100),
-                context_window_size=session_config.get("context_window_size", 50),
-                session_ttl=session_config.get("session_ttl", 3600),
             )
             logger.info("✅ ConversationManager 已初始化")
 

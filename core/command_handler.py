@@ -4,12 +4,15 @@
 """
 
 import os
+import re
+import socket
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
+from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 from .base.config_manager import ConfigManager
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
@@ -208,9 +211,9 @@ class CommandHandler:
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem webui 命令"""
-        webui_url = self._get_webui_url()
+        webui_urls = self._get_webui_urls()
 
-        if not webui_url:
+        if not webui_urls:
             message = """⚠️ WebUI 功能暂未启用
 
 💡 WebUI 正在适配新的 MemoryEngine 架构
@@ -221,9 +224,11 @@ class CommandHandler:
 • /lmem search - 搜索记忆
 • /lmem forget - 删除记忆"""
         else:
+            url_lines = "\n".join([f"• {url}" for url in webui_urls])
             message = f"""🌐 LivingMemory WebUI
 
-🔗 访问地址: {webui_url}
+🔗 访问地址:
+{url_lines}
 
 ✨ WebUI功能:
 • 📝 记忆编辑与管理
@@ -244,7 +249,7 @@ class CommandHandler:
             yield event.plain_result("❌ 会话管理器未初始化")
             return
 
-        session_id = event.unified_msg_origin
+        session_id = await self._resolve_conversation_session_id(event)
         try:
             await self.conversation_manager.clear_session(session_id)
             message = "✅ 当前会话的长期记忆上下文已重置。\n\n下一次记忆总结将从现在开始，不会再包含之前的对话内容。"
@@ -252,6 +257,180 @@ class CommandHandler:
         except Exception as e:
             logger.error(f"手动重置记忆上下文失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 重置失败: {str(e)}")
+
+    async def handle_pending(
+        self, event: AstrMessageEvent, n: int = 0
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem pending 命令 - 查看当前会话未总结消息"""
+        if not self.conversation_manager:
+            yield event.plain_result("❌ 会话管理器未初始化")
+            return
+
+        session_id = await self._resolve_conversation_session_id(event)
+        trigger_rounds = self.config_manager.get(
+            "reflection_engine.summary_trigger_rounds", 10
+        )
+        # 未显式传入数量时，默认使用记忆总结阈值-1（最小为1）
+        if int(n) <= 0:
+            n = max(1, int(trigger_rounds) - 1)
+        # 预览条数限制，防止消息过长
+        n = max(1, min(int(n), 100))
+
+        try:
+            total_messages = await self.conversation_manager.store.get_message_count(
+                session_id
+            )
+            last_summarized_index = await self.conversation_manager.get_session_metadata(
+                session_id, "last_summarized_index", 0
+            )
+
+            if last_summarized_index > total_messages:
+                last_summarized_index = total_messages
+
+            pending_messages = max(0, total_messages - last_summarized_index)
+
+            if pending_messages == 0:
+                yield event.plain_result(
+                    "📭 当前会话没有待总结消息。\n\n可以继续对话，达到触发阈值后会自动总结。"
+                )
+                return
+
+            pending_all = await self.conversation_manager.get_messages_range(
+                session_id=session_id,
+                start_index=last_summarized_index,
+                end_index=total_messages,
+            )
+            pending_round_items = self._build_round_items(pending_all)
+            pending_rounds = len(pending_round_items)
+            remain_rounds = max(0, trigger_rounds - pending_rounds)
+
+            preview_count = min(n, pending_rounds)
+            preview_rounds = pending_round_items[-preview_count:]
+            preview_start_no = pending_rounds - preview_count + 1
+
+            lines = [
+                "📌 当前会话待总结内容",
+                "",
+                f"• 待总结轮次: {pending_rounds} 轮",
+                f"• 距离自动总结: 还差 {remain_rounds} 轮",
+                "",
+                f"🧾 最近待总结预览（{preview_count} 轮）:",
+            ]
+
+            for i, item in enumerate(preview_rounds, 1):
+                round_no = preview_start_no + i - 1
+                t = datetime.fromtimestamp(item["timestamp"]).strftime("%m-%d %H:%M")
+                user_text = self._shorten_text(str(item.get("user", "")))
+                assistant_text = self._shorten_text(str(item.get("assistant", "")))
+                if user_text and assistant_text:
+                    lines.append(
+                        f"{round_no}. [{t}] 用户: {user_text} | 助手: {assistant_text}"
+                    )
+                elif user_text:
+                    lines.append(f"{round_no}. [{t}] 用户: {user_text}")
+                elif assistant_text:
+                    lines.append(f"{round_no}. [{t}] 助手: {assistant_text}")
+
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            logger.error(f"查看待总结消息失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 查看待总结消息失败: {str(e)}")
+
+    async def handle_pending_del(
+        self, event: AstrMessageEvent, round_no: int
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem pending-del 命令 - 删除待总结中的指定轮次"""
+        if not self.conversation_manager:
+            yield event.plain_result("❌ 会话管理器未初始化")
+            return
+
+        try:
+            target_round = int(round_no)
+        except Exception:
+            yield event.plain_result("❌ 参数错误: 序号必须是整数")
+            return
+
+        if target_round <= 0:
+            yield event.plain_result("❌ 参数错误: 序号必须大于 0")
+            return
+
+        session_id = await self._resolve_conversation_session_id(event)
+
+        try:
+            total_messages = await self.conversation_manager.store.get_message_count(
+                session_id
+            )
+            last_summarized_index = await self.conversation_manager.get_session_metadata(
+                session_id, "last_summarized_index", 0
+            )
+            if last_summarized_index > total_messages:
+                last_summarized_index = total_messages
+
+            pending_messages = max(0, total_messages - last_summarized_index)
+            if pending_messages == 0:
+                yield event.plain_result("📭 当前会话没有待总结消息，无需删除。")
+                return
+
+            pending_all = await self.conversation_manager.get_messages_range(
+                session_id=session_id,
+                start_index=last_summarized_index,
+                end_index=total_messages,
+            )
+            pending_round_items = self._build_round_items(pending_all)
+            pending_rounds = len(pending_round_items)
+
+            if target_round > pending_rounds:
+                yield event.plain_result(
+                    f"❌ 序号越界: 当前待总结共 {pending_rounds} 轮，你输入的是 {target_round}。"
+                )
+                return
+
+            target_item = pending_round_items[target_round - 1]
+            message_ids = [
+                int(mid)
+                for mid in target_item.get("message_ids", [])
+                if isinstance(mid, int) and int(mid) > 0
+            ]
+            if not message_ids:
+                yield event.plain_result("❌ 目标轮次没有可删除的消息。")
+                return
+
+            if self.conversation_manager.store.connection is None:
+                yield event.plain_result("❌ 数据库连接未初始化，删除失败。")
+                return
+
+            placeholders = ",".join("?" * len(message_ids))
+            params = [session_id, *message_ids]
+            cursor = await self.conversation_manager.store.connection.execute(
+                f"DELETE FROM messages WHERE session_id = ? AND id IN ({placeholders})",
+                params,
+            )
+            deleted_count = cursor.rowcount if cursor.rowcount is not None else 0
+            await self.conversation_manager.store.connection.commit()
+            await self.conversation_manager.store.sync_message_counts()
+            # 删除待总结消息后，旧的失败重试窗口索引可能失效，清空以避免错位重试
+            await self.conversation_manager.update_session_metadata(
+                session_id, "pending_summary", None
+            )
+
+            # 防御性修正：若删除后总消息减少，确保总结索引不越界
+            new_total = await self.conversation_manager.store.get_message_count(session_id)
+            if last_summarized_index > new_total:
+                await self.conversation_manager.update_session_metadata(
+                    session_id, "last_summarized_index", new_total
+                )
+
+            if deleted_count <= 0:
+                yield event.plain_result("⚠️ 未删除任何消息，可能数据已变化，请先执行 /lmem pending 刷新。")
+                return
+
+            yield event.plain_result(
+                f"✅ 已删除待总结第 {target_round} 轮，共 {deleted_count} 条消息。\n"
+                "请重新执行 /lmem pending 查看最新序号。"
+            )
+        except Exception as e:
+            logger.error(f"删除待总结轮次失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 删除失败: {str(e)}")
 
     async def handle_cleanup(
         self, event: AstrMessageEvent, dry_run: bool = False
@@ -397,6 +576,8 @@ class CommandHandler:
 /lmem rebuild-index       重建v1迁移数据索引
 /lmem webui               打开WebUI管理界面
 /lmem reset               重置当前会话记忆上下文
+/lmem pending [数量]       查看当前会话待总结轮次预览(默认=总结阈值-1)
+/lmem pending-del <序号>   删除待总结中的指定轮次
 /lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)
 /lmem help                显示此帮助
 
@@ -417,16 +598,131 @@ class CommandHandler:
 
         yield event.plain_result(message)
 
-    def _get_webui_url(self) -> str | None:
-        """获取 WebUI 访问地址"""
+    def _get_webui_urls(self) -> list[str]:
+        """获取 WebUI 可访问地址列表（优先可直连地址）"""
         webui_config = self.config_manager.webui_settings
         if not webui_config.get("enabled") or not self.webui_server:
-            return None
+            return []
 
-        host = webui_config.get("host", "127.0.0.1")
+        host = str(webui_config.get("host", "127.0.0.1")).strip()
         port = webui_config.get("port", 8080)
+        urls: list[str] = []
 
-        if host in ["0.0.0.0", ""]:
-            return f"http://127.0.0.1:{port}"
-        else:
-            return f"http://{host}:{port}"
+        # 监听在所有网卡时，给出可用的本地地址和可选局域网地址
+        if host in ["0.0.0.0", "::", ""]:
+            local_ip = self._detect_local_ip()
+            if local_ip:
+                urls.append(f"http://{local_ip}:{port}")
+            urls.append(f"http://127.0.0.1:{port}")
+            return urls
+
+        urls.append(f"http://{host}:{port}")
+        return urls
+
+    def _detect_local_ip(self) -> str | None:
+        """探测当前主机局域网 IP（用于 WebUI 地址展示）"""
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip and ip != "127.0.0.1":
+                return ip
+        except Exception:
+            return None
+        finally:
+            if sock:
+                sock.close()
+        return None
+
+    @staticmethod
+    def _shorten_text(content: str, limit: int = 60) -> str:
+        content = CommandHandler._strip_injected_memory(content)
+        text = (content or "").replace("\n", " ").strip()
+        if len(text) > limit:
+            return text[:limit] + "..."
+        return text
+
+    @staticmethod
+    def _strip_injected_memory(content: str) -> str:
+        """仅用于展示时清理注入记忆片段，不修改原始存储内容。"""
+        if not content:
+            return ""
+        if (
+            MEMORY_INJECTION_HEADER not in content
+            or MEMORY_INJECTION_FOOTER not in content
+        ):
+            return content
+        pattern = (
+            re.escape(MEMORY_INJECTION_HEADER)
+            + r"\s*.*?\s*"
+            + re.escape(MEMORY_INJECTION_FOOTER)
+        )
+        cleaned = re.sub(pattern, "", content, flags=re.DOTALL)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+
+    @staticmethod
+    def _build_round_items(messages: list) -> list[dict[str, str | float | list[int]]]:
+        """按 user/assistant 组装轮次。"""
+        rounds: list[dict[str, str | float | list[int]]] = []
+        current: dict[str, str | float | list[int]] = {}
+
+        for msg in messages:
+            role = (getattr(msg, "role", "") or "").lower()
+            content = getattr(msg, "content", "") or ""
+            ts = float(getattr(msg, "timestamp", 0) or 0)
+            message_id = int(getattr(msg, "id", 0) or 0)
+
+            if role == "user":
+                if current:
+                    rounds.append(current)
+                current = {"timestamp": ts, "user": content, "message_ids": [message_id]}
+            elif role == "assistant":
+                if not current:
+                    current = {
+                        "timestamp": ts,
+                        "assistant": content,
+                        "message_ids": [message_id],
+                    }
+                elif "assistant" in current:
+                    rounds.append(current)
+                    current = {
+                        "timestamp": ts,
+                        "assistant": content,
+                        "message_ids": [message_id],
+                    }
+                else:
+                    current["assistant"] = content
+                    current_ids = current.get("message_ids", [])
+                    if isinstance(current_ids, list):
+                        current_ids.append(message_id)
+            else:
+                if current:
+                    rounds.append(current)
+                current = {"timestamp": ts, "user": content, "message_ids": [message_id]}
+
+        if current:
+            rounds.append(current)
+        return rounds
+
+
+    async def _resolve_conversation_session_id(self, event: AstrMessageEvent) -> str:
+        """
+        解析插件内部会话ID：unified_msg_origin + conversation_id。
+        回退策略：无法获取conversation_id时返回unified_msg_origin。
+        """
+        base_session_id = event.unified_msg_origin
+        if not self.context or not hasattr(self.context, "conversation_manager"):
+            return base_session_id
+
+        try:
+            cid = await self.context.conversation_manager.get_curr_conversation_id(
+                base_session_id
+            )
+            if not cid:
+                return base_session_id
+            return f"{base_session_id}::conv::{cid}"
+        except Exception as e:
+            logger.debug(f"解析conversation_id失败，回退使用unified_msg_origin: {e}")
+            return base_session_id
