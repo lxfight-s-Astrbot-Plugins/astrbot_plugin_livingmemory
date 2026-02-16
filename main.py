@@ -9,7 +9,7 @@ from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
-from astrbot.api.event.filter import PermissionType, permission_type
+from astrbot.api.event.filter import PermissionType
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
 
@@ -69,43 +69,59 @@ class LivingMemoryPlugin(Star):
             # 执行初始化
             success = await self.initializer.initialize()
 
-            if success:
-                # 检查必要组件是否初始化成功
-                if not all(
-                    [
-                        self.initializer.memory_engine,
-                        self.initializer.memory_processor,
-                        self.initializer.conversation_manager,
-                    ]
-                ):
-                    logger.error("插件初始化不完整：部分核心组件未能初始化")
-                    return
+            # initialize() 可能先返回 False 并在后台重试完成；这里等待最终结果，
+            # 避免出现 initializer 已完成但 command_handler/event_handler 仍为 None。
+            if not success and not self.initializer.is_failed:
+                logger.info("初始化进入后台重试，等待完成后绑定处理器...")
+                success = await self.initializer.ensure_initialized(timeout=300.0)
 
-                # 创建事件处理器
-                self.event_handler = EventHandler(
-                    context=self.context,
-                    config_manager=self.config_manager,
-                    memory_engine=self.initializer.memory_engine,  # type: ignore[arg-type]
-                    memory_processor=self.initializer.memory_processor,  # type: ignore[arg-type]
-                    conversation_manager=self.initializer.conversation_manager,  # type: ignore[arg-type]
-                )
+            if not success:
+                return
 
-                # 创建命令处理器
-                self.command_handler = CommandHandler(
-                    context=self.context,
-                    config_manager=self.config_manager,
-                    memory_engine=self.initializer.memory_engine,
-                    conversation_manager=self.initializer.conversation_manager,
-                    index_validator=self.initializer.index_validator,
-                    webui_server=self.webui_server,
-                    initialization_status_callback=self._get_initialization_status_message,
-                )
+            if not self._bind_runtime_handlers():
+                logger.error("插件初始化不完整：部分核心组件未能初始化")
+                return
 
-                # 启动 WebUI
-                await self._start_webui()
+            # 启动 WebUI
+            await self._start_webui()
+            # 启动空闲自动总结巡检
+            self._start_idle_summary_monitor()
 
         except Exception as e:
             logger.error(f"插件初始化失败: {e}", exc_info=True)
+
+    def _bind_runtime_handlers(self) -> bool:
+        """在 initializer 完成后绑定事件/命令处理器（幂等）。"""
+        if not all(
+            [
+                self.initializer.memory_engine,
+                self.initializer.memory_processor,
+                self.initializer.conversation_manager,
+            ]
+        ):
+            return False
+
+        if not self.event_handler:
+            self.event_handler = EventHandler(
+                context=self.context,
+                config_manager=self.config_manager,
+                memory_engine=self.initializer.memory_engine,  # type: ignore[arg-type]
+                memory_processor=self.initializer.memory_processor,  # type: ignore[arg-type]
+                conversation_manager=self.initializer.conversation_manager,  # type: ignore[arg-type]
+            )
+
+        if not self.command_handler:
+            self.command_handler = CommandHandler(
+                context=self.context,
+                config_manager=self.config_manager,
+                memory_engine=self.initializer.memory_engine,
+                conversation_manager=self.initializer.conversation_manager,
+                index_validator=self.initializer.index_validator,
+                webui_server=self.webui_server,
+                initialization_status_callback=self._get_initialization_status_message,
+            )
+
+        return True
 
     async def _start_webui(self):
         """根据配置启动 WebUI 控制台"""
@@ -125,6 +141,10 @@ class LivingMemoryPlugin(Star):
 
             await self.webui_server.start()
 
+            # 同步更新命令处理器中的 WebUI 句柄，避免 /lmem webui 误判未启用
+            if self.command_handler:
+                self.command_handler.webui_server = self.webui_server
+
             logger.info(
                 f"🌐 WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
             )
@@ -141,7 +161,37 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.warning(f"停止 WebUI 控制台时出现异常: {e}", exc_info=True)
         finally:
+            if self.command_handler:
+                self.command_handler.webui_server = None
             self.webui_server = None
+
+    def _start_idle_summary_monitor(self):
+        """按配置启动空闲自动总结后台巡检任务"""
+        if not self.event_handler:
+            return
+        if not self.config_manager.get("reflection_engine.enable_idle_auto_summary", False):
+            return
+        self._create_tracked_task(self._idle_summary_loop())
+
+    async def _idle_summary_loop(self):
+        """周期性扫描空闲会话，触发自动总结。"""
+        timeout_seconds = int(
+            self.config_manager.get(
+                "reflection_engine.idle_summary_timeout_seconds", 1800
+            )
+        )
+        interval = max(30, min(300, timeout_seconds // 3 if timeout_seconds > 0 else 60))
+        logger.info(f"[idle-summary] 自动总结巡检已启动，周期={interval}s")
+        try:
+            while True:
+                if not self.event_handler:
+                    await asyncio.sleep(interval)
+                    continue
+                await self.event_handler.run_idle_summary_check()
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            logger.debug("[idle-summary] 自动总结巡检已停止")
+            raise
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""
@@ -190,13 +240,7 @@ class LivingMemoryPlugin(Star):
 
     # ==================== 命令处理 ====================
 
-    @filter.command_group("lmem")
-    def lmem(self):
-        """长期记忆管理命令组 /lmem"""
-        pass
-
-    # @permission_type(PermissionType.ADMIN)
-    @lmem.command("status", priority=10)
+    @filter.command("lmem status", priority=10)
     async def status(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -211,8 +255,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_status(event):
             yield message
 
-    @lmem.command("search", priority=10)
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem search", priority=10)
+    @filter.permission_type(PermissionType.ADMIN)
     async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -228,8 +272,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_search(event, query, k):
             yield message
 
-    @lmem.command("forget")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem forget")
+    @filter.permission_type(PermissionType.ADMIN)
     async def forget(
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -245,8 +289,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_forget(event, doc_id):
             yield message
 
-    @lmem.command("rebuild-index")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem rebuild-index")
+    @filter.permission_type(PermissionType.ADMIN)
     async def rebuild_index(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -262,8 +306,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_rebuild_index(event):
             yield message
 
-    @lmem.command("webui")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem webui")
+    @filter.permission_type(PermissionType.ADMIN)
     async def webui(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -279,8 +323,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_webui(event):
             yield message
 
-    @lmem.command("reset")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem reset")
+    @filter.permission_type(PermissionType.ADMIN)
     async def reset(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -296,8 +340,42 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_reset(event):
             yield message
 
-    @lmem.command("cleanup")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem pending")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def pending(
+        self, event: AstrMessageEvent, n: int = 0
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[管理员] 查看当前会话待总结消息"""
+        if not await self.initializer.ensure_initialized():
+            yield event.plain_result(self._get_initialization_status_message())
+            return
+
+        if not self.command_handler:
+            yield event.plain_result("❌ 命令处理器未初始化")
+            return
+
+        async for message in self.command_handler.handle_pending(event, n):
+            yield message
+
+    @filter.command("lmem pending-del")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def pending_del(
+        self, event: AstrMessageEvent, round_no: int
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[管理员] 删除待总结中的指定轮次"""
+        if not await self.initializer.ensure_initialized():
+            yield event.plain_result(self._get_initialization_status_message())
+            return
+
+        if not self.command_handler:
+            yield event.plain_result("❌ 命令处理器未初始化")
+            return
+
+        async for message in self.command_handler.handle_pending_del(event, round_no):
+            yield message
+
+    @filter.command("lmem cleanup")
+    @filter.permission_type(PermissionType.ADMIN)
     async def cleanup(
         self, event: AstrMessageEvent, mode: str = "preview"
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -322,8 +400,8 @@ class LivingMemoryPlugin(Star):
         ):
             yield message
 
-    @lmem.command("help")
-    @permission_type(PermissionType.ADMIN)
+    @filter.command("lmem help")
+    @filter.permission_type(PermissionType.ADMIN)
     async def help(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:

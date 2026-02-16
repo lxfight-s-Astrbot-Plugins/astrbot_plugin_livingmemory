@@ -223,28 +223,38 @@ class ConversationStore:
 
         await self.connection.commit()
 
-    async def get_recent_sessions(self, limit: int = 10) -> list[Session]:
+    async def get_recent_sessions(self, limit: int | None = 10) -> list[Session]:
         """
         获取最近活跃的会话
 
         Args:
-            limit: 返回数量限制
+            limit: 返回数量限制，None 表示不限制
 
         Returns:
             List[Session]: 会话列表
         """
         if self.connection is None:
             return []
-        async with self.connection.execute(
+
+        if limit is None:
+            query = """
+                SELECT id, session_id, platform, created_at, last_active_at,
+                       message_count, participants, metadata
+                FROM sessions
+                ORDER BY last_active_at DESC
             """
-            SELECT id, session_id, platform, created_at, last_active_at,
-                   message_count, participants, metadata
-            FROM sessions
-            ORDER BY last_active_at DESC
-            LIMIT ?
-        """,
-            (limit,),
-        ) as cursor:
+            params: tuple = ()
+        else:
+            query = """
+                SELECT id, session_id, platform, created_at, last_active_at,
+                       message_count, participants, metadata
+                FROM sessions
+                ORDER BY last_active_at DESC
+                LIMIT ?
+            """
+            params = (limit,)
+
+        async with self.connection.execute(query, params) as cursor:
             rows = await cursor.fetchall()
 
         sessions = []

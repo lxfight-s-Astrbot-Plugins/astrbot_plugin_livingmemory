@@ -52,11 +52,6 @@ class VectorRetriever:
         self.text_processor = text_processor
         self.config = config or {}
 
-        # 是否启用查询预处理
-        self.enable_query_preprocessing = self.config.get(
-            "enable_query_preprocessing", False
-        )
-
         # 优化3: ID映射缓存 (int_id -> uuid)
         self._id_cache: dict[int, str] = {}
         self._cache_max_size = self.config.get("id_cache_size", 1000)
@@ -125,15 +120,7 @@ class VectorRetriever:
         if not query or not query.strip():
             return []
 
-        # 可选的查询预处理
         processed_query = query
-        if self.enable_query_preprocessing and self.text_processor:
-            tokens = self.text_processor.tokenize(query, remove_stopwords=True)
-            if tokens:
-                processed_query = " ".join(tokens)
-            else:
-                # 如果预处理后为空,使用原始查询
-                processed_query = query
 
         # 构建元数据过滤器 - session_id和persona_id已经被_extract_session_uuid处理
         metadata_filters = {}

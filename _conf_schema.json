@@ -62,23 +62,23 @@
     "hint": "管理用户会话状态和对话历史，支持持久化存储",
     "type": "object",
     "items": {
-      "max_sessions": {
-        "description": "最大会话缓存数量",
-        "hint": "同时在内存中维护的最大会话数量（LRU 缓存）。超过此数量将淘汰最久未使用的会话。会话数据仍会保存到数据库。",
-        "type": "int",
-        "default": 100
+      "enable_full_group_capture": {
+        "description": "捕获群聊全量消息",
+        "hint": "是否捕获群聊中的所有消息（包括非@Bot消息）用于长期记忆。",
+        "type": "bool",
+        "default": true
       },
-      "session_ttl": {
-        "description": "会话生存时间（秒）",
-        "hint": "会话的最大空闲时间。超过此时间未活动的会话将从缓存中移除。建议设置为 3600（1小时）。",
-        "type": "int",
-        "default": 3600
+      "capture_image_caption": {
+        "description": "写入图片描述到会话消息",
+        "hint": "是否将 AstrBot 在请求中生成的 <image_caption> 写回本地会话消息，以便 pending 预览和自动总结保留图片语义。",
+        "type": "bool",
+        "default": true
       },
-      "context_window_size": {
-        "description": "上下文窗口大小",
-        "hint": "传递给 LLM 的最大历史消息数量。较大的值会提供更多上下文但消耗更多 token。建议 20-100 之间。",
+      "max_messages_per_session": {
+        "description": "单会话最大消息数",
+        "hint": "每个会话在本地消息库最多保留的消息数量。超过后仅删除已总结的旧消息，避免无限增长。",
         "type": "int",
-        "default": 50
+        "default": 1000
       }
     }
   },
@@ -121,6 +121,12 @@
         "hint": "在注入新记忆前，自动从 system_prompt 和对话历史中删除之前注入的记忆片段。强烈建议启用，避免记忆重复累积和 token 浪费。",
         "type": "bool",
         "default": true
+      },
+      "include_memory_time": {
+        "description": "注入记忆带时间",
+        "hint": "开启后，在注入给模型的记忆条目中显示记忆发生时间（格式：x年x月x日HH:MM）。",
+        "type": "bool",
+        "default": false
       }
     }
   },
@@ -184,6 +190,18 @@
         "hint": "是否在记忆中同时保存原始对话内容和 LLM 生成的摘要。关闭（默认）时只保存结构化摘要（总结、主题、关键信息），可减少 60-80% 存储空间并提升检索效率。开启时会保存完整对话记录，适合需要完整上下文的场景或调试。",
         "type": "bool",
         "default": false
+      },
+      "enable_idle_auto_summary": {
+        "description": "启用中断后自动总结",
+        "hint": "开启后，当会话在一段时间内无新消息时，会自动归纳当前未总结的对话内容。",
+        "type": "bool",
+        "default": false
+      },
+      "idle_summary_timeout_seconds": {
+        "description": "中断自动总结超时（秒）",
+        "hint": "会话空闲达到该时长后，触发一次自动总结。建议 300-3600。",
+        "type": "int",
+        "default": 1800
       }
     }
   },
@@ -222,68 +240,6 @@
         "hint": "重要性低于该阈值的旧记忆将被删除。",
         "type": "float",
         "default": 0.3
-      }
-    }
-  },
-  "sparse_retriever": {
-    "description": "稀疏检索器配置",
-    "hint": "基于 BM25 算法的稀疏检索配置，用于关键词匹配",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用稀疏检索",
-        "hint": "是否启用 BM25 稀疏检索。关闭后将只使用向量检索。",
-        "type": "bool",
-        "default": true
-      },
-      "bm25_k1": {
-        "description": "BM25 K1 参数",
-        "hint": "控制词频饱和度的参数。值越大，高频词的权重增长越慢。推荐 0.9-2.0",
-        "type": "float",
-        "default": 1.2
-      },
-      "bm25_b": {
-        "description": "BM25 B 参数",
-        "hint": "控制文档长度归一化的程度。0 表示不归一化，1 表示完全归一化。推荐 0.5-0.9",
-        "type": "float",
-        "default": 0.75
-      },
-      "use_chinese_tokenizer": {
-        "description": "使用中文分词",
-        "hint": "是否使用 jieba 进行中文分词。关闭后将使用简单的空格分词。",
-        "type": "bool",
-        "default": true
-      },
-      "enable_stopwords_filtering": {
-        "description": "启用停用词过滤",
-        "hint": "是否过滤常见停用词（如的、了等）。可以提升检索质量。",
-        "type": "bool",
-        "default": true
-      },
-      "stopwords_source": {
-        "description": "停用词来源",
-        "hint": "选择停用词表来源。可选：hit（哈工大）、baidu（百度）、cn（自带中文）",
-        "type": "string",
-        "default": "hit"
-      },
-      "custom_stopwords": {
-        "description": "自定义停用词",
-        "hint": "额外的停用词列表，用逗号或空格分隔。会与选定的停用词表合并使用。",
-        "type": "string",
-        "default": ""
-      }
-    }
-  },
-  "dense_retriever": {
-    "description": "稠密检索器配置",
-    "hint": "基于向量嵌入的稠密检索配置，用于语义相似度匹配",
-    "type": "object",
-    "items": {
-      "enable_query_preprocessing": {
-        "description": "启用查询预处理",
-        "hint": "是否对查询进行预处理（如去除特殊字符等）。通常建议启用。",
-        "type": "bool",
-        "default": true
       }
     }
   }

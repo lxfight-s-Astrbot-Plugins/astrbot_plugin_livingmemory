@@ -336,14 +336,15 @@ def format_memories_for_injection(memories: list) -> str:
             if timestamp:
                 try:
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
-                    time_str = f", 时间: {dt.strftime('%Y-%m-%d %H:%M')}"
+                    time_str = dt.strftime("%Y年%m月%d日%H:%M")
                 except Exception:
                     pass
 
             # 构建格式化的记忆条目（展示content和元数据信息）
-            entry_parts = [
-                f"记忆 #{idx} (重要性: {importance:.2f}),发生时间:{time_str}"
-            ]
+            if time_str:
+                entry_parts = [f"记忆 #{idx} (重要性: {importance:.2f}), 发生时间: {time_str}"]
+            else:
+                entry_parts = [f"记忆 #{idx} (重要性: {importance:.2f})"]
 
             # 添加元数据信息
             metadata_parts = []
