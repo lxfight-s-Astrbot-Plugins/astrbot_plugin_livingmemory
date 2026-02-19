@@ -392,7 +392,7 @@ class DBMigration:
                 # 为没有 summary_schema_version 的旧记录打上 v1 标记
                 # 使用 JSON 函数更新 metadata 字段
                 cursor = await db.execute(
-                    "SELECT COUNT(*) FROM documents WHERE metadata NOT LIKE '%summary_schema_version%'"
+                    "SELECT COUNT(*) FROM documents WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'"
                 )
                 count_row = await cursor.fetchone()
                 legacy_count = count_row[0] if count_row else 0
@@ -405,11 +405,11 @@ class DBMigration:
                     await db.execute("""
                         UPDATE documents
                         SET metadata = json_set(
-                            COALESCE(NULLIF(TRIM(metadata), ''), '{}'),
+                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
                             '$.summary_schema_version', 'v1',
                             '$.summary_quality', 'unknown'
                         )
-                        WHERE metadata NOT LIKE '%summary_schema_version%'
+                        WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'
                     """)
                     await db.commit()
                     logger.info(f" 已为 {legacy_count} 条旧记录补充 schema 版本标记")
