@@ -2,6 +2,7 @@
 索引一致性验证器 - 检测并修复索引与数据库的不一致问题
 """
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, cast
@@ -42,6 +43,67 @@ class IndexValidator:
         """
         self.db_path = db_path
         self.faiss_db = faiss_db
+
+    async def _clear_sqlite_storages_with_retry(self, max_attempts: int = 5) -> None:
+        """Clear BM25 and documents tables with retry on sqlite lock."""
+        for attempt in range(max_attempts):
+            try:
+                async with aiosqlite.connect(self.db_path) as db:
+                    # Wait up to 10s for lock release before failing fast.
+                    await db.execute("PRAGMA busy_timeout = 10000")
+                    try:
+                        await db.execute("DELETE FROM memories_fts")
+                    except Exception as e:
+                        logger.warning(f"清空BM25索引失败: {e}")
+
+                    await db.execute("DELETE FROM documents")
+                    await db.commit()
+                return
+            except Exception as e:
+                if (
+                    "database is locked" in str(e).lower()
+                    and attempt < max_attempts - 1
+                ):
+                    wait_seconds = 0.2 * (attempt + 1)
+                    logger.warning(
+                        f"清空SQLite存储遇到锁，{wait_seconds:.1f}s后重试 "
+                        f"({attempt + 1}/{max_attempts}): {e}"
+                    )
+                    await asyncio.sleep(wait_seconds)
+                    continue
+                raise
+
+    async def _delete_vector_entry_with_retry(
+        self,
+        memory_engine: Any,
+        doc_id: int,
+        doc_uuid: str | None,
+        max_attempts: int = 5,
+    ) -> None:
+        """Delete one vector/document mapping with retry on sqlite lock."""
+        for attempt in range(max_attempts):
+            try:
+                removed = False
+                if doc_uuid:
+                    await memory_engine.faiss_db.delete(doc_uuid)
+                    removed = True
+
+                if not removed:
+                    await memory_engine.faiss_db.embedding_storage.delete([int(doc_id)])
+                return
+            except Exception as e:
+                if (
+                    "database is locked" in str(e).lower()
+                    and attempt < max_attempts - 1
+                ):
+                    wait_seconds = 0.2 * (attempt + 1)
+                    logger.warning(
+                        f"删除Faiss文档遇到锁(doc_id={doc_id})，{wait_seconds:.1f}s后重试 "
+                        f"({attempt + 1}/{max_attempts}): {e}"
+                    )
+                    await asyncio.sleep(wait_seconds)
+                    continue
+                raise
 
     async def check_consistency(self) -> IndexStatus:
         """
@@ -227,132 +289,96 @@ class IndexValidator:
         try:
             logger.info(" 开始重建索引...")
 
+            # 1. Read all documents into memory first.
             async with aiosqlite.connect(self.db_path) as db:
-                # 1. 先读取所有文档到内存（在清空前）
                 logger.info(" 读取documents表数据...")
                 cursor = await db.execute(
                     "SELECT id, doc_id, text, metadata FROM documents ORDER BY id"
                 )
                 documents = list(await cursor.fetchall())
 
-                if not documents:
-                    return {
-                        "success": True,
-                        "message": "没有需要重建的文档",
-                        "processed": 0,
-                        "errors": 0,
-                    }
+            if not documents:
+                return {
+                    "success": True,
+                    "message": "没有需要重建的文档",
+                    "processed": 0,
+                    "errors": 0,
+                }
 
-                total = len(documents)
-                logger.info(f" 找到 {total} 条文档需要重建索引")
+            total = len(documents)
+            logger.info(f" 找到 {total} 条文档需要重建索引")
+            logger.info("️ 清空documents表、BM25索引和向量索引...")
 
-                # 2. 清空所有存储（documents表、BM25索引、向量索引）
-                logger.info("️ 清空documents表、BM25索引和向量索引...")
-
-                # 清空BM25索引
+            # 2. Delete vectors/doc mappings first without holding an aiosqlite writer lock.
+            for doc_id, doc_uuid, _text, _metadata_json in documents:
                 try:
-                    await db.execute("DELETE FROM memories_fts")
+                    await self._delete_vector_entry_with_retry(
+                        memory_engine=memory_engine,
+                        doc_id=int(doc_id),
+                        doc_uuid=str(doc_uuid) if doc_uuid else None,
+                    )
                 except Exception as e:
-                    logger.warning(f"清空BM25索引失败: {e}")
+                    logger.warning(
+                        f"删除Faiss文档失败 (doc_id={doc_id}, uuid={doc_uuid}): {e}"
+                    )
 
-                # 清空向量索引（先用内存快照中的映射，再清理documents）
+            # 3. Clear BM25/documents tables in a short transaction.
+            await self._clear_sqlite_storages_with_retry()
+            logger.info(" 所有存储已清空")
+
+            # 4. Rebuild all storages (documents + BM25 + vector).
+            success_count = 0
+            error_count = 0
+            batch_size = 100
+            last_progress_update = 0
+
+            for i, (doc_id, _doc_uuid, text, metadata_json) in enumerate(documents, 1):
                 try:
-                    for doc_id, doc_uuid, _text, _metadata_json in documents:
-                        removed = False
-                        if doc_uuid:
-                            try:
-                                await memory_engine.faiss_db.delete(doc_uuid)
-                                removed = True
-                            except Exception as e:
-                                logger.warning(
-                                    f"删除Faiss文档失败 (doc_id={doc_id}, uuid={doc_uuid}): {e}"
-                                )
+                    metadata = json.loads(metadata_json) if metadata_json else {}
 
-                        if not removed:
-                            try:
-                                await memory_engine.faiss_db.embedding_storage.delete(
-                                    [int(doc_id)]
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"按int_id删除向量失败 (doc_id={doc_id}): {e}"
-                                )
-                except Exception as e:
-                    logger.warning(f"清空Faiss索引时出错: {e}")
+                    if "importance" not in metadata:
+                        metadata["importance"] = 0.5
+                    if "create_time" not in metadata:
+                        import time
 
-                # 最后清空documents表，避免映射先删导致向量无法删除。
-                await db.execute("DELETE FROM documents")
-                await db.commit()
-
-                logger.info(" 所有存储已清空")
-
-                # 3. 重建所有存储（documents表 + 索引）
-                success_count = 0
-                error_count = 0
-                batch_size = 100  # 批处理大小
-                last_progress_update = 0
-
-                for i, (doc_id, _doc_uuid, text, metadata_json) in enumerate(
-                    documents, 1
-                ):
-                    try:
-                        # 解析metadata
-                        metadata = json.loads(metadata_json) if metadata_json else {}
-
-                        # 确保metadata包含必要字段
-                        if "importance" not in metadata:
-                            metadata["importance"] = 0.5
-                        if "create_time" not in metadata:
-                            import time
-
-                            metadata["create_time"] = time.time()
-                        if "last_access_time" not in metadata:
-                            metadata["last_access_time"] = metadata.get(
-                                "create_time", time.time()
-                            )
-                        if "session_id" not in metadata:
-                            metadata["session_id"] = None
-                        if "persona_id" not in metadata:
-                            metadata["persona_id"] = None
-
-                        # 关键修复：使用add_memory重建所有存储
-                        # 虽然会生成新的doc_id，但这是可以接受的
-                        # 因为我们已经清空了所有数据
-                        await memory_engine.add_memory(
-                            content=text,
-                            session_id=metadata.get("session_id"),
-                            persona_id=metadata.get("persona_id"),
-                            importance=metadata.get("importance", 0.5),
-                            metadata=metadata,
+                        metadata["create_time"] = time.time()
+                    if "last_access_time" not in metadata:
+                        metadata["last_access_time"] = metadata.get(
+                            "create_time", time.time()
                         )
+                    if "session_id" not in metadata:
+                        metadata["session_id"] = None
+                    if "persona_id" not in metadata:
+                        metadata["persona_id"] = None
 
-                        success_count += 1
+                    await memory_engine.add_memory(
+                        content=text,
+                        session_id=metadata.get("session_id"),
+                        persona_id=metadata.get("persona_id"),
+                        importance=metadata.get("importance", 0.5),
+                        metadata=metadata,
+                    )
 
-                        # 进度回调 - 降低频率到每100条
-                        progress_percentage = (i * 100) // total
-                        if (
-                            progress_callback
-                            and progress_percentage > last_progress_update
-                        ):
-                            await progress_callback(i, total, f"已处理 {i}/{total} 条")
-                            last_progress_update = progress_percentage
+                    success_count += 1
 
-                        # 每处理100条记录记录一次进度
-                        if i % batch_size == 0:
-                            logger.info(f" 重建进度: {i}/{total} ({i * 100 // total}%)")
+                    progress_percentage = (i * 100) // total
+                    if progress_callback and progress_percentage > last_progress_update:
+                        await progress_callback(i, total, f"已处理 {i}/{total} 条")
+                        last_progress_update = progress_percentage
 
-                    except Exception as e:
-                        error_count += 1
-                        logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
+                    if i % batch_size == 0:
+                        logger.info(f" 重建进度: {i}/{total} ({i * 100 // total}%)")
 
-                # 4. 更新迁移状态标记
-                from datetime import datetime
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
 
-                logger.info(
-                    f" 索引重建完成: 成功{success_count}条, 失败{error_count}条"
-                )
+            # 5. Update migration status marker.
+            from datetime import datetime
 
-            # 5. 在主数据库连接外部更新状态标记（确保提交）
+            logger.info(f" 索引重建完成: 成功{success_count}条, 失败{error_count}条")
+
+            # 6. 在主数据库连接外部更新状态标记（确保提交）
             try:
                 async with aiosqlite.connect(self.db_path) as status_db:
                     # 确保migration_status表存在
@@ -393,7 +419,7 @@ class IndexValidator:
             except Exception as e:
                 logger.warning(f"更新迁移状态失败: {e}")
 
-            # 6. 返回重建结果
+            # 7. 返回重建结果
             return {
                 "success": True,
                 "message": "索引重建完成",
