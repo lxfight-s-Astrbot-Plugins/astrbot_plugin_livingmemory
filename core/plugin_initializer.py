@@ -10,7 +10,7 @@ import time
 from astrbot.api import logger
 from astrbot.api.star import Context
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
-from astrbot.core.provider.provider import EmbeddingProvider
+from astrbot.core.provider.provider import EmbeddingProvider, Provider
 
 from ..storage.conversation_store import ConversationStore
 from ..storage.db_migration import DBMigration
@@ -41,7 +41,7 @@ class PluginInitializer:
 
         # 组件实例
         self.embedding_provider: EmbeddingProvider | None = None
-        self.llm_provider = None
+        self.llm_provider: Provider | None = None
         self.db: FaissVecDB | None = None
         self.memory_engine: MemoryEngine | None = None
         self.memory_processor: MemoryProcessor | None = None
@@ -211,17 +211,30 @@ class PluginInitializer:
                     logger.debug("没有可用的 Embedding Provider")
 
         # 初始化 LLM Provider
+        self.llm_provider = None
         llm_id = self.config_manager.get("provider_settings.llm_provider_id")
         if llm_id:
             provider = self.context.get_provider_by_id(llm_id)
-            if provider:
+            if provider and isinstance(provider, Provider):
                 self.llm_provider = provider
                 if not silent:
                     logger.info(f"成功从配置加载 LLM Provider: {llm_id}")
+            elif provider and not silent:
+                logger.warning(
+                    f"Provider {llm_id} 不是聊天 Provider 类型，已忽略该配置。"
+                )
 
         if not self.llm_provider:
             try:
-                self.llm_provider = self.context.get_using_provider()
+                default_provider = self.context.get_using_provider()
+                if default_provider and not isinstance(default_provider, Provider):
+                    if not silent:
+                        logger.warning(
+                            "AstrBot 默认 Provider 类型不正确，期望聊天 Provider。"
+                        )
+                    self.llm_provider = None
+                else:
+                    self.llm_provider = default_provider
                 if not silent and self.llm_provider:
                     logger.info("使用 AstrBot 当前默认的 LLM Provider。")
             except (ValueError, Exception) as e:
@@ -243,6 +256,8 @@ class PluginInitializer:
 
             if not self.embedding_provider:
                 raise ProviderNotReadyError("Embedding Provider 未初始化")
+            if not self.llm_provider or not isinstance(self.llm_provider, Provider):
+                raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
 
             # 检查索引文件维度与当前 embedding provider 维度是否一致
             await self._check_and_fix_dimension_mismatch(index_path)
@@ -312,8 +327,8 @@ class PluginInitializer:
             await self._repair_message_counts(conversation_store)
 
             # 初始化 MemoryProcessor
-            if not self.llm_provider:
-                raise ProviderNotReadyError("LLM Provider 未初始化")
+            if not self.llm_provider or not isinstance(self.llm_provider, Provider):
+                raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
             self.memory_processor = MemoryProcessor(self.llm_provider, self.context)
             logger.info("✅ MemoryProcessor 已初始化")
 

@@ -378,19 +378,18 @@ class ConversationManager:
         Returns:
             清理的会话数量
         """
-        # 计算过期时间(以天为单位)
-        days = self.session_ttl // (24 * 3600)
-        if days < 1:
-            days = 30  # 默认30天
-
-        deleted_count = await self.store.delete_old_sessions(days)
+        ttl_seconds = max(60, int(self.session_ttl))
+        deleted_count = await self.store.delete_old_sessions(ttl_seconds=ttl_seconds)
 
         # 清空缓存(可能包含已删除的会话)
         async with self._cache_lock:
             self._cache.clear()
 
         if deleted_count > 0:
-            logger.info(f"[ConversationManager] 清理过期会话: {deleted_count}个")
+            logger.info(
+                f"[ConversationManager] 清理过期会话: {deleted_count}个 "
+                f"(TTL={ttl_seconds}秒)"
+            )
 
         return deleted_count
 

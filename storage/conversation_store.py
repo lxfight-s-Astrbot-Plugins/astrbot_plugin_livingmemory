@@ -266,17 +266,25 @@ class ConversationStore:
 
         return sessions
 
-    async def delete_old_sessions(self, days: int = 30) -> int:
+    async def delete_old_sessions(
+        self, days: int = 30, ttl_seconds: int | None = None
+    ) -> int:
         """
         删除过期会话及其消息
 
         Args:
-            days: 天数阈值,删除超过此天数未活跃的会话
+            days: 天数阈值（兼容旧调用）
+            ttl_seconds: 秒级TTL阈值（优先使用）
 
         Returns:
             int: 删除的会话数量
         """
-        cutoff_time = time.time() - (days * 24 * 60 * 60)
+        effective_ttl_seconds = (
+            int(ttl_seconds) if ttl_seconds is not None else int(days * 24 * 60 * 60)
+        )
+        if effective_ttl_seconds <= 0:
+            effective_ttl_seconds = 60
+        cutoff_time = time.time() - effective_ttl_seconds
 
         if self.connection is None:
             return 0
@@ -308,7 +316,8 @@ class ConversationStore:
         await self.connection.commit()
 
         logger.info(
-            f"[ConversationStore] 删除了 {len(session_ids)} 个过期会话 (超过 {days} 天)"
+            f"[ConversationStore] 删除了 {len(session_ids)} 个过期会话 "
+            f"(超过 {effective_ttl_seconds} 秒)"
         )
         return len(session_ids)
 

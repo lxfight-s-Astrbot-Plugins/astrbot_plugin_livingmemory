@@ -187,15 +187,67 @@ class MemoryEngine:
             await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id TEXT,
                 text TEXT NOT NULL,
-                metadata TEXT DEFAULT '{}'
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT,
+                updated_at TEXT
             )
+        """)
+
+            # 兼容旧版插件创建的简化 documents 表，确保 FAISS DocumentStorage 所需字段存在
+            cursor = await self.db_connection.execute("PRAGMA table_info(documents)")
+            column_rows = await cursor.fetchall()
+            existing_columns = {row[1] for row in column_rows}
+
+            missing_columns = []
+            if "doc_id" not in existing_columns:
+                await self.db_connection.execute(
+                    "ALTER TABLE documents ADD COLUMN doc_id TEXT"
+                )
+                missing_columns.append("doc_id")
+            if "created_at" not in existing_columns:
+                await self.db_connection.execute(
+                    "ALTER TABLE documents ADD COLUMN created_at TEXT"
+                )
+                missing_columns.append("created_at")
+            if "updated_at" not in existing_columns:
+                await self.db_connection.execute(
+                    "ALTER TABLE documents ADD COLUMN updated_at TEXT"
+                )
+                missing_columns.append("updated_at")
+
+            if missing_columns:
+                logger.warning(
+                    "[MemoryEngine] 检测到旧版 documents 表结构，已补齐字段: "
+                    f"{', '.join(missing_columns)}"
+                )
+
+            # 回填旧数据，避免 doc_id/timestamp 缺失导致删除与展示异常
+            await self.db_connection.execute("""
+            UPDATE documents
+            SET doc_id = 'legacy-' || id
+            WHERE doc_id IS NULL OR TRIM(doc_id) = ''
+        """)
+            await self.db_connection.execute("""
+            UPDATE documents
+            SET created_at = datetime('now')
+            WHERE created_at IS NULL OR TRIM(CAST(created_at AS TEXT)) = ''
+        """)
+            await self.db_connection.execute("""
+            UPDATE documents
+            SET updated_at = COALESCE(created_at, datetime('now'))
+            WHERE updated_at IS NULL OR TRIM(CAST(updated_at AS TEXT)) = ''
         """)
 
             # 创建索引以提升session_id查询性能
             await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_doc_metadata
             ON documents(json_extract(metadata, '$.session_id'))
+        """)
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_documents_doc_id
+            ON documents(doc_id)
         """)
 
             # 创建版本管理表

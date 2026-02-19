@@ -47,11 +47,13 @@ API端点说明:
 """
 
 import asyncio
+import json
 import secrets
 import time
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -395,73 +397,96 @@ class WebUIServer:
         ):
             query = request.query_params
             session_id = query.get("session_id")
-            page = int(query.get("page", 1))
-            page_size = int(query.get("page_size", 20))
+            page = max(1, int(query.get("page", 1)))
+            page_size = max(1, int(query.get("page_size", 20)))
 
             # 限制每页最大数量，防止内存溢出
             page_size = min(page_size, 500)
             offset = (page - 1) * page_size
 
             try:
-                if session_id:
-                    # Use exact session_id to match current storage format.
-                    normalized_session_id = session_id
+                db_path = getattr(self.memory_engine, "db_path", None)
+                if not db_path:
+                    raise RuntimeError("MemoryEngine db_path unavailable")
 
-                    # 先获取该会话的总数（高效，不加载数据）
-                    total = await self.memory_engine.faiss_db.count_documents(
-                        metadata_filter={"session_id": normalized_session_id}
-                    )
+                sort_expr = (
+                    "COALESCE("
+                    "CASE WHEN json_valid(metadata) "
+                    "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
+                    "0)"
+                )
 
-                    # 使用服务端分页获取当前页数据
-                    all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
-                        metadata_filters={"session_id": normalized_session_id},
-                        limit=page_size,
-                        offset=offset,
-                    )
+                async with aiosqlite.connect(db_path) as db:
+                    db.row_factory = aiosqlite.Row
 
-                    # 按创建时间排序（如果需要）
-                    sorted_docs = sorted(
-                        all_docs,
-                        key=lambda x: (
-                            x["metadata"].get("create_time", 0)
-                            if isinstance(x["metadata"], dict)
-                            else 0
-                        ),
-                        reverse=True,
-                    )
+                    if session_id:
+                        # Use exact session_id to match current storage format.
+                        normalized_session_id = session_id
+                        where_clause = (
+                            "WHERE CASE WHEN json_valid(metadata) "
+                            "THEN json_extract(metadata, '$.session_id') END = ?"
+                        )
+                        count_cursor = await db.execute(
+                            f"SELECT COUNT(*) as total FROM documents {where_clause}",
+                            (normalized_session_id,),
+                        )
+                        count_row = await count_cursor.fetchone()
+                        total = int(count_row["total"]) if count_row else 0
 
-                    memories = sorted_docs
-                else:
-                    # 先获取总数（高效，不加载数据）
-                    total = await self.memory_engine.faiss_db.count_documents(
-                        metadata_filter={}
-                    )
+                        cursor = await db.execute(
+                            f"""
+                            SELECT id, doc_id, text, metadata, created_at, updated_at
+                            FROM documents
+                            {where_clause}
+                            ORDER BY {sort_expr} DESC, id DESC
+                            LIMIT ? OFFSET ?
+                            """,
+                            (normalized_session_id, page_size, offset),
+                        )
+                    else:
+                        count_cursor = await db.execute(
+                            "SELECT COUNT(*) as total FROM documents"
+                        )
+                        count_row = await count_cursor.fetchone()
+                        total = int(count_row["total"]) if count_row else 0
 
-                    # 使用真正的服务端分页（只加载当前页数据）
-                    all_docs = await self.memory_engine.faiss_db.document_storage.get_documents(
-                        metadata_filters={}, limit=page_size, offset=offset
-                    )
+                        cursor = await db.execute(
+                            f"""
+                            SELECT id, doc_id, text, metadata, created_at, updated_at
+                            FROM documents
+                            ORDER BY {sort_expr} DESC, id DESC
+                            LIMIT ? OFFSET ?
+                            """,
+                            (page_size, offset),
+                        )
 
-                    # 按创建时间降序排序（最新的在前面）
-                    memories = sorted(
-                        all_docs,
-                        key=lambda x: (
-                            x["metadata"].get("create_time", 0)
-                            if isinstance(x["metadata"], dict)
-                            else 0
-                        ),
-                        reverse=True,
-                    )
+                    rows = await cursor.fetchall()
 
-                # 解析 metadata 字段（从 JSON 字符串转为字典）
-                import json
-
-                for doc in memories:
-                    if isinstance(doc.get("metadata"), str):
+                memories: list[dict[str, Any]] = []
+                for row in rows:
+                    metadata_raw = row["metadata"]
+                    metadata_dict: dict[str, Any]
+                    if isinstance(metadata_raw, str):
                         try:
-                            doc["metadata"] = json.loads(doc["metadata"])
+                            parsed = json.loads(metadata_raw) if metadata_raw else {}
+                            metadata_dict = parsed if isinstance(parsed, dict) else {}
                         except (json.JSONDecodeError, TypeError):
-                            doc["metadata"] = {}
+                            metadata_dict = {}
+                    elif isinstance(metadata_raw, dict):
+                        metadata_dict = metadata_raw
+                    else:
+                        metadata_dict = {}
+
+                    memories.append(
+                        {
+                            "id": row["id"],
+                            "doc_id": row["doc_id"],
+                            "text": row["text"],
+                            "metadata": metadata_dict,
+                            "created_at": row["created_at"],
+                            "updated_at": row["updated_at"],
+                        }
+                    )
 
                 return {
                     "success": True,

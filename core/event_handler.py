@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import hashlib
 import time
 from typing import Any
 
@@ -86,20 +87,17 @@ class EventHandler:
                     f"这可能是平台适配器初始化问题，建议检查平台配置。"
                 )
 
-            message_id = event.message_obj.message_id
-
-            # 消息去重
-            if self._is_duplicate_message(message_id):
-                logger.debug(f"[{session_id}] 消息已存在,跳过: message_id={message_id}")
-                return
-
-            self._mark_message_processed(message_id)
-
             # 判断是否是Bot自己发送的消息
             is_bot_message = event.get_sender_id() == event.get_self_id()
 
             # 获取消息内容
             content = self._extract_message_content(event)
+            dedup_key = self._build_dedup_key(event, session_id, content)
+
+            # 消息去重
+            if dedup_key and self._is_duplicate_message(dedup_key):
+                logger.debug(f"[{session_id}] 消息已存在,跳过: dedup_key={dedup_key}")
+                return
 
             # 确定角色
             role = "assistant" if is_bot_message else "user"
@@ -110,6 +108,8 @@ class EventHandler:
                 role=role,
                 content=content,
             )
+            if dedup_key:
+                self._mark_message_processed(dedup_key)
 
             # 标记是否为Bot消息
             message.metadata["is_bot_message"] = is_bot_message
@@ -823,8 +823,27 @@ class EventHandler:
 
         return removed_count
 
-    def _is_duplicate_message(self, message_id: str) -> bool:
+    def _build_dedup_key(
+        self, event: AstrMessageEvent, session_id: str, content: str
+    ) -> str | None:
+        """构建去重键：优先使用 message_id，缺失时退化为消息内容指纹。"""
+        raw_message_id = getattr(getattr(event, "message_obj", None), "message_id", None)
+        if raw_message_id is not None:
+            message_id = str(raw_message_id).strip()
+            if message_id:
+                return f"id:{message_id}"
+
+        sender_id = event.get_sender_id() if hasattr(event, "get_sender_id") else ""
+        timestamp = getattr(getattr(event, "message_obj", None), "timestamp", 0)
+        fingerprint = f"{session_id}|{sender_id}|{timestamp}|{content}"
+        digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()
+        return f"fallback:{digest}"
+
+    def _is_duplicate_message(self, dedup_key: str | None) -> bool:
         """检查消息是否已经处理过"""
+        if not dedup_key:
+            return False
+
         current_time = time.time()
 
         # 批量清理：先清理过期项
@@ -843,11 +862,13 @@ class EventHandler:
             for key, _ in sorted_items[:to_remove]:
                 del self._message_dedup_cache[key]
 
-        return message_id in self._message_dedup_cache
+        return dedup_key in self._message_dedup_cache
 
-    def _mark_message_processed(self, message_id: str):
+    def _mark_message_processed(self, dedup_key: str | None):
         """标记消息已处理"""
-        self._message_dedup_cache[message_id] = time.time()
+        if not dedup_key:
+            return
+        self._message_dedup_cache[dedup_key] = time.time()
 
     def _extract_message_content(self, event: AstrMessageEvent) -> str:
         """提取消息内容,包括非文本消息的类型描述"""

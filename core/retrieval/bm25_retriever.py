@@ -135,13 +135,13 @@ class BM25Retriever:
 
         async with aiosqlite.connect(self.db_path) as db:
             # 执行FTS5 BM25搜索
-            # 注意: bm25()返回负数,越大(越接近0)越相关,所以用DESC排序
+            # 注意: SQLite FTS5 bm25() 分数越小越相关（常见为负数）
             cursor = await db.execute(
                 f"""
                 SELECT doc_id, bm25({self.fts_table}) as score
                 FROM {self.fts_table}
                 WHERE {self.fts_table} MATCH ?
-                ORDER BY score DESC
+                ORDER BY score ASC
                 LIMIT ?
             """,
                 (fts_query, limit * 2),
@@ -205,15 +205,19 @@ class BM25Retriever:
 
             # 归一化分数到[0, 1]
             if results:
-                # FTS5的BM25分数是负数,越大(越接近0)越相关
+                # FTS5 bm25 分数越小越相关，归一化后分数越大越相关
                 scores = [r.score for r in results]
                 max_score = max(scores)
                 min_score = min(scores)
-                score_range = max_score - min_score if max_score != min_score else 1.0
 
-                for result in results:
-                    # 归一化: (score - min) / range
-                    result.score = (result.score - min_score) / score_range
+                if max_score == min_score:
+                    for result in results:
+                        result.score = 1.0
+                else:
+                    score_range = max_score - min_score
+                    for result in results:
+                        # 归一化: (max - score) / range
+                        result.score = (max_score - result.score) / score_range
 
             return results
 
