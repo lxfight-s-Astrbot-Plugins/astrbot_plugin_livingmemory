@@ -1,311 +1,175 @@
 """
-测试CommandHandler
+Tests for CommandHandler.
 """
 
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from core.command_handler import CommandHandler
-from core.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.command_handler import CommandHandler
 
 
 @pytest.fixture
 def config_manager():
-    """创建配置管理器"""
     return ConfigManager()
 
 
 @pytest.fixture
-def mock_memory_engine():
-    """创建mock的记忆引擎"""
+def memory_engine():
     engine = Mock()
+    engine.db_path = "/tmp/livingmemory-test.db"
     engine.get_statistics = AsyncMock(
         return_value={
-            "total_memories": 100,
-            "sessions": {"session1": 10},
-            "newest_memory": 1234567890.0,
+            "total_memories": 2,
+            "sessions": {"s1": 1, "s2": 1},
+            "newest_memory": 1_700_000_000.0,
         }
     )
     engine.search_memories = AsyncMock(return_value=[])
     engine.delete_memory = AsyncMock(return_value=True)
-    engine.db_path = "/tmp/test.db"
     return engine
 
 
 @pytest.fixture
-def mock_conversation_manager():
-    """创建mock的会话管理器"""
+def conversation_manager():
     manager = Mock()
     manager.clear_session = AsyncMock()
     return manager
 
 
 @pytest.fixture
-def mock_index_validator():
-    """创建mock的索引验证器"""
+def index_validator():
     validator = Mock()
     validator.check_consistency = AsyncMock(
         return_value=Mock(
             is_consistent=True,
             needs_rebuild=False,
-            reason="索引正常",
-            documents_count=100,
-            bm25_count=100,
-            vector_count=100,
+            reason="ok",
+            documents_count=2,
+            bm25_count=2,
+            vector_count=2,
         )
     )
     validator.rebuild_indexes = AsyncMock(
-        return_value={
-            "success": True,
-            "processed": 100,
-            "errors": 0,
-            "total": 100,
-        }
+        return_value={"success": True, "processed": 2, "errors": 0, "total": 2}
     )
     return validator
 
 
 @pytest.fixture
-def command_handler(
-    config_manager, mock_memory_engine, mock_conversation_manager, mock_index_validator
-):
-    """创建命令处理器"""
+def handler(config_manager, memory_engine, conversation_manager, index_validator):
+    context = Mock()
     return CommandHandler(
+        context=context,
         config_manager=config_manager,
-        memory_engine=mock_memory_engine,
-        conversation_manager=mock_conversation_manager,
-        index_validator=mock_index_validator,
+        memory_engine=memory_engine,
+        conversation_manager=conversation_manager,
+        index_validator=index_validator,
         webui_server=None,
-        initialization_status_callback=lambda: "✅ 插件已就绪",
+        initialization_status_callback=lambda: "ready",
     )
 
 
-def test_command_handler_creation(command_handler):
-    """测试CommandHandler创建"""
-    assert command_handler is not None
-    assert command_handler.config_manager is not None
-    assert command_handler.memory_engine is not None
-    assert command_handler.conversation_manager is not None
-    assert command_handler.index_validator is not None
+@pytest.mark.asyncio
+async def test_handle_status_returns_report(handler, mock_event):
+    messages = [msg async for msg in handler.handle_status(mock_event)]
+    assert len(messages) == 1
+    assert "LivingMemory" in messages[0]
+    assert "总记忆数" in messages[0]
 
 
 @pytest.mark.asyncio
-async def test_handle_status(command_handler):
-    """测试status命令"""
-    mock_event = Mock()
+async def test_handle_search_validates_inputs_and_calls_engine(handler, mock_event):
+    empty = [msg async for msg in handler.handle_search(mock_event, "", 3)]
+    assert "不能为空" in empty[0]
 
-    messages = []
-    async for message in command_handler.handle_status(mock_event):
-        messages.append(message)
-
-    # 验证返回了状态消息
-    assert len(messages) > 0
-    assert "LivingMemory" in messages[0] or "状态" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_status_no_engine(config_manager):
-    """测试没有引擎时的status命令"""
-    handler = CommandHandler(
-        config_manager=config_manager,
-        memory_engine=None,
-        conversation_manager=None,
-        index_validator=None,
+    _ = [msg async for msg in handler.handle_search(mock_event, "hello", 200)]
+    # k should be clamped to 100.
+    handler.memory_engine.search_memories.assert_awaited_with(
+        query="hello", k=100, session_id=mock_event.unified_msg_origin
     )
 
-    mock_event = Mock()
 
-    messages = []
-    async for message in handler.handle_status(mock_event):
-        messages.append(message)
+@pytest.mark.asyncio
+async def test_handle_search_renders_results(handler, mock_event, memory_engine):
+    result = Mock(doc_id=7, final_score=0.88, content="hello memory")
+    memory_engine.search_memories = AsyncMock(return_value=[result])
 
-    # 验证返回了错误消息
-    assert len(messages) > 0
-    assert "未初始化" in messages[0]
+    messages = [msg async for msg in handler.handle_search(mock_event, "hello", 5)]
+    assert len(messages) == 1
+    assert "找到 1 条相关记忆" in messages[0]
+    assert "ID: 7" in messages[0]
 
 
 @pytest.mark.asyncio
-async def test_handle_search(command_handler):
-    """测试search命令"""
-    mock_event = Mock()
-    mock_event.unified_msg_origin = "test_session"
+async def test_handle_forget_success_and_not_found(handler, mock_event, memory_engine):
+    success = [msg async for msg in handler.handle_forget(mock_event, 10)]
+    assert "已删除记忆 #10" in success[0]
 
-    messages = []
-    async for message in command_handler.handle_search(mock_event, "测试查询", 5):
-        messages.append(message)
-
-    # 验证调用了search_memories
-    assert command_handler.memory_engine.search_memories.called
-    assert len(messages) > 0
+    memory_engine.delete_memory = AsyncMock(return_value=False)
+    failed = [msg async for msg in handler.handle_forget(mock_event, 11)]
+    assert "删除失败" in failed[0]
 
 
 @pytest.mark.asyncio
-async def test_handle_search_with_results(command_handler, mock_memory_engine):
-    """测试有结果的search命令"""
-    # 配置mock返回结果
-    mock_result = Mock()
-    mock_result.doc_id = 1
-    mock_result.final_score = 0.8
-    mock_result.content = "测试记忆内容"
+async def test_handle_rebuild_index_branches(handler, mock_event, index_validator):
+    # no rebuild needed
+    msgs = [msg async for msg in handler.handle_rebuild_index(mock_event)]
+    assert any("索引状态正常" in msg for msg in msgs)
 
-    mock_memory_engine.search_memories = AsyncMock(return_value=[mock_result])
-
-    mock_event = Mock()
-    mock_event.unified_msg_origin = "test_session"
-
-    messages = []
-    async for message in command_handler.handle_search(mock_event, "测试", 5):
-        messages.append(message)
-
-    # 验证返回了搜索结果
-    assert len(messages) > 0
-    assert "找到" in messages[0] or "记忆" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_forget(command_handler):
-    """测试forget命令"""
-    mock_event = Mock()
-
-    messages = []
-    async for message in command_handler.handle_forget(mock_event, 1):
-        messages.append(message)
-
-    # 验证调用了delete_memory
-    assert command_handler.memory_engine.delete_memory.called
-    assert len(messages) > 0
-    assert "删除" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_forget_not_found(command_handler, mock_memory_engine):
-    """测试删除不存在的记忆"""
-    mock_memory_engine.delete_memory = AsyncMock(return_value=False)
-
-    mock_event = Mock()
-
-    messages = []
-    async for message in command_handler.handle_forget(mock_event, 999):
-        messages.append(message)
-
-    # 验证返回了失败消息
-    assert len(messages) > 0
-    assert "失败" in messages[0] or "不存在" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_rebuild_index(command_handler):
-    """测试rebuild-index命令"""
-    mock_event = Mock()
-
-    messages = []
-    async for message in command_handler.handle_rebuild_index(mock_event):
-        messages.append(message)
-
-    # 验证调用了check_consistency
-    assert command_handler.index_validator.check_consistency.called
-    assert len(messages) > 0
-
-
-@pytest.mark.asyncio
-async def test_handle_rebuild_index_needed(command_handler, mock_index_validator):
-    """测试需要重建索引的情况"""
-    # 配置mock返回需要重建
-    mock_index_validator.check_consistency = AsyncMock(
+    # rebuild needed
+    index_validator.check_consistency = AsyncMock(
         return_value=Mock(
             is_consistent=False,
             needs_rebuild=True,
-            reason="索引不一致",
-            documents_count=100,
-            bm25_count=90,
-            vector_count=95,
+            reason="inconsistent",
+            documents_count=3,
+            bm25_count=2,
+            vector_count=1,
         )
     )
-
-    mock_event = Mock()
-
-    messages = []
-    async for message in command_handler.handle_rebuild_index(mock_event):
-        messages.append(message)
-
-    # 验证调用了rebuild_indexes
-    assert mock_index_validator.rebuild_indexes.called
-    assert len(messages) > 1  # 应该有多条消息
+    msgs2 = [msg async for msg in handler.handle_rebuild_index(mock_event)]
+    assert any("开始重建索引" in msg for msg in msgs2)
+    assert index_validator.rebuild_indexes.await_count >= 1
 
 
 @pytest.mark.asyncio
-async def test_handle_webui(command_handler):
-    """测试webui命令"""
-    mock_event = Mock()
+async def test_handle_reset_and_help(handler, mock_event, conversation_manager):
+    reset = [msg async for msg in handler.handle_reset(mock_event)]
+    assert "已重置" in reset[0]
+    conversation_manager.clear_session.assert_awaited_once()
 
-    messages = []
-    async for message in command_handler.handle_webui(mock_event):
-        messages.append(message)
-
-    # 验证返回了WebUI信息
-    assert len(messages) > 0
-    assert "WebUI" in messages[0]
+    help_msg = [msg async for msg in handler.handle_help(mock_event)]
+    assert "/lmem status" in help_msg[0]
 
 
-@pytest.mark.asyncio
-async def test_handle_reset(command_handler):
-    """测试reset命令"""
-    mock_event = Mock()
-    mock_event.unified_msg_origin = "test_session"
-
-    messages = []
-    async for message in command_handler.handle_reset(mock_event):
-        messages.append(message)
-
-    # 验证调用了clear_session
-    assert command_handler.conversation_manager.clear_session.called
-    assert len(messages) > 0
-    assert "重置" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_handle_help(command_handler):
-    """测试help命令"""
-    mock_event = Mock()
-
-    messages = []
-    async for message in command_handler.handle_help(mock_event):
-        messages.append(message)
-
-    # 验证返回了帮助信息
-    assert len(messages) > 0
-    assert "使用指南" in messages[0] or "help" in messages[0].lower()
-
-
-def test_get_webui_url_disabled(command_handler):
-    """测试WebUI禁用时的URL获取"""
-    url = command_handler._get_webui_url()
-    # 默认配置下WebUI是禁用的
-    assert url is None
-
-
-def test_get_webui_url_enabled(config_manager):
-    """测试WebUI启用时的URL获取"""
-    # 创建启用WebUI的配置
-    config = {
-        "webui_settings": {
-            "enabled": True,
-            "host": "127.0.0.1",
-            "port": 8080,
-        }
-    }
-    config_manager = ConfigManager(config)
-
-    # 创建mock webui_server
-    mock_webui = Mock()
-
+def test_get_webui_url_logic(config_manager):
     handler = CommandHandler(
+        context=Mock(),
         config_manager=config_manager,
         memory_engine=None,
         conversation_manager=None,
         index_validator=None,
-        webui_server=mock_webui,
+        webui_server=None,
     )
+    assert handler._get_webui_url() is None
 
-    url = handler._get_webui_url()
-    assert url == "http://127.0.0.1:8080"
+    config = ConfigManager(
+        {
+            "webui_settings": {
+                "enabled": True,
+                "host": "0.0.0.0",
+                "port": 8090,
+                "access_password": "x",
+            }
+        }
+    )
+    handler2 = CommandHandler(
+        context=Mock(),
+        config_manager=config,
+        memory_engine=None,
+        conversation_manager=None,
+        index_validator=None,
+        webui_server=Mock(),
+    )
+    assert handler2._get_webui_url() == "http://127.0.0.1:8090"

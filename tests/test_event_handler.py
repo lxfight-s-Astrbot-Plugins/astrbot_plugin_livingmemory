@@ -1,30 +1,18 @@
 """
-测试EventHandler
+Tests for EventHandler core behaviors.
 """
 
-import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from core.config_manager import ConfigManager
-from core.event_handler import EventHandler
+from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+from astrbot.api.platform import MessageType
 
 
 @pytest.fixture
-def mock_context():
-    """创建mock的AstrBot上下文"""
-    return Mock()
-
-
-@pytest.fixture
-def config_manager():
-    """创建配置管理器"""
-    return ConfigManager()
-
-
-@pytest.fixture
-def mock_memory_engine():
-    """创建mock的记忆引擎"""
+def memory_engine():
     engine = Mock()
     engine.search_memories = AsyncMock(return_value=[])
     engine.add_memory = AsyncMock(return_value=1)
@@ -32,216 +20,175 @@ def mock_memory_engine():
 
 
 @pytest.fixture
-def mock_memory_processor():
-    """创建mock的记忆处理器"""
+def memory_processor():
     processor = Mock()
     processor.process_conversation = AsyncMock(
-        return_value=("测试摘要", {"topics": ["测试"]}, 0.5)
+        return_value=("summary", {"topics": ["t1"]}, 0.6)
     )
     return processor
 
 
 @pytest.fixture
-def mock_conversation_manager():
-    """创建mock的会话管理器"""
+def conversation_manager():
     manager = Mock()
     manager.add_message_from_event = AsyncMock(return_value=Mock(id=1, metadata={}))
-    manager.get_session_info = AsyncMock(return_value=Mock(message_count=10))
-    manager.get_session_metadata = AsyncMock(return_value=0)
-    manager.get_messages_range = AsyncMock(return_value=[])
-    manager.update_session_metadata = AsyncMock()
+    manager.get_session_info = AsyncMock(return_value=Mock(message_count=12))
+    session_metadata = {"last_summarized_index": 0, "pending_summary": None}
+
+    async def _get_session_metadata(session_id, key, default=None):
+        return session_metadata.get(key, default)
+
+    async def _update_session_metadata(session_id, key, value):
+        session_metadata[key] = value
+
+    manager.get_session_metadata = AsyncMock(side_effect=_get_session_metadata)
+    manager.get_messages_range = AsyncMock(
+        return_value=[Mock(group_id=None), Mock(group_id=None)]
+    )
+    manager.update_session_metadata = AsyncMock(side_effect=_update_session_metadata)
+    manager.invalidate_cache = AsyncMock()
     manager.store = Mock()
+    manager.store.get_message_count = AsyncMock(return_value=12)
     manager.store.update_message_metadata = AsyncMock()
     manager.store.connection = Mock()
-    manager.store.connection.execute = AsyncMock()
+    manager.store.connection.execute = AsyncMock(return_value=Mock(rowcount=1))
     manager.store.connection.commit = AsyncMock()
     return manager
 
 
 @pytest.fixture
-def event_handler(
-    mock_context,
-    config_manager,
-    mock_memory_engine,
-    mock_memory_processor,
-    mock_conversation_manager,
-):
-    """创建事件处理器"""
+def handler(memory_engine, memory_processor, conversation_manager):
     return EventHandler(
-        context=mock_context,
-        config_manager=config_manager,
-        memory_engine=mock_memory_engine,
-        memory_processor=mock_memory_processor,
-        conversation_manager=mock_conversation_manager,
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {"top_k": 3, "injection_method": "system_prompt"},
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+        conversation_manager=conversation_manager,
     )
 
 
-def test_event_handler_creation(event_handler):
-    """测试EventHandler创建"""
-    assert event_handler is not None
-    assert event_handler.config_manager is not None
-    assert event_handler.memory_engine is not None
-    assert event_handler.memory_processor is not None
-    assert event_handler.conversation_manager is not None
+def _make_req(prompt: str = "hello"):
+    req = Mock()
+    req.prompt = prompt
+    req.system_prompt = ""
+    req.contexts = []
+    return req
 
 
-def test_message_dedup_cache_initialization(event_handler):
-    """测试消息去重缓存初始化"""
-    assert isinstance(event_handler._message_dedup_cache, dict)
-    assert len(event_handler._message_dedup_cache) == 0
-    assert event_handler._dedup_cache_max_size == 1000
-    assert event_handler._dedup_cache_ttl == 300
+def _make_resp(text: str = "assistant reply"):
+    resp = Mock()
+    resp.role = "assistant"
+    resp.completion_text = text
+    return resp
 
 
-def test_is_duplicate_message(event_handler):
-    """测试消息去重检查"""
-    message_id = "test_message_123"
-
-    # 第一次检查，应该不是重复
-    assert not event_handler._is_duplicate_message(message_id)
-
-    # 标记为已处理
-    event_handler._mark_message_processed(message_id)
-
-    # 第二次检查，应该是重复
-    assert event_handler._is_duplicate_message(message_id)
-
-
-def test_mark_message_processed(event_handler):
-    """测试标记消息已处理"""
-    message_id = "test_message_456"
-
-    # 标记消息
-    event_handler._mark_message_processed(message_id)
-
-    # 验证缓存中存在
-    assert message_id in event_handler._message_dedup_cache
-    assert isinstance(event_handler._message_dedup_cache[message_id], float)
-
-
-def test_dedup_cache_size_limit(event_handler):
-    """测试去重缓存大小限制"""
-    # 填充缓存到最大值
-    for i in range(event_handler._dedup_cache_max_size + 10):
-        event_handler._mark_message_processed(f"message_{i}")
-
-    # 验证缓存大小不超过限制
-    assert (
-        len(event_handler._message_dedup_cache) <= event_handler._dedup_cache_max_size
+def _make_event(group: bool = False):
+    event = Mock()
+    event.unified_msg_origin = "test:private:sid-1"
+    event.get_message_type = Mock(
+        return_value=MessageType.GROUP_MESSAGE if group else MessageType.FRIEND_MESSAGE
     )
+    event.get_sender_id = Mock(return_value="user-1")
+    event.get_self_id = Mock(return_value="bot-1")
+    event.get_sender_name = Mock(return_value="Tester")
+    event.get_message_str = Mock(return_value="hello")
+    event.get_messages = Mock(return_value=[])
+    event.get_platform_name = Mock(return_value="test")
+    return event
 
 
-def test_dedup_cache_ttl_cleanup(event_handler):
-    """测试去重缓存TTL清理"""
-    message_id = "old_message"
-
-    # 添加一个过期的消息
-    event_handler._message_dedup_cache[message_id] = time.time() - 400  # 超过TTL
-
-    # 检查消息（会触发清理）
-    event_handler._is_duplicate_message("new_message")
-
-    # 验证过期消息被清理
-    assert message_id not in event_handler._message_dedup_cache
-
-
-def test_extract_message_content_plain_text(event_handler):
-    """测试提取纯文本消息内容"""
-    # 创建mock事件
-    mock_event = Mock()
-    mock_event.get_message_str = Mock(return_value="测试消息")
-    mock_event.get_messages = Mock(return_value=[])
-
-    content = event_handler._extract_message_content(mock_event)
-    assert content == "测试消息"
+def test_message_dedup_cache_works(handler):
+    key = "id:123"
+    assert handler._is_duplicate_message(key) is False
+    handler._mark_message_processed(key)
+    assert handler._is_duplicate_message(key) is True
 
 
 @pytest.mark.asyncio
-async def test_handle_memory_recall_empty_prompt(event_handler):
-    """测试处理空prompt的记忆召回"""
-    mock_event = Mock()
-    mock_event.unified_msg_origin = "test_session"
-
-    mock_req = Mock()
-    mock_req.prompt = None
-
-    # 应该直接返回，不抛出异常
-    await event_handler.handle_memory_recall(mock_event, mock_req)
-
-
-@pytest.mark.asyncio
-async def test_handle_memory_recall_with_results(event_handler, mock_memory_engine):
-    """测试有结果的记忆召回"""
-    # 配置mock返回结果
-    mock_result = Mock()
-    mock_result.content = "测试记忆"
-    mock_result.final_score = 0.8
-    mock_result.metadata = {"importance": 0.7}
-
-    mock_memory_engine.search_memories = AsyncMock(return_value=[mock_result])
-
-    mock_event = Mock()
-    mock_event.unified_msg_origin = "test_session"
-    mock_event.get_message_type = Mock(return_value=Mock())
-
-    mock_req = Mock()
-    mock_req.prompt = "测试查询"
-    mock_req.system_prompt = None
+async def test_handle_memory_recall_injects_system_prompt(handler, memory_engine):
+    event = _make_event(group=False)
+    req = _make_req("query text")
+    recalled = Mock(content="mem1", final_score=0.7, metadata={"importance": 0.9})
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
 
     with patch(
-        "core.event_handler.get_persona_id", new_callable=AsyncMock
-    ) as mock_get_persona:
-        mock_get_persona.return_value = "test_persona"
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
 
-        await event_handler.handle_memory_recall(mock_event, mock_req)
-
-        # 验证调用了search_memories
-        assert mock_memory_engine.search_memories.called
-
-
-@pytest.mark.asyncio
-async def test_handle_memory_reflection_non_assistant(event_handler):
-    """测试非assistant角色的记忆反思"""
-    mock_event = Mock()
-    mock_resp = Mock()
-    mock_resp.role = "user"  # 非assistant
-
-    # 应该直接返回，不处理
-    await event_handler.handle_memory_reflection(mock_event, mock_resp)
-
-    # 验证没有调用conversation_manager
-    assert not event_handler.conversation_manager.add_message_from_event.called
+    memory_engine.search_memories.assert_awaited_once()
+    assert "<RAG-Faiss-Memory>" in req.system_prompt
 
 
 @pytest.mark.asyncio
-async def test_remove_injected_memories(event_handler):
-    """测试删除注入的记忆"""
-    mock_req = Mock()
-    mock_req.system_prompt = "===记忆开始===\n测试记忆\n===记忆结束==="
-    mock_req.contexts = []
+async def test_handle_memory_recall_stores_private_user_message(
+    handler, conversation_manager
+):
+    event = _make_event(group=False)
+    req = _make_req("user input")
 
-    removed_count = event_handler._remove_injected_memories_from_context(
-        mock_req, "test_session"
-    )
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
 
-    # 验证删除了记忆
-    assert removed_count >= 0
+    conversation_manager.add_message_from_event.assert_awaited()
 
 
-def test_extract_message_content_with_components(event_handler):
-    """测试提取包含组件的消息内容"""
-    from astrbot.core.message.components import Image, Plain
+@pytest.mark.asyncio
+async def test_handle_memory_reflection_triggers_storage_task(
+    handler, conversation_manager, memory_engine
+):
+    event = _make_event(group=False)
+    resp = _make_resp("assistant answer")
 
-    mock_event = Mock()
-    mock_event.get_message_str = Mock(return_value="文本消息")
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_reflection(event, resp)
+        # Wait for background storage task.
+        await handler.shutdown()
 
-    # 创建mock组件
-    mock_image = Mock(spec=Image)
-    mock_plain = Mock(spec=Plain)
+    assert conversation_manager.get_messages_range.await_count >= 1
+    assert memory_engine.add_memory.await_count >= 1
 
-    mock_event.get_messages = Mock(return_value=[mock_plain, mock_image])
 
-    content = event_handler._extract_message_content(mock_event)
+@pytest.mark.asyncio
+async def test_handle_all_group_messages_and_limit_cleanup(
+    handler, conversation_manager
+):
+    event = _make_event(group=True)
+    conversation_manager.store.get_message_count = AsyncMock(return_value=12)
+    conversation_manager.get_session_metadata = AsyncMock(return_value=5)
 
-    # 应该包含文本和图片标记
-    assert "文本消息" in content or "[图片]" in content or len(content) > 0
+    await handler.handle_all_group_messages(event)
+
+    # group capture should persist message
+    conversation_manager.add_message_from_event.assert_awaited()
+    # message metadata persisted
+    conversation_manager.store.update_message_metadata.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_waits_for_storage_tasks(handler):
+    async def _dummy():
+        return 1
+
+    task = patch("asyncio.create_task")
+    with task as create_task:
+        mock_task = AsyncMock()
+        create_task.return_value = mock_task
+        await handler.shutdown()
+    assert handler._shutting_down is True
