@@ -374,7 +374,7 @@ class IndexValidator:
                     logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
 
             # 5. Update migration status marker.
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             logger.info(f" 索引重建完成: 成功{success_count}条, 失败{error_count}条")
 
@@ -396,7 +396,11 @@ class IndexValidator:
                         INSERT OR REPLACE INTO migration_status (key, value, updated_at)
                         VALUES (?, ?, ?)
                     """,
-                        ("needs_index_rebuild", "false", datetime.utcnow().isoformat()),
+                        (
+                            "needs_index_rebuild",
+                            "false",
+                            datetime.now(timezone.utc).isoformat(),
+                        ),
                     )
 
                     # 添加索引重建完成标记
@@ -408,7 +412,7 @@ class IndexValidator:
                         (
                             "index_rebuild_completed",
                             "true",
-                            datetime.utcnow().isoformat(),
+                            datetime.now(timezone.utc).isoformat(),
                         ),
                     )
 

@@ -278,19 +278,24 @@ class MemoryEngine:
             version_count = version_result[0] if version_result else 0
 
             if version_count == 0:
-                # 全新数据库，设置初始版本为 2
-                from datetime import datetime
+                # 全新数据库，设置初始版本为 3（与 DBMigration.CURRENT_VERSION 一致）
+                from datetime import datetime, timezone
 
                 await self.db_connection.execute(
                     """
                     INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
                     VALUES (?, ?, ?, ?)
                 """,
-                    (2, "初始版本 - v2架构", datetime.utcnow().isoformat(), 0.0),
+                    (
+                        3,
+                        "初始版本 - v3架构",
+                        datetime.now(timezone.utc).isoformat(),
+                        0.0,
+                    ),
                 )
                 await self.db_connection.commit()
 
-                logger.info("已初始化数据库版本信息: v2")
+                logger.info("已初始化数据库版本信息: v3")
 
     # ==================== 核心记忆操作 ====================
 
