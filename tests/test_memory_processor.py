@@ -309,3 +309,250 @@ def test_validate_summary_quality_directly():
         "key_facts": ["有人说话"],
         "importance": 0.5,
     }) == "low"
+
+
+# ── 群聊路径测试 ──────────────────────────────────────────────────────────────
+
+
+def _make_group_messages():
+    """构造一组群聊消息（含 group_id）"""
+    return [
+        Message(
+            id=1,
+            session_id="aiocqhttp:GroupMessage:88888",
+            role="user",
+            content="大家觉得 AI 工具怎么样？",
+            sender_id="10001",
+            sender_name="张三",
+            group_id="88888",
+            platform="aiocqhttp",
+            metadata={},
+        ),
+        Message(
+            id=2,
+            session_id="aiocqhttp:GroupMessage:88888",
+            role="user",
+            content="我觉得 ChatGPT 写代码效率提升了 30%",
+            sender_id="10002",
+            sender_name="李四",
+            group_id="88888",
+            platform="aiocqhttp",
+            metadata={},
+        ),
+        Message(
+            id=3,
+            session_id="aiocqhttp:GroupMessage:88888",
+            role="assistant",
+            content="AI 工具确实能提升效率，但需要仔细审查生成的代码",
+            sender_id="bot",
+            sender_name="Bot",
+            group_id="88888",
+            platform="aiocqhttp",
+            metadata={"is_bot_message": True},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_sets_interaction_type():
+    """群聊路径应将 interaction_type 设置为 group_chat。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"群聊讨论了 AI 工具的使用效果",
+            "topics":["AI工具","工作效率"],
+            "key_facts":["张三认为 ChatGPT 效率提升 30%","需要仔细审查 AI 生成代码"],
+            "participants":["张三","李四"],
+            "sentiment":"positive",
+            "importance":0.75
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    content, metadata, importance = await processor.process_conversation(
+        messages=_make_group_messages(),
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert metadata["interaction_type"] == "group_chat"
+    assert importance == 0.75
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_extracts_participants():
+    """群聊路径应正确提取 participants 字段。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"群聊讨论了 AI 工具的使用效果",
+            "topics":["AI工具"],
+            "key_facts":["张三认为 ChatGPT 效率提升 30%"],
+            "participants":["张三","李四","王五"],
+            "sentiment":"positive",
+            "importance":0.7
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=_make_group_messages(),
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert "participants" in metadata
+    assert "张三" in metadata["participants"]
+    assert "李四" in metadata["participants"]
+    assert "王五" in metadata["participants"]
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_dual_channel_summary():
+    """群聊路径也应生成双通道摘要（canonical_summary + persona_summary）。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"群聊讨论了 AI 工具的使用效果，建议内部部署私有化 LLM",
+            "topics":["AI工具","数据安全"],
+            "key_facts":["建议公司内部部署私有化 LLM","注意数据安全"],
+            "participants":["张三","李四"],
+            "sentiment":"positive",
+            "importance":0.8
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    content, metadata, _ = await processor.process_conversation(
+        messages=_make_group_messages(),
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert "canonical_summary" in metadata
+    assert "persona_summary" in metadata
+    assert metadata.get("summary_schema_version") == "v2"
+    # canonical_summary 应包含 key_facts
+    assert "私有化 LLM" in metadata["canonical_summary"]
+    # content 应等于 canonical_summary
+    assert content == metadata["canonical_summary"]
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_missing_participants_uses_default():
+    """群聊 LLM 响应缺少 participants 字段时，应使用空列表默认值。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"群聊讨论了一些话题",
+            "topics":["闲聊"],
+            "key_facts":["大家聊了很多"],
+            "sentiment":"neutral",
+            "importance":0.5
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=_make_group_messages(),
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    # 缺少 participants 时应补充默认空列表
+    assert "participants" in metadata
+    assert isinstance(metadata["participants"], list)
+
+
+@pytest.mark.asyncio
+async def test_process_private_chat_no_participants_field():
+    """私聊路径不应在 metadata 中包含 participants 字段。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"用户告知明天下午三点有重要会议",
+            "topics":["会议"],
+            "key_facts":["明天下午三点开会"],
+            "sentiment":"neutral",
+            "importance":0.8
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=_make_messages(),
+        is_group_chat=False,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert "participants" not in metadata
+    assert metadata["interaction_type"] == "private_chat"
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_long_content():
+    """群聊长内容（多条消息）应正常处理，不崩溃。"""
+    long_messages = []
+    for i in range(20):
+        long_messages.append(
+            Message(
+                id=i + 1,
+                session_id="aiocqhttp:GroupMessage:99999",
+                role="user",
+                content=f"成员{i % 5} 说：这是第 {i+1} 条消息，内容比较详细，包含了很多信息。" * 3,
+                sender_id=str(10000 + i % 5),
+                sender_name=f"成员{i % 5}",
+                group_id="99999",
+                platform="aiocqhttp",
+                metadata={},
+            )
+        )
+
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"群聊成员进行了多轮讨论，涉及多个话题",
+            "topics":["群聊","讨论"],
+            "key_facts":["多名成员参与讨论","讨论内容丰富"],
+            "participants":["成员0","成员1","成员2","成员3","成员4"],
+            "sentiment":"neutral",
+            "importance":0.6
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    content, metadata, importance = await processor.process_conversation(
+        messages=long_messages,
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert isinstance(content, str) and len(content) > 0
+    assert metadata["interaction_type"] == "group_chat"
+    assert len(metadata["participants"]) == 5
+    assert 0.0 <= importance <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_process_group_chat_quality_low_for_generic_terms():
+    """群聊总结包含泛化词时，summary_quality 应为 low。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"某用户在群里说了一些话",
+            "topics":["闲聊"],
+            "key_facts":["有人说话了"],
+            "participants":["某用户"],
+            "sentiment":"neutral",
+            "importance":0.4
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=_make_group_messages(),
+        is_group_chat=True,
+        save_original=False,
+        persona_id=None,
+    )
+
+    assert metadata.get("summary_quality") == "low"

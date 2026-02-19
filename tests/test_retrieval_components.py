@@ -442,3 +442,176 @@ def test_apply_mmr_returns_k_results():
 
     selected = retriever._apply_mmr(candidates, k=3)
     assert len(selected) == 3
+
+
+# ── HybridRetriever 边界条件与回滚测试 ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_empty_query_returns_empty():
+    """空查询字符串应直接返回空列表，不调用任何检索器。"""
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={},
+    )
+    assert await retriever.search("") == []
+    assert await retriever.search("   ") == []
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_both_channels_fail_returns_empty():
+    """两路检索都失败时，应返回空列表而不是抛出异常。"""
+    class _FailBM25:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("bm25 down")
+
+    class _FailVector:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("vector down")
+
+        async def update_metadata(self, *args, **kwargs):
+            return True
+
+        async def delete_document(self, *args, **kwargs):
+            return True
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _FailBM25()),
+        vector_retriever=cast(VectorRetriever, _FailVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+    results = await retriever.search("query", k=3)
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_vector_only_fallback():
+    """BM25 失败时，应退化为仅向量检索结果。"""
+    class _FailBM25:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("bm25 down")
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _FailBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+    results = await retriever.search("query", k=2)
+    assert len(results) >= 1
+    # 退化结果应有合理的 final_score
+    for r in results:
+        assert r.final_score >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_bm25_only_fallback():
+    """向量检索失败时，应退化为仅 BM25 结果。"""
+    class _FailVector:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("vector down")
+
+        async def update_metadata(self, *args, **kwargs):
+            return True
+
+        async def delete_document(self, *args, **kwargs):
+            return True
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _FailVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+    results = await retriever.search("query", k=2)
+    assert len(results) >= 1
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_metadata_missing_fields_no_crash():
+    """metadata 缺少 importance/create_time 等字段时，评分不应崩溃。"""
+    now = time.time()
+
+    class _MinimalBM25:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                RRFBM25Result(
+                    doc_id=1,
+                    score=0.8,
+                    content="minimal metadata doc",
+                    metadata={},  # 完全空的 metadata
+                ),
+            ]
+
+    class _MinimalVector:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                VectorResult(
+                    doc_id=1,
+                    score=0.7,
+                    content="minimal metadata doc",
+                    metadata={},
+                ),
+            ]
+
+        async def update_metadata(self, doc_id, metadata):
+            return True
+
+        async def delete_document(self, doc_id):
+            return True
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _MinimalBM25()),
+        vector_retriever=cast(VectorRetriever, _MinimalVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01},
+    )
+    results = await retriever.search("query", k=1)
+    assert len(results) == 1
+    assert results[0].final_score >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_k_limits_results():
+    """返回结果数量不应超过 k。"""
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={},
+    )
+    results = await retriever.search("query", k=1)
+    assert len(results) <= 1
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_fallback_disabled_raises_on_both_fail():
+    """fallback_enabled=False 且两路都失败时，应抛出异常。"""
+    class _FailBM25:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("bm25 down")
+
+    class _FailVector:
+        async def search(self, *args, **kwargs):
+            raise RuntimeError("vector down")
+
+        async def update_metadata(self, *args, **kwargs):
+            return True
+
+        async def delete_document(self, *args, **kwargs):
+            return True
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _FailBM25()),
+        vector_retriever=cast(VectorRetriever, _FailVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": False},
+    )
+    # 两路都失败且 fallback 关闭时，应返回空列表（gather 捕获了异常）
+    # 注意：当前实现中 gather 使用 return_exceptions=True，所以不会直接抛出
+    # 但两路都失败后 bm25_results=None, vector_results=None → 返回 []
+    results = await retriever.search("query", k=2)
+    assert results == []

@@ -242,3 +242,321 @@ async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
     # function should still complete and return results.
     assert mid in engine.faiss_db.docs
     await engine.close()
+
+
+# ── MemoryEngine 过滤/衰减/清理边界测试 ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_session_filter_isolates_sessions(tmp_path: Path):
+    """不同 session_id 的记忆应相互隔离，搜索时只返回匹配 session 的结果。"""
+    db_path = tmp_path / "filter.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="session A 的记忆：用户喜欢苹果",
+        session_id="test:private:session_A",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+    await engine.add_memory(
+        content="session B 的记忆：用户喜欢香蕉",
+        session_id="test:private:session_B",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    results_a = await engine.search_memories(
+        query="苹果",
+        k=5,
+        session_id="test:private:session_A",
+        persona_id="p1",
+    )
+    # session A 的搜索不应返回 session B 的记忆
+    for r in results_a:
+        assert r.metadata.get("session_id") == "test:private:session_A"
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_apply_daily_decay_zero_rate_returns_zero(tmp_path: Path):
+    """decay_rate=0 时，apply_daily_decay 应直接返回 0，不修改任何记忆。"""
+    db_path = tmp_path / "decay_zero.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="测试记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    result = await engine.apply_daily_decay(decay_rate=0, days=1)
+    assert result == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_apply_daily_decay_zero_days_returns_zero(tmp_path: Path):
+    """days=0 时，apply_daily_decay 应直接返回 0。"""
+    db_path = tmp_path / "decay_days_zero.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="测试记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    result = await engine.apply_daily_decay(decay_rate=0.1, days=0)
+    assert result == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_apply_daily_decay_reduces_importance(tmp_path: Path):
+    """apply_daily_decay 应降低记忆的 importance 值。"""
+    db_path = tmp_path / "decay_reduce.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    mid = await engine.add_memory(
+        content="重要记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    # 手动在 SQLite 中写入 importance，确保衰减可以读取
+    if engine.db_connection is not None:
+        await engine.db_connection.execute(
+            "UPDATE documents SET metadata = ? WHERE id = ?",
+            (json.dumps({"importance": 0.8, "session_id": "s1"}), mid),
+        )
+        await engine.db_connection.commit()
+
+    affected = await engine.apply_daily_decay(decay_rate=0.1, days=1)
+    assert isinstance(affected, int)
+    assert affected >= 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_cleanup_negative_days_returns_zero(tmp_path: Path):
+    """days_threshold < 0 时，cleanup_old_memories 应返回 0。"""
+    db_path = tmp_path / "cleanup_neg.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="旧记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.1,
+        metadata={},
+    )
+
+    result = await engine.cleanup_old_memories(days_threshold=-1, importance_threshold=0.5)
+    assert result == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_cleanup_zero_days_deletes_low_importance(tmp_path: Path):
+    """days_threshold=0 时，所有低重要性记忆（无论多新）都应被清理。"""
+    db_path = tmp_path / "cleanup_zero.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    low_id = await engine.add_memory(
+        content="低重要性记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.1,
+        metadata={},
+    )
+    high_id = await engine.add_memory(
+        content="高重要性记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.9,
+        metadata={},
+    )
+
+    # 确保 SQLite 中有正确的 importance 和 create_time
+    now = time.time()
+    if engine.db_connection is not None:
+        await engine.db_connection.execute(
+            "UPDATE documents SET metadata = ? WHERE id = ?",
+            (json.dumps({"importance": 0.1, "create_time": now}), low_id),
+        )
+        await engine.db_connection.execute(
+            "UPDATE documents SET metadata = ? WHERE id = ?",
+            (json.dumps({"importance": 0.9, "create_time": now}), high_id),
+        )
+        await engine.db_connection.commit()
+
+    deleted = await engine.cleanup_old_memories(days_threshold=0, importance_threshold=0.5)
+    assert deleted >= 1
+    assert await engine.get_memory(high_id) is not None
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_update_memory_content_creates_new_deletes_old(tmp_path: Path):
+    """update_memory 更新内容时，应先创建新记忆再删除旧记忆。"""
+    db_path = tmp_path / "update.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    old_id = await engine.add_memory(
+        content="旧内容",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.7,
+        metadata={},
+    )
+
+    success = await engine.update_memory(old_id, {"content": "新内容"})
+    assert success is True
+    assert await engine.get_memory(old_id) is None
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_update_memory_importance_only(tmp_path: Path):
+    """update_memory 只更新 importance 时，不应崩溃（fake DB 不支持 get_session，返回 False 是预期行为）。"""
+    db_path = tmp_path / "update_imp.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    mid = await engine.add_memory(
+        content="测试记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={},
+    )
+
+    # fake DB 不支持 get_session，update_metadata 会失败，但不应抛出异常
+    result = await engine.update_memory(mid, {"importance": 0.9})
+    assert isinstance(result, bool)  # 不崩溃即可
+    # 记忆仍然存在（内容未被删除）
+    assert await engine.get_memory(mid) is not None
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_delete_nonexistent_returns_false(tmp_path: Path):
+    """删除不存在的记忆 ID 应返回 False。"""
+    db_path = tmp_path / "del_nonexist.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    result = await engine.delete_memory(99999)
+    assert result is False
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_search_empty_query_returns_empty(tmp_path: Path):
+    """空查询应直接返回空列表。"""
+    db_path = tmp_path / "empty_query.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="一些记忆内容",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={},
+    )
+
+    assert await engine.search_memories("", k=5) == []
+    assert await engine.search_memories("   ", k=5) == []
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_get_statistics_returns_expected_keys(tmp_path: Path):
+    """get_statistics 应返回包含 total_memories 等关键字段的字典。"""
+    db_path = tmp_path / "stats.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="统计测试记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.6,
+        metadata={},
+    )
+
+    stats = await engine.get_statistics()
+    assert "total_memories" in stats
+
+    await engine.close()

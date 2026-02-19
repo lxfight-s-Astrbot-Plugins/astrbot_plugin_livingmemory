@@ -206,3 +206,274 @@ async def test_shutdown_waits_for_storage_tasks(handler):
         create_task.return_value = mock_task
         await handler.shutdown()
     assert handler._shutting_down is True
+
+
+# ── EventHandler 边界条件与 source_window 测试 ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_skips_when_prompt_empty(handler, memory_engine):
+    """req.prompt 为空时，应跳过记忆召回，不调用 search_memories。"""
+    event = _make_event(group=False)
+    req = _make_req(prompt="")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    memory_engine.search_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_injection_user_message_before(
+    handler, memory_engine
+):
+    """injection_method=user_message_before 时，记忆应追加到 prompt 前面。"""
+    # 重新构造 handler，使用 user_message_before 注入方式
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "user_message_before",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    h.conversation_manager.add_message_from_event = AsyncMock()
+
+    recalled = Mock(content="mem_before", final_score=0.8, metadata={"importance": 0.9})
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    req = _make_req("user question")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    assert "mem_before" in req.prompt
+    assert req.prompt.index("<RAG-Faiss-Memory>") < req.prompt.index("user question")
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_injection_user_message_after(
+    handler, memory_engine
+):
+    """injection_method=user_message_after 时，记忆应追加到 prompt 后面。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "user_message_after",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    h.conversation_manager.add_message_from_event = AsyncMock()
+
+    recalled = Mock(content="mem_after", final_score=0.8, metadata={"importance": 0.9})
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    req = _make_req("user question")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    assert "mem_after" in req.prompt
+    assert req.prompt.index("user question") < req.prompt.index("<RAG-Faiss-Memory>")
+
+
+@pytest.mark.asyncio
+async def test_storage_task_writes_source_window(
+    handler, conversation_manager, memory_engine
+):
+    """_storage_task 应在 metadata 中写入 source_window 字段。"""
+    from astrbot_plugin_livingmemory.core.models.conversation_models import Message
+
+    messages = [
+        Message(
+            id=1,
+            session_id="s1",
+            role="user",
+            content="hello",
+            sender_id="u1",
+            sender_name="User",
+            group_id=None,
+            platform="test",
+            metadata={},
+        ),
+        Message(
+            id=2,
+            session_id="s1",
+            role="assistant",
+            content="hi",
+            sender_id="bot",
+            sender_name="Bot",
+            group_id=None,
+            platform="test",
+            metadata={"is_bot_message": True},
+        ),
+    ]
+
+    captured_metadata = {}
+
+    async def _capture_add_memory(content, session_id, persona_id, importance, metadata):
+        captured_metadata.update(metadata)
+        return 1
+
+    memory_engine.add_memory = AsyncMock(side_effect=_capture_add_memory)
+
+    await handler._storage_task(
+        session_id="s1",
+        history_messages=messages,
+        persona_id="p1",
+        start_index=0,
+        end_index=2,
+        retry_count=0,
+    )
+
+    assert "source_window" in captured_metadata
+    sw = captured_metadata["source_window"]
+    assert sw["session_id"] == "s1"
+    assert sw["start_index"] == 0
+    assert sw["end_index"] == 2
+    assert sw["message_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_storage_task_skips_when_already_summarized(
+    handler, conversation_manager, memory_engine
+):
+    """当 last_summarized_index >= end_index 时，_storage_task 应直接跳过。"""
+    from astrbot_plugin_livingmemory.core.models.conversation_models import Message
+
+    # 模拟已经总结到 end_index=5
+    conversation_manager.get_session_metadata = AsyncMock(return_value=5)
+
+    messages = [
+        Message(
+            id=1, session_id="s1", role="user", content="msg",
+            sender_id="u1", sender_name="U", group_id=None, platform="test", metadata={}
+        )
+    ]
+
+    await handler._storage_task(
+        session_id="s1",
+        history_messages=messages,
+        persona_id=None,
+        start_index=0,
+        end_index=5,  # end_index == current_summarized → 过期任务
+        retry_count=0,
+    )
+
+    # 过期任务不应调用 add_memory
+    memory_engine.add_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_reflection_skips_error_response(
+    handler, conversation_manager, memory_engine
+):
+    """包含错误指示词的响应应被跳过，不触发记忆存储。"""
+    event = _make_event(group=False)
+    resp = _make_resp("api error: rate limit exceeded")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await handler.handle_memory_reflection(event, resp)
+
+    # 错误响应不应触发任何存储
+    memory_engine.add_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_reflection_skips_empty_response(
+    handler, conversation_manager, memory_engine
+):
+    """空响应应被跳过，不触发记忆存储。"""
+    event = _make_event(group=False)
+    resp = _make_resp("")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await handler.handle_memory_reflection(event, resp)
+
+    memory_engine.add_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_reflection_pending_retry_exceeds_max(
+    handler, conversation_manager, memory_engine
+):
+    """待处理失败总结重试次数 >= 3 时，应放弃并清除 pending_summary。"""
+    event = _make_event(group=False)
+    resp = _make_resp("assistant answer")
+
+    # 模拟 pending_summary 已失败 3 次
+    session_metadata = {
+        "last_summarized_index": 0,
+        "pending_summary": {
+            "start_index": 0,
+            "end_index": 2,
+            "retry_count": 3,
+        },
+    }
+
+    async def _get_meta(session_id, key, default=None):
+        return session_metadata.get(key, default)
+
+    async def _update_meta(session_id, key, value):
+        session_metadata[key] = value
+
+    conversation_manager.get_session_metadata = AsyncMock(side_effect=_get_meta)
+    conversation_manager.update_session_metadata = AsyncMock(side_effect=_update_meta)
+    conversation_manager.store.get_message_count = AsyncMock(return_value=4)
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await handler.handle_memory_reflection(event, resp)
+
+    # pending_summary 应被清除
+    assert session_metadata.get("pending_summary") is None
+    # add_memory 不应被调用（放弃了该范围）
+    memory_engine.add_memory.assert_not_awaited()
