@@ -4,7 +4,7 @@
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import aiosqlite
 
@@ -52,45 +52,6 @@ class IndexValidator:
         """
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                # 0. 首先检查是否有标记为"已完成重建"的状态
-                # 如果有，说明索引已经重建过，不需要再次检查
-                cursor = await db.execute("""
-                    SELECT name FROM sqlite_master
-                    WHERE type='table' AND name='migration_status'
-                """)
-                has_migration_table = await cursor.fetchone()
-
-                if has_migration_table:
-                    cursor = await db.execute("""
-                        SELECT value FROM migration_status
-                        WHERE key='index_rebuild_completed'
-                    """)
-                    rebuild_result = await cursor.fetchone()
-                    if (
-                        rebuild_result
-                        and len(rebuild_result) > 0
-                        and rebuild_result[0] == "true"
-                    ):
-                        # 索引已经重建完成，直接返回一致状态
-                        cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                        count_result = await cursor.fetchone()
-                        documents_count = count_result[0] if count_result else 0
-
-                        logger.debug(
-                            f"检测到索引已完成重建标记，跳过详细检查（文档数: {documents_count}）"
-                        )
-
-                        return IndexStatus(
-                            is_consistent=True,
-                            documents_count=documents_count,
-                            bm25_count=documents_count,
-                            vector_count=documents_count,
-                            missing_in_bm25=0,
-                            missing_in_vector=0,
-                            needs_rebuild=False,
-                            reason="索引已重建完成（已验证）",
-                        )
-
                 # 1. 获取documents表中的文档数和ID集合
                 cursor = await db.execute("SELECT COUNT(*) FROM documents")
                 count_result = await cursor.fetchone()
@@ -126,30 +87,36 @@ class IndexValidator:
                 vector_ids = set()
 
                 try:
-                    # 通过document_storage获取向量索引中的文档
-                    if hasattr(self.faiss_db, "document_storage"):
-                        doc_storage = self.faiss_db.document_storage
-                        # 获取所有文档ID
-                        cursor = await db.execute("""
-                            SELECT COUNT(DISTINCT id) FROM documents
-                        """)
-                        # 简化检查：假设向量索引与document_storage同步
-                        # 实际检查需要遍历所有文档
-                        for doc_id in doc_ids:
-                            try:
-                                doc = await doc_storage.get_document(doc_id)
-                                if doc:
-                                    vector_count += 1
-                                    vector_ids.add(doc_id)
-                            except Exception as e:
-                                logger.debug(f"检查向量索引失败 (doc_id={doc_id}): {e}")
-                                pass
+                    embedding_storage = getattr(
+                        self.faiss_db, "embedding_storage", None
+                    )
+                    index = getattr(embedding_storage, "index", None)
+                    if index is not None:
+                        vector_count = int(getattr(index, "ntotal", 0))
+                        # Try to get concrete vector IDs from IndexIDMap.
+                        try:
+                            import faiss
+
+                            if hasattr(index, "id_map"):
+                                vector_to_array = getattr(
+                                    faiss, "vector_to_array", None
+                                )
+                                if callable(vector_to_array):
+                                    raw_ids = cast(
+                                        Any, vector_to_array(index.id_map)
+                                    )
+                                    vector_ids = {int(i) for i in raw_ids}
+                        except Exception as e:
+                            logger.debug(f"读取向量ID失败，使用计数模式: {e}")
                 except Exception as e:
                     logger.warning(f"检查向量索引失败: {e}")
 
                 # 4. 计算差异
                 missing_in_bm25 = len(doc_ids - bm25_ids)
-                missing_in_vector = len(doc_ids - vector_ids)
+                if vector_ids:
+                    missing_in_vector = len(doc_ids - vector_ids)
+                else:
+                    missing_in_vector = max(0, documents_count - vector_count)
 
                 # 5. 判断是否需要重建
                 needs_rebuild = False
@@ -266,9 +233,9 @@ class IndexValidator:
                 # 1. 先读取所有文档到内存（在清空前）
                 logger.info(" 读取documents表数据...")
                 cursor = await db.execute(
-                    "SELECT id, text, metadata FROM documents ORDER BY id"
+                    "SELECT id, doc_id, text, metadata FROM documents ORDER BY id"
                 )
-                documents = await cursor.fetchall()
+                documents = list(await cursor.fetchall())
 
                 if not documents:
                     return {
@@ -278,7 +245,7 @@ class IndexValidator:
                         "errors": 0,
                     }
 
-                total = len(list(documents))
+                total = len(documents)
                 logger.info(f" 找到 {total} 条文档需要重建索引")
 
                 # 2. 清空所有存储（documents表、BM25索引、向量索引）
@@ -290,36 +257,34 @@ class IndexValidator:
                 except Exception as e:
                     logger.warning(f"清空BM25索引失败: {e}")
 
-                # 清空documents表
-                await db.execute("DELETE FROM documents")
-                await db.commit()
-
-                # 清空向量索引 - 分批处理以避免内存问题
+                # 清空向量索引（先用内存快照中的映射，再清理documents）
                 try:
-                    batch_size = 500
-                    offset = 0
-                    while True:
-                        batch_docs = (
-                            await memory_engine.faiss_db.document_storage.get_documents(
-                                metadata_filters={}, offset=offset, limit=batch_size
-                            )
-                        )
-                        if not batch_docs:
-                            break
-
-                        for doc in batch_docs:
+                    for doc_id, doc_uuid, _text, _metadata_json in documents:
+                        removed = False
+                        if doc_uuid:
                             try:
-                                await memory_engine.faiss_db.delete(doc["doc_id"])
+                                await memory_engine.faiss_db.delete(doc_uuid)
+                                removed = True
                             except Exception as e:
                                 logger.warning(
-                                    f"删除Faiss文档失败 (doc_id={doc.get('doc_id')}): {e}"
+                                    f"删除Faiss文档失败 (doc_id={doc_id}, uuid={doc_uuid}): {e}"
                                 )
 
-                        if len(batch_docs) < batch_size:
-                            break
-                        offset += batch_size
+                        if not removed:
+                            try:
+                                await memory_engine.faiss_db.embedding_storage.delete(
+                                    [int(doc_id)]
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"按int_id删除向量失败 (doc_id={doc_id}): {e}"
+                                )
                 except Exception as e:
                     logger.warning(f"清空Faiss索引时出错: {e}")
+
+                # 最后清空documents表，避免映射先删导致向量无法删除。
+                await db.execute("DELETE FROM documents")
+                await db.commit()
 
                 logger.info(" 所有存储已清空")
 
@@ -329,7 +294,9 @@ class IndexValidator:
                 batch_size = 100  # 批处理大小
                 last_progress_update = 0
 
-                for i, (doc_id, text, metadata_json) in enumerate(documents, 1):
+                for i, (doc_id, _doc_uuid, text, metadata_json) in enumerate(
+                    documents, 1
+                ):
                     try:
                         # 解析metadata
                         metadata = json.loads(metadata_json) if metadata_json else {}

@@ -404,10 +404,8 @@ class WebUIServer:
 
             try:
                 if session_id:
-                    # 规范化 session_id
-                    from core.memory_engine import _extract_session_uuid
-
-                    normalized_session_id = _extract_session_uuid(session_id)
+                    # Use exact session_id to match current storage format.
+                    normalized_session_id = session_id
 
                     # 先获取该会话的总数（高效，不加载数据）
                     total = await self.memory_engine.faiss_db.count_documents(
@@ -424,9 +422,11 @@ class WebUIServer:
                     # 按创建时间排序（如果需要）
                     sorted_docs = sorted(
                         all_docs,
-                        key=lambda x: x["metadata"].get("create_time", 0)
-                        if isinstance(x["metadata"], dict)
-                        else 0,
+                        key=lambda x: (
+                            x["metadata"].get("create_time", 0)
+                            if isinstance(x["metadata"], dict)
+                            else 0
+                        ),
                         reverse=True,
                     )
 
@@ -445,9 +445,11 @@ class WebUIServer:
                     # 按创建时间降序排序（最新的在前面）
                     memories = sorted(
                         all_docs,
-                        key=lambda x: x["metadata"].get("create_time", 0)
-                        if isinstance(x["metadata"], dict)
-                        else 0,
+                        key=lambda x: (
+                            x["metadata"].get("create_time", 0)
+                            if isinstance(x["metadata"], dict)
+                            else 0
+                        ),
                         reverse=True,
                     )
 
@@ -701,18 +703,7 @@ class WebUIServer:
                             :100
                         ]  # 保存前100字符
 
-                        # 1. 删除旧记忆（会同时删除向量和BM25索引）
-                        delete_success = await self.memory_engine.delete_memory(
-                            memory_id
-                        )
-                        if delete_success:
-                            logger.info(f"[编辑记忆] 成功删除旧记忆 {memory_id}")
-                        else:
-                            logger.warning(
-                                "[编辑记忆] 删除旧记忆失败，可能已不存在于索引中"
-                            )
-
-                        # 2. 创建新记忆（会自动生成向量和BM25索引）
+                        # 1. Create new memory first to avoid data loss on failure.
                         new_memory_id = await self.memory_engine.add_memory(
                             content=updates["content"],
                             session_id=session_id,
@@ -720,6 +711,17 @@ class WebUIServer:
                             importance=importance,
                             metadata=current_metadata,
                         )
+
+                        # 2. Delete old memory after the new one is persisted.
+                        delete_success = await self.memory_engine.delete_memory(
+                            memory_id
+                        )
+                        if delete_success:
+                            logger.info(f"[编辑记忆] 成功删除旧记忆 {memory_id}")
+                        else:
+                            logger.warning(
+                                f"[编辑记忆] 旧记忆删除失败，可能导致重复记录: old_id={memory_id}, new_id={new_memory_id}"
+                            )
 
                         logger.info(
                             f"[编辑记忆] 内容更新成功：old_id={memory_id}, new_id={new_memory_id}"
@@ -1150,7 +1152,9 @@ class WebUIServer:
         # 获取会话详情
         @self._app.get("/api/conversations/{session_id}")
         async def get_conversation_detail(
-            session_id: str, token: str = Depends(self._auth_dependency())
+            session_id: str,
+            request: Request,
+            token: str = Depends(self._auth_dependency()),
         ):
             if not self.conversation_manager:
                 raise HTTPException(
@@ -1159,6 +1163,32 @@ class WebUIServer:
                 )
 
             try:
+                # Fallback when dynamic route captures /api/conversations/recent.
+                if session_id == "recent":
+                    query = request.query_params
+                    limit = min(100, max(1, int(query.get("limit", 10))))
+                    sessions = await self.conversation_manager.get_recent_sessions(
+                        limit
+                    )
+                    formatted_sessions = [
+                        {
+                            "session_id": session.session_id,
+                            "platform": session.platform,
+                            "created_at": session.created_at,
+                            "last_active_at": session.last_active_at,
+                            "message_count": session.message_count,
+                            "participants": session.participants,
+                        }
+                        for session in sessions
+                    ]
+                    return {
+                        "success": True,
+                        "data": {
+                            "sessions": formatted_sessions,
+                            "total": len(formatted_sessions),
+                        },
+                    }
+
                 session_info = await self.conversation_manager.get_session_info(
                     session_id
                 )

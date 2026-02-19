@@ -789,22 +789,18 @@ class MemoryEngine:
             if total_count == 0:
                 return 0
 
-            deleted_count = 0
             batch_size = 500
             offset = 0
+            to_delete_ids: list[int] = []
 
-            # 分批处理
+            # First pass: scan candidates without deleting to avoid offset-shift skips.
             while offset < total_count:
-                # 获取一批文档
                 batch_docs = await self.faiss_db.document_storage.get_documents(
                     metadata_filters={}, limit=batch_size, offset=offset
                 )
 
                 if not batch_docs:
                     break
-
-                # 处理这批文档，找到需要删除的
-                to_delete_in_batch = []
 
                 for doc in batch_docs:
                     metadata = doc["metadata"]
@@ -830,20 +826,17 @@ class MemoryEngine:
                         continue
 
                     if create_time < cutoff_time and doc_importance < importance:
-                        to_delete_in_batch.append(doc["id"])
+                        to_delete_ids.append(doc["id"])
 
-                # 删除这批中符合条件的记忆
-                for memory_id in to_delete_in_batch:
-                    success = await self.delete_memory(memory_id)
-                    if success:
-                        deleted_count += 1
-
-                # 移动到下一批
-                offset += batch_size
-
-                # 如果这批数量少于batch_size，说明已经是最后一批
+                offset += len(batch_docs)
                 if len(batch_docs) < batch_size:
                     break
+
+            deleted_count = 0
+            for memory_id in to_delete_ids:
+                success = await self.delete_memory(memory_id)
+                if success:
+                    deleted_count += 1
 
             return deleted_count
         except Exception:

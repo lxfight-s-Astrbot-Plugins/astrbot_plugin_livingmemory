@@ -103,6 +103,8 @@ class LivingMemoryPlugin(Star):
 
                 # 启动 WebUI
                 await self._start_webui()
+                if self.command_handler:
+                    self.command_handler.webui_server = self.webui_server
 
         except Exception as e:
             logger.error(f"插件初始化失败: {e}", exc_info=True)
@@ -124,6 +126,8 @@ class LivingMemoryPlugin(Star):
             )
 
             await self.webui_server.start()
+            if self.command_handler:
+                self.command_handler.webui_server = self.webui_server
 
             logger.info(
                 f"🌐 WebUI 已启动: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
@@ -131,6 +135,8 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"启动 WebUI 控制台失败: {e}", exc_info=True)
             self.webui_server = None
+            if self.command_handler:
+                self.command_handler.webui_server = None
 
     async def _stop_webui(self):
         """停止 WebUI 控制台"""
@@ -142,6 +148,8 @@ class LivingMemoryPlugin(Star):
             logger.warning(f"停止 WebUI 控制台时出现异常: {e}", exc_info=True)
         finally:
             self.webui_server = None
+            if self.command_handler:
+                self.command_handler.webui_server = None
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""

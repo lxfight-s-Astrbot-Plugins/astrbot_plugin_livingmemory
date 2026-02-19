@@ -249,7 +249,6 @@ class SparseRetriever:
                 await self.stopwords_manager.load_stopwords(
                     source=self.stopwords_source,
                     custom_words=self.custom_stopwords,
-                    auto_download=True,
                 )
                 logger.info(
                     f" 停用词管理器初始化成功，共 {len(self.stopwords_manager.stopwords)} 个停用词"
