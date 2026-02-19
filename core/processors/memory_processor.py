@@ -13,7 +13,7 @@ from typing import Any
 from astrbot.api import logger
 
 from ..models.conversation_models import Message
-
+from ..utils import get_now_datetime
 
 class MemoryProcessor:
     """
@@ -269,6 +269,10 @@ class MemoryProcessor:
             prompt = self.private_chat_prompt.replace(
                 "{conversation}", conversation_text
             )
+
+        # 注入当前时间
+        current_time_str = get_now_datetime(self.context).strftime("%Y-%m-%d %H:%M") if self.context else get_now_datetime().strftime("%Y-%m-%d %H:%M")
+        prompt = prompt.replace("{current_time}", current_time_str)
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"

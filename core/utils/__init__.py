@@ -17,6 +17,7 @@ from astrbot.api.star import Context
 
 from ..processors.text_processor import TextProcessor
 from .stopwords_manager import StopwordsManager, get_stopwords_manager
+from .time_resolver import resolve_relative_time
 
 
 def safe_parse_metadata(metadata_raw: Any) -> dict[str, Any]:
@@ -314,9 +315,11 @@ def format_memories_for_injection(memories: list) -> str:
     if not memories:
         return ""
 
-    # 添加更详细的说明文本
+    # 添加更详细的说明文本，包含当前搜索时间
+    current_time_str = get_now_datetime().strftime("%Y-%m-%d %H:%M")
     header = (
         f"{MEMORY_INJECTION_HEADER}\n"
+        f"当前时间: {current_time_str}\n"
         f"以下是从历史对话中提取的相关记忆，可以帮助你更好地理解用户的背景、偏好和过往交流内容。\n"
         f"请参考这些记忆来提供更个性化、更连贯的回答。\n\n"
     )
@@ -339,14 +342,12 @@ def format_memories_for_injection(memories: list) -> str:
                 content = mem.get("content", "内容缺失")
                 score = mem.get("score", 0.0)
                 metadata = mem.get("metadata", {})
-                timestamp = mem.get("timestamp", None)
                 importance = metadata.get("importance", 0.5)
                 interaction_type = metadata.get("interaction_type", "未知")
             else:
                 # 如果是对象，尝试访问属性
                 content = getattr(mem, "content", "内容缺失")
                 score = getattr(mem, "score", 0.0)
-                timestamp = getattr(mem, "timestamp", None)
                 metadata_raw = getattr(mem, "metadata", {})
                 metadata = (
                     safe_parse_metadata(metadata_raw)
@@ -358,16 +359,17 @@ def format_memories_for_injection(memories: list) -> str:
 
             # 格式化时间戳
             time_str = ""
+            timestamp = metadata.get("create_time")
             if timestamp:
                 try:
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
-                    time_str = f", 时间: {dt.strftime('%Y-%m-%d %H:%M')}"
+                    time_str = f"{dt.strftime('%Y-%m-%d %H:%M')}"
                 except Exception:
                     pass
 
             # 构建格式化的记忆条目（展示content和元数据信息）
             entry_parts = [
-                f"记忆 #{idx} (重要性: {importance:.2f}),发生时间:{time_str}"
+                f"记忆 #{idx} (重要性: {importance:.2f}), 发生时间:{time_str}"
             ]
 
             # 添加元数据信息
@@ -453,4 +455,5 @@ __all__ = [
     "get_now_datetime",
     "get_now_datetime_from_context",
     "format_memories_for_injection",
+    "resolve_relative_time",
 ]

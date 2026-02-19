@@ -21,7 +21,9 @@ from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
     format_memories_for_injection,
+    get_now_datetime,
     get_persona_id,
+    resolve_relative_time,
 )
 
 
@@ -178,6 +180,10 @@ class EventHandler:
                     logger.info(
                         f"[{session_id}] 检测到群聊上下文格式，已提取真实消息用于召回"
                     )
+
+                # 将相对时间词转换为绝对日期，提升时间相关记忆的匹配度
+                now = get_now_datetime(self.context)
+                actual_query = resolve_relative_time(actual_query, now)
 
                 # 执行记忆召回
                 logger.info(
