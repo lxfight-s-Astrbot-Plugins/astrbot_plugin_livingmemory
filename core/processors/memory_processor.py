@@ -298,10 +298,20 @@ class MemoryProcessor:
             # 4. 解析LLM响应
             structured_data = self._parse_llm_response(llm_response_text, is_group_chat)
 
+            # 4.5 质量校验
+            quality = self._validate_summary_quality(structured_data)
+            if quality == "low":
+                logger.warning(
+                    "[MemoryProcessor] 总结质量不达标（low），将标记但仍写入"
+                )
+            structured_data["_quality"] = quality
+
             # 5. 构建存储格式
             content, metadata = self._build_storage_format(
                 conversation_text, structured_data, is_group_chat
             )
+            # 将质量标记写入 metadata
+            metadata["summary_quality"] = structured_data.get("_quality", "normal")
 
             importance = float(structured_data.get("importance", 0.5))
 
@@ -611,12 +621,20 @@ class MemoryProcessor:
         Returns:
             (content, metadata) 元组
         """
-        # content字段：只保留LLM生成的摘要（第一人称）
         summary = structured_data.get("summary", "")
-        if summary:
-            content = summary
+        key_facts = structured_data.get("key_facts", [])
+
+        # canonical_summary：事实导向、风格中性，用于检索
+        # 由 summary + key_facts 拼接，去除人格语气词
+        canonical_parts = [summary] if summary else []
+        if key_facts:
+            canonical_parts.append("；".join(str(f) for f in key_facts[:5]))
+        canonical_summary = " | ".join(canonical_parts) if canonical_parts else ""
+
+        # content 字段使用 canonical_summary，提升检索稳定性
+        if canonical_summary:
+            content = canonical_summary
         else:
-            # 降级方案：如果没有摘要，使用简短的对话文本
             content = (
                 conversation_text[:200] + "..."
                 if len(conversation_text) > 200
@@ -628,9 +646,14 @@ class MemoryProcessor:
         # 这些字段会由 MemoryEngine.add_memory() 自动添加
         metadata = {
             "topics": structured_data.get("topics", []),
-            "key_facts": structured_data.get("key_facts", []),
+            "key_facts": key_facts,
             "sentiment": structured_data.get("sentiment", "neutral"),
             "interaction_type": "group_chat" if is_group_chat else "private_chat",
+            # 双通道：canonical 用于检索，persona_summary 保留原始人格风格摘要
+            "canonical_summary": canonical_summary,
+            "persona_summary": summary,
+            "summary_schema_version": "v2",
+            # summary_quality 由 process_conversation 中的 SummaryValidator 覆盖写入
         }
 
         if is_group_chat and "participants" in structured_data:
@@ -715,3 +738,34 @@ class MemoryProcessor:
         if is_group_chat:
             data["participants"] = []
         return data
+
+    def _validate_summary_quality(self, structured_data: dict[str, Any]) -> str:
+        """
+        校验总结质量，返回质量等级。
+
+        检查规则：
+        1. summary 不能为空或过短（< 10 字符）
+        2. key_facts 至少有 1 条
+        3. importance 在合法范围内
+        4. summary 不含泛化词（"某用户"、"有人"等）
+
+        Returns:
+            "normal" 或 "low"
+        """
+        summary = structured_data.get("summary", "")
+        key_facts = structured_data.get("key_facts", [])
+        importance = structured_data.get("importance", 0.5)
+
+        if not summary or len(summary.strip()) < 10:
+            return "low"
+        if not key_facts:
+            return "low"
+        if not isinstance(importance, (int, float)) or not (0.0 <= importance <= 1.0):
+            return "low"
+
+        # 泛化词检测
+        generic_terms = ["某用户", "有人", "某人", "用户说", "对方说"]
+        if any(term in summary for term in generic_terms):
+            return "low"
+
+        return "normal"

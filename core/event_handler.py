@@ -75,6 +75,11 @@ class EventHandler:
         if event.get_message_type() != MessageType.GROUP_MESSAGE:
             return
 
+        # 群聊中 Bot 自己的消息由 handle_memory_reflection 负责写入，此处跳过
+        # 避免 platform echo 导致 assistant 响应被写入两次
+        if event.get_sender_id() == event.get_self_id():
+            return
+
         try:
             session_id = event.unified_msg_origin
 
@@ -87,9 +92,6 @@ class EventHandler:
                     f"这可能是平台适配器初始化问题，建议检查平台配置。"
                 )
 
-            # 判断是否是Bot自己发送的消息
-            is_bot_message = event.get_sender_id() == event.get_self_id()
-
             # 获取消息内容
             content = self._extract_message_content(event)
             dedup_key = self._build_dedup_key(event, session_id, content)
@@ -99,21 +101,14 @@ class EventHandler:
                 logger.debug(f"[{session_id}] 消息已存在,跳过: dedup_key={dedup_key}")
                 return
 
-            # 确定角色
-            role = "assistant" if is_bot_message else "user"
-
-            # 存储消息到数据库
-            message = await self.conversation_manager.add_message_from_event(
+            # 存储消息到数据库（群聊用户消息，role 固定为 user）
+            await self.conversation_manager.add_message_from_event(
                 event=event,
-                role=role,
+                role="user",
                 content=content,
             )
             if dedup_key:
                 self._mark_message_processed(dedup_key)
-
-            # 标记是否为Bot消息
-            message.metadata["is_bot_message"] = is_bot_message
-            await self._update_message_metadata(message)
 
             # 执行消息数量上限控制
             await self._enforce_message_limit(session_id)
@@ -121,7 +116,7 @@ class EventHandler:
             logger.debug(
                 f"[{session_id}] 捕获群聊消息: "
                 f"sender={event.get_sender_name()}({event.get_sender_id()}), "
-                f"is_bot={is_bot_message}, content={content[:50]}..."
+                f"content={content[:50]}..."
             )
 
         except Exception as e:
@@ -161,7 +156,15 @@ class EventHandler:
                     "use_session_filtering", True
                 )
 
-                persona_id = await get_persona_id(self.context, event)
+                # 优先从 req.conversation 获取 persona_id（与本次 LLM 调用完全一致）
+                # fallback 到 get_persona_id（兼容无 conversation 的场景）
+                if (
+                    req.conversation
+                    and getattr(req.conversation, "persona_id", None)
+                ):
+                    persona_id = req.conversation.persona_id
+                else:
+                    persona_id = await get_persona_id(self.context, event)
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
@@ -568,6 +571,15 @@ class EventHandler:
                         save_original=save_original,
                         persona_id=persona_id,
                     )
+
+                    # 补充 source_window 元数据，记录本次总结的消息范围
+                    metadata["source_window"] = {
+                        "session_id": session_id,
+                        "start_index": start_index,
+                        "end_index": end_index,
+                        "message_count": end_index - start_index,
+                    }
+
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "
                         f"主题={metadata.get('topics', [])}, "

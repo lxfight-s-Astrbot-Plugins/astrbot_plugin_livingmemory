@@ -28,6 +28,7 @@ class HybridResult:
     vector_score: float | None  # 向量分数
     content: str
     metadata: dict[str, Any]
+    score_breakdown: dict[str, float] | None = None  # 各维度分数明细
 
 
 class HybridRetriever:
@@ -73,6 +74,14 @@ class HybridRetriever:
         self.decay_rate = self.config.get("decay_rate", 0.01)
         self.importance_weight = self.config.get("importance_weight", 1.0)
         self.fallback_enabled = self.config.get("fallback_enabled", True)
+
+        # 加权求和各维度权重（可通过配置覆盖）
+        self.score_alpha = self.config.get("score_alpha", 0.5)   # 检索相关性
+        self.score_beta = self.config.get("score_beta", 0.25)    # 重要性
+        self.score_gamma = self.config.get("score_gamma", 0.25)  # 时间新鲜度
+
+        # MMR 多样性参数
+        self.mmr_lambda = self.config.get("mmr_lambda", 0.7)     # 相关性 vs 多样性权衡
 
     async def add_memory(
         self, content: str, metadata: dict[str, Any] | None = None
@@ -237,6 +246,10 @@ class HybridRetriever:
         current_time = time.time()
         weighted_results = self._apply_weighting(fused_results, current_time)
 
+        # 5. MMR 去重：在保证相关性的同时提升结果多样性
+        if len(weighted_results) > 1:
+            weighted_results = self._apply_mmr(weighted_results, k)
+
         return weighted_results
 
     def _apply_weighting(
@@ -245,6 +258,9 @@ class HybridRetriever:
         """
         应用重要性和时间衰减加权
 
+        使用加权求和（而非乘法）避免任何单一维度低分导致整体清零。
+        时间衰减基于 max(create_time, last_access_time)，高频访问记忆衰减更慢。
+
         Args:
             fused_results: RRF融合后的结果
             current_time: 当前时间戳
@@ -252,6 +268,14 @@ class HybridRetriever:
         Returns:
             List[HybridResult]: 加权后的结果,按最终分数降序排列
         """
+        if not fused_results:
+            return []
+
+        # 先归一化 RRF 分数到 [0, 1]
+        max_rrf = max(r.rrf_score for r in fused_results)
+        if max_rrf <= 0:
+            max_rrf = 1.0
+
         hybrid_results = []
 
         for result in fused_results:
@@ -281,18 +305,34 @@ class HybridRetriever:
                 )
                 metadata = {}
 
-            # 获取重要性(默认0.5)
-            importance = metadata.get("importance", 0.5)
+            # 获取重要性(默认0.5)，限制在 [0, 1]
+            importance = max(0.0, min(1.0, metadata.get("importance", 0.5)))
 
-            # 计算时间衰减
+            # 时间衰减：取 create_time 与 last_access_time 的较大值
+            # 高频访问的记忆衰减更慢，符合"记忆强化"认知规律
             create_time = metadata.get("create_time", current_time)
-            days_old = (current_time - create_time) / 86400  # 转换为天数
+            last_access_time = metadata.get("last_access_time", 0)
+            reference_time = max(create_time, last_access_time)
+            days_old = max(0.0, (current_time - reference_time) / 86400)
             recency_weight = math.exp(-self.decay_rate * days_old)
 
-            # 计算最终分数
+            # 归一化 RRF 分数
+            rrf_normalized = result.rrf_score / max_rrf
+
+            # 加权求和：各维度互补而非互斥
             final_score = (
-                result.rrf_score * importance * self.importance_weight * recency_weight
+                self.score_alpha * rrf_normalized
+                + self.score_beta * importance
+                + self.score_gamma * recency_weight
             )
+
+            score_breakdown = {
+                "rrf_normalized": round(rrf_normalized, 4),
+                "importance": round(importance, 4),
+                "recency_weight": round(recency_weight, 4),
+                "days_old": round(days_old, 2),
+                "final_score": round(final_score, 4),
+            }
 
             hybrid_results.append(
                 HybridResult(
@@ -303,6 +343,7 @@ class HybridRetriever:
                     vector_score=result.vector_score,
                     content=result.content,
                     metadata=metadata,
+                    score_breakdown=score_breakdown,
                 )
             )
 
@@ -310,6 +351,62 @@ class HybridRetriever:
         hybrid_results.sort(key=lambda x: x.final_score, reverse=True)
 
         return hybrid_results
+
+    def _apply_mmr(self, results: list[HybridResult], k: int) -> list[HybridResult]:
+        """
+        最大边际相关性（MMR）去重，避免多条语义重复的记忆占据 Top-K。
+
+        使用内容词袋相似度作为轻量代理（无需额外向量计算）。
+        mmr_lambda 越高越偏向相关性，越低越偏向多样性。
+
+        Args:
+            results: 已按 final_score 降序排列的候选结果
+            k: 最终返回数量
+
+        Returns:
+            List[HybridResult]: 去重后的结果
+        """
+        if len(results) <= k:
+            return results
+
+        def _token_set(text: str) -> set[str]:
+            tokens = set(text.lower().split())
+            return tokens if tokens else {"<empty>"}
+
+        selected: list[HybridResult] = []
+        candidates = list(results)
+
+        while candidates and len(selected) < k:
+            if not selected:
+                # 第一条直接选最高分
+                selected.append(candidates.pop(0))
+                continue
+
+            best_idx = -1
+            best_mmr = -1.0
+            selected_tokens = [_token_set(s.content) for s in selected]
+
+            for i, cand in enumerate(candidates):
+                cand_tokens = _token_set(cand.content)
+                # 与已选结果的最大 Jaccard 相似度
+                max_sim = max(
+                    len(cand_tokens & st) / max(len(cand_tokens | st), 1)
+                    for st in selected_tokens
+                )
+                mmr_score = (
+                    self.mmr_lambda * cand.final_score
+                    - (1 - self.mmr_lambda) * max_sim
+                )
+                if mmr_score > best_mmr:
+                    best_mmr = mmr_score
+                    best_idx = i
+
+            if best_idx >= 0:
+                selected.append(candidates.pop(best_idx))
+            else:
+                break
+
+        return selected
 
     def _fallback_bm25_only(self, bm25_results: list, k: int) -> list[HybridResult]:
         """

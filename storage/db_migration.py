@@ -17,13 +17,14 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 3
+    CURRENT_VERSION = 4
 
     # 版本历史记录
     VERSION_HISTORY = {
         1: "初始版本 - 基础记忆存储",
         2: "FTS5索引预处理 - 添加分词和停用词支持",
         3: "会话ID迁移 - 标记需要session_id格式升级",
+        4: "Schema v2 - 双通道总结字段 + source_window 溯源支持",
     }
 
     def __init__(self, db_path: str):
@@ -208,6 +209,10 @@ class DBMigration:
                 if current_version <= 2:
                     migration_steps.append(self._migrate_v2_to_v3)
 
+                # 从版本3升级到版本4
+                if current_version <= 3:
+                    migration_steps.append(self._migrate_v3_to_v4)
+
                 # 执行所有迁移步骤
                 for step in migration_steps:
                     await step(sparse_retriever, progress_callback)
@@ -356,6 +361,65 @@ class DBMigration:
 
         except Exception as e:
             logger.error(f" v2 -> v3 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _migrate_v3_to_v4(
+        self,
+        sparse_retriever: Any | None,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """
+        从版本3迁移到版本4
+        主要变更：
+        - 旧记录 metadata 中补充 summary_schema_version=v1（标记为旧格式）
+        - 新写入记录将自动携带 canonical_summary / persona_summary / source_window
+        - 无法回填 source_window 的旧数据不做处理（traceable=false 由读取方判断）
+        """
+        logger.info(" 执行迁移步骤: v3 -> v4 (Schema v2 双通道总结字段)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # 检查 documents 表是否存在
+                cursor = await db.execute("""
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type='table' AND name='documents'
+                """)
+                row = await cursor.fetchone()
+                if not row or row[0] == 0:
+                    logger.info("ℹ️ 未找到 documents 表，跳过 v4 迁移")
+                    return
+
+                # 为没有 summary_schema_version 的旧记录打上 v1 标记
+                # 使用 JSON 函数更新 metadata 字段
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM documents WHERE metadata NOT LIKE '%summary_schema_version%'"
+                )
+                count_row = await cursor.fetchone()
+                legacy_count = count_row[0] if count_row else 0
+
+                if legacy_count > 0:
+                    logger.info(f"ℹ️ 发现 {legacy_count} 条旧格式记录，补充 summary_schema_version=v1 标记")
+
+                    # 批量更新：将旧记录的 metadata 中注入 schema 版本标记
+                    # 使用 COALESCE(NULLIF(...)) 处理 NULL/空字符串，再用 json_set 追加字段
+                    await db.execute("""
+                        UPDATE documents
+                        SET metadata = json_set(
+                            COALESCE(NULLIF(TRIM(metadata), ''), '{}'),
+                            '$.summary_schema_version', 'v1',
+                            '$.summary_quality', 'unknown'
+                        )
+                        WHERE metadata NOT LIKE '%summary_schema_version%'
+                    """)
+                    await db.commit()
+                    logger.info(f" 已为 {legacy_count} 条旧记录补充 schema 版本标记")
+                else:
+                    logger.info("ℹ️ 所有记录已有 summary_schema_version，无需补充")
+
+            logger.info(" v3 -> v4 迁移完成")
+
+        except Exception as e:
+            logger.error(f" v3 -> v4 迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> dict[str, Any]:

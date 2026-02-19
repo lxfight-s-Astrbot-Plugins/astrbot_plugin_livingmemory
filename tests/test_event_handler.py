@@ -177,8 +177,22 @@ async def test_handle_all_group_messages_and_limit_cleanup(
 
     # group capture should persist message
     conversation_manager.add_message_from_event.assert_awaited()
-    # message metadata persisted
-    conversation_manager.store.update_message_metadata.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_all_group_messages_skips_bot_own_messages(
+    handler, conversation_manager
+):
+    """Bot 自己的消息应被跳过，由 handle_memory_reflection 负责写入。"""
+    event = _make_event(group=True)
+    # sender_id == self_id → bot's own message
+    event.get_sender_id = Mock(return_value="bot-1")
+    event.get_self_id = Mock(return_value="bot-1")
+
+    await handler.handle_all_group_messages(event)
+
+    # should NOT store bot's own message
+    conversation_manager.add_message_from_event.assert_not_awaited()
 
 
 @pytest.mark.asyncio
