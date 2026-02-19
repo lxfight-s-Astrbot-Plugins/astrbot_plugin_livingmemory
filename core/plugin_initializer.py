@@ -58,6 +58,7 @@ class PluginInitializer:
         self._providers_ready = False
         self._provider_check_attempts = 0
         self._max_provider_attempts = 60
+        self._retry_task: asyncio.Task | None = None
 
     async def initialize(self) -> bool:
         """
@@ -76,7 +77,7 @@ class PluginInitializer:
             # 1. 等待 Provider 就绪
             if not await self._wait_for_providers_non_blocking():
                 logger.warning("Provider 暂时不可用，将在后台继续尝试...")
-                asyncio.create_task(self._retry_initialization())
+                self._start_retry_task_if_needed()
                 return False
 
             # 2. Provider 就绪，继续完整初始化
@@ -88,6 +89,27 @@ class PluginInitializer:
             self._initialization_failed = True
             self._initialization_error = str(e)
             return False
+
+    def _start_retry_task_if_needed(self) -> None:
+        """启动后台重试任务（避免重复启动）"""
+        if self._retry_task and not self._retry_task.done():
+            return
+
+        self._retry_task = asyncio.create_task(self._retry_initialization())
+        self._retry_task.add_done_callback(self._on_retry_task_done)
+
+    def _on_retry_task_done(self, task: asyncio.Task) -> None:
+        """重试任务完成回调，回收状态并记录异常"""
+        self._retry_task = None
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+            if exc:
+                logger.error(f"Provider 重试任务异常退出: {exc}")
+        except Exception:
+            # 防御性处理：读取 task.exception() 时不应阻断主流程
+            pass
 
     async def _wait_for_providers_non_blocking(self, max_wait: float = 5.0) -> bool:
         """非阻塞地检查 Provider 是否可用"""
@@ -257,6 +279,9 @@ class PluginInitializer:
                 "cleanup_importance_threshold": self.config_manager.get(
                     "forgetting_agent.cleanup_importance_threshold", 0.3
                 ),
+                "auto_cleanup_enabled": self.config_manager.get(
+                    "forgetting_agent.auto_cleanup_enabled", True
+                ),
                 "stopwords_path": stopwords_dir,
             }
 
@@ -306,7 +331,10 @@ class PluginInitializer:
 
             # 启动重要性衰减调度器
             decay_rate = self.config_manager.get("importance_decay.decay_rate", 0.01)
-            if decay_rate > 0 and self.memory_engine:
+            auto_cleanup_enabled = self.config_manager.get(
+                "forgetting_agent.auto_cleanup_enabled", True
+            )
+            if self.memory_engine and (decay_rate > 0 or auto_cleanup_enabled):
                 scheduler = DecayScheduler(
                     memory_engine=self.memory_engine,
                     decay_rate=decay_rate,
@@ -509,3 +537,13 @@ class PluginInitializer:
         if self.decay_scheduler:
             await self.decay_scheduler.stop()
             self.decay_scheduler = None
+
+    async def stop_background_tasks(self) -> None:
+        """停止初始化阶段的后台任务（如Provider重试）"""
+        if self._retry_task and not self._retry_task.done():
+            self._retry_task.cancel()
+            try:
+                await self._retry_task
+            except asyncio.CancelledError:
+                pass
+        self._retry_task = None

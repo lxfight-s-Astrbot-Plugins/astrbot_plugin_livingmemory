@@ -114,15 +114,36 @@ class DecayScheduler:
         Returns:
             是否执行成功
         """
-        if self.decay_rate <= 0:
-            logger.info("[衰减调度] 衰减率为0，跳过执行")
-            return True
-
         try:
-            affected = await self.memory_engine.apply_daily_decay(self.decay_rate, days)
-            logger.info(
-                f"[衰减调度] 衰减完成，影响 {affected} 条记忆，衰减天数: {days}"
-            )
+            if self.decay_rate > 0:
+                affected = await self.memory_engine.apply_daily_decay(
+                    self.decay_rate, days
+                )
+                logger.info(
+                    f"[衰减调度] 衰减完成，影响 {affected} 条记忆，衰减天数: {days}"
+                )
+            else:
+                logger.info("[衰减调度] 衰减率为0，跳过衰减")
+
+            # 每日衰减后可选执行一次旧记忆清理
+            if self.memory_engine.config.get("auto_cleanup_enabled", True):
+                try:
+                    cleanup_days = self.memory_engine.config.get(
+                        "cleanup_days_threshold", 30
+                    )
+                    cleanup_importance = self.memory_engine.config.get(
+                        "cleanup_importance_threshold", 0.3
+                    )
+                    deleted = await self.memory_engine.cleanup_old_memories(
+                        days_threshold=cleanup_days,
+                        importance_threshold=cleanup_importance,
+                    )
+                    logger.info(f"[衰减调度] 自动清理完成，删除 {deleted} 条旧记忆")
+                except Exception as cleanup_err:
+                    logger.error(
+                        f"[衰减调度] 自动清理失败: {cleanup_err}", exc_info=True
+                    )
+
             self._set_last_decay_date(self._get_today_str())
             return True
         except Exception as e:

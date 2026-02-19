@@ -102,9 +102,7 @@ class IndexValidator:
                                     faiss, "vector_to_array", None
                                 )
                                 if callable(vector_to_array):
-                                    raw_ids = cast(
-                                        Any, vector_to_array(index.id_map)
-                                    )
+                                    raw_ids = cast(Any, vector_to_array(index.id_map))
                                     vector_ids = {int(i) for i in raw_ids}
                         except Exception as e:
                             logger.debug(f"读取向量ID失败，使用计数模式: {e}")

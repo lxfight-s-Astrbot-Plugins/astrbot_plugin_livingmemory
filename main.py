@@ -52,6 +52,7 @@ class LivingMemoryPlugin(Star):
 
         # 后台任务跟踪集合
         self._background_tasks: set[asyncio.Task] = set()
+        self._component_init_lock = asyncio.Lock()
 
         # 启动非阻塞的初始化任务
         self._create_tracked_task(self._initialize_plugin())
@@ -70,18 +71,30 @@ class LivingMemoryPlugin(Star):
             success = await self.initializer.initialize()
 
             if success:
-                # 检查必要组件是否初始化成功
-                if not all(
-                    [
-                        self.initializer.memory_engine,
-                        self.initializer.memory_processor,
-                        self.initializer.conversation_manager,
-                    ]
-                ):
-                    logger.error("插件初始化不完整：部分核心组件未能初始化")
-                    return
+                await self._ensure_runtime_components()
 
-                # 创建事件处理器
+        except Exception as e:
+            logger.error(f"插件初始化失败: {e}", exc_info=True)
+
+    async def _ensure_runtime_components(self) -> bool:
+        """确保运行期组件（事件/命令处理器、WebUI）已就绪"""
+        if not self.initializer.is_initialized:
+            return False
+
+        async with self._component_init_lock:
+            # 检查必要组件是否初始化成功
+            if not all(
+                [
+                    self.initializer.memory_engine,
+                    self.initializer.memory_processor,
+                    self.initializer.conversation_manager,
+                ]
+            ):
+                logger.error("插件初始化不完整：部分核心组件未能初始化")
+                return False
+
+            # 创建事件处理器（幂等）
+            if not self.event_handler:
                 self.event_handler = EventHandler(
                     context=self.context,
                     config_manager=self.config_manager,
@@ -90,7 +103,8 @@ class LivingMemoryPlugin(Star):
                     conversation_manager=self.initializer.conversation_manager,  # type: ignore[arg-type]
                 )
 
-                # 创建命令处理器
+            # 创建命令处理器（幂等）
+            if not self.command_handler:
                 self.command_handler = CommandHandler(
                     context=self.context,
                     config_manager=self.config_manager,
@@ -101,13 +115,22 @@ class LivingMemoryPlugin(Star):
                     initialization_status_callback=self._get_initialization_status_message,
                 )
 
-                # 启动 WebUI
-                await self._start_webui()
-                if self.command_handler:
-                    self.command_handler.webui_server = self.webui_server
+            # 启动 WebUI（幂等）
+            await self._start_webui()
+            if self.command_handler:
+                self.command_handler.webui_server = self.webui_server
 
-        except Exception as e:
-            logger.error(f"插件初始化失败: {e}", exc_info=True)
+        return True
+
+    async def _ensure_plugin_ready(self) -> tuple[bool, str]:
+        """确保插件已完成初始化并且运行期组件可用"""
+        if not await self.initializer.ensure_initialized():
+            return False, self._get_initialization_status_message()
+
+        if not await self._ensure_runtime_components():
+            return False, "❌ 插件核心组件未初始化"
+
+        return True, ""
 
     async def _start_webui(self):
         """根据配置启动 WebUI 控制台"""
@@ -165,7 +188,14 @@ class LivingMemoryPlugin(Star):
     @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """[事件钩子] 捕获所有群聊消息用于记忆存储"""
-        if not self.initializer.is_initialized or not self.event_handler:
+        if not self.initializer.is_initialized:
+            return
+
+        if not await self._ensure_runtime_components():
+            logger.debug("插件组件未就绪，跳过群聊消息捕获")
+            return
+
+        if not self.event_handler:
             return
 
         await self.event_handler.handle_all_group_messages(event)
@@ -173,7 +203,8 @@ class LivingMemoryPlugin(Star):
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
-        if not await self.initializer.ensure_initialized():
+        ready, _ = await self._ensure_plugin_ready()
+        if not ready:
             logger.debug("插件未完成初始化，跳过记忆召回")
             return
 
@@ -187,7 +218,8 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
         """[事件钩子] 在 LLM 响应后，检查是否需要进行反思和记忆存储"""
-        if not await self.initializer.ensure_initialized():
+        ready, _ = await self._ensure_plugin_ready()
+        if not ready:
             logger.debug("插件未完成初始化，跳过记忆反思")
             return
 
@@ -209,8 +241,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示记忆系统状态"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -225,8 +258,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 搜索记忆"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -242,8 +276,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 删除指定记忆"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -259,8 +294,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 手动重建索引"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -276,8 +312,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示WebUI访问信息"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -293,8 +330,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 重置当前会话的长期记忆上下文"""
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -314,8 +352,9 @@ class LivingMemoryPlugin(Star):
         Args:
             mode: 执行模式, "preview"(默认)为预演, "exec"为实际清理
         """
-        if not await self.initializer.ensure_initialized():
-            yield event.plain_result(self._get_initialization_status_message())
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
             return
 
         if not self.command_handler:
@@ -336,6 +375,11 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[管理员] 显示帮助信息"""
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
+            return
+
         if not self.command_handler:
             yield event.plain_result("❌ 命令处理器未初始化")
             return
@@ -357,6 +401,9 @@ class LivingMemoryPlugin(Star):
                     task.cancel()
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
+
+        # 停止初始化后台任务（如Provider重试）
+        await self.initializer.stop_background_tasks()
 
         # 通知EventHandler停止（如果有正在运行的存储任务）
         if self.event_handler:

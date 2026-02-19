@@ -691,6 +691,24 @@ class MemoryEngine:
 
         # 使用数据库层面的排序和分页，避免加载所有数据
         try:
+
+            def _normalize_metadata_and_get_time(doc: dict[str, Any]) -> float:
+                metadata = doc.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                elif not isinstance(metadata, dict):
+                    metadata = {}
+
+                doc["metadata"] = metadata
+                create_time = metadata.get("create_time", 0)
+                try:
+                    return float(create_time)
+                except (TypeError, ValueError):
+                    return 0.0
+
             # 先获取总数判断是否需要分批
             total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={"session_id": session_id}
@@ -710,7 +728,7 @@ class MemoryEngine:
                 # 按创建时间排序
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda x: x["metadata"].get("create_time", 0),
+                    key=_normalize_metadata_and_get_time,
                     reverse=True,
                 )
             else:
@@ -736,7 +754,7 @@ class MemoryEngine:
                 # 按创建时间排序并限制数量
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda x: x["metadata"].get("create_time", 0),
+                    key=_normalize_metadata_and_get_time,
                     reverse=True,
                 )[:limit]
 
@@ -772,10 +790,28 @@ class MemoryEngine:
             int: 删除的记忆数量
         """
         # 使用配置或参数值
-        days = days_threshold or self.config.get("cleanup_days_threshold", 30)
-        importance = importance_threshold or self.config.get(
-            "cleanup_importance_threshold", 0.3
+        days = (
+            self.config.get("cleanup_days_threshold", 30)
+            if days_threshold is None
+            else days_threshold
         )
+        importance = (
+            self.config.get("cleanup_importance_threshold", 0.3)
+            if importance_threshold is None
+            else importance_threshold
+        )
+        try:
+            days = int(days)
+            importance = float(importance)
+        except (TypeError, ValueError):
+            logger.error(
+                f"清理参数格式错误: days_threshold={days}, importance_threshold={importance}"
+            )
+            return 0
+
+        if days < 0:
+            logger.error(f"清理参数无效: days_threshold={days}（必须 >= 0）")
+            return 0
 
         cutoff_time = time.time() - (days * 86400)
 

@@ -107,6 +107,9 @@ class DenseRetrieverConfig(BaseModel):
 class ForgettingAgentConfig(BaseModel):
     """遗忘代理配置"""
 
+    auto_cleanup_enabled: bool = Field(
+        default=True, description="是否启用每日自动清理旧记忆"
+    )
     cleanup_days_threshold: int = Field(
         default=30, ge=1, le=3650, description="清理天数阈值"
     )

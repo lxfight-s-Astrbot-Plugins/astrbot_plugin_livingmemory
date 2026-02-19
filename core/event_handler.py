@@ -58,6 +58,8 @@ class EventHandler:
 
         # 后台存储任务跟踪
         self._storage_tasks: set[asyncio.Task] = set()
+        self._storage_sessions_inflight: set[str] = set()
+        self._storage_state_lock = asyncio.Lock()
         self._shutting_down = False
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
@@ -240,10 +242,9 @@ class EventHandler:
 
                 # 存储用户消息（仅私聊）
                 is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
-                if not is_group and req.prompt:
-                    message_to_store = ChatroomContextParser.extract_actual_message(
-                        req.prompt
-                    )
+                if not is_group and actual_query:
+                    # Persist the pre-injection user input to avoid memory pollution.
+                    message_to_store = actual_query.strip()
                     await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
@@ -440,21 +441,52 @@ class EventHandler:
 
                 # 创建后台任务进行存储（跟踪任务）
                 if not self._shutting_down:
-                    task = asyncio.create_task(
-                        self._storage_task(
-                            session_id,
-                            history_messages,
-                            persona_id,
-                            start_index,
-                            end_index,
-                            retry_count,
+                    async with self._storage_state_lock:
+                        if session_id in self._storage_sessions_inflight:
+                            logger.info(
+                                f"[{session_id}] 已有记忆反思任务在执行，跳过本次触发"
+                            )
+                            return
+                        self._storage_sessions_inflight.add(session_id)
+
+                    try:
+                        task = asyncio.create_task(
+                            self._storage_task(
+                                session_id,
+                                history_messages,
+                                persona_id,
+                                start_index,
+                                end_index,
+                                retry_count,
+                            )
                         )
-                    )
+                    except Exception:
+                        self._storage_sessions_inflight.discard(session_id)
+                        raise
+
                     self._storage_tasks.add(task)
-                    task.add_done_callback(self._storage_tasks.discard)
+                    task.add_done_callback(
+                        lambda t, sid=session_id: self._on_storage_task_done(t, sid)
+                    )
 
         except Exception as e:
             logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
+
+    def _on_storage_task_done(self, task: asyncio.Task, session_id: str) -> None:
+        """存储任务完成回调：回收任务状态并记录异常"""
+        self._storage_tasks.discard(task)
+        self._storage_sessions_inflight.discard(session_id)
+
+        if task.cancelled():
+            return
+
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+
+        if exc:
+            logger.error(f"[{session_id}] 记忆存储任务异常退出: {exc}")
 
     async def _storage_task(
         self,
@@ -478,6 +510,24 @@ class EventHandler:
         """
         async with OperationContext("记忆存储", session_id):
             try:
+                # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
+                current_summarized = (
+                    await self.conversation_manager.get_session_metadata(
+                        session_id, "last_summarized_index", 0
+                    )
+                )
+                try:
+                    summarized_index = int(current_summarized)
+                except (TypeError, ValueError):
+                    summarized_index = 0
+
+                if summarized_index >= end_index:
+                    logger.info(
+                        f"[{session_id}] 检测到过期总结任务，跳过: "
+                        f"current={summarized_index}, target_end={end_index}"
+                    )
+                    return
+
                 # 判断是否为群聊
                 is_group_chat = bool(
                     history_messages[0].group_id if history_messages else False
@@ -968,4 +1018,5 @@ class EventHandler:
             logger.info(f"等待 {len(self._storage_tasks)} 个存储任务完成...")
             await asyncio.gather(*self._storage_tasks, return_exceptions=True)
             self._storage_tasks.clear()
+        self._storage_sessions_inflight.clear()
         logger.info("EventHandler 已关闭")

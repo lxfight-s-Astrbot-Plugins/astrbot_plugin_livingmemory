@@ -211,6 +211,12 @@
     "hint": "负责模拟遗忘，清理陈旧记忆",
     "type": "object",
     "items": {
+      "auto_cleanup_enabled": {
+        "description": "启用每日自动清理",
+        "hint": "在每日重要性衰减后自动执行旧记忆清理。",
+        "type": "bool",
+        "default": true
+      },
       "cleanup_days_threshold": {
         "description": "清理天数阈值",
         "hint": "超过该天数的旧记忆将进入清理候选集合。",

@@ -397,10 +397,30 @@ class HybridRetriever:
         """
         import aiosqlite
 
-        bm25_deleted = False
-        vector_deleted = False
+        backup_content: str | None = None
+        backup_metadata: dict[str, Any] = {}
 
         try:
+            # Backup the original document so BM25 can be restored on failure.
+            try:
+                async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
+                    cursor = await db.execute(
+                        "SELECT text, metadata FROM documents WHERE id = ?", (doc_id,)
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        backup_content = row[0]
+                        metadata_raw = row[1]
+                        if isinstance(metadata_raw, str) and metadata_raw:
+                            try:
+                                backup_metadata = json.loads(metadata_raw)
+                            except (json.JSONDecodeError, TypeError):
+                                backup_metadata = {}
+                        elif isinstance(metadata_raw, dict):
+                            backup_metadata = metadata_raw
+            except Exception as e:
+                logger.warning(f"[删除] 备份文档内容失败 (doc_id={doc_id}): {e}")
+
             # 优化1: 先删除BM25索引（外键引用）
             try:
                 bm25_deleted = await self.bm25_retriever.delete_document(doc_id)
@@ -418,13 +438,17 @@ class HybridRetriever:
                 if not vector_deleted:
                     logger.error(f"[删除] 向量库删除失败，需回滚 (doc_id={doc_id})")
                     # 回滚: 恢复BM25索引
-                    await self._rollback_bm25_delete(doc_id)
+                    await self._rollback_bm25_delete(
+                        doc_id, backup_content, backup_metadata
+                    )
                     return False
                 logger.debug(f"[删除] 向量库已删除 (doc_id={doc_id})")
             except Exception as e:
                 logger.error(f"[删除] 向量删除异常，回滚BM25 (doc_id={doc_id}): {e}")
                 # 回滚: 恢复BM25索引
-                await self._rollback_bm25_delete(doc_id)
+                await self._rollback_bm25_delete(
+                    doc_id, backup_content, backup_metadata
+                )
                 return False
 
             # 最后删除documents表记录
@@ -444,21 +468,39 @@ class HybridRetriever:
             logger.error(f"[删除] 删除记忆失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
 
-    async def _rollback_bm25_delete(self, doc_id: int):
+    async def _rollback_bm25_delete(
+        self,
+        doc_id: int,
+        content: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """
-        回滚BM25删除操作（尽力而为）
-
-        注意：由于BM25是FTS索引，实际回滚较困难，这里只记录日志
-        实际生产环境应该考虑使用数据库事务或保存删除前的状态
+        回滚BM25删除操作（尽力而为，实际恢复索引）
 
         Args:
             doc_id: 文档ID
+            content: Backed-up document text captured before deletion
+            metadata: 文档元数据（可选）
         """
-        logger.warning(
-            f"[回滚] BM25删除需要回滚，但FTS5索引难以恢复 (doc_id={doc_id}). "
-            "建议使用索引重建功能修复数据一致性。"
-        )
-        # TODO: 实现完整的回滚机制，可能需要：
-        # 1. 从documents表读取原始内容
-        # 2. 重新插入BM25索引
-        # 但这需要保证documents表还未被删除
+        if not content:
+            logger.error(
+                f"[回滚] 缺少备份文本，无法恢复BM25索引 (doc_id={doc_id})。"
+                "建议执行索引重建修复一致性。"
+            )
+            return
+
+        try:
+            rollback_ok = await self.bm25_retriever.update_document(
+                doc_id, content, metadata or {}
+            )
+            if rollback_ok:
+                logger.info(f"[回滚] 已恢复BM25索引 (doc_id={doc_id})")
+            else:
+                logger.error(
+                    f"[回滚] BM25索引恢复失败 (doc_id={doc_id})，建议执行索引重建"
+                )
+        except Exception as e:
+            logger.error(
+                f"[回滚] BM25索引恢复异常 (doc_id={doc_id}): {e}",
+                exc_info=True,
+            )
