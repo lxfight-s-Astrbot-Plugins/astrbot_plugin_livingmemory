@@ -11,7 +11,7 @@ from typing import Any
 
 import pytz
 
-from astrbot.api import logger
+from astrbot.api import logger, sp
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
@@ -174,40 +174,65 @@ class OperationContext:
 
 async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | None:
     """
-    获取当前会话的人格 ID。
-    如果当前会话没有特定人格，则返回 AstrBot 的默认人格。
+    获取当前会话的人格 ID，与 AstrBot 主流程保持完全一致的三级优先级：
+      1. session_service_config（最高，由 /persona 等命令写入）
+      2. conversation.persona_id（会话级绑定）
+      3. 全局默认人格（最低）
     """
     try:
         umo = event.unified_msg_origin
+
+        # 优先级 1：session_service_config（与 _ensure_persona_and_skills 一致）
+        session_persona_id: str | None = (
+            await sp.get_async(
+                scope="umo",
+                scope_id=umo,
+                key="session_service_config",
+                default={},
+            )
+        ).get("persona_id")
+
+        if session_persona_id:
+            logger.debug(
+                f"[get_persona_id] [{umo}] 使用 session_service_config 人格: {session_persona_id}"
+            )
+            return session_persona_id
+
+        # 优先级 2：conversation.persona_id
         session_id = await context.conversation_manager.get_curr_conversation_id(umo)
         if session_id is None:
-            logger.debug(f"[get_persona_id] [{umo}] 无当前会话，返回 None")
-            return None
-
-        conversation = await context.conversation_manager.get_conversation(
-            umo, session_id
-        )
-        persona_id = conversation.persona_id if conversation else None
-
-        logger.debug(
-            f"[get_persona_id] [{umo}] 会话={session_id}, "
-            f"会话人格={persona_id or '未设置'}"
-        )
-
-        # 如果无人格或明确设置为None，则使用该会话配置的默认人格
-        if not persona_id or persona_id == "[%None]":
-            default_persona = await context.persona_manager.get_default_persona_v3(
-                umo=event.unified_msg_origin
+            logger.debug(f"[get_persona_id] [{umo}] 无当前会话，跳至默认人格")
+        else:
+            conversation = await context.conversation_manager.get_conversation(
+                umo, session_id
             )
-            persona_id = default_persona["name"] if default_persona else None
+            persona_id = conversation.persona_id if conversation else None
+
             logger.debug(
-                f"[get_persona_id] [{umo}] 使用默认人格: {persona_id or '未设置'}"
+                f"[get_persona_id] [{umo}] 会话={session_id}, "
+                f"会话人格={persona_id or '未设置'}"
             )
 
+            if persona_id == "[%None]":
+                # 明确设置为无人格
+                logger.debug(f"[get_persona_id] [{umo}] 会话明确设置为无人格")
+                return None
+
+            if persona_id:
+                logger.info(f"[get_persona_id] [{umo}] 最终使用人格: {persona_id}")
+                return persona_id
+
+        # 优先级 3：全局默认人格
+        default_persona = await context.persona_manager.get_default_persona_v3(
+            umo=umo
+        )
+        persona_id = default_persona["name"] if default_persona else None
+        logger.debug(
+            f"[get_persona_id] [{umo}] 使用默认人格: {persona_id or '未设置'}"
+        )
         logger.info(f"[get_persona_id] [{umo}] 最终使用人格: {persona_id or '无'}")
         return persona_id
     except Exception as e:
-        # 在某些情况下（如无会话），获取可能会失败，返回 None
         logger.debug(f"获取人格ID失败: {e}")
         return None
 

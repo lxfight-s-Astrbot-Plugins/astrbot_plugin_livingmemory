@@ -156,15 +156,13 @@ class EventHandler:
                     "use_session_filtering", True
                 )
 
-                # 优先从 req.conversation 获取 persona_id（与本次 LLM 调用完全一致）
-                # fallback 到 get_persona_id（兼容无 conversation 的场景）
-                if (
-                    req.conversation
-                    and getattr(req.conversation, "persona_id", None)
-                ):
-                    persona_id = req.conversation.persona_id
-                else:
-                    persona_id = await get_persona_id(self.context, event)
+                # 获取 persona_id，与 AstrBot 主流程保持一致的三级优先级：
+                # 1. session_service_config（最高）
+                # 2. req.conversation.persona_id（会话级）
+                # 3. 全局默认人格（最低）
+                # 注意：on_llm_request 钩子在 _ensure_persona_and_skills 之前触发，
+                # 因此不能直接依赖 req.system_prompt 已注入人格，需自行走完整优先级。
+                persona_id = await get_persona_id(self.context, event)
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
@@ -234,8 +232,9 @@ class EventHandler:
                             f"[{session_id}] 成功向用户消息后注入 {len(recalled_memories)} 条记忆"
                         )
                     else:
+                        # system_prompt 注入：记忆追加到末尾，确保人格提示词在前
                         req.system_prompt = (
-                            memory_str + "\n" + (req.system_prompt or "")
+                            (req.system_prompt or "") + "\n" + memory_str
                         )
                         logger.info(
                             f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
