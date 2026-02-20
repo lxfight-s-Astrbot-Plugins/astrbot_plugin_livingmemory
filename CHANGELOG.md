@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+## [2.1.8] - 2026-02-20
+
+### 修复
+- 修复向量索引冗余槽位导致每次启动都触发全量重建的问题：FAISS `ntotal` 包含逻辑删除后的空槽，属正常行为，不再触发重建；仅 BM25 冗余或索引缺失时才重建
+- 修复 `get_persona_id` 与 AstrBot 主流程优先级不一致的问题：新增最高优先级 `session_service_config`（由 `/persona` 等命令写入），并正确处理 `[%None]`（明确无人格）不再 fallback 到默认人格
+- 修复 `handle_memory_recall` 中 `persona_id` 获取路径：移除直接读取 `req.conversation.persona_id` 的逻辑（`on_llm_request` 钩子在 `_ensure_persona_and_skills` 之前触发，该字段不含 session_service_config 覆盖），统一走完整三级优先级
+
+### 优化
+- Provider 未就绪时的日志提示明确区分 Embedding Provider 和 LLM Provider，并附带配置建议
+- 周期性重试日志显示当前哪个 Provider 仍未就绪
+- 最终超时失败日志列出具体未就绪的 Provider 名称
+
 ## [2.1.7] - 2026-02-19
 
 ### 新增
