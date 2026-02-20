@@ -194,10 +194,15 @@ class IndexValidator:
                     if missing_in_vector > 0:
                         reasons.append(f"向量索引缺失{missing_in_vector}条文档")
                     reason = "；".join(reasons)
-                elif bm25_count > documents_count or vector_count > documents_count:
+                elif bm25_count > documents_count:
                     needs_rebuild = True
                     is_consistent = False
-                    reason = "索引中存在冗余数据"
+                    reason = "BM25索引中存在冗余数据"
+                elif vector_count > documents_count:
+                    # FAISS ntotal 包含逻辑删除的槽位，冗余向量不影响召回正确性，
+                    # 不触发全量重建（否则每次启动都会重建）
+                    is_consistent = True
+                    reason = f"向量索引含{vector_count - documents_count}条冗余槽位（正常，不影响召回）"
                 else:
                     is_consistent = True
                     reason = "索引状态正常"
