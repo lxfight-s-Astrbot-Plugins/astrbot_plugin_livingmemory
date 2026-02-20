@@ -76,7 +76,14 @@ class PluginInitializer:
         try:
             # 1. 等待 Provider 就绪
             if not await self._wait_for_providers_non_blocking():
-                logger.warning("Provider 暂时不可用，将在后台继续尝试...")
+                missing = []
+                if not self.embedding_provider:
+                    missing.append("Embedding Provider（请在 AstrBot 中配置向量嵌入模型）")
+                if not self.llm_provider:
+                    missing.append("LLM Provider（请在 AstrBot 中配置语言模型）")
+                logger.warning(
+                    f"以下 Provider 暂时不可用，将在后台继续尝试: {', '.join(missing)}"
+                )
                 self._start_retry_task_if_needed()
                 return False
 
@@ -129,6 +136,8 @@ class PluginInitializer:
 
         logger.debug(
             f"Provider 在 {max_wait}秒内未就绪（已尝试 {self._provider_check_attempts} 次）"
+            f"：embedding={'✅' if self.embedding_provider else '❌'}, "
+            f"llm={'✅' if self.llm_provider else '❌'}"
         )
         return False
 
@@ -150,8 +159,14 @@ class PluginInitializer:
             self._provider_check_attempts += 1
 
             if self._provider_check_attempts % log_interval == 0:
+                missing = []
+                if not self.embedding_provider:
+                    missing.append("Embedding Provider")
+                if not self.llm_provider:
+                    missing.append("LLM Provider")
                 logger.info(
-                    f"⏳ 等待 Provider 就绪中...（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次，"
+                    f"⏳ 等待 Provider 就绪中（未就绪: {', '.join(missing)}）..."
+                    f"（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次，"
                     f"下次重试间隔 {current_interval:.1f}s）"
                 )
 
@@ -175,8 +190,14 @@ class PluginInitializer:
             current_interval = min(current_interval * 1.5, max_interval)
 
         if not self._initialization_complete and not self._initialization_failed:
+            missing = []
+            if not self.embedding_provider:
+                missing.append("Embedding Provider（请配置向量嵌入模型）")
+            if not self.llm_provider:
+                missing.append("LLM Provider（请配置语言模型）")
             logger.error(
-                f"❌ Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败"
+                f"❌ 以下 Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败: "
+                f"{', '.join(missing) if missing else '未知'}"
             )
             self._initialization_failed = True
             self._initialization_error = "Provider 初始化超时"
