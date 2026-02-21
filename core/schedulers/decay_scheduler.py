@@ -1,6 +1,6 @@
 """
 记忆重要性衰减调度器
-每日自动对记忆重要性进行衰减处理
+每日自动对记忆重要性进行衰减处理，并定期备份数据库
 """
 
 import asyncio
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from astrbot.api import logger
 
 if TYPE_CHECKING:
+    from ...storage.db_migration import DBMigration
     from ..managers.memory_engine import MemoryEngine
 
 
@@ -24,6 +25,7 @@ class DecayScheduler:
     1. 每日凌晨自动执行衰减
     2. 启动时检查并补偿错过的衰减
     3. 防止同一天重复执行
+    4. 定期自动备份数据库
     """
 
     def __init__(
@@ -33,6 +35,9 @@ class DecayScheduler:
         data_dir: str,
         check_hour: int = 0,
         check_minute: int = 5,
+        db_migration: "DBMigration | None" = None,
+        backup_enabled: bool = True,
+        backup_keep_days: int = 7,
     ):
         """
         初始化衰减调度器
@@ -43,12 +48,18 @@ class DecayScheduler:
             data_dir: 数据目录，用于存储状态文件
             check_hour: 每日执行时间（小时）
             check_minute: 每日执行时间（分钟）
+            db_migration: 数据库迁移管理器（用于备份）
+            backup_enabled: 是否启用每日自动备份
+            backup_keep_days: 备份保留天数，超期自动删除
         """
         self.memory_engine = memory_engine
         self.decay_rate = decay_rate
         self.data_dir = Path(data_dir)
         self.check_hour = check_hour
         self.check_minute = check_minute
+        self.db_migration = db_migration
+        self.backup_enabled = backup_enabled
+        self.backup_keep_days = backup_keep_days
 
         self._state_file = self.data_dir / "decay_state.json"
         self._task: asyncio.Task | None = None
@@ -150,6 +161,11 @@ class DecayScheduler:
                     )
 
             await self._set_last_decay_date(self._get_today_str())
+
+            # 每日执行备份
+            if self.backup_enabled and self.db_migration:
+                await self._run_backup()
+
             return True
         except Exception as e:
             logger.error(f"[衰减调度] 执行衰减失败: {e}", exc_info=True)
@@ -171,6 +187,44 @@ class DecayScheduler:
             logger.info(f"[衰减调度] 检测到错过 {missed_days} 天衰减，执行补偿")
 
         await self._execute_decay(total_days)
+
+    async def _run_backup(self) -> None:
+        """执行数据库备份并清理过期备份"""
+        if not self.db_migration:
+            return
+        try:
+            backup_path = await self.db_migration.create_backup()
+            if backup_path:
+                logger.info(f"[衰减调度] 每日备份完成: {backup_path}")
+                await self._cleanup_old_backups()
+            else:
+                logger.warning("[衰减调度] 每日备份失败")
+        except Exception as e:
+            logger.error(f"[衰减调度] 备份异常: {e}", exc_info=True)
+
+    async def _cleanup_old_backups(self) -> None:
+        """删除超过保留天数的旧备份文件"""
+        if not self.db_migration:
+            return
+        try:
+            from pathlib import Path
+
+            db_path = Path(self.db_migration.db_path)
+            backup_dir = db_path.parent / "backups"
+            if not backup_dir.exists():
+                return
+
+            cutoff = datetime.now().timestamp() - self.backup_keep_days * 86400
+            removed = 0
+            for f in backup_dir.glob(f"{db_path.stem}_backup_*.db"):
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    removed += 1
+
+            if removed:
+                logger.info(f"[衰减调度] 清理过期备份 {removed} 个（保留 {self.backup_keep_days} 天）")
+        except Exception as e:
+            logger.warning(f"[衰减调度] 清理旧备份失败: {e}")
 
     def _seconds_until_next_run(self) -> float:
         """计算距离下次执行的秒数"""

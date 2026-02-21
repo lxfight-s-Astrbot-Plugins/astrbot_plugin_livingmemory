@@ -206,6 +206,25 @@
       }
     }
   },
+  "backup_settings": {
+    "description": "定期备份",
+    "hint": "每日自动备份记忆数据库，防止数据意外丢失",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用每日自动备份",
+        "hint": "每日衰减任务执行后自动备份数据库。建议开启。",
+        "type": "bool",
+        "default": true
+      },
+      "keep_days": {
+        "description": "备份保留天数",
+        "hint": "超过该天数的旧备份文件将被自动删除。默认保留 7 天。",
+        "type": "int",
+        "default": 7
+      }
+    }
+  },
   "forgetting_agent": {
     "description": "自动清理设置",
     "hint": "定期清理时间久远且重要性低的旧记忆，控制记忆库规模",

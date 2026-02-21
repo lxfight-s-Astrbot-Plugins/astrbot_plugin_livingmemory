@@ -371,10 +371,15 @@ class PluginInitializer:
                 "forgetting_agent.auto_cleanup_enabled", True
             )
             if self.memory_engine and (decay_rate > 0 or auto_cleanup_enabled):
+                backup_enabled = self.config_manager.get("backup_settings.enabled", True)
+                backup_keep_days = self.config_manager.get("backup_settings.keep_days", 7)
                 scheduler = DecayScheduler(
                     memory_engine=self.memory_engine,
                     decay_rate=decay_rate,
                     data_dir=self.data_dir,
+                    db_migration=self.db_migration,
+                    backup_enabled=backup_enabled,
+                    backup_keep_days=backup_keep_days,
                 )
                 await scheduler.start()
                 self.decay_scheduler = scheduler
