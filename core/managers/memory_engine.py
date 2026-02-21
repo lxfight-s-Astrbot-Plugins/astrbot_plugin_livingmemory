@@ -501,10 +501,12 @@ class MemoryEngine:
                 # 2. 删除旧记忆（从所有数据库删除）
                 delete_success = await self.delete_memory(memory_id)
                 if not delete_success:
+                    # 旧记忆删除失败，回滚：删除刚创建的新记忆，避免重复记录
                     logger.warning(
-                        f"[更新] 删除旧记忆失败，但新记忆已创建 (old_id={memory_id}, new_id={new_memory_id})"
+                        f"[更新] 删除旧记忆失败，回滚新记忆 (old_id={memory_id}, new_id={new_memory_id})"
                     )
-                    # 不返回False，因为新记忆已经创建成功
+                    await self.delete_memory(new_memory_id)
+                    return False
 
                 logger.info(
                     f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})"
@@ -572,26 +574,11 @@ class MemoryEngine:
             bool: 是否删除成功
         """
 
-        # 1. 通过混合检索器删除(会同时删除BM25和向量索引)
+        # hybrid_retriever.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
         if self.hybrid_retriever is None:
             logger.error("混合检索器未初始化")
             return False
-        success = await self.hybrid_retriever.delete_memory(memory_id)
-
-        if success:
-            # 2. 同步删除SQLite documents表中的记录
-            try:
-                if self.db_connection is None:
-                    logger.error("数据库连接未初始化")
-                    return False
-                await self.db_connection.execute(
-                    "DELETE FROM documents WHERE id = ?", (memory_id,)
-                )
-                await self.db_connection.commit()
-            except Exception as e:
-                logger.warning(f"删除documents表失败 (memory_id={memory_id}): {e}")
-
-        return success
+        return await self.hybrid_retriever.delete_memory(memory_id)
 
     # ==================== 高级功能 ====================
 
