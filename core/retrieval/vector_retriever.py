@@ -103,6 +103,7 @@ class VectorRetriever:
         insert_content = content
         if len(insert_content) > _MAX_CONTENT_CHARS:
             from astrbot.api import logger as _logger
+
             _logger.warning(
                 f"[VectorRetriever] 记忆内容过长 ({len(insert_content)} 字符)，"
                 f"截断至 {_MAX_CONTENT_CHARS} 字符"
@@ -149,6 +150,7 @@ class VectorRetriever:
         _MAX_QUERY_CHARS = 2000
         if len(processed_query) > _MAX_QUERY_CHARS:
             from astrbot.api import logger as _logger
+
             _logger.warning(
                 f"[VectorRetriever] 查询文本过长 ({len(processed_query)} 字符)，"
                 f"截断至 {_MAX_QUERY_CHARS} 字符以避免 token 超限"

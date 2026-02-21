@@ -110,7 +110,7 @@ class DBMigration:
                     )
                 """)
                 await db.commit()
-                logger.info(" 版本管理表初始化完成")
+                logger.info("数据库版本管理表初始化完成")
         except Exception as e:
             logger.error(f"初始化版本表失败: {e}", exc_info=True)
             raise
@@ -136,7 +136,7 @@ class DBMigration:
                     (version, description, datetime.utcnow().isoformat(), duration),
                 )
                 await db.commit()
-                logger.info(f" 数据库版本已更新至: {version}")
+                logger.info(f"数据库版本已更新至: {version}")
         except Exception as e:
             logger.error(f"设置数据库版本失败: {e}", exc_info=True)
             raise
@@ -153,10 +153,10 @@ class DBMigration:
 
         if needs_migration:
             logger.warning(
-                f"️ 数据库需要迁移: v{current_version} -> v{self.CURRENT_VERSION}"
+                f"数据库需要迁移: v{current_version} -> v{self.CURRENT_VERSION}"
             )
         else:
-            logger.info(f" 数据库版本最新: v{current_version}")
+            logger.info(f"数据库版本最新: v{current_version}")
 
         return needs_migration
 
@@ -195,15 +195,17 @@ class DBMigration:
                     }
 
                 logger.info(
-                    f" 开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
+                    f"开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
                 )
 
                 # 迁移前自动备份，确保数据安全
                 backup_path = await self.create_backup()
                 if backup_path:
-                    logger.info(f" 迁移前备份已创建: {backup_path}")
+                    logger.info(f"迁移前备份已创建: {backup_path}")
                 else:
-                    logger.warning("️ 迁移前备份失败，继续迁移（请确保磁盘空间充足）")
+                    logger.warning(
+                        "迁移前备份失败，迁移将继续执行。请确认磁盘空间与文件权限。"
+                    )
 
                 # 执行迁移步骤
                 migration_steps = []
@@ -234,7 +236,7 @@ class DBMigration:
                     duration,
                 )
 
-                logger.info(f" 数据库迁移成功完成，耗时: {duration:.2f}秒")
+                logger.info(f"数据库迁移成功完成，耗时: {duration:.2f}秒")
 
                 return {
                     "success": True,
@@ -246,7 +248,7 @@ class DBMigration:
                 }
 
             except Exception as e:
-                logger.error(f" 数据库迁移失败: {e}", exc_info=True)
+                logger.error(f"数据库迁移失败: {e}", exc_info=True)
                 return {
                     "success": False,
                     "message": f"数据库迁移失败: {str(e)}",
@@ -262,7 +264,7 @@ class DBMigration:
         从版本1迁移到版本2
         主要变更：重建BM25索引和向量索引以支持新的检索架构
         """
-        logger.info(" 执行迁移步骤: v1 -> v2 (重建索引)")
+        logger.info("执行迁移步骤: v1 -> v2 (重建索引)")
 
         try:
             # 检查是否有documents表
@@ -277,7 +279,7 @@ class DBMigration:
                 ) > 0
 
                 if not has_table:
-                    logger.info("ℹ️ 未找到documents表，创建新数据库")
+                    logger.info("未找到 documents 表，按新数据库处理")
                     return
 
                 # 获取文档总数
@@ -286,10 +288,10 @@ class DBMigration:
                 total_docs = total_docs_row[0] if total_docs_row else 0
 
                 if total_docs == 0:
-                    logger.info("ℹ️ 数据库为空，无需重建索引")
+                    logger.info("数据库为空，无需重建索引")
                     return
 
-                logger.info(f" 发现 {total_docs} 条v1版本数据，开始重建索引...")
+                logger.info(f"发现 {total_docs} 条 v1 数据，标记待重建索引")
 
                 # 获取所有文档数据
                 cursor = await db.execute("SELECT id, text, metadata FROM documents")
@@ -297,12 +299,10 @@ class DBMigration:
 
             # 重建索引需要在插件初始化完成后进行
             # 这里只记录需要重建的标记，实际重建在插件启动时处理
-            logger.warning(f"️ 检测到 {total_docs} 条v1迁移数据需要重建索引")
-            logger.warning(
-                " 请在插件初始化完成后，使用 WebUI 的「数据迁移」功能或执行以下命令："
-            )
-            logger.warning("   /lmem rebuild-index")
-            logger.info(f" 数据库迁移完成（{total_docs} 条文档已保留在documents表）")
+            logger.warning(f"检测到 {total_docs} 条 v1 迁移数据需要重建索引")
+            logger.warning("请在插件初始化完成后，使用 WebUI 数据迁移功能或执行命令:")
+            logger.warning("/lmem rebuild-index")
+            logger.info(f"数据库迁移完成（{total_docs} 条文档已保留在 documents 表）")
 
             # 创建迁移状态标记
             async with aiosqlite.connect(self.db_path) as db:
@@ -334,7 +334,7 @@ class DBMigration:
                 await db.commit()
 
         except Exception as e:
-            logger.error(f" 数据库迁移失败: {e}", exc_info=True)
+            logger.error(f"数据库迁移失败: {e}", exc_info=True)
             raise
 
     async def _migrate_v2_to_v3(
@@ -355,20 +355,20 @@ class DBMigration:
 
         此迁移步骤仅升级版本号，不进行实际数据转换。
         """
-        logger.info(" 执行迁移步骤: v2 -> v3 (session_id格式升级)")
+        logger.info("执行迁移步骤: v2 -> v3 (session_id 格式升级)")
 
         try:
             logger.info(
-                "ℹ️ 插件现在使用 unified_msg_origin (格式:platform:type:id) 作为会话标识"
+                "插件现在使用 unified_msg_origin (格式:platform:type:id) 作为会话标识"
             )
-            logger.info("ℹ️ 旧数据保持不变，新消息自动使用新格式")
-            logger.info("ℹ️ 对于单Bot用户，这不会导致任何问题")
-            logger.info("ℹ️ 对于多Bot用户，新旧数据会自然分离，避免混淆")
+            logger.info("旧数据保持不变，新消息自动使用新格式")
+            logger.info("对于单 Bot 用户，这不会导致任何问题")
+            logger.info("对于多 Bot 用户，新旧数据会自然分离，避免混淆")
 
-            logger.info(" v2 -> v3 迁移完成")
+            logger.info("v2 -> v3 迁移完成")
 
         except Exception as e:
-            logger.error(f" v2 -> v3 迁移失败: {e}", exc_info=True)
+            logger.error(f"v2 -> v3 迁移失败: {e}", exc_info=True)
             raise
 
     async def _migrate_v3_to_v4(
@@ -383,7 +383,7 @@ class DBMigration:
         - 新写入记录将自动携带 canonical_summary / persona_summary / source_window
         - 无法回填 source_window 的旧数据不做处理（traceable=false 由读取方判断）
         """
-        logger.info(" 执行迁移步骤: v3 -> v4 (Schema v2 双通道总结字段)")
+        logger.info("执行迁移步骤: v3 -> v4 (Schema v2 双通道总结字段)")
 
         try:
             async with aiosqlite.connect(self.db_path) as db:
@@ -394,7 +394,7 @@ class DBMigration:
                 """)
                 row = await cursor.fetchone()
                 if not row or row[0] == 0:
-                    logger.info("ℹ️ 未找到 documents 表，跳过 v4 迁移")
+                    logger.info("未找到 documents 表，跳过 v4 迁移")
                     return
 
                 # 为没有 summary_schema_version 的旧记录打上 v1 标记
@@ -406,7 +406,9 @@ class DBMigration:
                 legacy_count = count_row[0] if count_row else 0
 
                 if legacy_count > 0:
-                    logger.info(f"ℹ️ 发现 {legacy_count} 条旧格式记录，补充 summary_schema_version=v1 标记")
+                    logger.info(
+                        f"发现 {legacy_count} 条旧格式记录，补充 summary_schema_version=v1 标记"
+                    )
 
                     # 批量更新：将旧记录的 metadata 中注入 schema 版本标记
                     # 使用 COALESCE(NULLIF(...)) 处理 NULL/空字符串，再用 json_set 追加字段
@@ -420,14 +422,14 @@ class DBMigration:
                         WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'
                     """)
                     await db.commit()
-                    logger.info(f" 已为 {legacy_count} 条旧记录补充 schema 版本标记")
+                    logger.info(f"已为 {legacy_count} 条旧记录补充 schema 版本标记")
                 else:
-                    logger.info("ℹ️ 所有记录已有 summary_schema_version，无需补充")
+                    logger.info("所有记录已有 summary_schema_version，无需补充")
 
-            logger.info(" v3 -> v4 迁移完成")
+            logger.info("v3 -> v4 迁移完成")
 
         except Exception as e:
-            logger.error(f" v3 -> v4 迁移失败: {e}", exc_info=True)
+            logger.error(f"v3 -> v4 迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> dict[str, Any]:
@@ -495,16 +497,16 @@ class DBMigration:
                 backup_dir / f"{db_path.stem}_backup_{timestamp}{db_path.suffix}"
             )
 
-            logger.info(f" 正在创建数据库备份: {backup_path}")
+            logger.info(f"正在创建数据库备份: {backup_path}")
 
             # 使用SQLite的备份API
             async with aiosqlite.connect(self.db_path) as source:
                 async with aiosqlite.connect(str(backup_path)) as dest:
                     await source.backup(dest)
 
-            logger.info(f" 数据库备份成功: {backup_path}")
+            logger.info(f"数据库备份成功: {backup_path}")
             return str(backup_path)
 
         except Exception as e:
-            logger.error(f" 数据库备份失败: {e}", exc_info=True)
+            logger.error(f"数据库备份失败: {e}", exc_info=True)
             return None

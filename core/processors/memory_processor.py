@@ -774,7 +774,15 @@ class MemoryProcessor:
             return "low"
 
         # 泛化词检测
-        generic_terms = ["某用户", "有人", "某人", "用户说", "对方说", "群成员", "某群成员"]
+        generic_terms = [
+            "某用户",
+            "有人",
+            "某人",
+            "用户说",
+            "对方说",
+            "群成员",
+            "某群成员",
+        ]
         if any(term in summary for term in generic_terms):
             return "low"
 

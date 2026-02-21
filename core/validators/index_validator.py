@@ -295,12 +295,12 @@ class IndexValidator:
             Dict: 重建结果
         """
         try:
-            logger.info(" 开始重建索引...")
+            logger.info("开始重建索引。")
 
             # 1. 读取所有文档到内存，同时备份到临时表（原子操作，防止读取期间数据变化）
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("PRAGMA busy_timeout = 10000")
-                logger.info(" 读取documents表数据并创建备份...")
+                logger.info("读取 documents 表数据并创建备份。")
 
                 # 创建备份临时表（如已存在则先删除，避免上次失败残留）
                 await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
@@ -329,8 +329,8 @@ class IndexValidator:
                 }
 
             total = len(documents)
-            logger.info(f" 找到 {total} 条文档需要重建索引（备份已创建）")
-            logger.info("️ 清空documents表、BM25索引和向量索引...")
+            logger.info(f"找到 {total} 条文档需要重建索引（备份已创建）")
+            logger.info("清空 documents 表、BM25 索引和向量索引。")
 
             # 2. 删除向量索引条目（不持有 SQLite 写锁）
             for doc_id, doc_uuid, _text, _metadata_json in documents:
@@ -347,7 +347,7 @@ class IndexValidator:
 
             # 3. 清空 BM25/documents 表（此时备份表仍完整保留）
             await self._clear_sqlite_storages_with_retry()
-            logger.info(" 所有存储已清空，开始重建...")
+            logger.info("所有存储已清空，开始重建。")
 
             # 4. 逐条重建（documents + BM25 + vector）
             success_count = 0
@@ -363,6 +363,7 @@ class IndexValidator:
                         metadata["importance"] = 0.5
                     if "create_time" not in metadata:
                         import time
+
                         metadata["create_time"] = time.time()
                     if "last_access_time" not in metadata:
                         metadata["last_access_time"] = metadata.get(
@@ -389,20 +390,20 @@ class IndexValidator:
                         last_progress_update = progress_percentage
 
                     if i % batch_size == 0:
-                        logger.info(f" 重建进度: {i}/{total} ({i * 100 // total}%)")
+                        logger.info(f"重建进度: {i}/{total} ({i * 100 // total}%)")
 
                 except Exception as e:
                     error_count += 1
                     logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
 
-            logger.info(f" 索引重建完成: 成功{success_count}条, 失败{error_count}条")
+            logger.info(f"索引重建完成: 成功 {success_count} 条, 失败 {error_count} 条")
 
             # 5. 重建完成后删除备份表（只有全部流程成功才到这里）
             try:
                 async with aiosqlite.connect(self.db_path) as db:
                     await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
                     await db.commit()
-                    logger.info(" 已删除重建备份表")
+                    logger.info("已删除重建备份表")
             except Exception as e:
                 logger.warning(f"删除备份表失败（不影响功能）: {e}")
 
@@ -461,7 +462,10 @@ class IndexValidator:
             await self._try_restore_from_backup()
             return {
                 "success": False,
-                "message": f"重建索引失败: {str(e)}",
+                "message": (
+                    f"重建索引失败: {str(e)}。"
+                    "系统已尝试自动恢复备份，请查看日志后重试 /lmem rebuild-index。"
+                ),
                 "error": str(e),
             }
 
@@ -504,7 +508,9 @@ class IndexValidator:
                 cursor = await db.execute("SELECT COUNT(*) FROM documents")
                 row = await cursor.fetchone()
                 restored = row[0] if row else 0
-                logger.info(f"✅ 已从备份表恢复 {restored} 条记忆数据，BM25/向量索引需手动重建")
+                logger.info(
+                    f"已从备份表恢复 {restored} 条记忆数据，BM25/向量索引需手动重建"
+                )
 
         except Exception as e:
             logger.error(f"从备份表恢复失败: {e}", exc_info=True)

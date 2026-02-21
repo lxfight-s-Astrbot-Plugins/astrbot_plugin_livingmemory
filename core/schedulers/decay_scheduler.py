@@ -222,7 +222,9 @@ class DecayScheduler:
                     removed += 1
 
             if removed:
-                logger.info(f"[衰减调度] 清理过期备份 {removed} 个（保留 {self.backup_keep_days} 天）")
+                logger.info(
+                    f"[衰减调度] 清理过期备份 {removed} 个（保留 {self.backup_keep_days} 天）"
+                )
         except Exception as e:
             logger.warning(f"[衰减调度] 清理旧备份失败: {e}")
 

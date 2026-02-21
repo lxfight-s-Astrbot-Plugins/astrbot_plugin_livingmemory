@@ -76,12 +76,12 @@ class HybridRetriever:
         self.fallback_enabled = self.config.get("fallback_enabled", True)
 
         # 加权求和各维度权重（可通过配置覆盖）
-        self.score_alpha = self.config.get("score_alpha", 0.5)   # 检索相关性
-        self.score_beta = self.config.get("score_beta", 0.25)    # 重要性
+        self.score_alpha = self.config.get("score_alpha", 0.5)  # 检索相关性
+        self.score_beta = self.config.get("score_beta", 0.25)  # 重要性
         self.score_gamma = self.config.get("score_gamma", 0.25)  # 时间新鲜度
 
         # MMR 多样性参数
-        self.mmr_lambda = self.config.get("mmr_lambda", 0.7)     # 相关性 vs 多样性权衡
+        self.mmr_lambda = self.config.get("mmr_lambda", 0.7)  # 相关性 vs 多样性权衡
 
     async def add_memory(
         self, content: str, metadata: dict[str, Any] | None = None
@@ -394,8 +394,7 @@ class HybridRetriever:
                     for st in selected_tokens
                 )
                 mmr_score = (
-                    self.mmr_lambda * cand.final_score
-                    - (1 - self.mmr_lambda) * max_sim
+                    self.mmr_lambda * cand.final_score - (1 - self.mmr_lambda) * max_sim
                 )
                 if mmr_score > best_mmr:
                     best_mmr = mmr_score

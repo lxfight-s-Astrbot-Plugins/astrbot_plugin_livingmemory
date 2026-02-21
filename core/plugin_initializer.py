@@ -78,7 +78,9 @@ class PluginInitializer:
             if not await self._wait_for_providers_non_blocking():
                 missing = []
                 if not self.embedding_provider:
-                    missing.append("Embedding Provider（请在 AstrBot 中配置向量嵌入模型）")
+                    missing.append(
+                        "Embedding Provider（请在 AstrBot 中配置向量嵌入模型）"
+                    )
                 if not self.llm_provider:
                     missing.append("LLM Provider（请在 AstrBot 中配置语言模型）")
                 logger.warning(
@@ -127,7 +129,9 @@ class PluginInitializer:
             self._initialize_providers(silent=True)
 
             if self.embedding_provider and self.llm_provider:
-                logger.info("✅ Provider 已就绪")
+                logger.info(
+                    "Provider check passed: embedding and llm providers are ready."
+                )
                 self._providers_ready = True
                 return True
 
@@ -136,8 +140,8 @@ class PluginInitializer:
 
         logger.debug(
             f"Provider 在 {max_wait}秒内未就绪（已尝试 {self._provider_check_attempts} 次）"
-            f"：embedding={'✅' if self.embedding_provider else '❌'}, "
-            f"llm={'✅' if self.llm_provider else '❌'}"
+            f"：embedding={'ready' if self.embedding_provider else 'not ready'}, "
+            f"llm={'ready' if self.llm_provider else 'not ready'}"
         )
         return False
 
@@ -165,14 +169,14 @@ class PluginInitializer:
                 if not self.llm_provider:
                     missing.append("LLM Provider")
                 logger.info(
-                    f"⏳ 等待 Provider 就绪中（未就绪: {', '.join(missing)}）..."
+                    f"等待 Provider 就绪（未就绪: {', '.join(missing)}）..."
                     f"（已尝试 {self._provider_check_attempts}/{self._max_provider_attempts} 次，"
                     f"下次重试间隔 {current_interval:.1f}s）"
                 )
 
             if self.embedding_provider and self.llm_provider:
                 logger.info(
-                    f"✅ Provider 在第 {self._provider_check_attempts} 次尝试后就绪，继续初始化..."
+                    f"Provider 在第 {self._provider_check_attempts} 次尝试后就绪，继续初始化。"
                 )
                 self._providers_ready = True
 
@@ -196,11 +200,15 @@ class PluginInitializer:
             if not self.llm_provider:
                 missing.append("LLM Provider（请配置语言模型）")
             logger.error(
-                f"❌ 以下 Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败: "
+                f"以下 Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败: "
                 f"{', '.join(missing) if missing else '未知'}"
             )
             self._initialization_failed = True
-            self._initialization_error = "Provider 初始化超时"
+            self._initialization_error = (
+                "Provider 初始化超时。"
+                f"未就绪 Provider: {', '.join(missing) if missing else '未知'}。"
+                "请检查 provider_settings 配置和 AstrBot 默认 Provider。"
+            )
 
     def _initialize_providers(self, silent: bool = False):
         """初始化 Embedding 和 LLM provider"""
@@ -328,7 +336,7 @@ class PluginInitializer:
                 config=memory_engine_config,
             )
             await self.memory_engine.initialize()
-            logger.info("✅ MemoryEngine 已初始化")
+            logger.info("MemoryEngine 已初始化")
 
             # 初始化 ConversationManager
             conversation_db_path = os.path.join(self.data_dir, "conversations.db")
@@ -342,7 +350,7 @@ class PluginInitializer:
                 context_window_size=session_config.get("context_window_size", 50),
                 session_ttl=session_config.get("session_ttl", 3600),
             )
-            logger.info("✅ ConversationManager 已初始化")
+            logger.info("ConversationManager 已初始化")
 
             # 自动修复 message_count 不一致问题
             await self._repair_message_counts(conversation_store)
@@ -351,7 +359,7 @@ class PluginInitializer:
             if not self.llm_provider or not isinstance(self.llm_provider, Provider):
                 raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
             self.memory_processor = MemoryProcessor(self.llm_provider, self.context)
-            logger.info("✅ MemoryProcessor 已初始化")
+            logger.info("MemoryProcessor 已初始化")
 
             # 初始化索引验证器并自动重建索引
             self.index_validator = IndexValidator(db_path, self.db)
@@ -363,7 +371,7 @@ class PluginInitializer:
                     self.memory_engine.text_processor, "async_init"
                 ):
                     await self.memory_engine.text_processor.async_init()
-                    logger.info("✅ TextProcessor 停用词已加载")
+                    logger.info("TextProcessor 停用词已加载")
 
             # 启动重要性衰减调度器
             decay_rate = self.config_manager.get("importance_decay.decay_rate", 0.01)
@@ -371,8 +379,12 @@ class PluginInitializer:
                 "forgetting_agent.auto_cleanup_enabled", True
             )
             if self.memory_engine and (decay_rate > 0 or auto_cleanup_enabled):
-                backup_enabled = self.config_manager.get("backup_settings.enabled", True)
-                backup_keep_days = self.config_manager.get("backup_settings.keep_days", 7)
+                backup_enabled = self.config_manager.get(
+                    "backup_settings.enabled", True
+                )
+                backup_keep_days = self.config_manager.get(
+                    "backup_settings.keep_days", 7
+                )
                 scheduler = DecayScheduler(
                     memory_engine=self.memory_engine,
                     decay_rate=decay_rate,
@@ -383,11 +395,11 @@ class PluginInitializer:
                 )
                 await scheduler.start()
                 self.decay_scheduler = scheduler
-                logger.info("✅ DecayScheduler 已启动")
+                logger.info("DecayScheduler 已启动")
 
             # 标记初始化完成
             self._initialization_complete = True
-            logger.info("✅ LivingMemory 插件初始化成功！")
+            logger.info("LivingMemory 插件初始化成功。")
 
         except Exception as e:
             logger.error(f"完整初始化流程失败: {e}", exc_info=True)
@@ -405,25 +417,25 @@ class PluginInitializer:
             needs_migration = await self.db_migration.needs_migration()
 
             if not needs_migration:
-                logger.info("✅ 数据库版本已是最新，无需迁移")
+                logger.info("数据库版本已是最新，无需迁移")
                 return
 
-            logger.info("🔄 检测到旧版本数据库，开始自动迁移...")
+            logger.info("检测到旧版本数据库，开始自动迁移。")
 
             if self.config_manager.get("migration_settings.create_backup", True):
                 backup_path = await self.db_migration.create_backup()
                 if backup_path:
-                    logger.info(f"💾 数据库备份已创建: {backup_path}")
+                    logger.info(f"数据库备份已创建: {backup_path}")
 
             result = await self.db_migration.migrate(
                 sparse_retriever=None, progress_callback=None
             )
 
             if result.get("success"):
-                logger.info(f"✅ {result.get('message')}")
+                logger.info(f"数据库迁移结果: {result.get('message')}")
                 logger.info(f"   耗时: {result.get('duration', 0):.2f}秒")
             else:
-                logger.error(f"❌ 数据库迁移失败: {result.get('message')}")
+                logger.error(f"数据库迁移失败: {result.get('message')}")
 
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
@@ -441,41 +453,39 @@ class PluginInitializer:
             ) = await self.index_validator.get_migration_status()
 
             if needs_migration_rebuild:
-                logger.info(
-                    f"🔄 检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）"
-                )
-                logger.info("🔨 开始自动重建索引...")
+                logger.info(f"检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）")
+                logger.info("开始自动重建索引。")
 
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
                 if result["success"]:
                     logger.info(
-                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                        f"索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
                     )
                 else:
-                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+                    logger.error(f"索引自动重建失败: {result.get('message')}")
                 return
 
             # 检查索引一致性
             status = await self.index_validator.check_consistency()
 
             if not status.is_consistent and status.needs_rebuild:
-                logger.warning(f"⚠️ 检测到索引不一致: {status.reason}")
+                logger.warning(f"检测到索引不一致: {status.reason}")
                 logger.info(
-                    f"📊 Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
+                    f"当前索引计数 - Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
                 )
-                logger.info("🔨 开始自动重建索引...")
+                logger.info("开始自动重建索引。")
 
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
                 if result["success"]:
                     logger.info(
-                        f"✅ 索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
+                        f"索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
                     )
                 else:
-                    logger.error(f"❌ 索引自动重建失败: {result.get('message')}")
+                    logger.error(f"索引自动重建失败: {result.get('message')}")
             else:
-                logger.info(f"✅ 索引一致性检查通过: {status.reason}")
+                logger.info(f"索引一致性检查通过: {status.reason}")
 
         except Exception as e:
             logger.error(f"自动重建索引失败: {e}", exc_info=True)
@@ -483,13 +493,13 @@ class PluginInitializer:
     async def _repair_message_counts(self, conversation_store: ConversationStore):
         """修复会话表中 message_count 与实际消息数量不一致的问题"""
         try:
-            logger.info("🔍 检查并修复 message_count 一致性...")
+            logger.info("开始检查并修复 message_count 一致性。")
             fixed_sessions = await conversation_store.sync_message_counts()
 
             if fixed_sessions:
-                logger.info(f"✅ 已修复 {len(fixed_sessions)} 个会话的 message_count")
+                logger.info(f"已修复 {len(fixed_sessions)} 个会话的 message_count")
             else:
-                logger.debug("✅ 所有会话的 message_count 均正确")
+                logger.debug("所有会话的 message_count 均正确")
 
         except Exception as e:
             logger.error(f"修复 message_count 失败: {e}", exc_info=True)
@@ -558,17 +568,17 @@ class PluginInitializer:
 
             if old_dim != new_dim:
                 logger.warning(
-                    f"⚠️ 检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
+                    f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
                     f"当前 Embedding Provider 维度={new_dim}"
                 )
                 logger.warning(
-                    "这通常是因为更换了 Embedding 模型导致的。"
+                    "这通常由 Embedding 模型切换导致。"
                     "旧索引将被删除，系统会自动重建索引。"
                 )
 
                 os.remove(index_path)
-                logger.info(f"✅ 已删除不兼容的旧索引文件: {index_path}")
-                logger.info("⚠️ 注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+                logger.info(f"已删除不兼容的旧索引文件: {index_path}")
+                logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
 
         except Exception as e:
             logger.error(f"检查索引维度时出错: {e}", exc_info=True)

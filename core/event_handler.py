@@ -861,7 +861,9 @@ class EventHandler:
         self, event: AstrMessageEvent, session_id: str, content: str
     ) -> str | None:
         """构建去重键：优先使用 message_id，缺失时退化为消息内容指纹。"""
-        raw_message_id = getattr(getattr(event, "message_obj", None), "message_id", None)
+        raw_message_id = getattr(
+            getattr(event, "message_obj", None), "message_id", None
+        )
         if raw_message_id is not None:
             message_id = str(raw_message_id).strip()
             if message_id:

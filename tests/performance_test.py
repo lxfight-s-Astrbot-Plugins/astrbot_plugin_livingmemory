@@ -130,13 +130,13 @@ class PerformanceTest:
         print("\n性能评估:")
         avg_time = total_time / len(self.results)
         if avg_time < 0.1:
-            print("  ✅ 性能优秀")
+            print("  性能优秀")
         elif avg_time < 0.5:
             print("  ✓ 性能良好")
         elif avg_time < 1.0:
-            print("  ⚠ 性能一般")
+            print("  性能一般")
         else:
-            print("  ❌ 性能需要优化")
+            print("  性能需要优化")
 
 
 async def main():
@@ -165,7 +165,7 @@ async def main():
         print("=" * 60)
 
     except Exception as e:
-        print(f"\n❌ 测试失败: {e}")
+        print(f"\n测试失败: {e}")
         import traceback
 
         traceback.print_exc()
