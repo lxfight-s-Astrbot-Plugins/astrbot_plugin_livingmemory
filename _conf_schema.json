@@ -1,18 +1,18 @@
 {
   "provider_settings": {
-    "description": "模型提供商设置",
-    "hint": "配置记忆系统使用的 AI 模型提供商",
+    "description": "模型提供商",
+    "hint": "配置记忆系统使用的 AI 模型",
     "type": "object",
     "items": {
       "embedding_provider_id": {
-        "description": "向量嵌入提供商 ID",
-        "hint": "用于生成记忆向量的 Embedding Provider ID。留空则使用 AstrBot 默认配置。请在 AstrBot 后台的「LLM 配置」中查看已配置的 Embedding Provider ID（如 openai_embedding、zhipu_embedding 等）。建议使用专门的嵌入模型以获得更好的语义检索效果。",
+        "description": "Embedding 模型 ID",
+        "hint": "用于生成记忆向量的 Embedding 模型 ID。留空使用 AstrBot 默认。可在 AstrBot 后台「LLM 配置」中查看已有的 Embedding Provider ID（如 openai_embedding）。",
         "type": "string",
         "default": ""
       },
       "llm_provider_id": {
-        "description": "大语言模型提供商",
-        "hint": "用于总结对话历史和评估记忆重要性的 LLM Provider。留空则使用 AstrBot 默认配置。建议使用具有较强推理能力的模型（如 GPT-4、Claude 等）。",
+        "description": "LLM 模型 ID",
+        "hint": "用于总结对话、评估记忆重要性的大语言模型 ID。留空使用 AstrBot 默认。推荐使用推理能力较强的模型。",
         "type": "string",
         "_special": "select_provider",
         "default": ""
@@ -20,94 +20,94 @@
     }
   },
   "webui_settings": {
-    "description": "Web 管理面板配置",
-    "hint": "配置插件自带的 Web 控制台，提供记忆和会话的可视化管理功能",
+    "description": "WebUI 管理面板",
+    "hint": "启用后可通过浏览器可视化管理记忆和会话",
     "type": "object",
     "items": {
       "enabled": {
         "description": "启用 WebUI",
-        "hint": "启用后可通过浏览器访问记忆管理面板。建议在需要频繁管理记忆时启用。",
+        "hint": "开启后可通过浏览器访问记忆管理面板。",
         "type": "bool",
         "default": false
       },
       "host": {
         "description": "监听地址",
-        "hint": "WebUI 服务监听的主机地址。使用 127.0.0.1 仅允许本地访问；使用 0.0.0.0 允许局域网访问。",
+        "hint": "127.0.0.1 仅本机访问；0.0.0.0 允许局域网访问。",
         "type": "string",
         "default": "127.0.0.1"
       },
       "port": {
         "description": "监听端口",
-        "hint": "WebUI 服务监听端口。请确保端口未被占用，避免与 AstrBot 主端口（默认 6185）冲突。",
+        "hint": "WebUI 服务端口，确保不与 AstrBot 主端口（默认 6185）冲突。",
         "type": "int",
         "default": 8888
       },
       "access_password": {
         "description": "访问密码",
-        "hint": "访问 WebUI 时需要输入的密码。强烈建议设置复杂密码以保护数据安全！留空时系统会随机生成一个密码并在日志中提示。",
+        "hint": "登录 WebUI 所需密码。留空时系统自动生成随机密码并在日志中提示。建议手动设置。",
         "type": "string",
         "obvious_hint": true,
         "default": ""
       },
       "session_timeout": {
-        "description": "会话超时时间（秒）",
-        "hint": "登录会话的有效时长。超过该时间需重新登录。建议设置为 3600（1小时）。",
+        "description": "登录会话超时（秒）",
+        "hint": "登录后的有效时长，超时需重新登录。默认 3600（1 小时）。",
         "type": "int",
         "default": 3600
       }
     }
   },
   "session_manager": {
-    "description": "会话管理器配置",
-    "hint": "管理用户会话状态和对话历史，支持持久化存储",
+    "description": "会话管理",
+    "hint": "管理用户会话状态和对话历史的缓存行为",
     "type": "object",
     "items": {
       "max_sessions": {
-        "description": "最大会话缓存数量",
-        "hint": "同时在内存中维护的最大会话数量（LRU 缓存）。超过此数量将淘汰最久未使用的会话。会话数据仍会保存到数据库。",
+        "description": "最大缓存会话数",
+        "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。",
         "type": "int",
         "default": 100
       },
       "session_ttl": {
-        "description": "会话生存时间（秒）",
-        "hint": "会话的最大空闲时间。超过此时间未活动的会话将从缓存中移除。建议设置为 3600（1小时）。",
+        "description": "会话空闲超时（秒）",
+        "hint": "会话超过此时间无活动后从缓存移除。默认 3600（1 小时）。",
         "type": "int",
         "default": 3600
       },
       "context_window_size": {
-        "description": "上下文窗口大小",
-        "hint": "传递给 LLM 的最大历史消息数量。较大的值会提供更多上下文但消耗更多 token。建议 20-100 之间。",
+        "description": "上下文窗口大小（条）",
+        "hint": "传给 LLM 的最大历史消息条数。越大上下文越丰富，但消耗 token 越多。建议 20-100。",
         "type": "int",
         "default": 50
       }
     }
   },
   "recall_engine": {
-    "description": "记忆召回引擎配置",
-    "hint": "负责智能检索和召回相关记忆",
+    "description": "记忆召回",
+    "hint": "控制记忆检索和注入到对话的行为",
     "type": "object",
     "items": {
       "top_k": {
-        "description": "单次检索数量",
-        "hint": "每次检索返回的最相关记忆数量。建议 3-10 之间。",
+        "description": "单次召回数量",
+        "hint": "每次检索返回的最相关记忆条数。建议 3-10。",
         "type": "int",
         "default": 5
       },
       "importance_weight": {
-        "description": "记忆重要性权重",
-        "hint": "用于混合评分中控制记忆重要性的占比。数值越大，重要性越影响排序。",
+        "description": "重要性权重",
+        "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。",
         "type": "float",
         "default": 1.0
       },
       "fallback_to_vector": {
-        "description": "向量检索回退",
-        "hint": "当混合/稀疏检索不可用或结果为空时，是否回退到纯向量检索。",
+        "description": "降级到纯向量检索",
+        "hint": "混合检索失败或结果为空时，自动降级为纯向量检索。建议开启。",
         "type": "bool",
         "default": true
       },
       "injection_method": {
-        "description": "记忆注入方式",
-        "hint": "控制记忆注入到 LLM 请求的位置。不同方式适合不同场景：system_prompt 适合作为背景知识，user_message_before 让 LLM 先看到记忆，user_message_after 将记忆作为补充信息。",
+        "description": "记忆注入位置",
+        "hint": "记忆注入到 LLM 请求的位置。user_message_before：作为用户消息前缀；system_prompt：追加到系统提示词；user_message_after：作为用户消息后缀。",
         "type": "string",
         "default": "user_message_before",
         "options": [
@@ -117,177 +117,177 @@
         ]
       },
       "auto_remove_injected": {
-        "description": "自动删除旧记忆片段",
-        "hint": "在注入新记忆前，自动从 system_prompt 和对话历史中删除之前注入的记忆片段。强烈建议启用，避免记忆重复累积和 token 浪费。",
+        "description": "自动清除旧注入片段",
+        "hint": "注入新记忆前自动删除历史中已注入的旧记忆片段，避免重复累积和 token 浪费。建议开启。",
         "type": "bool",
         "default": true
       }
     }
   },
   "importance_decay": {
-    "description": "重要性衰减设置",
-    "hint": "用于长期运行时逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
+    "description": "重要性衰减",
+    "hint": "随时间逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
     "type": "object",
     "items": {
       "decay_rate": {
         "description": "每日衰减率",
-        "hint": "每自然日对记忆重要性进行的衰减比例。例如 0.01 表示每天降低 1%",
+        "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。",
         "type": "float",
         "default": 0.01
       }
     }
   },
   "fusion_strategy": {
-    "description": "结果融合策略",
-    "hint": "用于多路检索结果的融合，目前内部固定为 RRF，仅开放 k 参数以调节融合强度",
+    "description": "检索融合策略",
+    "hint": "BM25 和向量检索结果的融合参数（内部使用 RRF 算法）",
     "type": "object",
     "items": {
       "rrf_k": {
-        "description": "RRF 参数 k",
-        "hint": "Reciprocal Rank Fusion 的 k 值，越小越强调排名靠前的结果。推荐 30-120",
+        "description": "RRF 融合参数 k",
+        "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。",
         "type": "int",
         "default": 60
       }
     }
   },
   "filtering_settings": {
-    "description": "过滤与隔离设置",
+    "description": "记忆隔离设置",
     "type": "object",
     "items": {
       "use_persona_filtering": {
-        "description": "启用人格记忆过滤",
-        "hint": "开启后，只会召回和总结与当前人格相关的记忆。",
+        "description": "按人格隔离记忆",
+        "hint": "开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰。",
         "type": "bool",
         "default": true
       },
       "use_session_filtering": {
-        "description": "启用会话记忆隔离",
-        "hint": "开启后，每个会话的记忆将是独立的。",
+        "description": "按会话隔离记忆",
+        "hint": "开启后每个会话的记忆独立存储，不同会话之间不共享记忆。",
         "type": "bool",
         "default": true
       }
     }
   },
   "reflection_engine": {
-    "description": "反思引擎设置",
-    "hint": "负责生成和评估记忆",
+    "description": "记忆生成设置",
+    "hint": "控制何时触发对话总结并生成记忆",
     "type": "object",
     "items": {
       "summary_trigger_rounds": {
         "description": "总结触发轮次",
-        "hint": "触发对话历史总结的对话轮次（一问一答为一轮）。",
+        "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。",
         "type": "int",
         "default": 10
       },
       "save_original_conversation": {
-        "description": "保存原始对话历史",
-        "hint": "是否在记忆中同时保存原始对话内容和 LLM 生成的摘要。关闭（默认）时只保存结构化摘要（总结、主题、关键信息），可减少 60-80% 存储空间并提升检索效率。开启时会保存完整对话记录，适合需要完整上下文的场景或调试。",
+        "description": "同时保存原始对话",
+        "hint": "开启后在结构化摘要之外额外保存完整对话原文，适合需要完整上下文的场景，但会增加 60-80% 存储空间。默认关闭，只保存结构化摘要。",
         "type": "bool",
         "default": false
       }
     }
   },
   "migration_settings": {
-    "description": "数据库迁移设置",
-    "hint": "控制数据库版本升级和自动迁移行为",
+    "description": "数据库迁移",
+    "hint": "控制插件启动时的数据库版本升级行为",
     "type": "object",
     "items": {
       "auto_migrate": {
-        "description": "启用自动迁移",
-        "hint": "插件启动时自动检测并执行数据库迁移。旧版本数据库将自动升级。",
+        "description": "自动迁移",
+        "hint": "插件启动时自动检测并升级旧版本数据库。建议保持开启。",
         "type": "bool",
         "default": true
       },
       "create_backup": {
         "description": "迁移前自动备份",
-        "hint": "执行数据库迁移前自动创建备份文件。",
+        "hint": "执行数据库迁移前自动创建备份文件，防止迁移失败导致数据丢失。建议保持开启。",
         "type": "bool",
         "default": true
       }
     }
   },
   "forgetting_agent": {
-    "description": "遗忘代理设置",
-    "hint": "负责模拟遗忘，清理陈旧记忆",
+    "description": "自动清理设置",
+    "hint": "定期清理时间久远且重要性低的旧记忆，控制记忆库规模",
     "type": "object",
     "items": {
       "auto_cleanup_enabled": {
         "description": "启用每日自动清理",
-        "hint": "在每日重要性衰减后自动执行旧记忆清理。",
+        "hint": "每日重要性衰减后自动清理符合条件的旧记忆。",
         "type": "bool",
         "default": true
       },
       "cleanup_days_threshold": {
-        "description": "清理天数阈值",
-        "hint": "超过该天数的旧记忆将进入清理候选集合。",
+        "description": "清理天数阈值（天）",
+        "hint": "记忆创建超过该天数后进入清理候选。需同时满足重要性低于阈值才会被删除。",
         "type": "int",
         "default": 30
       },
       "cleanup_importance_threshold": {
         "description": "清理重要性阈值",
-        "hint": "重要性低于该阈值的旧记忆将被删除。",
+        "hint": "重要性低于该值的旧记忆才会被清理。0.3 表示重要性低于 30% 的记忆。",
         "type": "float",
         "default": 0.3
       }
     }
   },
   "sparse_retriever": {
-    "description": "稀疏检索器配置",
-    "hint": "基于 BM25 算法的稀疏检索配置，用于关键词匹配",
+    "description": "BM25 关键词检索",
+    "hint": "基于关键词匹配的稀疏检索，与向量检索互补",
     "type": "object",
     "items": {
       "enabled": {
-        "description": "启用稀疏检索",
-        "hint": "是否启用 BM25 稀疏检索。关闭后将只使用向量检索。",
+        "description": "启用 BM25 检索",
+        "hint": "关闭后只使用向量检索，关键词匹配能力会下降。建议保持开启。",
         "type": "bool",
         "default": true
       },
       "bm25_k1": {
-        "description": "BM25 K1 参数",
-        "hint": "控制词频饱和度的参数。值越大，高频词的权重增长越慢。推荐 0.9-2.0",
+        "description": "词频饱和度 (k1)",
+        "hint": "控制词频对得分的影响上限。值越大高频词权重增长越慢。推荐 0.9-2.0，默认 1.2。",
         "type": "float",
         "default": 1.2
       },
       "bm25_b": {
-        "description": "BM25 B 参数",
-        "hint": "控制文档长度归一化的程度。0 表示不归一化，1 表示完全归一化。推荐 0.5-0.9",
+        "description": "长度归一化 (b)",
+        "hint": "控制文档长度对得分的影响。0 不归一化，1 完全归一化。推荐 0.5-0.9，默认 0.75。",
         "type": "float",
         "default": 0.75
       },
       "use_chinese_tokenizer": {
-        "description": "使用中文分词",
-        "hint": "是否使用 jieba 进行中文分词。关闭后将使用简单的空格分词。",
+        "description": "启用中文分词",
+        "hint": "使用 jieba 进行中文分词，提升中文检索效果。关闭后使用空格分词。",
         "type": "bool",
         "default": true
       },
       "enable_stopwords_filtering": {
         "description": "启用停用词过滤",
-        "hint": "是否过滤常见停用词（如的、了等）。可以提升检索质量。",
+        "hint": "过滤「的」「了」等无意义词，提升检索精度。",
         "type": "bool",
         "default": true
       },
       "stopwords_source": {
-        "description": "停用词来源",
-        "hint": "选择停用词表来源。可选：hit（哈工大）、baidu（百度）、cn（自带中文）",
+        "description": "停用词表来源",
+        "hint": "选择内置停用词表：hit（哈工大）、baidu（百度）、cn（通用中文）。",
         "type": "string",
         "default": "hit"
       },
       "custom_stopwords": {
         "description": "自定义停用词",
-        "hint": "额外的停用词列表，用逗号或空格分隔。会与选定的停用词表合并使用。",
+        "hint": "额外的停用词，用逗号或空格分隔，与所选停用词表合并使用。",
         "type": "string",
         "default": ""
       }
     }
   },
   "dense_retriever": {
-    "description": "稠密检索器配置",
-    "hint": "基于向量嵌入的稠密检索配置，用于语义相似度匹配",
+    "description": "向量语义检索",
+    "hint": "基于向量嵌入的语义相似度检索",
     "type": "object",
     "items": {
       "enable_query_preprocessing": {
         "description": "启用查询预处理",
-        "hint": "是否对查询进行预处理（如去除特殊字符等）。通常建议启用。",
+        "hint": "对检索查询进行预处理（去除特殊字符等），提升向量检索稳定性。建议开启。",
         "type": "bool",
         "default": true
       }

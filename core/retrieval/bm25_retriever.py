@@ -133,6 +133,11 @@ class BM25Retriever:
         # 使用OR连接所有token
         fts_query = " OR ".join(escaped_tokens)
 
+        # 有过滤条件时大幅增加预取量，避免过滤后结果不足
+        # Python 层过滤（BM25）比 FAISS 内部过滤损耗更大，需要更多候选
+        has_filters = session_id is not None or persona_id is not None
+        fetch_limit = limit * 10 if has_filters else limit * 2
+
         async with aiosqlite.connect(self.db_path) as db:
             # 执行FTS5 BM25搜索
             # 注意: SQLite FTS5 bm25() 分数越小越相关（常见为负数）
@@ -144,7 +149,7 @@ class BM25Retriever:
                 ORDER BY score ASC
                 LIMIT ?
             """,
-                (fts_query, limit * 2),
+                (fts_query, fetch_limit),
             )  # 多取一些以备过滤后不足
 
             fts_results = await cursor.fetchall()
@@ -180,7 +185,7 @@ class BM25Retriever:
                 doc = docs[doc_id]
                 metadata = doc["metadata"]
 
-                # 应用过滤器 - session_id和persona_id已经被_extract_session_uuid处理，直接比较
+                # 应用过滤器 - 直接比较完整的 session_id / persona_id
                 if session_id is not None:
                     stored_session_id = metadata.get("session_id")
                     if stored_session_id != session_id:

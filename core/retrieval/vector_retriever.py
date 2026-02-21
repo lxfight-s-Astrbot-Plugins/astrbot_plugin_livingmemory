@@ -135,7 +135,7 @@ class VectorRetriever:
                 # 如果预处理后为空,使用原始查询
                 processed_query = query
 
-        # 构建元数据过滤器 - session_id和persona_id已经被_extract_session_uuid处理
+        # 构建元数据过滤器
         metadata_filters = {}
         if session_id is not None:
             metadata_filters["session_id"] = session_id
