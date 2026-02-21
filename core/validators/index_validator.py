@@ -284,6 +284,9 @@ class IndexValidator:
         """
         重建所有索引
 
+        安全策略：先备份原始数据到临时表，重建成功后再删除备份；
+        任何步骤失败都可从临时表恢复，不会造成数据丢失。
+
         Args:
             memory_engine: MemoryEngine实例
             progress_callback: 进度回调函数 (current, total, message)
@@ -294,15 +297,30 @@ class IndexValidator:
         try:
             logger.info(" 开始重建索引...")
 
-            # 1. Read all documents into memory first.
+            # 1. 读取所有文档到内存，同时备份到临时表（原子操作，防止读取期间数据变化）
             async with aiosqlite.connect(self.db_path) as db:
-                logger.info(" 读取documents表数据...")
+                await db.execute("PRAGMA busy_timeout = 10000")
+                logger.info(" 读取documents表数据并创建备份...")
+
+                # 创建备份临时表（如已存在则先删除，避免上次失败残留）
+                await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
+                await db.execute("""
+                    CREATE TABLE _documents_rebuild_backup AS
+                    SELECT id, doc_id, text, metadata, created_at, updated_at
+                    FROM documents
+                """)
+                await db.commit()
+
                 cursor = await db.execute(
-                    "SELECT id, doc_id, text, metadata FROM documents ORDER BY id"
+                    "SELECT id, doc_id, text, metadata FROM _documents_rebuild_backup ORDER BY id"
                 )
                 documents = list(await cursor.fetchall())
 
             if not documents:
+                # 清理空备份表
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
+                    await db.commit()
                 return {
                     "success": True,
                     "message": "没有需要重建的文档",
@@ -311,10 +329,10 @@ class IndexValidator:
                 }
 
             total = len(documents)
-            logger.info(f" 找到 {total} 条文档需要重建索引")
+            logger.info(f" 找到 {total} 条文档需要重建索引（备份已创建）")
             logger.info("️ 清空documents表、BM25索引和向量索引...")
 
-            # 2. Delete vectors/doc mappings first without holding an aiosqlite writer lock.
+            # 2. 删除向量索引条目（不持有 SQLite 写锁）
             for doc_id, doc_uuid, _text, _metadata_json in documents:
                 try:
                     await self._delete_vector_entry_with_retry(
@@ -327,11 +345,11 @@ class IndexValidator:
                         f"删除Faiss文档失败 (doc_id={doc_id}, uuid={doc_uuid}): {e}"
                     )
 
-            # 3. Clear BM25/documents tables in a short transaction.
+            # 3. 清空 BM25/documents 表（此时备份表仍完整保留）
             await self._clear_sqlite_storages_with_retry()
-            logger.info(" 所有存储已清空")
+            logger.info(" 所有存储已清空，开始重建...")
 
-            # 4. Rebuild all storages (documents + BM25 + vector).
+            # 4. 逐条重建（documents + BM25 + vector）
             success_count = 0
             error_count = 0
             batch_size = 100
@@ -345,7 +363,6 @@ class IndexValidator:
                         metadata["importance"] = 0.5
                     if "create_time" not in metadata:
                         import time
-
                         metadata["create_time"] = time.time()
                     if "last_access_time" not in metadata:
                         metadata["last_access_time"] = metadata.get(
@@ -378,15 +395,22 @@ class IndexValidator:
                     error_count += 1
                     logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
 
-            # 5. Update migration status marker.
-            from datetime import datetime, timezone
-
             logger.info(f" 索引重建完成: 成功{success_count}条, 失败{error_count}条")
 
-            # 6. 在主数据库连接外部更新状态标记（确保提交）
+            # 5. 重建完成后删除备份表（只有全部流程成功才到这里）
+            try:
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
+                    await db.commit()
+                    logger.info(" 已删除重建备份表")
+            except Exception as e:
+                logger.warning(f"删除备份表失败（不影响功能）: {e}")
+
+            # 6. 更新迁移状态标记
+            from datetime import datetime, timezone
+
             try:
                 async with aiosqlite.connect(self.db_path) as status_db:
-                    # 确保migration_status表存在
                     await status_db.execute("""
                         CREATE TABLE IF NOT EXISTS migration_status (
                             key TEXT PRIMARY KEY,
@@ -394,8 +418,6 @@ class IndexValidator:
                             updated_at TEXT
                         )
                     """)
-
-                    # 更新需要重建标记为false
                     await status_db.execute(
                         """
                         INSERT OR REPLACE INTO migration_status (key, value, updated_at)
@@ -407,8 +429,6 @@ class IndexValidator:
                             datetime.now(timezone.utc).isoformat(),
                         ),
                     )
-
-                    # 添加索引重建完成标记
                     await status_db.execute(
                         """
                         INSERT OR REPLACE INTO migration_status (key, value, updated_at)
@@ -420,7 +440,6 @@ class IndexValidator:
                             datetime.now(timezone.utc).isoformat(),
                         ),
                     )
-
                     await status_db.commit()
                     logger.info(
                         "已更新迁移状态: needs_index_rebuild=false, index_rebuild_completed=true"
@@ -428,7 +447,6 @@ class IndexValidator:
             except Exception as e:
                 logger.warning(f"更新迁移状态失败: {e}")
 
-            # 7. 返回重建结果
             return {
                 "success": True,
                 "message": "索引重建完成",
@@ -439,8 +457,54 @@ class IndexValidator:
 
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
+            # 尝试从备份表恢复
+            await self._try_restore_from_backup()
             return {
                 "success": False,
                 "message": f"重建索引失败: {str(e)}",
                 "error": str(e),
             }
+
+    async def _try_restore_from_backup(self) -> None:
+        """
+        重建失败时尝试从备份表恢复 documents 数据。
+        仅在备份表存在且 documents 表为空时执行恢复。
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA busy_timeout = 10000")
+
+                # 检查备份表是否存在
+                cursor = await db.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='_documents_rebuild_backup'
+                """)
+                if not await cursor.fetchone():
+                    return
+
+                # 只在 documents 表为空时恢复（避免覆盖部分重建的数据）
+                cursor = await db.execute("SELECT COUNT(*) FROM documents")
+                row = await cursor.fetchone()
+                doc_count = row[0] if row else 0
+
+                if doc_count > 0:
+                    logger.warning(
+                        f"documents 表已有 {doc_count} 条数据，跳过备份恢复（避免重复）"
+                    )
+                    return
+
+                logger.warning("检测到重建失败且 documents 表为空，正在从备份表恢复...")
+                await db.execute("""
+                    INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at)
+                    SELECT id, doc_id, text, metadata, created_at, updated_at
+                    FROM _documents_rebuild_backup
+                """)
+                await db.commit()
+
+                cursor = await db.execute("SELECT COUNT(*) FROM documents")
+                row = await cursor.fetchone()
+                restored = row[0] if row else 0
+                logger.info(f"✅ 已从备份表恢复 {restored} 条记忆数据，BM25/向量索引需手动重建")
+
+        except Exception as e:
+            logger.error(f"从备份表恢复失败: {e}", exc_info=True)

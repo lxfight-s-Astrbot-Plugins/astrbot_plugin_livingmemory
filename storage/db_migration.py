@@ -198,6 +198,13 @@ class DBMigration:
                     f" 开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
                 )
 
+                # 迁移前自动备份，确保数据安全
+                backup_path = await self.create_backup()
+                if backup_path:
+                    logger.info(f" 迁移前备份已创建: {backup_path}")
+                else:
+                    logger.warning("️ 迁移前备份失败，继续迁移（请确保磁盘空间充足）")
+
                 # 执行迁移步骤
                 migration_steps = []
 
@@ -235,6 +242,7 @@ class DBMigration:
                     "from_version": current_version,
                     "to_version": self.CURRENT_VERSION,
                     "duration": duration,
+                    "backup_path": backup_path,
                 }
 
             except Exception as e:
