@@ -80,7 +80,13 @@ class MemoryProcessor:
         Returns:
             str: 包含人格提示的 system_prompt
         """
-        base_prompt = "你正在总结对话记忆。请严格按照JSON格式输出。"
+        current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        base_prompt = (
+            "你正在总结对话记忆。请严格按照JSON格式输出。\n"
+            f"当前日期时间: {current_date}\n"
+            "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、\u201c明天\u201d、\u201c昨天\u201d、\u201c下周\u201d、\u201c上个月\u201d等）"
+            "转换为具体日期后再写入记忆，以便未来查阅时仍能准确理解时间信息。"
+        )
 
         if not persona_id:
             logger.debug("[MemoryProcessor] 未指定人格ID，使用基础提示词")
@@ -133,7 +139,8 @@ class MemoryProcessor:
                 f"1. **保持你的人格特色**: 使用符合上述人格设定的语气、用词习惯和表达方式\n"
                 f'2. **第一人称视角**: 以"我"的视角回顾对话,不要说"bot"、"助手"等第三人称\n'
                 f"3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
-                f"4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n\n"
+                f"4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
+                f"5. **时间转换**: 将对话中的相对时间（今天、明天、下周等）转换为具体日期（当前日期: {current_date}）\n\n"
                 f"例如:\n"
                 f'- 如果你是活泼可爱的性格,记忆中可以使用"呀"、"呢"、"~"等语气词\n'
                 f"- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
@@ -263,12 +270,15 @@ class MemoryProcessor:
 
         # 2. 选择合适的提示词模板
         # 使用 replace 而非 format，避免对话内容中的大括号导致解析错误
+        current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
         if is_group_chat:
             prompt = self.group_chat_prompt.replace("{conversation}", conversation_text)
         else:
             prompt = self.private_chat_prompt.replace(
                 "{conversation}", conversation_text
             )
+        # 注入当前日期，让 LLM 能将相对时间转换为绝对日期
+        prompt = prompt.replace("{current_date}", current_date)
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"
@@ -764,7 +774,7 @@ class MemoryProcessor:
             return "low"
 
         # 泛化词检测
-        generic_terms = ["某用户", "有人", "某人", "用户说", "对方说"]
+        generic_terms = ["某用户", "有人", "某人", "用户说", "对方说", "群成员", "某群成员"]
         if any(term in summary for term in generic_terms):
             return "low"
 

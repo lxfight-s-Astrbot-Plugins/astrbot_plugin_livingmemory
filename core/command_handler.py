@@ -26,6 +26,7 @@ class CommandHandler:
         memory_engine: MemoryEngine | None,
         conversation_manager: ConversationManager | None,
         index_validator: IndexValidator | None,
+        memory_processor=None,
         webui_server=None,
         initialization_status_callback=None,
     ):
@@ -38,6 +39,7 @@ class CommandHandler:
             memory_engine: 记忆引擎
             conversation_manager: 会话管理器
             index_validator: 索引验证器
+            memory_processor: 记忆处理器（用于手动总结）
             webui_server: WebUI服务器
             initialization_status_callback: 初始化状态回调函数
         """
@@ -46,6 +48,7 @@ class CommandHandler:
         self.memory_engine = memory_engine
         self.conversation_manager = conversation_manager
         self.index_validator = index_validator
+        self._memory_processor = memory_processor
         self.webui_server = webui_server
         self.get_initialization_status = initialization_status_callback
 
@@ -236,6 +239,111 @@ class CommandHandler:
 
         yield event.plain_result(message)
 
+    async def handle_summarize(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem summarize 命令 - 立即触发记忆总结"""
+        if not self.conversation_manager or not self.memory_engine:
+            yield event.plain_result("❌ 核心组件未初始化")
+            return
+
+        session_id = event.unified_msg_origin
+        try:
+            # 获取当前消息数和总结进度
+            actual_count = await self.conversation_manager.store.get_message_count(
+                session_id
+            )
+            last_summarized_index = await self.conversation_manager.get_session_metadata(
+                session_id, "last_summarized_index", 0
+            )
+            try:
+                last_summarized_index = int(last_summarized_index)
+            except (TypeError, ValueError):
+                last_summarized_index = 0
+
+            unsummarized = actual_count - last_summarized_index
+
+            if unsummarized < 2:
+                yield event.plain_result(
+                    f"ℹ️ 当前没有需要总结的新对话（共 {actual_count} 条消息，已总结至第 {last_summarized_index} 条）"
+                )
+                return
+
+            yield event.plain_result(
+                f"🔄 开始手动总结记忆...\n"
+                f"消息范围: [{last_summarized_index}:{actual_count}]，共 {unsummarized} 条"
+            )
+
+            history_messages = await self.conversation_manager.get_messages_range(
+                session_id=session_id,
+                start_index=last_summarized_index,
+                end_index=actual_count,
+            )
+
+            if not history_messages:
+                yield event.plain_result("❌ 获取消息失败")
+                return
+
+            # 获取 persona_id
+            from .utils import get_persona_id
+            persona_id = await get_persona_id(self.context, event)
+
+            # 判断是否群聊
+            is_group_chat = bool(
+                history_messages[0].group_id if history_messages else False
+            )
+            if not is_group_chat and "GroupMessage" in session_id:
+                is_group_chat = True
+
+            save_original = self.config_manager.get(
+                "reflection_engine.save_original_conversation", False
+            )
+
+            if not self._memory_processor:
+                yield event.plain_result("❌ 记忆处理器未初始化")
+                return
+
+            (content, metadata, importance) = await self._memory_processor.process_conversation(
+                messages=history_messages,
+                is_group_chat=is_group_chat,
+                save_original=save_original,
+                persona_id=persona_id,
+            )
+
+            metadata["source_window"] = {
+                "session_id": session_id,
+                "start_index": last_summarized_index,
+                "end_index": actual_count,
+                "message_count": actual_count - last_summarized_index,
+                "triggered_by": "manual",
+            }
+
+            await self.memory_engine.add_memory(
+                content=content,
+                session_id=session_id,
+                persona_id=persona_id,
+                importance=importance,
+                metadata=metadata,
+            )
+
+            await self.conversation_manager.update_session_metadata(
+                session_id, "last_summarized_index", actual_count
+            )
+            await self.conversation_manager.update_session_metadata(
+                session_id, "pending_summary", None
+            )
+
+            yield event.plain_result(
+                f"✅ 记忆总结完成\n"
+                f"重要性: {importance:.2f}\n"
+                f"主题: {', '.join(metadata.get('topics', []))}\n"
+                f"已更新总结进度至第 {actual_count} 条消息"
+            )
+
+        except Exception as e:
+            logger.error(f"手动触发记忆总结失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 总结失败: {str(e)}")
+
     async def handle_reset(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -396,6 +504,7 @@ class CommandHandler:
 /lmem forget <ID>          删除指定记忆
 /lmem rebuild-index       重建索引（修复索引不一致）
 /lmem webui               打开WebUI管理界面
+/lmem summarize           立即触发当前会话的记忆总结
 /lmem reset               重置当前会话记忆上下文
 /lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)
 /lmem help                显示此帮助

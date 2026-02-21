@@ -98,8 +98,17 @@ class VectorRetriever:
                 else:  # session_id, persona_id
                     metadata[field] = None
 
-        # 插入到Faiss向量库
-        doc_id = await self.faiss_db.insert(content=content, metadata=metadata)
+        # 插入到Faiss向量库，同样截断过长内容防止 embedding token 超限
+        _MAX_CONTENT_CHARS = 4000
+        insert_content = content
+        if len(insert_content) > _MAX_CONTENT_CHARS:
+            from astrbot.api import logger as _logger
+            _logger.warning(
+                f"[VectorRetriever] 记忆内容过长 ({len(insert_content)} 字符)，"
+                f"截断至 {_MAX_CONTENT_CHARS} 字符"
+            )
+            insert_content = insert_content[:_MAX_CONTENT_CHARS]
+        doc_id = await self.faiss_db.insert(content=insert_content, metadata=metadata)
 
         return doc_id
 
@@ -134,6 +143,17 @@ class VectorRetriever:
             else:
                 # 如果预处理后为空,使用原始查询
                 processed_query = query
+
+        # 防止 embedding API token 超限：截断过长的查询文本
+        # 大多数 embedding 模型限制在 8192 tokens 以内，按字符数保守截断
+        _MAX_QUERY_CHARS = 2000
+        if len(processed_query) > _MAX_QUERY_CHARS:
+            from astrbot.api import logger as _logger
+            _logger.warning(
+                f"[VectorRetriever] 查询文本过长 ({len(processed_query)} 字符)，"
+                f"截断至 {_MAX_QUERY_CHARS} 字符以避免 token 超限"
+            )
+            processed_query = processed_query[:_MAX_QUERY_CHARS]
 
         # 构建元数据过滤器
         metadata_filters = {}

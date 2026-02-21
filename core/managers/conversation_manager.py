@@ -123,6 +123,19 @@ class ConversationManager:
             if is_group:
                 group_id = session_id  # 群聊时session_id即为group_id
 
+        # 群聊中助手消息：sender_name 使用 Bot 自身昵称（如果可获取）
+        is_bot_message = role == "assistant"
+        if is_bot_message and is_group:
+            bot_name = None
+            if hasattr(event, "get_self_id"):
+                bot_name = event.get_self_id()
+            # 尝试从 context 获取 Bot 昵称（AstrBot 通常在 message_obj 中有 self_id）
+            if hasattr(event, "message_obj") and hasattr(event.message_obj, "self_id"):
+                bot_name = str(event.message_obj.self_id)
+            if bot_name:
+                sender_id = bot_name
+                sender_name = sender_name or bot_name
+
         # 调试日志：记录最终获取到的发送者信息
         logger.debug(
             f"[add_message_from_event] [{session_id}] 最终发送者信息: "
@@ -145,6 +158,7 @@ class ConversationManager:
             sender_name=sender_name,
             group_id=group_id,
             platform=platform,
+            is_bot_message=(role == "assistant"),
         )
 
     async def add_message(
@@ -156,6 +170,7 @@ class ConversationManager:
         sender_name: str | None = None,
         group_id: str | None = None,
         platform: str = "unknown",
+        is_bot_message: bool = False,
     ) -> Message:
         """
         添加消息到会话
@@ -187,7 +202,7 @@ class ConversationManager:
             group_id=group_id,
             platform=platform,
             timestamp=time.time(),
-            metadata={},
+            metadata={"is_bot_message": True} if is_bot_message else {},
         )
 
         # 存储到数据库

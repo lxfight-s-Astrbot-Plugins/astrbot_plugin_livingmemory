@@ -94,8 +94,8 @@ class Message:
 
         # 群聊场景: 在消息前加上发送者详细信息
         if include_sender_name and self.group_id:
-            # 判断是否为Bot消息
-            is_bot = self.metadata.get("is_bot_message", False)
+            # 判断是否为Bot消息：优先检查 metadata 标记，其次 role
+            is_bot = self.metadata.get("is_bot_message", False) or self.role == "assistant"
 
             # 格式化时间
             time_str = datetime.fromtimestamp(self.timestamp).strftime(

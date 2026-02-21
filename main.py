@@ -111,6 +111,7 @@ class LivingMemoryPlugin(Star):
                     memory_engine=self.initializer.memory_engine,
                     conversation_manager=self.initializer.conversation_manager,
                     index_validator=self.initializer.index_validator,
+                    memory_processor=self.initializer.memory_processor,
                     webui_server=self.webui_server,
                     initialization_status_callback=self._get_initialization_status_message,
                 )
@@ -337,6 +338,24 @@ class LivingMemoryPlugin(Star):
             return
 
         async for message in self.command_handler.handle_webui(event):
+            yield message
+
+    @lmem.command("summarize")
+    @permission_type(PermissionType.ADMIN)
+    async def summarize(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[管理员] 立即触发当前会话的记忆总结"""
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
+            return
+
+        if not self.command_handler:
+            yield event.plain_result("❌ 命令处理器未初始化")
+            return
+
+        async for message in self.command_handler.handle_summarize(event):
             yield message
 
     @lmem.command("reset")
