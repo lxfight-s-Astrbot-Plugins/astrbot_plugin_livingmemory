@@ -85,3 +85,16 @@ async def test_retry_task_done_callback_clears_state(initializer):
 
     initializer._on_retry_task_done(task)
     assert initializer._retry_task is None
+
+
+@pytest.mark.asyncio
+async def test_retry_initialization_timeout_sets_actionable_error(initializer):
+    initializer._max_provider_attempts = 0
+    initializer._provider_check_attempts = 0
+
+    await initializer._retry_initialization()
+
+    assert initializer.is_failed is True
+    assert initializer.error_message is not None
+    assert "Provider 初始化超时" in initializer.error_message
+    assert "请检查 provider_settings 配置" in initializer.error_message
