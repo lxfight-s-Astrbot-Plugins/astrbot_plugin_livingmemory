@@ -235,7 +235,7 @@ class LivingMemoryPlugin(Star):
         """长期记忆管理命令组 /lmem"""
         pass
 
-    # @permission_type(PermissionType.ADMIN)
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("status", priority=10)
     async def status(
         self, event: AstrMessageEvent

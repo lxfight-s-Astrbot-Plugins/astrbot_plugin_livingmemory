@@ -394,7 +394,7 @@ class CommandHandler:
 /lmem status              查看系统状态
 /lmem search <关键词> [数量]  搜索记忆(默认5条)
 /lmem forget <ID>          删除指定记忆
-/lmem rebuild-index       重建v1迁移数据索引
+/lmem rebuild-index       重建索引（修复索引不一致）
 /lmem webui               打开WebUI管理界面
 /lmem reset               重置当前会话记忆上下文
 /lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)
@@ -405,7 +405,7 @@ class CommandHandler:
 • 复杂管理使用 WebUI 界面
 • 记忆会自动保存对话内容
 • 使用 forget 删除敏感信息
-• v1迁移后需执行 rebuild-index
+• 索引不一致时执行 rebuild-index
 • 更新插件后建议执行 cleanup 清理旧数据
 
 📝 cleanup 命令示例:
@@ -413,7 +413,7 @@ class CommandHandler:
   /lmem cleanup preview  # 同上
   /lmem cleanup exec     # 执行实际清理
 
-📚 更多信息: https://github.com/lxfight/astrbot_plugin_livingmemory"""
+📚 更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"""
 
         yield event.plain_result(message)
 
