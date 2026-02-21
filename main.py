@@ -268,8 +268,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_status(event):
             yield message
 
-    @lmem.command("search", priority=10)
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("search", priority=10)
     async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -286,8 +286,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_search(event, query, k):
             yield message
 
-    @lmem.command("forget")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("forget")
     async def forget(
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -304,8 +304,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_forget(event, doc_id):
             yield message
 
-    @lmem.command("rebuild-index")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("rebuild-index")
     async def rebuild_index(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -322,8 +322,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_rebuild_index(event):
             yield message
 
-    @lmem.command("webui")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("webui")
     async def webui(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -340,8 +340,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_webui(event):
             yield message
 
-    @lmem.command("summarize")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("summarize")
     async def summarize(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -358,8 +358,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_summarize(event):
             yield message
 
-    @lmem.command("reset")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("reset")
     async def reset(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -376,8 +376,8 @@ class LivingMemoryPlugin(Star):
         async for message in self.command_handler.handle_reset(event):
             yield message
 
-    @lmem.command("cleanup")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("cleanup")
     async def cleanup(
         self, event: AstrMessageEvent, mode: str = "preview"
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -403,8 +403,8 @@ class LivingMemoryPlugin(Star):
         ):
             yield message
 
-    @lmem.command("help")
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("help")
     async def help(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
