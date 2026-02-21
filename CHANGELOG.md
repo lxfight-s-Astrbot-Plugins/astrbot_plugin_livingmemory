@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-02-21
+
+### 修复
+- 修复 tool 循环产生的最终总结被错误存入记忆的问题：在 `handle_memory_reflection` 中检测 `tools_call_name` 和 `tools_call_extra_content`，有工具调用上下文时直接跳过，避免 tool loop 的内部总结污染记忆
+- 修复 `/reset` 或 `/new` 后插件仍读取旧对话内容进行总结的问题：新增 `after_message_sent` 钩子监听 AstrBot 的 `_clean_ltm_session` 信号，触发时同步调用 `conversation_manager.clear_session()` 清空消息历史和总结计数器
+- 修复私聊场景下用户消息写入后未执行消息数量上限控制的问题：`handle_memory_recall` 写入用户消息后补充调用 `_enforce_message_limit`；`handle_memory_reflection` 写入助手消息后同样执行上限控制
+
 ## [2.2.0] - 2026-02-21
 
 ### 新增

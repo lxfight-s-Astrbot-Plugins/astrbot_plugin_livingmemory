@@ -253,6 +253,8 @@ class EventHandler:
                         role="user",
                         content=message_to_store,
                     )
+                    # 执行消息数量上限控制
+                    await self._enforce_message_limit(session_id)
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
@@ -266,6 +268,21 @@ class EventHandler:
         )
 
         if resp.role != "assistant":
+            return
+
+        # 过滤 tool 循环中间轮次（有工具调用时跳过，等待最终总结轮）
+        if resp.tools_call_name:
+            logger.debug(
+                f"[DEBUG-Reflection] 检测到工具调用响应（tools={resp.tools_call_name}），跳过记录"
+            )
+            return
+
+        # 过滤 tool 循环最终总结：若本次响应是 tool 调用完成后的总结，
+        # 其 tools_call_extra_content 会携带工具调用上下文，说明这是 tool loop 产生的内容
+        if resp.tools_call_extra_content:
+            logger.debug(
+                "[DEBUG-Reflection] 检测到 tool loop 总结响应（tools_call_extra_content 非空），跳过记录"
+            )
             return
 
         try:
@@ -313,6 +330,11 @@ class EventHandler:
                 content=response_text,
             )
             logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
+
+            # 私聊：助手消息写入后也执行消息数量上限控制
+            is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+            if not is_group:
+                await self._enforce_message_limit(session_id)
 
             # 获取会话信息
             session_info = await self.conversation_manager.get_session_info(session_id)
@@ -1071,6 +1093,17 @@ class EventHandler:
 
         except Exception as e:
             logger.error(f"[{session_id}] 删除旧消息失败: {e}", exc_info=True)
+
+    async def handle_session_reset(self, event: AstrMessageEvent) -> None:
+        """处理 /reset 或 /new 触发的会话清空，同步清除插件侧的消息历史和总结计数器"""
+        session_id = event.unified_msg_origin
+        if not session_id:
+            return
+        try:
+            await self.conversation_manager.clear_session(session_id)
+            logger.info(f"[{session_id}] 已同步清空插件会话上下文（/reset 或 /new）")
+        except Exception as e:
+            logger.error(f"[{session_id}] 清空插件会话上下文失败: {e}", exc_info=True)
 
     async def shutdown(self):
         """关闭事件处理器，等待所有存储任务完成"""
