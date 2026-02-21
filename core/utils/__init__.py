@@ -363,13 +363,13 @@ def format_memories_for_injection(memories: list) -> str:
             if timestamp:
                 try:
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
-                    time_str = f"{dt.strftime('%Y-%m-%d %H:%M')}"
+                    time_str = dt.strftime('%Y-%m-%d %H:%M')
                 except Exception:
                     pass
 
-            # 构建格式化的记忆条目（展示content和元数据信息）
+            # 构建格式化的记忆条目
             entry_parts = [
-                f"记忆 #{idx} (重要性: {importance:.2f}), 发生时间:{time_str}"
+                f"记忆 #{idx} (重要性: {importance:.2f}), 发生时间:{time_str if time_str else '未知'}"
             ]
 
             # 添加元数据信息
