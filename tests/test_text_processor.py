@@ -4,6 +4,7 @@ Tests for TextProcessor behaviors.
 
 from pathlib import Path
 
+import pytest
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 
 
@@ -25,12 +26,13 @@ def test_tokenize_removes_common_stopwords():
     assert any(t in tokens for t in ["今天", "图书馆"])
 
 
-def test_load_stopwords_and_custom_words(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_load_stopwords_and_custom_words(tmp_path: Path):
     processor = TextProcessor()
     path = tmp_path / "stopwords.txt"
     path.write_text("# comment\nalpha\nbeta\n", encoding="utf-8")
 
-    loaded = processor.load_stopwords(str(path))
+    loaded = await processor.load_stopwords(str(path))
     assert "alpha" in loaded
     assert processor.is_stopword("alpha")
 

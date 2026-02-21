@@ -110,7 +110,9 @@ def _prepare_db(db_path: Path) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 doc_id TEXT,
                 text TEXT NOT NULL,
-                metadata TEXT DEFAULT '{}'
+                metadata TEXT DEFAULT '{}',
+                created_at REAL,
+                updated_at REAL
             )
             """
         )

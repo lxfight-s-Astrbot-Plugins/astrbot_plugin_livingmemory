@@ -78,6 +78,7 @@ def _make_req(prompt: str = "hello"):
     req.prompt = prompt
     req.system_prompt = ""
     req.contexts = []
+    req.extra_user_content_parts = []
     return req
 
 
@@ -85,6 +86,8 @@ def _make_resp(text: str = "assistant reply"):
     resp = Mock()
     resp.role = "assistant"
     resp.completion_text = text
+    resp.tools_call_name = None
+    resp.tools_call_extra_content = None
     return resp
 
 
@@ -103,11 +106,12 @@ def _make_event(group: bool = False):
     return event
 
 
-def test_message_dedup_cache_works(handler):
+@pytest.mark.asyncio
+async def test_message_dedup_cache_works(handler):
     key = "id:123"
-    assert handler._is_duplicate_message(key) is False
-    handler._mark_message_processed(key)
-    assert handler._is_duplicate_message(key) is True
+    assert await handler._is_duplicate_message(key) is False
+    await handler._mark_message_processed(key)
+    assert await handler._is_duplicate_message(key) is True
 
 
 @pytest.mark.asyncio
