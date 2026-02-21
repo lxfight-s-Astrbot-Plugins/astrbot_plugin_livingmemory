@@ -1,23 +1,6 @@
-# LivingMemory v2.0 - 动态生命周期记忆插件
+# LivingMemory - 动态生命周期记忆插件
 
-**版本**: v2.0.0 (重构版) | **作者**: lxfight | **许可证**: AGPLv3
-
----
-
-## 🎉 v2.0 重大更新
-
-v2.0是一个完全重构的版本，在保持所有功能的同时，大幅提升了代码质量和可维护性。
-
-### 主要改进
-
-- **架构重构**: main.py从1662行简化到300行
-- **模块化设计**: 拆分为5个独立模块，职责清晰
-- **错误处理**: 统一的异常体系和错误码
-- **配置管理**: 集中化配置加载和验证
-- **测试基础**: 完整的测试框架和初步测试
-- **文档完善**: 详细的功能分析和重构文档
-
-详见 [CHANGELOG.md](CHANGELOG.md)
+**版本**: v2.1.9 | **作者**: lxfight | **许可证**: AGPLv3
 
 ---
 
@@ -25,8 +8,10 @@ v2.0是一个完全重构的版本，在保持所有功能的同时，大幅提�
 
 - **混合检索**: 结合 BM25 稀疏检索和 Faiss 向量检索，使用 RRF 融合算法
 - **智能总结**: 使用 LLM 自动总结对话历史，生成结构化记忆
+- **双通道总结**: `canonical_summary`（事实导向，用于检索）与 `persona_summary`（人格风格，用于注入）解耦存储
 - **会话隔离**: 支持按人格和会话隔离记忆
 - **自动遗忘**: 基于时间和重要性的智能清理机制
+- **数据安全**: 迁移前自动备份、索引重建带备份回滚、删除操作带事务保护
 - **WebUI 管理**: 可视化记忆管理界面
 
 ---
@@ -64,16 +49,17 @@ v2.0是一个完全重构的版本，在保持所有功能的同时，大幅提�
 | 命令 | 说明 |
 | :--- | :--- |
 | `/lmem status` | 查看记忆库状态 |
-| `/lmem search <query> [k]` | 搜索记忆 |
+| `/lmem search <query> [k]` | 搜索记忆（默认 5 条） |
 | `/lmem forget <id>` | 删除指定记忆 |
-| `/lmem rebuild-index` | 重建索引 |
+| `/lmem rebuild-index` | 重建索引（修复索引不一致） |
 | `/lmem webui` | 查看 WebUI 信息 |
 | `/lmem reset` | 重置当前会话记忆上下文 |
+| `/lmem cleanup [preview\|exec]` | 清理历史消息中的记忆注入片段（默认 preview 预演） |
 | `/lmem help` | 显示帮助 |
 
 ---
 
-## 架构说明（v2.0新增）
+## 架构说明
 
 ### 模块结构
 
@@ -81,19 +67,17 @@ v2.0是一个完全重构的版本，在保持所有功能的同时，大幅提�
 astrbot_plugin_livingmemory/
 ├── main.py                          # 插件注册和生命周期管理
 ├── core/
-│   ├── exceptions.py                # 自定义异常定义
-│   ├── config_manager.py            # 配置管理器
-│   ├── plugin_initializer.py       # 插件初始化器
-│   ├── event_handler.py            # 事件处理器
-│   ├── command_handler.py          # 命令处理器
-│   ├── memory_engine.py            # 记忆引擎
-│   ├── memory_processor.py         # 记忆处理器
-│   ├── conversation_manager.py     # 会话管理器
-│   └── ...
-├── storage/                        # 存储层
-├── webui/                          # Web管理界面
-├── tests/                          # 测试套件
-└── docs/                           # 文档
+│   ├── base/                        # 基础组件（配置、常量、异常）
+│   ├── managers/                    # 核心管理器（MemoryEngine、ConversationManager）
+│   ├── retrieval/                   # 检索层（HybridRetriever、BM25、向量）
+│   ├── validators/                  # 验证器（IndexValidator）
+│   ├── plugin_initializer.py        # 插件初始化器
+│   ├── event_handler.py             # 事件处理器
+│   └── command_handler.py           # 命令处理器
+├── storage/                         # 存储层（DBMigration、ConversationStore）
+├── webui/                           # Web 管理界面
+├── tests/                           # 测试套件
+└── docs/                            # 文档
 ```
 
 ### 核心组件
@@ -155,23 +139,6 @@ pytest --cov=core tests/
 ---
 
 ## 更新记录
-
-### v2.0.0 (2025-12-17) - 重大重构
-
-**架构改进**:
-- 模块化设计，main.py从1662行简化到300行
-- 新增5个核心模块，职责清晰
-- 统一的异常处理和配置管理
-
-**代码质量**:
-- 代码覆盖率提升
-- 完整的测试基础设施
-- 详细的文档和注释
-
-**向后兼容**:
-- ✅ 所有功能完全保留
-- ✅ 数据库完全兼容
-- ✅ 配置文件完全兼容
 
 详见 [CHANGELOG.md](CHANGELOG.md)
 

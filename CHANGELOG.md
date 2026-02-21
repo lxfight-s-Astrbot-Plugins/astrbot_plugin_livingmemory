@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+## [2.1.9] - 2026-02-21
+
+### 修复
+- 修复 `memory_engine.delete_memory()` 重复删除 `documents` 表的问题：`hybrid_retriever.delete_memory()` 内部已按顺序删除 BM25 → 向量索引 → documents，上层再次删除会造成连接竞争
+- 修复 `update_memory()` 内容更新时旧记忆删除失败静默返回 `True` 的问题：现在改为回滚（删除刚创建的新记忆）并返回 `False`，避免新旧记录并存
+- 修复 `status` 命令缺少 `@permission_type(PermissionType.ADMIN)` 装饰器，任意用户均可查看系统状态
+- 修复 `help` 命令中仓库链接错误（指向了旧地址）
+
+### 优化
+- 数据库迁移（`DBMigration.migrate()`）执行前自动调用 `create_backup()` 创建完整备份，备份失败仅警告不中断迁移，迁移结果中附带 `backup_path`
+
 ## [2.1.8] - 2026-02-20
 
 ### 修复
