@@ -79,6 +79,37 @@ async def test_handle_status_returns_report(handler, mock_event):
 
 
 @pytest.mark.asyncio
+async def test_handle_status_without_engine_returns_actionable_message(
+    config_manager, mock_event
+):
+    handler = CommandHandler(
+        context=Mock(),
+        config_manager=config_manager,
+        memory_engine=None,
+        conversation_manager=None,
+        index_validator=None,
+    )
+
+    messages = [msg async for msg in handler.handle_status(mock_event)]
+    assert len(messages) == 1
+    assert "/lmem status 执行失败" in messages[0]
+    assert "检查插件状态" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_status_error_contains_suggestions(
+    handler, mock_event, memory_engine
+):
+    memory_engine.get_statistics = AsyncMock(side_effect=RuntimeError("db unavailable"))
+
+    messages = [msg async for msg in handler.handle_status(mock_event)]
+    assert len(messages) == 1
+    assert "获取状态失败" in messages[0]
+    assert "建议排查" in messages[0]
+    assert "数据库文件可读写" in messages[0]
+
+
+@pytest.mark.asyncio
 async def test_handle_search_validates_inputs_and_calls_engine(handler, mock_event):
     empty = [msg async for msg in handler.handle_search(mock_event, "", 3)]
     assert "不能为空" in empty[0]
@@ -134,6 +165,29 @@ async def test_handle_rebuild_index_branches(handler, mock_event, index_validato
 
 
 @pytest.mark.asyncio
+async def test_handle_rebuild_index_failed_result_contains_retry_hint(
+    handler, mock_event, index_validator
+):
+    index_validator.check_consistency = AsyncMock(
+        return_value=Mock(
+            is_consistent=False,
+            needs_rebuild=True,
+            reason="inconsistent",
+            documents_count=3,
+            bm25_count=2,
+            vector_count=1,
+        )
+    )
+    index_validator.rebuild_indexes = AsyncMock(
+        return_value={"success": False, "message": "vector unavailable"}
+    )
+
+    messages = [msg async for msg in handler.handle_rebuild_index(mock_event)]
+    assert any("索引重建失败" in msg for msg in messages)
+    assert any("/lmem rebuild-index" in msg for msg in messages)
+
+
+@pytest.mark.asyncio
 async def test_handle_reset_and_help(handler, mock_event, conversation_manager):
     reset = [msg async for msg in handler.handle_reset(mock_event)]
     assert "已重置" in reset[0]
@@ -141,6 +195,45 @@ async def test_handle_reset_and_help(handler, mock_event, conversation_manager):
 
     help_msg = [msg async for msg in handler.handle_help(mock_event)]
     assert "/lmem status" in help_msg[0]
+    assert (
+        "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+        in help_msg[0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_webui_when_disabled_returns_reason(handler, mock_event):
+    messages = [msg async for msg in handler.handle_webui(mock_event)]
+    assert len(messages) == 1
+    assert "WebUI 功能当前未启用" in messages[0]
+    assert "webui.enabled=false" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_cleanup_invalid_history_json_returns_clear_error(
+    config_manager, memory_engine, conversation_manager, index_validator, mock_event
+):
+    context = Mock()
+    context.conversation_manager = Mock()
+    context.conversation_manager.get_curr_conversation_id = AsyncMock(
+        return_value="cid-1"
+    )
+    context.conversation_manager.get_conversation = AsyncMock(
+        return_value=Mock(history="{bad json")
+    )
+    context.conversation_manager.update_conversation = AsyncMock()
+
+    handler = CommandHandler(
+        context=context,
+        config_manager=config_manager,
+        memory_engine=memory_engine,
+        conversation_manager=conversation_manager,
+        index_validator=index_validator,
+    )
+
+    messages = [msg async for msg in handler.handle_cleanup(mock_event, dry_run=True)]
+    assert any("解析对话历史失败" in msg for msg in messages)
+    assert any("有效 JSON" in msg for msg in messages)
 
 
 def test_get_webui_url_logic(config_manager):
