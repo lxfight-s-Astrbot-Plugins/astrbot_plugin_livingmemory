@@ -4,3 +4,4 @@ jieba>=0.42.1
 fastapi>=0.110.0
 uvicorn>=0.23.0
 pytz>=2021.3
+aiofiles>=23.0.0

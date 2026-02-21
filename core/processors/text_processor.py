@@ -316,7 +316,7 @@ class TextProcessor:
             manager = StopwordsManager(self.stopwords_dir)
             stopwords_path = await manager.get_stopwords()
             if stopwords_path:
-                self.load_stopwords(stopwords_path)
+                await self.load_stopwords(stopwords_path)
 
     def tokenize(self, text: str, remove_stopwords: bool = True) -> list[str]:
         """
@@ -394,7 +394,7 @@ class TextProcessor:
         """
         return [self.tokenize(text, remove_stopwords) for text in texts]
 
-    def load_stopwords(self, stopwords_path: str) -> set[str]:
+    async def load_stopwords(self, stopwords_path: str) -> set[str]:
         """
         加载停用词表
 
@@ -410,23 +410,22 @@ class TextProcessor:
             FileNotFoundError: 文件不存在
             IOError: 文件读取错误
         """
+        import aiofiles
+
         path = Path(stopwords_path)
 
         if not path.exists():
             raise FileNotFoundError(f"停用词文件不存在: {stopwords_path}")
 
         try:
-            with open(path, encoding="utf-8") as f:
-                stopwords = set()
-                for line in f:
+            stopwords = set()
+            async with aiofiles.open(path, encoding="utf-8") as f:
+                async for line in f:
                     word = line.strip()
-                    # 跳过空行和注释
                     if word and not word.startswith("#"):
                         stopwords.add(word)
 
-            # 合并到现有停用词
             self.stopwords.update(stopwords)
-
             return stopwords
 
         except Exception as e:

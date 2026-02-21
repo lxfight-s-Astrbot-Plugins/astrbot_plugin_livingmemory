@@ -93,9 +93,11 @@ class StopwordsManager:
             Set[str]: 停用词集合
         """
         try:
-            with open(filepath, encoding="utf-8") as f:
-                stopwords = set()
-                for line in f:
+            import aiofiles
+
+            stopwords = set()
+            async with aiofiles.open(filepath, encoding="utf-8") as f:
+                async for line in f:
                     word = line.strip()
                     if word and not word.startswith("#"):  # 跳过空行和注释
                         stopwords.add(word)
@@ -335,9 +337,11 @@ class StopwordsManager:
                 return
 
         try:
-            with open(filepath, "w", encoding="utf-8") as f:
+            import aiofiles
+
+            async with aiofiles.open(filepath, "w", encoding="utf-8") as f:
                 for word in sorted(self.custom_stopwords):
-                    f.write(f"{word}\n")
+                    await f.write(f"{word}\n")
 
             logger.info(f"自定义停用词已保存到: {filepath}")
 

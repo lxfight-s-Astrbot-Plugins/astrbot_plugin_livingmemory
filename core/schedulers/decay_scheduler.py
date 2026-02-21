@@ -54,45 +54,50 @@ class DecayScheduler:
         self._task: asyncio.Task | None = None
         self._running = False
 
-    def _load_state(self) -> dict:
+    async def _load_state(self) -> dict:
         """加载状态文件"""
         if not self._state_file.exists():
             return {}
         try:
-            with open(self._state_file, encoding="utf-8") as f:
-                return json.load(f)
+            import aiofiles
+
+            async with aiofiles.open(self._state_file, encoding="utf-8") as f:
+                content = await f.read()
+            return json.loads(content)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"[衰减调度] 加载状态文件失败: {e}")
             return {}
 
-    def _save_state(self, state: dict) -> None:
+    async def _save_state(self, state: dict) -> None:
         """保存状态文件"""
         try:
+            import aiofiles
+
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            with open(self._state_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, ensure_ascii=False)
+            async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(state, ensure_ascii=False))
         except OSError as e:
             logger.error(f"[衰减调度] 保存状态文件失败: {e}")
 
-    def _get_last_decay_date(self) -> str | None:
+    async def _get_last_decay_date(self) -> str | None:
         """获取上次衰减日期 (格式: YYYY-MM-DD)"""
-        state = self._load_state()
+        state = await self._load_state()
         return state.get("last_decay_date")
 
-    def _set_last_decay_date(self, date_str: str) -> None:
+    async def _set_last_decay_date(self, date_str: str) -> None:
         """设置上次衰减日期"""
-        state = self._load_state()
+        state = await self._load_state()
         state["last_decay_date"] = date_str
         state["last_decay_timestamp"] = time.time()
-        self._save_state(state)
+        await self._save_state(state)
 
     def _get_today_str(self) -> str:
         """获取今天日期字符串"""
         return datetime.now().strftime("%Y-%m-%d")
 
-    def _calculate_missed_days(self) -> int:
+    async def _calculate_missed_days(self) -> int:
         """计算错过的衰减天数"""
-        last_date_str = self._get_last_decay_date()
+        last_date_str = await self._get_last_decay_date()
         if not last_date_str:
             return 0
 
@@ -144,7 +149,7 @@ class DecayScheduler:
                         f"[衰减调度] 自动清理失败: {cleanup_err}", exc_info=True
                     )
 
-            self._set_last_decay_date(self._get_today_str())
+            await self._set_last_decay_date(self._get_today_str())
             return True
         except Exception as e:
             logger.error(f"[衰减调度] 执行衰减失败: {e}", exc_info=True)
@@ -153,13 +158,13 @@ class DecayScheduler:
     async def _check_and_execute(self) -> None:
         """检查并执行衰减（启动时调用）"""
         today_str = self._get_today_str()
-        last_date_str = self._get_last_decay_date()
+        last_date_str = await self._get_last_decay_date()
 
         if last_date_str == today_str:
             logger.debug("[衰减调度] 今日已执行过衰减，跳过")
             return
 
-        missed_days = self._calculate_missed_days()
+        missed_days = await self._calculate_missed_days()
         total_days = missed_days + 1
 
         if missed_days > 0:
