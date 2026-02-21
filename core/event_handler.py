@@ -93,11 +93,11 @@ class EventHandler:
                 )
 
             # 获取消息内容
-            content = self._extract_message_content(event)
-            dedup_key = self._build_dedup_key(event, session_id, content)
+            content = await self._extract_message_content(event)
+            dedup_key = await self._build_dedup_key(event, session_id, content)
 
             # 消息去重
-            if dedup_key and self._is_duplicate_message(dedup_key):
+            if dedup_key and await self._is_duplicate_message(dedup_key):
                 logger.debug(f"[{session_id}] 消息已存在,跳过: dedup_key={dedup_key}")
                 return
 
@@ -108,7 +108,7 @@ class EventHandler:
                 content=content,
             )
             if dedup_key:
-                self._mark_message_processed(dedup_key)
+                await self._mark_message_processed(dedup_key)
 
             # 执行消息数量上限控制
             await self._enforce_message_limit(session_id)
@@ -245,8 +245,9 @@ class EventHandler:
                 # 存储用户消息（仅私聊）
                 is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
                 if not is_group and actual_query:
-                    # Persist the pre-injection user input to avoid memory pollution.
-                    message_to_store = actual_query.strip()
+                    message_to_store = await self._extract_message_content(event, req)
+                    if not message_to_store:
+                        message_to_store = actual_query.strip()
                     await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
@@ -728,7 +729,7 @@ class EventHandler:
             if hasattr(req, "contexts") and req.contexts:
                 filtered_contexts = []
 
-                for idx, msg in enumerate(req.contexts):
+                for _, msg in enumerate(req.contexts):
                     # 处理三种格式:
                     # 1. 字符串格式: "user: xxx"
                     # 2. 字典+字符串内容: {"role": "user", "content": "xxx"}
@@ -834,7 +835,7 @@ class EventHandler:
 
         return removed_count
 
-    def _build_dedup_key(
+    async def _build_dedup_key(
         self, event: AstrMessageEvent, session_id: str, content: str
     ) -> str | None:
         """构建去重键：优先使用 message_id，缺失时退化为消息内容指纹。"""
@@ -850,7 +851,7 @@ class EventHandler:
         digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()
         return f"fallback:{digest}"
 
-    def _is_duplicate_message(self, dedup_key: str | None) -> bool:
+    async def _is_duplicate_message(self, dedup_key: str | None) -> bool:
         """检查消息是否已经处理过"""
         if not dedup_key:
             return False
@@ -875,14 +876,21 @@ class EventHandler:
 
         return dedup_key in self._message_dedup_cache
 
-    def _mark_message_processed(self, dedup_key: str | None):
+    async def _mark_message_processed(self, dedup_key: str | None):
         """标记消息已处理"""
         if not dedup_key:
             return
         self._message_dedup_cache[dedup_key] = time.time()
 
-    def _extract_message_content(self, event: AstrMessageEvent) -> str:
-        """提取消息内容,包括非文本消息的类型描述"""
+    async def _extract_message_content(
+        self, event: AstrMessageEvent, req: ProviderRequest | None = None
+    ) -> str:
+        """提取消息内容，按组件原始顺序拼接，保留文字与图片的相对位置。
+        若 AstrBot 已完成图片转述（req.extra_user_content_parts 中含 <image_caption> 标签），
+        则按图片出现顺序依次替换，不会重复消费同一条转述。
+        """
+        import re
+
         from astrbot.core.message.components import (
             At,
             AtAll,
@@ -896,15 +904,36 @@ class EventHandler:
             Video,
         )
 
+        # 预先提取所有图片转述（按 extra_user_content_parts 中的出现顺序）
+        # AstrBot 按消息链中图片的顺序依次追加转述，与 get_messages() 中 Image 的顺序一一对应
+        caption_queue: list[str] = []
+        if req is not None:
+            for part in getattr(req, "extra_user_content_parts", []):
+                text = getattr(part, "text", "")
+                if not text:
+                    continue
+                for m in re.findall(
+                    r"<image_caption>(.*?)</image_caption>", text, re.DOTALL
+                ):
+                    m = m.strip()
+                    if m:
+                        caption_queue.append(m)
+
         parts = []
-        base_text = event.get_message_str()
+        caption_idx = 0
 
-        if base_text:
-            parts.append(base_text)
-
+        # 按组件原始顺序遍历，保留文字与图片的相对位置
         for component in event.get_messages():
-            if isinstance(component, Image):
-                parts.append("[图片]")
+            if isinstance(component, Plain):
+                text = component.text.strip() if component.text else ""
+                if text:
+                    parts.append(text)
+            elif isinstance(component, Image):
+                if caption_idx < len(caption_queue):
+                    parts.append(f"[图片: {caption_queue[caption_idx]}]")
+                    caption_idx += 1
+                else:
+                    parts.append("[图片]")
             elif isinstance(component, Record):
                 parts.append("[语音]")
             elif isinstance(component, Video):
@@ -926,7 +955,7 @@ class EventHandler:
                     parts.append(f"[引用: {component.message_str[:30]}]")
                 else:
                     parts.append("[引用消息]")
-            elif not isinstance(component, Plain):
+            else:
                 parts.append(f"[{component.type}]")
 
         return " ".join(parts).strip()
