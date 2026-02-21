@@ -5,6 +5,7 @@ End-to-end integration tests with real plugin components and real SQLite/FAISS s
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import httpx
@@ -449,3 +450,156 @@ async def test_webui_api_with_real_database(real_db_stack):
         row = await cursor.fetchone()
     assert row is not None
     assert row[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_command_validation_messages_with_real_database(real_db_stack):
+    command_handler = real_db_stack["command_handler"]
+
+    session_id = "test:private:validation-session"
+    event = _TestEvent(session_id, "validation")
+
+    blank_search_output = [
+        msg async for msg in command_handler.handle_search(event, query="   ", k=5)
+    ]
+    assert len(blank_search_output) == 1
+    assert "查询关键词不能为空" in blank_search_output[0]
+
+    invalid_forget_output = [
+        msg async for msg in command_handler.handle_forget(event, doc_id=-1)
+    ]
+    assert len(invalid_forget_output) == 1
+    assert "记忆 ID 必须为非负整数" in invalid_forget_output[0]
+
+
+@pytest.mark.asyncio
+async def test_command_status_error_includes_suggestions(real_db_stack):
+    command_handler = real_db_stack["command_handler"]
+    event = _TestEvent("test:private:status-error", "status")
+
+    command_handler.memory_engine.get_statistics = AsyncMock(
+        side_effect=RuntimeError("db offline")
+    )
+
+    status_output = [msg async for msg in command_handler.handle_status(event)]
+    assert len(status_output) == 1
+    assert "获取状态失败" in status_output[0]
+    assert "建议排查" in status_output[0]
+    assert "错误详情: db offline" in status_output[0]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_index_without_validator_returns_actionable_message(
+    real_db_stack,
+):
+    command_handler = real_db_stack["command_handler"]
+    event = _TestEvent("test:private:rebuild-no-validator", "rebuild")
+
+    output = [msg async for msg in command_handler.handle_rebuild_index(event)]
+    assert len(output) == 1
+    assert "记忆引擎或索引验证器未初始化" in output[0]
+    assert "/lmem status" in output[0]
+
+
+@pytest.mark.asyncio
+async def test_webui_messages_for_disabled_and_enabled_paths(real_db_stack):
+    command_handler = real_db_stack["command_handler"]
+    webui_server = real_db_stack["webui_server"]
+    event = _TestEvent("test:private:webui-msg", "webui")
+
+    disabled_output = [msg async for msg in command_handler.handle_webui(event)]
+    assert len(disabled_output) == 1
+    assert "WebUI 功能当前未启用" in disabled_output[0]
+    assert "webui.enabled=false" in disabled_output[0]
+
+    command_handler.config_manager = ConfigManager(
+        {
+            "webui_settings": {
+                "enabled": True,
+                "host": "0.0.0.0",
+                "port": 6186,
+                "access_password": "test-password",
+            }
+        }
+    )
+    command_handler.webui_server = webui_server
+
+    enabled_output = [msg async for msg in command_handler.handle_webui(event)]
+    assert len(enabled_output) == 1
+    assert "访问地址: http://127.0.0.1:6186" in enabled_output[0]
+    assert "记忆编辑与管理" in enabled_output[0]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preview_and_exec_paths(real_db_stack):
+    from astrbot_plugin_livingmemory.core.base.constants import (
+        MEMORY_INJECTION_FOOTER,
+        MEMORY_INJECTION_HEADER,
+    )
+
+    command_handler = real_db_stack["command_handler"]
+    event = _TestEvent("test:private:cleanup-session", "cleanup")
+
+    history_payload = [
+        {
+            "role": "system",
+            "content": f"{MEMORY_INJECTION_HEADER}\nold memory\n{MEMORY_INJECTION_FOOTER}",
+        },
+        {
+            "role": "user",
+            "content": (
+                "start\n"
+                f"{MEMORY_INJECTION_HEADER}\nold memory\n{MEMORY_INJECTION_FOOTER}\n"
+                "end"
+            ),
+        },
+    ]
+
+    class _HistoryConversationManager:
+        def __init__(self, history: list[dict]):
+            self._history = history
+            self.updated_history: list[dict] | None = None
+
+        async def get_curr_conversation_id(self, umo: str) -> str:
+            del umo
+            return "conv-cleanup-1"
+
+        async def get_conversation(self, umo: str, session_id: str):
+            del umo, session_id
+            return SimpleNamespace(
+                history=json.dumps(self._history, ensure_ascii=False)
+            )
+
+        async def update_conversation(
+            self,
+            unified_msg_origin: str,
+            conversation_id: str,
+            history: list[dict],
+        ):
+            del unified_msg_origin, conversation_id
+            self.updated_history = history
+
+    command_handler.context = SimpleNamespace(
+        conversation_manager=_HistoryConversationManager(history_payload)
+    )
+
+    preview_output = [
+        msg async for msg in command_handler.handle_cleanup(event, dry_run=True)
+    ]
+    assert any("预演模式：清理完成" in msg for msg in preview_output)
+    assert any("未实际修改数据" in msg for msg in preview_output)
+    assert command_handler.context.conversation_manager.updated_history is None
+
+    exec_output = [
+        msg async for msg in command_handler.handle_cleanup(event, dry_run=False)
+    ]
+    assert any("清理完成" in msg for msg in exec_output)
+    assert any("AstrBot 对话历史已更新" in msg for msg in exec_output)
+    assert command_handler.context.conversation_manager.updated_history is not None
+
+    cleaned_history = command_handler.context.conversation_manager.updated_history
+    assert cleaned_history is not None
+    for item in cleaned_history:
+        content = item.get("content", "")
+        assert MEMORY_INJECTION_HEADER not in content
+        assert MEMORY_INJECTION_FOOTER not in content
