@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-02-21
+
+### 修复
+- 统一清理插件运行时日志与命令返回中的 emoji 字符，避免日志检索和终端显示噪音
+- 优化初始化、命令执行、索引重建、历史清理等失败路径的用户提示：错误信息包含失败动作、错误详情与建议排查步骤
+- 修正插件帮助信息与注册元数据中的仓库地址，统一为 `https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory`
+
+### 测试
+- 补充 `CommandHandler` 与 `PluginInitializer` 单元测试，覆盖未初始化组件提示、异常提示可操作性、索引重建失败提示、Provider 超时错误信息
+- 补充 real-db 功能测试，覆盖命令输入校验、状态异常提示、WebUI 启用/禁用提示分支、cleanup 预演与执行路径
+- 新增插件主生命周期集成测试，覆盖初始化状态消息、`_ensure_plugin_ready` 失败分支、命令处理器未就绪提示、WebUI 启停联动与 `terminate` 资源清理
+
 ## [2.2.2] - 2026-02-21
 
 ### 新增

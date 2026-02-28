@@ -16,7 +16,6 @@ from astrbot.api.provider import LLMResponse, ProviderRequest
 from .base.config_manager import ConfigManager
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
-from .processors.chatroom_parser import ChatroomContextParser
 from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
@@ -167,17 +166,16 @@ class EventHandler:
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
 
-                # 提取真实用户消息
-                if not req.prompt:
-                    logger.warning(f"[{session_id}] req.prompt 为空，跳过记忆召回")
+                # 使用原始用户输入作为召回关键字
+                # event.message_str 是平台层解析的原始用户消息，不包含：
+                # - AstrBot 的 prompt_prefix 配置添加的内容
+                # - 群聊上下文感知（LTM）添加的聊天历史
+                # 这些内容只会被添加到 req.prompt 或 req.system_prompt 中
+                if not event.message_str:
+                    logger.warning(f"[{session_id}] event.message_str 为空，跳过记忆召回")
                     return
 
-                actual_query = ChatroomContextParser.extract_actual_message(req.prompt)
-
-                if actual_query != req.prompt:
-                    logger.info(
-                        f"[{session_id}] 检测到群聊上下文格式，已提取真实消息用于召回"
-                    )
+                actual_query = event.message_str
 
                 # 执行记忆召回
                 logger.info(
