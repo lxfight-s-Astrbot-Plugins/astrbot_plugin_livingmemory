@@ -27,6 +27,7 @@ def memory_engine():
     )
     engine.search_memories = AsyncMock(return_value=[])
     engine.delete_memory = AsyncMock(return_value=True)
+    engine.rebuild_graph_index = AsyncMock(return_value={"rebuilt": 0, "skipped": 0})
     return engine
 
 
@@ -266,3 +267,45 @@ def test_get_webui_url_logic(config_manager):
         webui_server=Mock(),
     )
     assert handler2._get_webui_url() == "http://127.0.0.1:8090"
+
+
+@pytest.mark.asyncio
+async def test_handle_search_renders_dual_route_breakdown(
+    handler, mock_event, memory_engine
+):
+    result = Mock(
+        doc_id=8,
+        final_score=0.91,
+        content="graph memory",
+        score_breakdown={
+            "document_keyword_score": 0.11,
+            "document_vector_score": 0.22,
+            "graph_keyword_score": 0.33,
+            "graph_vector_score": 0.44,
+        },
+    )
+    memory_engine.search_memories = AsyncMock(return_value=[result])
+
+    messages = [msg async for msg in handler.handle_search(mock_event, "graph", 5)]
+    assert len(messages) == 1
+    assert "0.11" in messages[0]
+    assert "0.22" in messages[0]
+    assert "0.33" in messages[0]
+    assert "0.44" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_rebuild_graph_reports_progress_and_summary(
+    handler, mock_event, memory_engine
+):
+    memory_engine.rebuild_graph_index = AsyncMock(
+        return_value={"rebuilt": 3, "skipped": 1}
+    )
+
+    messages = [msg async for msg in handler.handle_rebuild_graph(mock_event)]
+    assert len(messages) == 2
+    memory_engine.rebuild_graph_index.assert_awaited_once()
+    assert messages[0].endswith("...")
+    assert [
+        part for part in messages[1].split() if any(ch.isdigit() for ch in part)
+    ] == ["3", "1"]

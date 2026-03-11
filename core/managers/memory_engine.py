@@ -13,8 +13,15 @@ import aiosqlite
 
 from astrbot.api import logger
 
+from ...storage.graph_store import GraphStore
+from ..managers.graph_memory_manager import GraphMemoryManager
+from ..processors.graph_extractor import GraphExtractor
 from ..processors.text_processor import TextProcessor
 from ..retrieval.bm25_retriever import BM25Retriever
+from ..retrieval.dual_route_retriever import DualRouteRetriever
+from ..retrieval.graph_keyword_retriever import GraphKeywordRetriever
+from ..retrieval.graph_retriever import GraphRetriever
+from ..retrieval.graph_vector_retriever import GraphVectorRetriever
 from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
@@ -96,6 +103,7 @@ class MemoryEngine:
         self,
         db_path: str,
         faiss_db,
+        graph_vector_db=None,
         llm_provider=None,
         config: dict[str, Any] | None = None,
     ):
@@ -117,8 +125,10 @@ class MemoryEngine:
         """
         self.db_path = db_path
         self.faiss_db = faiss_db
+        self.graph_vector_db = graph_vector_db
         self.llm_provider = llm_provider
         self.config = config or {}
+        self.graph_enabled = bool(self.config.get("graph_memory_enabled", False))
 
         # 确保数据库目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -129,6 +139,13 @@ class MemoryEngine:
         self.vector_retriever = None
         self.rrf_fusion = None
         self.hybrid_retriever = None
+        self.graph_store = None
+        self.graph_extractor = None
+        self.graph_keyword_retriever = None
+        self.graph_vector_retriever = None
+        self.graph_retriever = None
+        self.graph_memory_manager = None
+        self.dual_route_retriever = None
         self.db_connection = None
 
     async def initialize(self):
@@ -168,10 +185,44 @@ class MemoryEngine:
             self.bm25_retriever, self.vector_retriever, self.rrf_fusion, self.config
         )
 
+        if self.graph_enabled and self.graph_vector_db is not None:
+            self.graph_store = GraphStore(self.db_path)
+            await self.graph_store.initialize()
+
+            self.graph_extractor = GraphExtractor(self.config)
+            self.graph_keyword_retriever = GraphKeywordRetriever(
+                self.graph_store,
+                self.text_processor,
+                self.config,
+            )
+            self.graph_vector_retriever = GraphVectorRetriever(
+                self.graph_vector_db,
+                self.config,
+            )
+            self.graph_retriever = GraphRetriever(
+                self.graph_keyword_retriever,
+                self.graph_vector_retriever,
+                self.rrf_fusion,
+                self.config,
+            )
+            self.graph_memory_manager = GraphMemoryManager(
+                self.graph_store,
+                self.graph_vector_retriever,
+                self.graph_extractor,
+            )
+            self.dual_route_retriever = DualRouteRetriever(
+                self.hybrid_retriever,
+                self.graph_retriever,
+                self.get_memory,
+                self.config,
+            )
+
     async def close(self):
         """关闭数据库连接和清理资源"""
         if self.db_connection:
             await self.db_connection.close()
+        if self.graph_vector_db is not None:
+            await self.graph_vector_db.close()
 
     async def _create_tables(self):
         """创建数据库表
@@ -348,6 +399,9 @@ class MemoryEngine:
             raise RuntimeError("混合检索器未初始化")
         doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
 
+        if self.graph_memory_manager is not None:
+            await self.graph_memory_manager.index_memory(doc_id, content, full_metadata)
+
         return doc_id
 
     async def search_memories(
@@ -381,10 +435,20 @@ class MemoryEngine:
         # 因为现在数据库中存储的就是完整格式
         # session_id 和 persona_id 保持原样传递给检索器
 
-        # 执行混合检索
-        if self.hybrid_retriever is None:
-            raise RuntimeError("混合检索器未初始化")
-        results = await self.hybrid_retriever.search(query, k, session_id, persona_id)
+        # 执行混合检索 / 双路检索
+        if self.dual_route_retriever is not None:
+            results = await self.dual_route_retriever.search(
+                query,
+                k,
+                session_id,
+                persona_id,
+            )
+        else:
+            if self.hybrid_retriever is None:
+                raise RuntimeError("混合检索器未初始化")
+            results = await self.hybrid_retriever.search(
+                query, k, session_id, persona_id
+            )
 
         # 异步更新访问时间(不阻塞返回)
         for result in results:
@@ -556,6 +620,12 @@ class MemoryEngine:
 
             if success:
                 logger.info(f"[更新] 元数据更新成功 (memory_id={memory_id})")
+                if self.graph_memory_manager is not None:
+                    await self.graph_memory_manager.index_memory(
+                        memory_id,
+                        memory["text"],
+                        current_metadata,
+                    )
             else:
                 logger.error(f"[更新] 元数据更新失败 (memory_id={memory_id})")
 
@@ -578,7 +648,54 @@ class MemoryEngine:
         if self.hybrid_retriever is None:
             logger.error("混合检索器未初始化")
             return False
-        return await self.hybrid_retriever.delete_memory(memory_id)
+        success = await self.hybrid_retriever.delete_memory(memory_id)
+        if success and self.graph_memory_manager is not None:
+            await self.graph_memory_manager.delete_memory(memory_id)
+        return success
+
+    async def rebuild_graph_index(self) -> dict[str, int]:
+        """Rebuild graph-memory artifacts from stored documents."""
+        if self.graph_memory_manager is None:
+            return {"rebuilt": 0, "skipped": 0}
+
+        total_count = await self.faiss_db.document_storage.count_documents(
+            metadata_filters={}
+        )
+        batch_size = 200
+        offset = 0
+        rebuilt = 0
+        skipped = 0
+
+        while offset < total_count:
+            docs = await self.faiss_db.document_storage.get_documents(
+                metadata_filters={},
+                limit=batch_size,
+                offset=offset,
+            )
+            if not docs:
+                break
+
+            for doc in docs:
+                metadata = doc.get("metadata") or {}
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                elif not isinstance(metadata, dict):
+                    metadata = {}
+                content = str(doc.get("text") or "")
+                if not content.strip():
+                    skipped += 1
+                    continue
+                await self.graph_memory_manager.index_memory(
+                    doc["id"], content, metadata
+                )
+                rebuilt += 1
+
+            offset += batch_size
+
+        return {"rebuilt": rebuilt, "skipped": skipped}
 
     # ==================== 高级功能 ====================
 
@@ -1154,6 +1271,11 @@ class MemoryEngine:
             )
             stats["oldest_memory"] = oldest_time
             stats["newest_memory"] = newest_time
+            if self.graph_store is not None:
+                stats.update(await self.graph_store.get_memory_entry_stats())
+                stats["graph_memory_enabled"] = True
+            else:
+                stats["graph_memory_enabled"] = False
 
             return stats
         except Exception as e:
@@ -1165,4 +1287,5 @@ class MemoryEngine:
                 "avg_importance": 0.0,
                 "oldest_memory": None,
                 "newest_memory": None,
+                "graph_memory_enabled": bool(self.graph_store is not None),
             }

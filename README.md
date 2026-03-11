@@ -7,6 +7,7 @@
 ## 核心特性
 
 - **混合检索**: 结合 BM25 稀疏检索和 Faiss 向量检索，使用 RRF 融合算法
+- **双路四模式检索**: 同时维护文档路与图路，两边都支持关键词检索与向量检索，再统一融合排序
 - **智能总结**: 使用 LLM 自动总结对话历史，生成结构化记忆
 - **双通道总结**: `canonical_summary`（事实导向，用于检索）与 `persona_summary`（人格风格，用于注入）解耦存储
 - **会话隔离**: 支持按人格和会话隔离记忆
@@ -52,6 +53,7 @@
 | `/lmem search <query> [k]` | 搜索记忆（默认 5 条） |
 | `/lmem forget <id>` | 删除指定记忆 |
 | `/lmem rebuild-index` | 重建索引（修复索引不一致） |
+| `/lmem rebuild-graph` | 重建图记忆索引（为旧记忆回填图数据） |
 | `/lmem webui` | 查看 WebUI 信息 |
 | `/lmem reset` | 重置当前会话记忆上下文 |
 | `/lmem cleanup [preview\|exec]` | 清理历史消息中的记忆注入片段（默认 preview 预演） |

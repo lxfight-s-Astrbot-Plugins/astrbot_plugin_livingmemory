@@ -166,6 +166,42 @@ class WebUISettings(BaseModel):
         return self
 
 
+class GraphMemoryConfig(BaseModel):
+    """Graph-memory retrieval configuration."""
+
+    enabled: bool = Field(default=True, description="是否启用图记忆双路检索")
+    document_route_weight: float = Field(
+        default=0.65, ge=0.0, le=1.0, description="文档路权重"
+    )
+    graph_route_weight: float = Field(
+        default=0.35, ge=0.0, le=1.0, description="图路权重"
+    )
+    cross_route_bonus: float = Field(
+        default=0.08, ge=0.0, le=0.5, description="双路同时命中的额外加分"
+    )
+    expansion_limit: int = Field(
+        default=24, ge=1, le=200, description="图邻居扩展候选上限"
+    )
+    max_topics_per_memory: int = Field(
+        default=6, ge=1, le=20, description="单条记忆最多索引主题数"
+    )
+    max_participants_per_memory: int = Field(
+        default=8, ge=1, le=30, description="单条记忆最多索引参与者数"
+    )
+    max_facts_per_memory: int = Field(
+        default=8, ge=1, le=30, description="单条记忆最多索引事实数"
+    )
+
+    @model_validator(mode="after")
+    def validate_route_weights(self):
+        """Keep route weights numerically stable."""
+        total = self.document_route_weight + self.graph_route_weight
+        if total <= 0:
+            self.document_route_weight = 0.65
+            self.graph_route_weight = 0.35
+        return self
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -185,6 +221,7 @@ class LivingMemoryConfig(BaseModel):
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
     webui_settings: WebUISettings = Field(default_factory=WebUISettings)
     migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)
+    graph_memory: GraphMemoryConfig = Field(default_factory=GraphMemoryConfig)
     fusion_strategy: FusionStrategyConfig = Field(
         default_factory=FusionStrategyConfig, description="结果融合策略配置"
     )

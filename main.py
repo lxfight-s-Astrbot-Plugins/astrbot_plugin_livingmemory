@@ -350,6 +350,24 @@ class LivingMemoryPlugin(Star):
             yield message
 
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("rebuild-graph")
+    async def rebuild_graph(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[管理员] 手动重建图记忆索引"""
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
+            return
+
+        if not self.command_handler:
+            yield event.plain_result(self._command_handler_not_ready_message())
+            return
+
+        async for message in self.command_handler.handle_rebuild_graph(event):
+            yield message
+
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("webui")
     async def webui(
         self, event: AstrMessageEvent

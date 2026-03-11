@@ -307,6 +307,156 @@ class WebUIServer:
         # 也支持X-Auth-Token header
         return request.headers.get("X-Auth-Token", "")
 
+    def _get_graph_store(self):
+        return getattr(self.memory_engine, "graph_store", None)
+
+    def _tokenize_graph_query(self, query: str) -> list[str]:
+        query_text = str(query or "").strip().lower()
+        if not query_text:
+            return []
+
+        normalized = "".join(
+            character if character.isalnum() else " " for character in query_text
+        )
+        raw_tokens = [token for token in normalized.split() if token]
+        tokens: list[str] = []
+        seen: set[str] = set()
+
+        def add_token(value: str):
+            token = value.strip()
+            if len(token) < 2 or token in seen:
+                return
+            seen.add(token)
+            tokens.append(token)
+
+        for token in raw_tokens:
+            add_token(token)
+
+        compact = "".join(character for character in query_text if character.isalnum())
+        if compact and any(ord(character) > 127 for character in compact):
+            add_token(compact)
+            for size in (2, 3):
+                if len(tokens) >= 12:
+                    break
+                max_index = max(0, len(compact) - size + 1)
+                for index in range(max_index):
+                    add_token(compact[index : index + size])
+                    if len(tokens) >= 12:
+                        break
+
+        return tokens[:12]
+
+    def _build_graph_fts_query(self, tokens: list[str]) -> str:
+        phrases: list[str] = []
+        for token in tokens[:8]:
+            safe_token = token.replace('"', "").strip()
+            if safe_token:
+                phrases.append(f'"{safe_token}"')
+        return " OR ".join(phrases)
+
+    def _build_graph_view_payload(
+        self,
+        snapshot: dict[str, Any],
+        stats: dict[str, Any],
+        *,
+        enabled: bool,
+        mode: str,
+        query: str | None = None,
+        memory_id: int | None = None,
+        retrieval_items: list[dict[str, Any]] | None = None,
+        matched_node_ids: list[int] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        nodes = [dict(item) for item in snapshot.get("nodes", [])]
+        edges = [dict(item) for item in snapshot.get("edges", [])]
+        entries = [dict(item) for item in snapshot.get("entries", [])]
+        memories = [dict(item) for item in snapshot.get("memories", [])]
+        retrieval_items = [dict(item) for item in (retrieval_items or [])]
+        matched_node_ids = [int(item) for item in (matched_node_ids or [])]
+        matched_node_id_set = set(matched_node_ids)
+        retrieval_lookup = {
+            int(item["memory_id"]): item
+            for item in retrieval_items
+            if item.get("memory_id") is not None
+        }
+
+        node_type_breakdown: dict[str, int] = {}
+        relation_breakdown: dict[str, int] = {}
+
+        for node in nodes:
+            node["highlighted"] = int(node.get("id", 0)) in matched_node_id_set
+            node_type = str(node.get("type", "unknown") or "unknown")
+            node_type_breakdown[node_type] = node_type_breakdown.get(node_type, 0) + 1
+
+        for edge in edges:
+            relation_type = str(edge.get("relation_type", "related") or "related")
+            relation_breakdown[relation_type] = (
+                relation_breakdown.get(relation_type, 0) + 1
+            )
+
+        for memory in memories:
+            memory_key = memory.get("memory_id")
+            if memory_key is None:
+                continue
+            retrieval = retrieval_lookup.get(int(memory_key))
+            if retrieval is not None:
+                memory["retrieval"] = retrieval
+
+        top_nodes = sorted(
+            nodes,
+            key=lambda item: (
+                -float(item.get("weight", 0.0)),
+                -int(item.get("degree", 0)),
+                str(item.get("label", "")),
+            ),
+        )[:8]
+        top_memories = sorted(
+            memories,
+            key=lambda item: (
+                -float((item.get("retrieval") or {}).get("final_score", -1.0)),
+                -int(item.get("entry_count", 0)),
+                -int(item.get("node_count", 0)),
+                -int(item.get("edge_count", 0)),
+                -float(item.get("importance", 0.0)),
+            ),
+        )[:8]
+
+        summary = {
+            "visible_node_count": len(nodes),
+            "visible_edge_count": len(edges),
+            "visible_entry_count": len(entries),
+            "visible_memory_count": len(memories),
+            "graph_node_count": int(stats.get("graph_nodes", 0) or 0),
+            "graph_edge_count": int(stats.get("graph_edges", 0) or 0),
+            "graph_entry_count": int(stats.get("graph_entries", 0) or 0),
+            "graph_memory_enabled": bool(enabled),
+            "node_type_breakdown": node_type_breakdown,
+            "relation_breakdown": relation_breakdown,
+        }
+
+        return {
+            "enabled": enabled,
+            "mode": mode,
+            "query": query or None,
+            "memory_id": memory_id,
+            "filters": filters or {},
+            "summary": summary,
+            "matched_node_ids": matched_node_ids,
+            "matched_memory_ids": [item["memory_id"] for item in retrieval_items],
+            "top_nodes": top_nodes,
+            "top_memories": top_memories,
+            "retrieval": {
+                "total": len(retrieval_items),
+                "items": retrieval_items,
+            },
+            "snapshot": {
+                "nodes": nodes,
+                "edges": edges,
+                "entries": entries,
+                "memories": memories,
+            },
+        }
+
     def _setup_routes(self):
         """初始化FastAPI路由与静态资源"""
         static_dir = Path(__file__).resolve().parent.parent / "static"
@@ -547,6 +697,7 @@ class WebUIServer:
                             "content": result.content,
                             "score": result.final_score,
                             "metadata": result.metadata,
+                            "score_breakdown": result.score_breakdown,
                         }
                     )
 
@@ -935,6 +1086,268 @@ class WebUIServer:
                 return {"success": True, "data": stats}
             except Exception as e:
                 logger.error(f"获取统计信息失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        @self._app.get("/api/graph/overview")
+        async def get_graph_overview(
+            session_id: str | None = None,
+            persona_id: str | None = None,
+            limit_memories: int = 12,
+            limit_entries: int = 36,
+            limit_nodes: int = 48,
+            limit_edges: int = 72,
+            token: str = Depends(self._auth_dependency()),
+        ):
+            del token
+            session_id = (session_id or "").strip() or None
+            persona_id = (persona_id or "").strip() or None
+            limit_memories = max(1, min(int(limit_memories), 24))
+            limit_entries = max(12, min(int(limit_entries), 80))
+            limit_nodes = max(12, min(int(limit_nodes), 80))
+            limit_edges = max(12, min(int(limit_edges), 120))
+
+            try:
+                stats = await self.memory_engine.get_statistics()
+                graph_store = self._get_graph_store()
+                empty_snapshot = {
+                    "nodes": [],
+                    "edges": [],
+                    "entries": [],
+                    "memories": [],
+                }
+                if graph_store is None:
+                    return {
+                        "success": True,
+                        "data": self._build_graph_view_payload(
+                            empty_snapshot,
+                            stats,
+                            enabled=False,
+                            mode="overview",
+                            filters={
+                                "session_id": session_id,
+                                "persona_id": persona_id,
+                            },
+                        ),
+                    }
+
+                snapshot = await graph_store.get_graph_snapshot(
+                    session_id=session_id,
+                    persona_id=persona_id,
+                    limit_memories=limit_memories,
+                    limit_entries=limit_entries,
+                    limit_nodes=limit_nodes,
+                    limit_edges=limit_edges,
+                )
+                return {
+                    "success": True,
+                    "data": self._build_graph_view_payload(
+                        snapshot,
+                        stats,
+                        enabled=True,
+                        mode="overview",
+                        filters={
+                            "session_id": session_id,
+                            "persona_id": persona_id,
+                        },
+                    ),
+                }
+            except Exception as e:
+                logger.error(f"获取图谱概览失败: {e}", exc_info=True)
+                return {"success": False, "error": str(e)}
+
+        @self._app.post("/api/graph/query")
+        async def query_graph(
+            payload: dict[str, Any] | None = None,
+            token: str = Depends(self._auth_dependency()),
+        ):
+            del token
+            payload = payload or {}
+            query = str(payload.get("query", "")).strip()
+            session_id = str(payload.get("session_id", "")).strip() or None
+            persona_id = str(payload.get("persona_id", "")).strip() or None
+            memory_id_raw = payload.get("memory_id")
+            limit_memories = max(1, min(int(payload.get("limit_memories", 10)), 24))
+            limit_entries = max(12, min(int(payload.get("limit_entries", 40)), 80))
+            limit_nodes = max(12, min(int(payload.get("limit_nodes", 56)), 80))
+            limit_edges = max(12, min(int(payload.get("limit_edges", 96)), 120))
+
+            try:
+                stats = await self.memory_engine.get_statistics()
+                graph_store = self._get_graph_store()
+                empty_snapshot = {
+                    "nodes": [],
+                    "edges": [],
+                    "entries": [],
+                    "memories": [],
+                }
+                if graph_store is None:
+                    return {
+                        "success": True,
+                        "data": self._build_graph_view_payload(
+                            empty_snapshot,
+                            stats,
+                            enabled=False,
+                            mode="query",
+                            query=query,
+                            filters={
+                                "session_id": session_id,
+                                "persona_id": persona_id,
+                            },
+                        ),
+                    }
+
+                if memory_id_raw not in (None, ""):
+                    try:
+                        memory_id = int(memory_id_raw)
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            status.HTTP_400_BAD_REQUEST,
+                            detail="memory_id must be an integer",
+                        ) from exc
+
+                    snapshot = await graph_store.get_subgraph_for_memories(
+                        [memory_id],
+                        limit_entries=limit_entries,
+                        limit_nodes=limit_nodes,
+                        limit_edges=limit_edges,
+                    )
+                    return {
+                        "success": True,
+                        "data": self._build_graph_view_payload(
+                            snapshot,
+                            stats,
+                            enabled=True,
+                            mode="memory_focus",
+                            memory_id=memory_id,
+                            filters={
+                                "session_id": session_id,
+                                "persona_id": persona_id,
+                            },
+                        ),
+                    }
+
+                if not query:
+                    snapshot = await graph_store.get_graph_snapshot(
+                        session_id=session_id,
+                        persona_id=persona_id,
+                        limit_memories=limit_memories,
+                        limit_entries=limit_entries,
+                        limit_nodes=limit_nodes,
+                        limit_edges=limit_edges,
+                    )
+                    return {
+                        "success": True,
+                        "data": self._build_graph_view_payload(
+                            snapshot,
+                            stats,
+                            enabled=True,
+                            mode="overview",
+                            filters={
+                                "session_id": session_id,
+                                "persona_id": persona_id,
+                            },
+                        ),
+                    }
+
+                search_results = await self.memory_engine.search_memories(
+                    query=query,
+                    k=limit_memories,
+                    session_id=session_id,
+                    persona_id=persona_id,
+                )
+                retrieval_items = []
+                matched_memory_ids: list[int] = []
+                seen_memory_ids: set[int] = set()
+                for result in search_results:
+                    memory_id = int(result.doc_id)
+                    if memory_id not in seen_memory_ids:
+                        seen_memory_ids.add(memory_id)
+                        matched_memory_ids.append(memory_id)
+                    retrieval_items.append(
+                        {
+                            "memory_id": memory_id,
+                            "content": result.content,
+                            "metadata": result.metadata,
+                            "final_score": round(float(result.final_score), 6),
+                            "rrf_score": round(float(result.rrf_score), 6),
+                            "bm25_score": (
+                                round(float(result.bm25_score), 6)
+                                if result.bm25_score is not None
+                                else None
+                            ),
+                            "vector_score": (
+                                round(float(result.vector_score), 6)
+                                if result.vector_score is not None
+                                else None
+                            ),
+                            "score_breakdown": {
+                                key: round(float(value), 6)
+                                for key, value in (result.score_breakdown or {}).items()
+                            },
+                        }
+                    )
+
+                tokens = self._tokenize_graph_query(query)
+                matched_node_ids: list[int] = []
+                if tokens:
+                    node_hits = await graph_store.search_nodes_by_tokens(
+                        tokens,
+                        limit=max(8, min(limit_nodes, 24)),
+                    )
+                    matched_node_ids = [int(item["id"]) for item in node_hits]
+
+                    node_entry_hits = await graph_store.get_entries_for_node_ids(
+                        matched_node_ids,
+                        limit=max(8, min(limit_entries, 24)),
+                        session_id=session_id,
+                        persona_id=persona_id,
+                    )
+                    for hit in node_entry_hits:
+                        memory_id = int(hit["source_memory_id"])
+                        if memory_id not in seen_memory_ids:
+                            seen_memory_ids.add(memory_id)
+                            matched_memory_ids.append(memory_id)
+
+                    fts_query = self._build_graph_fts_query(tokens)
+                    if fts_query:
+                        bm25_hits = await graph_store.search_entries_by_bm25(
+                            fts_query,
+                            limit=max(8, min(limit_entries, 24)),
+                            session_id=session_id,
+                            persona_id=persona_id,
+                        )
+                        for hit in bm25_hits:
+                            memory_id = int(hit["source_memory_id"])
+                            if memory_id not in seen_memory_ids:
+                                seen_memory_ids.add(memory_id)
+                                matched_memory_ids.append(memory_id)
+
+                snapshot = await graph_store.get_subgraph_for_memories(
+                    matched_memory_ids[:limit_memories],
+                    limit_entries=limit_entries,
+                    limit_nodes=limit_nodes,
+                    limit_edges=limit_edges,
+                )
+                return {
+                    "success": True,
+                    "data": self._build_graph_view_payload(
+                        snapshot,
+                        stats,
+                        enabled=True,
+                        mode="query",
+                        query=query,
+                        retrieval_items=retrieval_items,
+                        matched_node_ids=matched_node_ids,
+                        filters={
+                            "session_id": session_id,
+                            "persona_id": persona_id,
+                        },
+                    ),
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"图谱查询失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
         # 清理旧记忆

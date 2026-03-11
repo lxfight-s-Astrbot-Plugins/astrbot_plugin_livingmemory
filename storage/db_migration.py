@@ -17,7 +17,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 4
+    CURRENT_VERSION = 5
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -25,6 +25,7 @@ class DBMigration:
         2: "FTS5索引预处理 - 添加分词和停用词支持",
         3: "会话ID迁移 - 标记需要session_id格式升级",
         4: "Schema v2 - 双通道总结字段 + source_window 溯源支持",
+        5: "Graph memory - graph tables and dual-route retrieval metadata",
     }
 
     def __init__(self, db_path: str):
@@ -221,6 +222,10 @@ class DBMigration:
                 # 从版本3升级到版本4
                 if current_version <= 3:
                     migration_steps.append(self._migrate_v3_to_v4)
+
+                # 从版本4升级到版本5
+                if current_version <= 4:
+                    migration_steps.append(self._migrate_v4_to_v5)
 
                 # 执行所有迁移步骤
                 for step in migration_steps:
@@ -430,6 +435,111 @@ class DBMigration:
 
         except Exception as e:
             logger.error(f"v3 -> v4 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _migrate_v4_to_v5(
+        self,
+        sparse_retriever: Any | None,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """
+        Migrate from version 4 to version 5.
+
+        Main changes:
+        - Create graph-memory tables used by the dual-route retrieval layer
+        - Keep legacy document memory data unchanged
+        """
+        logger.info("执行迁移步骤: v4 -> v5 (Graph memory tables)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA foreign_keys = ON")
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS graph_nodes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_key TEXT NOT NULL UNIQUE,
+                        node_type TEXT NOT NULL,
+                        node_value TEXT NOT NULL,
+                        canonical_value TEXT NOT NULL,
+                        metadata TEXT DEFAULT '{}',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS graph_edges (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        edge_key TEXT NOT NULL UNIQUE,
+                        source_node_id INTEGER NOT NULL,
+                        target_node_id INTEGER NOT NULL,
+                        relation_type TEXT NOT NULL,
+                        source_memory_id INTEGER NOT NULL,
+                        weight REAL NOT NULL DEFAULT 1.0,
+                        confidence REAL NOT NULL DEFAULT 0.8,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        metadata TEXT DEFAULT '{}',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY(source_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
+                        FOREIGN KEY(target_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS graph_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        entry_key TEXT NOT NULL UNIQUE,
+                        source_memory_id INTEGER NOT NULL,
+                        session_id TEXT,
+                        persona_id TEXT,
+                        entry_type TEXT NOT NULL,
+                        relation_type TEXT,
+                        content TEXT NOT NULL,
+                        metadata TEXT DEFAULT '{}',
+                        edge_id INTEGER,
+                        vector_doc_id INTEGER,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY(edge_id) REFERENCES graph_edges(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS graph_entry_nodes (
+                        entry_id INTEGER NOT NULL,
+                        node_id INTEGER NOT NULL,
+                        PRIMARY KEY(entry_id, node_id),
+                        FOREIGN KEY(entry_id) REFERENCES graph_entries(id) ON DELETE CASCADE,
+                        FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS graph_entries_fts
+                    USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
+                    """
+                )
+                await db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_graph_nodes_canonical ON graph_nodes(canonical_value)"
+                )
+                await db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_graph_edges_memory_id ON graph_edges(source_memory_id)"
+                )
+                await db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_graph_entries_memory_id ON graph_entries(source_memory_id)"
+                )
+                await db.commit()
+
+            logger.info("v4 -> v5 迁移完成")
+
+        except Exception as e:
+            logger.error(f"v4 -> v5 迁移失败: {e}", exc_info=True)
             raise
 
     async def get_migration_info(self) -> dict[str, Any]:

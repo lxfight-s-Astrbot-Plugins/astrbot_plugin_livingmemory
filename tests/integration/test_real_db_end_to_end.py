@@ -171,6 +171,8 @@ async def real_db_stack(tmp_path: Path):
     memory_db_path = tmp_path / "memory.db"
     memory_index_path = tmp_path / "memory.index"
     conversation_db_path = tmp_path / "conversation.db"
+    graph_memory_db_path = tmp_path / "graph_memory.db"
+    graph_memory_index_path = tmp_path / "graph_memory.index"
 
     embedding_provider = _DeterministicEmbeddingProvider(dim=24)
     faiss_db = FaissVecDB(
@@ -180,14 +182,23 @@ async def real_db_stack(tmp_path: Path):
     )
     await faiss_db.initialize()
 
+    graph_faiss_db = FaissVecDB(
+        doc_store_path=str(graph_memory_db_path),
+        index_store_path=str(graph_memory_index_path),
+        embedding_provider=embedding_provider,
+    )
+    await graph_faiss_db.initialize()
+
     memory_engine = MemoryEngine(
         db_path=str(memory_db_path),
         faiss_db=faiss_db,
+        graph_vector_db=graph_faiss_db,
         config={
             "fallback_enabled": True,
             "rrf_k": 60,
             "decay_rate": 0.01,
             "importance_weight": 1.0,
+            "graph_memory_enabled": True,
         },
     )
     await memory_engine.initialize()
@@ -253,6 +264,7 @@ async def real_db_stack(tmp_path: Path):
     await event_handler.shutdown()
     await memory_engine.close()
     await faiss_db.close()
+    await graph_faiss_db.close()
     await conversation_store.close()
 
 
@@ -402,6 +414,15 @@ async def test_webui_api_with_real_database(real_db_stack):
         token = login_resp.json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
 
+        index_resp = await client.get("/")
+        assert index_resp.status_code == 200
+        assert "/static/vendor/3d-force-graph.min.js" in index_resp.text
+        assert '<div id="graph-canvas" class="graph-canvas"></div>' in index_resp.text
+
+        vendor_resp = await client.get("/static/vendor/3d-force-graph.min.js")
+        assert vendor_resp.status_code == 200
+        assert "3d-force-graph" in vendor_resp.text[:200]
+
         stats_resp = await client.get("/api/stats", headers=headers)
         assert stats_resp.status_code == 200
         assert stats_resp.json()["success"] is True
@@ -436,6 +457,53 @@ async def test_webui_api_with_real_database(real_db_stack):
         assert any(
             item["memory_id"] == memory_id
             for item in recall_resp.json()["data"]["results"]
+        )
+
+        graph_overview_resp = await client.get(
+            "/api/graph/overview",
+            headers=headers,
+        )
+        assert graph_overview_resp.status_code == 200
+        graph_overview_data = graph_overview_resp.json()
+        assert graph_overview_data["success"] is True
+        assert graph_overview_data["data"]["enabled"] is True
+        assert graph_overview_data["data"]["summary"]["visible_memory_count"] >= 1
+        assert any(
+            item["memory_id"] == memory_id
+            for item in graph_overview_data["data"]["snapshot"]["memories"]
+        )
+
+        graph_query_resp = await client.post(
+            "/api/graph/query",
+            headers=headers,
+            json={"query": "Tokyo", "session_id": session_id},
+        )
+        assert graph_query_resp.status_code == 200
+        graph_query_data = graph_query_resp.json()
+        assert graph_query_data["success"] is True
+        assert graph_query_data["data"]["mode"] == "query"
+        assert any(
+            item["memory_id"] == memory_id
+            for item in graph_query_data["data"]["retrieval"]["items"]
+        )
+        assert any(
+            item["memory_id"] == memory_id
+            for item in graph_query_data["data"]["snapshot"]["memories"]
+        )
+
+        graph_focus_resp = await client.post(
+            "/api/graph/query",
+            headers=headers,
+            json={"memory_id": memory_id},
+        )
+        assert graph_focus_resp.status_code == 200
+        graph_focus_data = graph_focus_resp.json()
+        assert graph_focus_data["success"] is True
+        assert graph_focus_data["data"]["mode"] == "memory_focus"
+        assert graph_focus_data["data"]["memory_id"] == memory_id
+        assert any(
+            item["memory_id"] == memory_id
+            for item in graph_focus_data["data"]["snapshot"]["memories"]
         )
 
         delete_resp = await client.delete(f"/api/memories/{memory_id}", headers=headers)

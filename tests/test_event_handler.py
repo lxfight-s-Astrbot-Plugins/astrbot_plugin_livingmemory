@@ -352,7 +352,9 @@ async def test_storage_task_writes_source_window(
 
     captured_metadata = {}
 
-    async def _capture_add_memory(content, session_id, persona_id, importance, metadata):
+    async def _capture_add_memory(
+        content, session_id, persona_id, importance, metadata
+    ):
         captured_metadata.update(metadata)
         return 1
 
@@ -387,8 +389,15 @@ async def test_storage_task_skips_when_already_summarized(
 
     messages = [
         Message(
-            id=1, session_id="s1", role="user", content="msg",
-            sender_id="u1", sender_name="U", group_id=None, platform="test", metadata={}
+            id=1,
+            session_id="s1",
+            role="user",
+            content="msg",
+            sender_id="u1",
+            sender_name="U",
+            group_id=None,
+            platform="test",
+            metadata={},
         )
     ]
 
@@ -403,6 +412,49 @@ async def test_storage_task_skips_when_already_summarized(
 
     # 过期任务不应调用 add_memory
     memory_engine.add_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_prefers_get_message_str_over_non_string_attr(
+    handler, memory_engine
+):
+    event = _make_event(group=False)
+    event.message_str = Mock()
+    event.get_message_str = Mock(return_value="hello from getter")
+    req = _make_req("query text")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    memory_engine.search_memories.assert_awaited_once()
+    assert (
+        memory_engine.search_memories.await_args.kwargs["query"] == "hello from getter"
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_uses_extra_content_parts_when_prompt_empty(
+    handler, memory_engine
+):
+    event = _make_event(group=False)
+    event.message_str = Mock()
+    event.get_message_str = Mock(return_value="describe image")
+    req = _make_req(prompt="")
+    req.extra_user_content_parts = [Mock(text="<image_caption>cat</image_caption>")]
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    memory_engine.search_memories.assert_awaited_once()
+    assert memory_engine.search_memories.await_args.kwargs["query"] == "describe image"
 
 
 @pytest.mark.asyncio

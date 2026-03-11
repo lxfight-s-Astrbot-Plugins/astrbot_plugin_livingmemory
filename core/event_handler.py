@@ -136,6 +136,17 @@ class EventHandler:
                 )
 
             async with OperationContext("记忆召回", session_id):
+                prompt_text = getattr(req, "prompt", "")
+                extra_parts = getattr(req, "extra_user_content_parts", [])
+                has_prompt_text = isinstance(prompt_text, str) and bool(
+                    prompt_text.strip()
+                )
+                has_extra_parts = bool(extra_parts)
+
+                if not has_prompt_text and not has_extra_parts:
+                    logger.debug(f"[{session_id}] 请求中无可用用户内容，跳过记忆召回")
+                    return
+
                 # 自动删除旧的注入记忆
                 if self.config_manager.get("recall_engine.auto_remove_injected", True):
                     removed = self._remove_injected_memories_from_context(
@@ -171,11 +182,10 @@ class EventHandler:
                 # - AstrBot 的 prompt_prefix 配置添加的内容
                 # - 群聊上下文感知（LTM）添加的聊天历史
                 # 这些内容只会被添加到 req.prompt 或 req.system_prompt 中
-                if not event.message_str:
-                    logger.warning(f"[{session_id}] event.message_str 为空，跳过记忆召回")
+                actual_query = self._get_event_message_str(event)
+                if not actual_query:
+                    logger.warning(f"[{session_id}] 原始用户消息为空，跳过记忆召回")
                     return
-
-                actual_query = event.message_str
 
                 # 执行记忆召回
                 logger.info(
@@ -981,6 +991,21 @@ class EventHandler:
                 parts.append(f"[{component.type}]")
 
         return " ".join(parts).strip()
+
+    def _get_event_message_str(self, event: AstrMessageEvent) -> str:
+        """Get normalized raw message text from event."""
+        get_message_str = getattr(event, "get_message_str", None)
+        raw_message = ""
+
+        if callable(get_message_str):
+            raw_message = get_message_str()
+        else:
+            raw_message = getattr(event, "message_str", "")
+
+        if not isinstance(raw_message, str):
+            return ""
+
+        return raw_message.strip()
 
     async def _update_message_metadata(self, message):
         """更新消息的metadata到数据库"""
