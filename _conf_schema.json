@@ -187,6 +187,61 @@
       }
     }
   },
+  "graph_memory": {
+    "description": "图记忆双路检索",
+    "hint": "启用后会同时维护文档路和图路，两边都支持关键词与向量检索，再统一融合召回结果。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用图记忆检索",
+        "hint": "开启后自动构建图节点、边和图向量索引。建议开启。",
+        "type": "bool",
+        "default": true
+      },
+      "document_route_weight": {
+        "description": "文档路权重",
+        "hint": "文档路融合分数在最终双路排序中的占比。",
+        "type": "float",
+        "default": 0.65
+      },
+      "graph_route_weight": {
+        "description": "图路权重",
+        "hint": "图路融合分数在最终双路排序中的占比。",
+        "type": "float",
+        "default": 0.35
+      },
+      "cross_route_bonus": {
+        "description": "双路命中加分",
+        "hint": "同一记忆同时被文档路和图路命中时增加的额外分数。",
+        "type": "float",
+        "default": 0.08
+      },
+      "expansion_limit": {
+        "description": "图邻居扩展上限",
+        "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。",
+        "type": "int",
+        "default": 24
+      },
+      "max_topics_per_memory": {
+        "description": "单记忆最大主题数",
+        "hint": "从一条记忆中最多提取多少个 topics 节点。",
+        "type": "int",
+        "default": 6
+      },
+      "max_participants_per_memory": {
+        "description": "单记忆最大参与者数",
+        "hint": "从一条记忆中最多提取多少个 participants 节点。",
+        "type": "int",
+        "default": 8
+      },
+      "max_facts_per_memory": {
+        "description": "单记忆最大事实数",
+        "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。",
+        "type": "int",
+        "default": 8
+      }
+    }
+  },
   "migration_settings": {
     "description": "数据库迁移",
     "hint": "控制插件启动时的数据库版本升级行为",

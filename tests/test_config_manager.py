@@ -52,3 +52,19 @@ def test_validate_config_accepts_merged_model_shape() -> None:
 
     assert config.recall_engine.top_k == 8
     assert config.reflection_engine.summary_trigger_rounds == 4
+
+
+def test_config_manager_graph_memory_property() -> None:
+    manager = ConfigManager(
+        {
+            "graph_memory": {
+                "enabled": False,
+                "graph_route_weight": 0.45,
+            }
+        }
+    )
+
+    assert isinstance(manager.graph_memory, dict)
+    assert manager.graph_memory["enabled"] is False
+    assert manager.get("graph_memory.graph_route_weight") == 0.45
+    assert manager.get("graph_memory.document_route_weight") == 0.65

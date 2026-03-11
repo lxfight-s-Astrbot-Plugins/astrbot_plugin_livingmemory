@@ -26,14 +26,17 @@ from .base import (
 )
 
 # 管理器
-from .managers import ConversationManager, MemoryEngine
+from .managers import ConversationManager, GraphMemoryManager, MemoryEngine
 
 # 数据模型
 from .models import MemoryEvent, Message, Session
+from .models import ExtractedGraph, GraphEdge, GraphEntry, GraphNode
 
 # 处理器
 from .processors import (
     ChatroomContextParser,
+    EntityResolver,
+    GraphExtractor,
     MemoryProcessor,
     TextProcessor,
     store_round_with_length_check,
@@ -57,11 +60,18 @@ __all__ = [
     "MemoryEvent",
     "Message",
     "Session",
+    "GraphNode",
+    "GraphEdge",
+    "GraphEntry",
+    "ExtractedGraph",
     # 管理器
     "ConversationManager",
+    "GraphMemoryManager",
     "MemoryEngine",
     # 处理器
     "ChatroomContextParser",
+    "EntityResolver",
+    "GraphExtractor",
     "MemoryProcessor",
     "TextProcessor",
     "store_round_with_length_check",

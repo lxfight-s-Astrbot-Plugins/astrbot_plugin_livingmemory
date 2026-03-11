@@ -74,6 +74,7 @@
         <!-- 导航标签 -->
         <nav class="tab-navigation">
           <button class="tab-btn active" data-tab="memories">记忆管理</button>
+          <button class="tab-btn" data-tab="graph-view">知识图谱</button>
           <button class="tab-btn" data-tab="recall-test">召回测试</button>
         </nav>
 
@@ -227,6 +228,115 @@
           </section>
 
           <!-- 召回测试标签页 -->
+          <section class="tab-content" data-tab="graph-view">
+            <section class="graph-hero">
+              <div>
+                <span class="graph-kicker">Graph Memory Explorer</span>
+                <h2 class="graph-title">知识图谱视图</h2>
+                <p class="graph-subtitle">从双路四模式召回结果中观察人物、主题、事实与记忆之间的连接。</p>
+              </div>
+              <div class="graph-hero-actions">
+                <span id="graph-mode-badge" class="graph-mode-badge">最近概览</span>
+                <span id="graph-status-line" class="graph-status-line">展示最近活跃的图记忆子图</span>
+              </div>
+            </section>
+
+            <section class="graph-toolbar-card">
+              <div class="graph-toolbar-grid">
+                <div class="graph-field graph-field-wide">
+                  <label for="graph-query-input" class="form-label">图谱查询</label>
+                  <input id="graph-query-input" type="text" class="form-input" placeholder="输入人物、主题、事实或整句，查看召回到的图谱子图" />
+                </div>
+                <div class="graph-field">
+                  <label for="graph-session-filter" class="form-label">会话过滤</label>
+                  <input id="graph-session-filter" type="text" class="form-input" placeholder="可选：限定 session_id" />
+                </div>
+                <div class="graph-field">
+                  <label for="graph-persona-filter" class="form-label">人格过滤</label>
+                  <input id="graph-persona-filter" type="text" class="form-input" placeholder="可选：限定 persona_id" />
+                </div>
+                <div class="graph-field">
+                  <label for="graph-memory-id" class="form-label">记忆 ID</label>
+                  <input id="graph-memory-id" type="number" class="form-input" placeholder="输入记忆 ID 定位局部子图" />
+                </div>
+                <div class="graph-toolbar-actions">
+                  <button id="graph-search-btn" class="btn btn-primary">检索图谱</button>
+                  <button id="graph-focus-btn" class="btn btn-ghost">定位记忆</button>
+                  <button id="graph-overview-btn" class="btn btn-ghost">最近概览</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="graph-stats-grid">
+              <div class="graph-stat-card">
+                <span class="graph-stat-label">可视节点</span>
+                <strong class="graph-stat-value" id="graph-visible-node-count">0</strong>
+              </div>
+              <div class="graph-stat-card">
+                <span class="graph-stat-label">关系边</span>
+                <strong class="graph-stat-value" id="graph-visible-edge-count">0</strong>
+              </div>
+              <div class="graph-stat-card">
+                <span class="graph-stat-label">图谱条目</span>
+                <strong class="graph-stat-value" id="graph-visible-entry-count">0</strong>
+              </div>
+              <div class="graph-stat-card accent">
+                <span class="graph-stat-label">检索视角</span>
+                <strong class="graph-stat-value graph-stat-value-text" id="graph-route-label">图谱浏览</strong>
+              </div>
+              <div class="graph-stat-card">
+                <span class="graph-stat-label">关联记忆</span>
+                <strong class="graph-stat-value" id="graph-visible-memory-count">0</strong>
+              </div>
+            </section>
+
+            <section class="graph-layout">
+              <div class="graph-canvas-card">
+                <header class="graph-panel-header">
+                  <div>
+                    <h3 class="panel-title">图谱画布</h3>
+                    <p class="panel-subtitle">点击节点、记忆卡片或召回结果即可切换焦点。</p>
+                  </div>
+                  <div id="graph-legend" class="graph-legend"></div>
+                </header>
+                <div class="graph-canvas-shell">
+                  <div id="graph-canvas-state" class="graph-canvas-state"></div>
+                  <div id="graph-canvas" class="graph-canvas"></div>
+                </div>
+              </div>
+
+              <div class="graph-side-column">
+                <section class="graph-panel">
+                  <header class="graph-panel-header compact">
+                    <h3 class="panel-title">焦点详情</h3>
+                  </header>
+                  <div id="graph-inspector" class="graph-inspector"></div>
+                </section>
+
+                <section class="graph-panel">
+                  <header class="graph-panel-header compact">
+                    <h3 class="panel-title">核心节点</h3>
+                  </header>
+                  <div id="graph-top-nodes" class="graph-chip-list"></div>
+                </section>
+
+                <section class="graph-panel">
+                  <header class="graph-panel-header compact">
+                    <h3 class="panel-title">相关记忆</h3>
+                  </header>
+                  <div id="graph-related-memories" class="graph-memory-list"></div>
+                </section>
+
+                <section class="graph-panel">
+                  <header class="graph-panel-header compact">
+                    <h3 class="panel-title">召回路径</h3>
+                  </header>
+                  <div id="graph-retrieval-list" class="graph-retrieval-list"></div>
+                </section>
+              </div>
+            </section>
+          </section>
+
           <section class="tab-content" data-tab="recall-test">
             <div class="content-toolbar">
               <button id="recall-clear-btn" class="btn btn-ghost">清空结果</button>
@@ -431,6 +541,8 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script src="/static/vendor/3d-force-graph.min.js"></script>
+    <script src="/static/graph-ui.js"></script>
     <script>
       // 初始化 Lucide 图标
       lucide.createIcons();

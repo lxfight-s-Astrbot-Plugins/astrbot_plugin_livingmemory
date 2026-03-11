@@ -167,8 +167,17 @@ class CommandHandler:
                     if len(result.content) > 100
                     else result.content
                 )
+                raw_breakdown = getattr(result, "score_breakdown", {})
+                breakdown = raw_breakdown if isinstance(raw_breakdown, dict) else {}
                 message += f"{i}. [得分:{score:.2f}] {content}\n"
                 message += f"   ID: {result.doc_id}\n\n"
+                message += (
+                    "   命中: "
+                    f"文档关键词={breakdown.get('document_keyword_score', 0.0):.2f}, "
+                    f"文档向量={breakdown.get('document_vector_score', 0.0):.2f}, "
+                    f"图关键词={breakdown.get('graph_keyword_score', 0.0):.2f}, "
+                    f"图向量={breakdown.get('graph_vector_score', 0.0):.2f}\n\n"
+                )
 
             yield event.plain_result(message)
         except Exception as e:
@@ -285,6 +294,38 @@ class CommandHandler:
                         "确认 Embedding Provider 已可用",
                         "确认数据库文件与索引文件可读写",
                         "根据日志定位失败文档后重试重建",
+                    ],
+                )
+            )
+
+    async def handle_rebuild_graph(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem rebuild-graph 命令"""
+        if not self.memory_engine:
+            yield event.plain_result(
+                self._component_not_ready_message("记忆引擎", "/lmem rebuild-graph")
+            )
+            return
+
+        try:
+            yield event.plain_result("开始重建图记忆索引，这可能需要一些时间...")
+            result = await self.memory_engine.rebuild_graph_index()
+            yield event.plain_result(
+                "图记忆重建完成。\n\n"
+                f"• 重建: {result.get('rebuilt', 0)} 条\n"
+                f"• 跳过: {result.get('skipped', 0)} 条"
+            )
+        except Exception as e:
+            logger.error(f"重建图记忆失败: {e}", exc_info=True)
+            yield event.plain_result(
+                self._format_error_message(
+                    "重建图记忆",
+                    e,
+                    [
+                        "确认图记忆功能已启用",
+                        "确认数据库与索引文件可读写",
+                        "查看日志定位具体失败文档",
                     ],
                 )
             )
@@ -646,6 +687,7 @@ WebUI 功能:
 /lmem search <关键词> [数量]  搜索记忆(默认5条)
 /lmem forget <ID>          删除指定记忆
 /lmem rebuild-index       重建索引（修复索引不一致）
+/lmem rebuild-graph       重建图记忆索引（回填旧记忆）
 /lmem webui               打开WebUI管理界面
 /lmem summarize           立即触发当前会话的记忆总结
 /lmem reset               重置当前会话记忆上下文
@@ -658,6 +700,7 @@ WebUI 功能:
 • 记忆会自动保存对话内容
 • 使用 forget 删除敏感信息
 • 索引不一致时执行 rebuild-index
+• 启用图记忆后建议执行 rebuild-graph 回填旧数据
 • 更新插件后建议执行 cleanup 清理旧数据
 
 cleanup 命令示例:

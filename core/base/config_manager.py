@@ -113,3 +113,8 @@ class ConfigManager:
     def filtering_settings(self) -> dict[str, Any]:
         """过滤设置"""
         return self.get_section("filtering_settings")
+
+    @property
+    def graph_memory(self) -> dict[str, Any]:
+        """Graph-memory settings."""
+        return self.get_section("graph_memory")

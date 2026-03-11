@@ -6,6 +6,7 @@
 import asyncio
 import os
 import time
+from pathlib import Path
 
 from astrbot.api import logger
 from astrbot.api.star import Context
@@ -43,6 +44,7 @@ class PluginInitializer:
         self.embedding_provider: EmbeddingProvider | None = None
         self.llm_provider: Provider | None = None
         self.db: FaissVecDB | None = None
+        self.graph_db: FaissVecDB | None = None
         self.memory_engine: MemoryEngine | None = None
         self.memory_processor: MemoryProcessor | None = None
         self.db_migration: DBMigration | None = None
@@ -280,8 +282,11 @@ class PluginInitializer:
 
         try:
             # 初始化数据库
-            db_path = os.path.join(self.data_dir, "livingmemory.db")
-            index_path = os.path.join(self.data_dir, "livingmemory.index")
+            data_dir_path = Path(self.data_dir)
+            db_path = data_dir_path / "livingmemory.db"
+            index_path = data_dir_path / "livingmemory.index"
+            graph_doc_path = data_dir_path / "livingmemory_graph_documents.db"
+            graph_index_path = data_dir_path / "livingmemory_graph.index"
 
             if not self.embedding_provider:
                 raise ProviderNotReadyError("Embedding Provider 未初始化")
@@ -289,22 +294,33 @@ class PluginInitializer:
                 raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
 
             # 检查索引文件维度与当前 embedding provider 维度是否一致
-            await self._check_and_fix_dimension_mismatch(index_path)
+            await self._check_and_fix_dimension_mismatch(str(index_path))
+            await self._check_and_fix_dimension_mismatch(str(graph_index_path))
 
-            self.db = FaissVecDB(db_path, index_path, self.embedding_provider)
+            self.db = FaissVecDB(
+                str(db_path),
+                str(index_path),
+                self.embedding_provider,
+            )
             await self.db.initialize()
+            self.graph_db = FaissVecDB(
+                str(graph_doc_path),
+                str(graph_index_path),
+                self.embedding_provider,
+            )
+            await self.graph_db.initialize()
             logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
 
             # 初始化数据库迁移管理器
-            self.db_migration = DBMigration(db_path)
+            self.db_migration = DBMigration(str(db_path))
 
             # 检查并执行数据库迁移
             if self.config_manager.get("migration_settings.auto_migrate", True):
                 await self._check_and_migrate_database()
 
             # 初始化MemoryEngine
-            stopwords_dir = os.path.join(self.data_dir, "stopwords")
-            os.makedirs(stopwords_dir, exist_ok=True)
+            stopwords_dir = data_dir_path / "stopwords"
+            stopwords_dir.mkdir(parents=True, exist_ok=True)
 
             memory_engine_config = {
                 "rrf_k": self.config_manager.get("fusion_strategy.rrf_k", 60),
@@ -326,12 +342,37 @@ class PluginInitializer:
                 "auto_cleanup_enabled": self.config_manager.get(
                     "forgetting_agent.auto_cleanup_enabled", True
                 ),
-                "stopwords_path": stopwords_dir,
+                "stopwords_path": str(stopwords_dir),
+                "graph_memory_enabled": self.config_manager.get(
+                    "graph_memory.enabled", True
+                ),
+                "document_route_weight": self.config_manager.get(
+                    "graph_memory.document_route_weight", 0.65
+                ),
+                "graph_route_weight": self.config_manager.get(
+                    "graph_memory.graph_route_weight", 0.35
+                ),
+                "cross_route_bonus": self.config_manager.get(
+                    "graph_memory.cross_route_bonus", 0.08
+                ),
+                "graph_expansion_limit": self.config_manager.get(
+                    "graph_memory.expansion_limit", 24
+                ),
+                "graph_max_topics": self.config_manager.get(
+                    "graph_memory.max_topics_per_memory", 6
+                ),
+                "graph_max_participants": self.config_manager.get(
+                    "graph_memory.max_participants_per_memory", 8
+                ),
+                "graph_max_facts": self.config_manager.get(
+                    "graph_memory.max_facts_per_memory", 8
+                ),
             }
 
             self.memory_engine = MemoryEngine(
-                db_path=db_path,
+                db_path=str(db_path),
                 faiss_db=self.db,
+                graph_vector_db=self.graph_db,
                 llm_provider=self.llm_provider,
                 config=memory_engine_config,
             )
@@ -339,8 +380,8 @@ class PluginInitializer:
             logger.info("MemoryEngine 已初始化")
 
             # 初始化 ConversationManager
-            conversation_db_path = os.path.join(self.data_dir, "conversations.db")
-            conversation_store = ConversationStore(conversation_db_path)
+            conversation_db_path = data_dir_path / "conversations.db"
+            conversation_store = ConversationStore(str(conversation_db_path))
             await conversation_store.initialize()
 
             session_config = self.config_manager.session_manager
@@ -362,7 +403,7 @@ class PluginInitializer:
             logger.info("MemoryProcessor 已初始化")
 
             # 初始化索引验证器并自动重建索引
-            self.index_validator = IndexValidator(db_path, self.db)
+            self.index_validator = IndexValidator(str(db_path), self.db)
             await self._auto_rebuild_index_if_needed()
 
             # 异步初始化 TextProcessor
