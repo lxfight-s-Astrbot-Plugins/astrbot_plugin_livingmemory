@@ -210,6 +210,7 @@ class EventHandler:
                             "content": mem.content,
                             "score": mem.final_score,
                             "metadata": mem.metadata,
+                            "timestamp": mem.metadata.get("create_time"),
                         }
                         for mem in recalled_memories
                     ]
