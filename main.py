@@ -17,6 +17,7 @@ from .core.base.config_manager import ConfigManager
 from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
 from .core.plugin_initializer import PluginInitializer
+from .core.tools import MemorySearchTool
 from .webui import WebUIServer
 
 
@@ -53,6 +54,7 @@ class LivingMemoryPlugin(Star):
         # 后台任务跟踪集合
         self._background_tasks: set[asyncio.Task] = set()
         self._component_init_lock = asyncio.Lock()
+        self._llm_tools_registered = False
 
         # 启动非阻塞的初始化任务
         self._create_tracked_task(self._initialize_plugin())
@@ -121,7 +123,25 @@ class LivingMemoryPlugin(Star):
             if self.command_handler:
                 self.command_handler.webui_server = self.webui_server
 
+            self._register_llm_tools_if_needed()
+
         return True
+
+    def _register_llm_tools_if_needed(self) -> None:
+        """在核心组件就绪后注册 LLM 工具。"""
+        if self._llm_tools_registered:
+            return
+        if not self.initializer.memory_engine:
+            return
+
+        self.context.add_llm_tools(
+            MemorySearchTool(
+                context=self.context,
+                config_manager=self.config_manager,
+                memory_engine=self.initializer.memory_engine,
+            )
+        )
+        self._llm_tools_registered = True
 
     async def _ensure_plugin_ready(self) -> tuple[bool, str]:
         """确保插件已完成初始化并且运行期组件可用"""
