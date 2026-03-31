@@ -21,6 +21,7 @@ def test_register_llm_tools_is_idempotent():
     plugin.context.add_llm_tools.assert_called_once()
     tool = plugin.context.add_llm_tools.call_args.args[0]
     assert isinstance(tool, MemorySearchTool)
+    assert tool.name == "recall_long_term_memory"
     assert plugin._llm_tools_registered is True
 
 

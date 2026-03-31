@@ -1,4 +1,4 @@
-"""供 Agent 主动调用的长期记忆检索工具。"""
+"""供 Agent 主动调用的长期记忆回忆工具。"""
 
 import asyncio
 from dataclasses import field
@@ -23,7 +23,7 @@ def _json_result(data: dict[str, Any]) -> str:
 
 @dataclass
 class MemorySearchTool(FunctionTool[AstrAgentContext]):
-    """长期记忆主动检索工具。"""
+    """长期记忆主动回忆工具。"""
 
     __pydantic_config__ = {"arbitrary_types_allowed": True}
 
@@ -31,14 +31,14 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
     config_manager: ConfigManager | None = None
     memory_engine: Any = None
 
-    name: str = "search_long_term_memory"
+    name: str = "recall_long_term_memory"
     description: str = (
-        "Search long-term memory when the current context is insufficient. "
-        "Use concise, focused search keywords instead of copying the full user message. "
+        "Recall long-term memory when the current context is insufficient. "
+        "Use concise, focused recall keywords instead of copying the full user message. "
         "Call this when the user asks you to recall prior facts, preferences, agreements, or older context, "
         "or when resolving ambiguous references requires checking memory. "
-        "Prefer short topic phrases, named entities, preferences, commitments, or past events as the query. "
-        "If the first search is not enough, refine the query and search again."
+        "Prefer short topic phrases, named entities, preferences, commitments, or past events as recall keywords. "
+        "If the first recall is not enough, refine the keywords and recall again."
     )
     parameters: dict[str, Any] = field(
         default_factory=lambda: {
@@ -46,11 +46,11 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "A concise search query for long-term memory. Prefer key entities, topics, preferences, commitments, or past events instead of copying the full user message.",
+                    "description": "Concise recall keywords for long-term memory. Prefer key entities, topics, preferences, commitments, or past events instead of copying the full user message.",
                 },
                 "k": {
                     "type": "integer",
-                    "description": "Maximum number of memory items to return. Keep this small unless more evidence is needed.",
+                    "description": "Maximum number of memory items to return for one recall. Keep this small unless more evidence is needed.",
                     "default": 5,
                 },
             },
@@ -64,7 +64,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
         query: str,
         k: int = 5,
     ) -> ToolExecResult:
-        """执行长期记忆检索。"""
+        """执行长期记忆回忆。"""
         cleaned_query = (query or "").strip()
         if not cleaned_query:
             return _json_result(

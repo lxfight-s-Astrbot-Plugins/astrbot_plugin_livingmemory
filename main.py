@@ -139,7 +139,7 @@ class LivingMemoryPlugin(Star):
                 context=self.context,
                 config_manager=self.config_manager,
                 memory_engine=self.initializer.memory_engine,
-            )
+            ),
         )
         self._llm_tools_registered = True
 

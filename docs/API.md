@@ -260,22 +260,22 @@ async for message in command_handler.handle_status(event):
 
 ### MemorySearchTool
 
-供 tool loop / agent 主动调用的长期记忆检索工具。
+供 tool loop / agent 主动调用的长期记忆回忆工具。
 
 #### 工具名
 
-`search_long_term_memory`
+`recall_long_term_memory`
 
 #### 行为
 
-- 使用 agent 自行选择的关键词搜索长期记忆，而不是只依赖当前轮消息文本。
+- 使用 agent 自行选择的关键词回忆长期记忆，而不是只依赖当前轮消息文本。
 - 自动复用当前配置中的会话隔离与人格隔离设置。
 - 返回原始记忆列表，由 agent 自行判断哪些结果应纳入最终回答。
 - 检索结果进入工具上下文，不走 `handle_memory_recall()` 的 prompt 注入链路。
 
 #### 输入参数
 
-- `query: str` - 检索关键词，建议使用主题、实体名、偏好、约定、历史事件等高信息量短语。
+- `query: str` - 回忆关键词，建议使用主题、实体名、偏好、约定、历史事件等高信息量短语。
 - `k: int = 5` - 返回结果数量，上层实现会做范围限制。
 
 #### 返回结果
