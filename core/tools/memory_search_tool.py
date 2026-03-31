@@ -101,8 +101,8 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             recall_session_id = session_id if use_session_filtering else None
             recall_persona_id = persona_id if use_persona_filtering else None
 
-            max_k = 10
             default_k = int(self.config_manager.get("recall_engine.top_k", 5))
+            max_k = int(self.config_manager.get("recall_engine.max_k", 10))
             requested_k = default_k if k is None else k
             limited_k = max(1, min(int(requested_k), max_k))
 
@@ -147,6 +147,6 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "query": cleaned_query,
                     "count": 0,
                     "results": [],
-                    "error": str(e),
+                    "error": "internal_error",
                 }
             )

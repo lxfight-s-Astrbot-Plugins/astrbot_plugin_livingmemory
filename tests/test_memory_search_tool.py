@@ -37,7 +37,7 @@ async def test_memory_search_tool_uses_filtering_settings(memory_engine, astr_co
         context=astr_context,
         config_manager=ConfigManager(
             {
-                "recall_engine": {"top_k": 3},
+                "recall_engine": {"top_k": 3, "max_k": 8},
                 "filtering_settings": {
                     "use_session_filtering": True,
                     "use_persona_filtering": True,
@@ -147,6 +147,29 @@ async def test_memory_search_tool_serializes_results(memory_engine, astr_context
 
 
 @pytest.mark.asyncio
+async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager({"recall_engine": {"top_k": 5, "max_k": 4}}),
+        memory_engine=memory_engine,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(_make_run_context(), query="偏好", k=9)
+
+    memory_engine.search_memories.assert_awaited_once_with(
+        query="偏好",
+        k=4,
+        session_id="test:private:session-1",
+        persona_id="persona_a",
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_search_tool_returns_structured_error_for_empty_query(
     memory_engine, astr_context
 ):
@@ -162,3 +185,48 @@ async def test_memory_search_tool_returns_structured_error_for_empty_query(
     assert result["results"] == []
     assert result["error"] == "query is empty"
     memory_engine.search_memories.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_returns_not_initialized_error(memory_engine):
+    tool = MemorySearchTool(
+        context=None,
+        config_manager=None,
+        memory_engine=memory_engine,
+    )
+
+    raw_result = await tool.call(_make_run_context(), query="测试")
+    result = json.loads(raw_result)
+
+    assert result == {
+        "query": "测试",
+        "count": 0,
+        "results": [],
+        "error": "memory search tool is not initialized",
+    }
+    memory_engine.search_memories.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_hides_internal_exception_details(
+    memory_engine, astr_context
+):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+    )
+    memory_engine.search_memories = AsyncMock(
+        side_effect=RuntimeError("secret db path")
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        raw_result = await tool.call(_make_run_context(), query="异常")
+
+    result = json.loads(raw_result)
+    assert result["error"] == "internal_error"
+    assert "secret db path" not in raw_result
