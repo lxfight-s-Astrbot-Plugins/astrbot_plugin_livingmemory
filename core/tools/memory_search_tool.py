@@ -96,7 +96,11 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             use_session_filtering = filtering_config.get("use_session_filtering", True)
 
             session_id = event.unified_msg_origin
-            persona_id = await get_persona_id(self.context, event)
+            persona_id = (
+                await get_persona_id(self.context, event)
+                if use_persona_filtering
+                else None
+            )
 
             recall_session_id = session_id if use_session_filtering else None
             recall_persona_id = persona_id if use_persona_filtering else None

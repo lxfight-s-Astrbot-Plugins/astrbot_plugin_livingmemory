@@ -99,6 +99,7 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
         session_id=None,
         persona_id=None,
     )
+    get_persona.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -147,6 +148,46 @@ async def test_memory_search_tool_serializes_results(memory_engine, astr_context
 
 
 @pytest.mark.asyncio
+async def test_memory_search_tool_serializes_non_dict_metadata(
+    memory_engine, astr_context
+):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+    )
+    memory_engine.search_memories = AsyncMock(
+        return_value=[
+            Mock(
+                doc_id=8,
+                content="用户提到过想学摄影",
+                final_score=0.55,
+                metadata=None,
+            )
+        ]
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        raw_result = await tool.call(_make_run_context(), query="摄影")
+
+    result = json.loads(raw_result)
+    assert result["results"][0] == {
+        "id": 8,
+        "content": "用户提到过想学摄影",
+        "score": 0.55,
+        "importance": None,
+        "session_id": None,
+        "persona_id": None,
+        "create_time": None,
+        "last_access_time": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context):
     tool = MemorySearchTool(
         context=astr_context,
@@ -167,6 +208,39 @@ async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context
         session_id="test:private:session-1",
         persona_id="persona_a",
     )
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_clamps_low_k_to_one(memory_engine, astr_context):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {"top_k": 3, "max_k": 8},
+                "filtering_settings": {
+                    "use_session_filtering": True,
+                    "use_persona_filtering": True,
+                },
+            }
+        ),
+        memory_engine=memory_engine,
+    )
+    memory_engine.search_memories = AsyncMock(return_value=[])
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+
+        await tool.call(_make_run_context(), query="test query", k=0)
+        called_k_zero = memory_engine.search_memories.await_args.kwargs["k"]
+        assert called_k_zero == 1
+
+        memory_engine.search_memories.reset_mock()
+        await tool.call(_make_run_context(), query="test query", k=-3)
+        called_k_negative = memory_engine.search_memories.await_args.kwargs["k"]
+        assert called_k_negative == 1
 
 
 @pytest.mark.asyncio

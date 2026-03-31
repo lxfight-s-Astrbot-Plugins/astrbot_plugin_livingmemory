@@ -35,3 +35,4 @@ def test_register_llm_tools_no_memory_engine():
     plugin._register_llm_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_not_called()
+    assert plugin._llm_tools_registered is False
