@@ -12,6 +12,7 @@
 3. [异常处理](#异常处理)
 4. [事件处理](#事件处理)
 5. [命令处理](#命令处理)
+6. [Agent 工具](#agent-工具)
 
 ---
 
@@ -252,6 +253,51 @@ async for message in command_handler.handle_status(event):
 - `event`: AstrBot消息事件
 - `query`: 搜索查询
 - `k`: 返回结果数量
+
+---
+
+## Agent 工具
+
+### MemorySearchTool
+
+供 tool loop / agent 主动调用的长期记忆检索工具。
+
+#### 工具名
+
+`search_long_term_memory`
+
+#### 行为
+
+- 使用 agent 自行选择的关键词搜索长期记忆，而不是只依赖当前轮消息文本。
+- 自动复用当前配置中的会话隔离与人格隔离设置。
+- 返回原始记忆列表，由 agent 自行判断哪些结果应纳入最终回答。
+- 检索结果进入工具上下文，不走 `handle_memory_recall()` 的 prompt 注入链路。
+
+#### 输入参数
+
+- `query: str` - 检索关键词，建议使用主题、实体名、偏好、约定、历史事件等高信息量短语。
+- `k: int = 5` - 返回结果数量，上层实现会做范围限制。
+
+#### 返回结果
+
+返回 JSON 文本，包含以下字段：
+
+- `query`: 实际执行的查询词
+- `applied_filters.session_filtered`: 是否按当前会话过滤
+- `applied_filters.persona_filtered`: 是否按当前人格过滤
+- `count`: 返回结果数量
+- `results`: 原始记忆列表
+
+每条记忆结果包含：
+
+- `id`
+- `content`
+- `score`
+- `importance`
+- `session_id`
+- `persona_id`
+- `create_time`
+- `last_access_time`
 
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 

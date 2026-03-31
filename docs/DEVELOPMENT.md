@@ -67,6 +67,7 @@ astrbot_plugin_livingmemory/
 │   ├── plugin_initializer.py       # 插件初始化
 │   ├── event_handler.py            # 事件处理
 │   ├── command_handler.py          # 命令处理
+│   ├── tools/                      # Agent/LLM 工具
 │   ├── memory_engine.py            # 记忆引擎
 │   ├── memory_processor.py         # 记忆处理
 │   ├── conversation_manager.py     # 会话管理
@@ -96,6 +97,7 @@ astrbot_plugin_livingmemory/
 | plugin_initializer.py | 插件初始化 | 所有核心模块 |
 | event_handler.py | 事件处理 | memory_engine, conversation_manager |
 | command_handler.py | 命令处理 | memory_engine, conversation_manager |
+| tools/ | Agent 工具封装 | memory_engine, config_manager |
 
 ---
 
