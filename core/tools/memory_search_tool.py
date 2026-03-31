@@ -1,5 +1,6 @@
 """供 Agent 主动调用的长期记忆检索工具。"""
 
+import asyncio
 from dataclasses import field
 import json
 from typing import Any
@@ -108,7 +109,12 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             default_k = int(self.config_manager.get("recall_engine.top_k", 5))
             max_k = int(self.config_manager.get("recall_engine.max_k", 10))
             requested_k = default_k if k is None else k
-            limited_k = max(1, min(int(requested_k), max_k))
+            try:
+                requested_k_int = int(requested_k)
+            except (TypeError, ValueError):
+                requested_k_int = default_k
+
+            limited_k = max(1, min(requested_k_int, max_k))
 
             memories = await self.memory_engine.search_memories(
                 query=cleaned_query,
@@ -144,6 +150,8 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "results": serialized_results,
                 }
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"记忆工具检索失败: {e}", exc_info=True)
             return _json_result(

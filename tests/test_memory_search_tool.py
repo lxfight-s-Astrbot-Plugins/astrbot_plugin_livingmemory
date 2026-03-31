@@ -1,5 +1,6 @@
 """Tests for the active long-term memory search tool."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -244,6 +245,32 @@ async def test_memory_search_tool_clamps_low_k_to_one(memory_engine, astr_contex
 
 
 @pytest.mark.asyncio
+async def test_memory_search_tool_falls_back_to_default_k_for_invalid_input(
+    memory_engine, astr_context
+):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager({"recall_engine": {"top_k": 3, "max_k": 8}}),
+        memory_engine=memory_engine,
+    )
+    memory_engine.search_memories = AsyncMock(return_value=[])
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(_make_run_context(), query="test query", k="bad")
+
+    memory_engine.search_memories.assert_awaited_once_with(
+        query="test query",
+        k=3,
+        session_id="test:private:session-1",
+        persona_id="persona_a",
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_search_tool_returns_structured_error_for_empty_query(
     memory_engine, astr_context
 ):
@@ -304,3 +331,21 @@ async def test_memory_search_tool_hides_internal_exception_details(
     result = json.loads(raw_result)
     assert result["error"] == "internal_error"
     assert "secret db path" not in raw_result
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_propagates_cancellation(memory_engine, astr_context):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+    )
+    memory_engine.search_memories = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        with pytest.raises(asyncio.CancelledError):
+            await tool.call(_make_run_context(), query="取消")
