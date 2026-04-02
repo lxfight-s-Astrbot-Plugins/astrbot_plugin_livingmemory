@@ -367,6 +367,12 @@ class PluginInitializer:
                 "graph_max_facts": self.config_manager.get(
                     "graph_memory.max_facts_per_memory", 8
                 ),
+                "recent_boost_hours": self.config_manager.get(
+                    "recall_engine.recent_boost_hours", 48
+                ),
+                "recent_boost_factor": self.config_manager.get(
+                    "recall_engine.recent_boost_factor", 0.15
+                ),
             }
 
             self.memory_engine = MemoryEngine(

@@ -101,6 +101,7 @@ class BM25Retriever:
         limit: int = 50,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[BM25Result]:
         """
         执行BM25搜索
@@ -110,6 +111,7 @@ class BM25Retriever:
             limit: 返回结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选，匹配 metadata.user_ids 列表)
 
         Returns:
             BM25Result列表,按归一化分数降序排列
@@ -135,7 +137,7 @@ class BM25Retriever:
 
         # 有过滤条件时大幅增加预取量，避免过滤后结果不足
         # Python 层过滤（BM25）比 FAISS 内部过滤损耗更大，需要更多候选
-        has_filters = session_id is not None or persona_id is not None
+        has_filters = session_id is not None or persona_id is not None or user_id is not None
         fetch_limit = limit * 10 if has_filters else limit * 2
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -193,6 +195,12 @@ class BM25Retriever:
                 if persona_id is not None:
                     stored_persona_id = metadata.get("persona_id")
                     if stored_persona_id != persona_id:
+                        continue
+                if user_id is not None:
+                    # 匹配 primary_user_id 或 user_ids 中任一即可
+                    primary = metadata.get("primary_user_id")
+                    stored_user_ids = metadata.get("user_ids", [])
+                    if primary != user_id and user_id not in stored_user_ids:
                         continue
 
                 results.append(

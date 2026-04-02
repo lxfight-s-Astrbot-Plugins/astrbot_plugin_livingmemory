@@ -48,6 +48,12 @@ class RecallEngineConfig(BaseModel):
     auto_remove_injected: bool = Field(
         default=True, description="是否自动删除对话历史中已注入的记忆片段"
     )
+    recent_boost_hours: int = Field(
+        default=48, ge=0, le=720, description="近期记忆加权时间窗口（小时），0 禁用"
+    )
+    recent_boost_factor: float = Field(
+        default=0.15, ge=0.0, le=1.0, description="近期记忆最大加分"
+    )
 
 
 class FusionStrategyConfig(BaseModel):
@@ -123,6 +129,10 @@ class FilteringConfig(BaseModel):
 
     use_persona_filtering: bool = Field(default=True, description="是否使用人格过滤")
     use_session_filtering: bool = Field(default=True, description="是否使用会话过滤")
+    use_user_filtering: bool = Field(
+        default=False,
+        description="是否按用户 ID 召回记忆（跨会话）",
+    )
 
 
 class ProviderConfig(BaseModel):

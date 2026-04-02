@@ -7,26 +7,21 @@ import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from astrbot.api import logger
+from astrbot.api import llm_tool, logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.event.filter import PermissionType, permission_type
+from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse, ProviderRequest
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.star import Context, Star, StarTools
 
 from .core.base.config_manager import ConfigManager
 from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
 from .core.plugin_initializer import PluginInitializer
+from .core.utils import get_persona_id
 from .webui import WebUIServer
 
 
-@register(
-    "LivingMemory",
-    "lxfight",
-    "一个拥有动态生命周期的智能长期记忆插件。",
-    "2.0.0",
-    "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
-)
 class LivingMemoryPlugin(Star):
     """LivingMemory 插件主类"""
 
@@ -270,6 +265,111 @@ class LivingMemoryPlugin(Star):
             return
 
         await self.event_handler.handle_session_reset(event)
+
+    # ==================== LLM 函数工具 ====================
+
+    @llm_tool(name="recall_memory")
+    async def tool_recall_memory(
+        self, event: AstrMessageEvent, keyword: str, count: int = 3
+    ) -> str:
+        """主动回忆相关记忆。当你需要回忆与用户的历史对话、用户的偏好或之前讨论过的话题时使用此工具。
+
+        Args:
+            keyword(str): 要搜索的关键词或主题描述
+            count(int): 要召回的记忆数量，默认3条
+        """
+        ready, msg = await self._ensure_plugin_ready()
+        if not ready:
+            return f"记忆系统未就绪: {msg}"
+
+        memory_engine = self.initializer.memory_engine
+        assert memory_engine is not None  # guaranteed by _ensure_plugin_ready
+
+        filtering = self.config_manager.filtering_settings
+        use_user_filtering = filtering.get("use_user_filtering", False)
+        session_id = (
+            event.unified_msg_origin
+            if filtering.get("use_session_filtering", True) and not use_user_filtering
+            else None
+        )
+        persona_id = (
+            await get_persona_id(self.context, event)
+            if filtering.get("use_persona_filtering", True)
+            else None
+        )
+        user_id = event.get_sender_id() if use_user_filtering else None
+
+        results = await memory_engine.search_memories(
+            query=keyword,
+            k=min(count, 10),
+            session_id=session_id,
+            persona_id=persona_id,
+            user_id=user_id,
+        )
+
+        if not results:
+            return "没有找到相关记忆。"
+
+        lines = []
+        for i, mem in enumerate(results, 1):
+            meta = mem.metadata if isinstance(mem.metadata, dict) else {}
+            time_str = ""
+            ct = meta.get("create_time")
+            if ct:
+                from datetime import datetime
+
+                try:
+                    time_str = f" ({datetime.fromtimestamp(float(ct)).strftime('%Y-%m-%d %H:%M')})"
+                except (ValueError, OSError):
+                    pass
+            lines.append(
+                f"{i}. [相关度:{mem.final_score:.2f}]{time_str} {mem.content}"
+            )
+        return "\n".join(lines)
+
+    @llm_tool(name="save_memory")
+    async def tool_save_memory(
+        self, event: AstrMessageEvent, content: str, importance: float = 0.7
+    ) -> str:
+        """主动保存一条重要记忆。当对话中出现重要信息（如用户的个人偏好、重要事件、关键决定等）且你认为值得长期记住时使用此工具。
+
+        Args:
+            content(str): 要保存的记忆内容，应该是简洁清晰的总结
+            importance(float): 记忆重要性(0.0-1.0)，默认0.7
+        """
+        ready, msg = await self._ensure_plugin_ready()
+        if not ready:
+            return f"记忆系统未就绪: {msg}"
+
+        memory_engine = self.initializer.memory_engine
+        assert memory_engine is not None  # guaranteed by _ensure_plugin_ready
+
+        importance = max(0.0, min(1.0, importance))
+
+        session_id = event.unified_msg_origin
+        persona_id = await get_persona_id(self.context, event)
+
+        is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+        metadata: dict[str, Any] = {
+            "interaction_type": "group_chat" if is_group else "private_chat",
+            "memory_type": "fact",
+            "source": "llm_tool_save",
+        }
+        sender_id = event.get_sender_id()
+        if sender_id:
+            metadata["user_ids"] = [sender_id]
+            if not is_group:
+                metadata["primary_user_id"] = sender_id
+
+        doc_id = await memory_engine.add_memory(
+            content=content,
+            session_id=session_id,
+            persona_id=persona_id,
+            importance=importance,
+            metadata=metadata,
+        )
+
+        return f"记忆已保存 (ID: {doc_id}, 重要性: {importance:.1f})"
 
     # ==================== 命令处理 ====================
 

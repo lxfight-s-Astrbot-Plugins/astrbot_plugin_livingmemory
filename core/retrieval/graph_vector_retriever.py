@@ -36,6 +36,17 @@ class GraphVectorRetriever:
             return parsed if isinstance(parsed, dict) else {}
         return {}
 
+    @staticmethod
+    def _matches_user_id(metadata: dict[str, Any], user_id: str | None) -> bool:
+        if user_id is None:
+            return True
+        # 匹配 primary_user_id 或 user_ids 中任一即可
+        primary = metadata.get("primary_user_id")
+        stored_user_ids = metadata.get("user_ids", [])
+        if primary == user_id:
+            return True
+        return isinstance(stored_user_ids, list) and user_id in stored_user_ids
+
     async def add_entry(self, content: str, metadata: dict[str, Any]) -> int:
         """Insert one graph entry into the vector database."""
         return await self.faiss_db.insert(content=content, metadata=metadata)
@@ -46,6 +57,7 @@ class GraphVectorRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[GraphVectorResult]:
         """Search graph entries through vector similarity."""
         if not query or not query.strip():
@@ -57,7 +69,7 @@ class GraphVectorRetriever:
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 
-        fetch_k = k * 2 if metadata_filters else k
+        fetch_k = k * 2 if metadata_filters or user_id is not None else k
         raw_results = await self.faiss_db.retrieve(
             query=query,
             k=k,
@@ -70,6 +82,8 @@ class GraphVectorRetriever:
         for result in raw_results:
             data = result.data
             metadata = self._coerce_metadata(data.get("metadata"))
+            if not self._matches_user_id(metadata, user_id):
+                continue
             source_memory_id = metadata.get("source_memory_id")
             if source_memory_id is None:
                 continue

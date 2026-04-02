@@ -410,6 +410,7 @@ class MemoryEngine:
         k: int = 5,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[HybridResult]:
         """
         检索相关记忆
@@ -442,12 +443,13 @@ class MemoryEngine:
                 k,
                 session_id,
                 persona_id,
+                user_id=user_id,
             )
         else:
             if self.hybrid_retriever is None:
                 raise RuntimeError("混合检索器未初始化")
             results = await self.hybrid_retriever.search(
-                query, k, session_id, persona_id
+                query, k, session_id, persona_id, user_id=user_id
             )
 
         # 异步更新访问时间(不阻塞返回)

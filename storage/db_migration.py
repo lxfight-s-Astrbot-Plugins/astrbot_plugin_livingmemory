@@ -4,13 +4,19 @@
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
 from astrbot.api import logger
+
+
+def _utc_now_isoformat() -> str:
+    """返回时区感知的 UTC 时间戳，避免使用已弃用的 utcnow。"""
+
+    return datetime.now(timezone.utc).isoformat()
 
 
 class DBMigration:
@@ -134,7 +140,7 @@ class DBMigration:
                     INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
                     VALUES (?, ?, ?, ?)
                 """,
-                    (version, description, datetime.utcnow().isoformat(), duration),
+                    (version, description, _utc_now_isoformat(), duration),
                 )
                 await db.commit()
                 logger.info(f"数据库版本已更新至: {version}")
@@ -323,7 +329,7 @@ class DBMigration:
                     INSERT OR REPLACE INTO migration_status (key, value, updated_at)
                     VALUES (?, ?, ?)
                 """,
-                    ("needs_index_rebuild", "true", datetime.utcnow().isoformat()),
+                    ("needs_index_rebuild", "true", _utc_now_isoformat()),
                 )
                 await db.execute(
                     """
@@ -333,7 +339,7 @@ class DBMigration:
                     (
                         "pending_documents_count",
                         str(total_docs),
-                        datetime.utcnow().isoformat(),
+                        _utc_now_isoformat(),
                     ),
                 )
                 await db.commit()

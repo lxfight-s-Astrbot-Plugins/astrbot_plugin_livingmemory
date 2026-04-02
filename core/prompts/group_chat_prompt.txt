@@ -58,9 +58,16 @@
   "key_facts": ["关键事实1", "事实2"],
   "participants": ["参与者1", "参与者2"],
   "sentiment": "positive|neutral|negative",
-  "importance": 0.7
+  "importance": 0.7,
+  "memory_type": "fact"
 }
 ```
+
+## memory_type 分类说明
+- **fact**: 长期不变的事实性信息(如个人背景、职业、家庭成员、技能等)
+- **preference**: 用户偏好(如喜欢的食物、音乐、习惯等)
+- **intent**: 短期意图或计划(如"明天要开会"、"打算买xxx"、"下周出差")
+- **event**: 发生的具体事件(如"今天和朋友聚餐了"、"刚完成了项目")
 
 # 重要性评分标准 (0.0-1.0)
 - **0.9-1.0**: 重要群体决策、全员参与、形成共识或重要计划
@@ -91,7 +98,8 @@
   "key_facts": ["明天团建", "目的地是滑雪场", "初级道有教练", "李四和王五确认参加", "我提供了滑雪场教练信息"],
   "participants": ["张三", "李四", "王五", "我(Bot)"],
   "sentiment": "positive",
-  "importance": 0.75
+  "importance": 0.75,
+  "memory_type": "event"
 }
 ```
 

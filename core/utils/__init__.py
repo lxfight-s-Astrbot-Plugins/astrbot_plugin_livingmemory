@@ -335,7 +335,7 @@ def format_memories_for_injection(memories: list) -> str:
                 content = mem.get("content", "内容缺失")
                 score = mem.get("score", 0.0)
                 metadata = mem.get("metadata", {})
-                timestamp = mem.get("timestamp", None)
+                timestamp = mem.get("timestamp", None) or metadata.get("create_time", None)
                 importance = metadata.get("importance", 0.5)
                 interaction_type = metadata.get("interaction_type", "未知")
             else:

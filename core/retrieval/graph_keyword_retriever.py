@@ -33,12 +33,24 @@ class GraphKeywordRetriever:
         self.config = config or {}
         self.expansion_limit = int(self.config.get("graph_expansion_limit", 24))
 
+    @staticmethod
+    def _matches_user_id(metadata: dict[str, Any], user_id: str | None) -> bool:
+        if user_id is None:
+            return True
+        # 匹配 primary_user_id 或 user_ids 中任一即可
+        primary = metadata.get("primary_user_id")
+        stored_user_ids = metadata.get("user_ids", [])
+        if primary == user_id:
+            return True
+        return isinstance(stored_user_ids, list) and user_id in stored_user_ids
+
     async def search(
         self,
         query: str,
         limit: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[GraphKeywordResult]:
         """Search the graph route with keyword matching."""
         if not query or not query.strip():
@@ -48,7 +60,7 @@ class GraphKeywordRetriever:
         if not tokens:
             return []
 
-        escaped_tokens = [f'"{token.replace('"', '""')}"' for token in tokens]
+        escaped_tokens = [f'"{token.replace(chr(34), chr(34)+chr(34))}"' for token in tokens]
         fts_query = " OR ".join(escaped_tokens)
 
         direct_hits = await self.graph_store.search_entries_by_bm25(
@@ -74,6 +86,8 @@ class GraphKeywordRetriever:
             doc_id = int(hit["source_memory_id"])
             weighted_score = max(0.0, min(1.0, float(hit["score"]) * weight))
             hit_metadata = dict(hit.get("metadata") or {})
+            if not self._matches_user_id(hit_metadata, user_id):
+                return
             hit_metadata["graph_match_source"] = match_source
             hit_metadata["graph_entry_type"] = hit.get("entry_type")
             hit_metadata["graph_relation_type"] = hit.get("relation_type")

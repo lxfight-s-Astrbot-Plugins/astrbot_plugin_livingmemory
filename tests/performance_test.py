@@ -5,7 +5,14 @@
 """
 
 import asyncio
+import sys
 import time
+from pathlib import Path
+
+
+PROJECT_PARENT = Path(__file__).resolve().parents[2]
+if str(PROJECT_PARENT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_PARENT))
 
 
 class PerformanceTest:
@@ -33,7 +40,7 @@ class PerformanceTest:
 
     async def test_config_loading(self):
         """测试配置加载性能"""
-        from core.config_manager import ConfigManager
+        from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 
         @self.measure_time("配置加载")
         async def load_config():
@@ -45,7 +52,9 @@ class PerformanceTest:
 
     async def test_exception_creation(self):
         """测试异常创建性能"""
-        from core.exceptions import LivingMemoryException
+        from astrbot_plugin_livingmemory.core.base.exceptions import (
+            LivingMemoryException,
+        )
 
         @self.measure_time("异常创建")
         async def create_exceptions():
@@ -59,8 +68,8 @@ class PerformanceTest:
         """测试消息去重性能"""
         from unittest.mock import Mock
 
-        from core.config_manager import ConfigManager
-        from core.event_handler import EventHandler
+        from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+        from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
         config_manager = ConfigManager()
         mock_context = Mock()
@@ -80,14 +89,14 @@ class PerformanceTest:
         async def test_dedup():
             for i in range(1000):
                 message_id = f"message_{i}"
-                event_handler._mark_message_processed(message_id)
-                _ = event_handler._is_duplicate_message(message_id)
+                await event_handler._mark_message_processed(message_id)
+                _ = await event_handler._is_duplicate_message(message_id)
 
         await test_dedup()
 
     async def test_config_access(self):
         """测试配置访问性能"""
-        from core.config_manager import ConfigManager
+        from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 
         config = ConfigManager(
             {
@@ -142,7 +151,7 @@ class PerformanceTest:
 async def main():
     """主测试流程"""
     print("=" * 60)
-    print("LivingMemory v2.0.0 性能基准测试")
+    print("LivingMemory 性能基准测试")
     print("=" * 60)
     print()
 

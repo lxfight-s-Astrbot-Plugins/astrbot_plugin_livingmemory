@@ -12,6 +12,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..base.constants import MEMORY_TYPE_DECAY_MULTIPLIERS
 from .bm25_retriever import BM25Retriever
 from .rrf_fusion import BM25Result, FusedResult, RRFFusion, VectorResult
 from .vector_retriever import VectorRetriever
@@ -83,6 +84,36 @@ class HybridRetriever:
         # MMR 多样性参数
         self.mmr_lambda = self.config.get("mmr_lambda", 0.7)  # 相关性 vs 多样性权衡
 
+        # 近期记忆加权参数
+        self.recent_boost_hours = self.config.get("recent_boost_hours", 48)
+        self.recent_boost_factor = self.config.get("recent_boost_factor", 0.15)
+
+    async def _search_with_optional_user_id(
+        self,
+        retriever: BM25Retriever | VectorRetriever,
+        query: str,
+        k: int,
+        session_id: str | None,
+        persona_id: str | None,
+        user_id: str | None,
+    ) -> list[Any]:
+        """Call legacy and new retriever signatures without breaking compatibility."""
+        if user_id is None:
+            return await retriever.search(query, k, session_id, persona_id)
+
+        try:
+            return await retriever.search(
+                query,
+                k,
+                session_id,
+                persona_id,
+                user_id=user_id,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument 'user_id'" not in str(exc):
+                raise
+            return await retriever.search(query, k, session_id, persona_id)
+
     async def add_memory(
         self, content: str, metadata: dict[str, Any] | None = None
     ) -> int:
@@ -126,6 +157,7 @@ class HybridRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[HybridResult]:
         """
         执行混合检索
@@ -135,6 +167,7 @@ class HybridRetriever:
             k: 返回的结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选，匹配 metadata.user_ids 列表)
 
         Returns:
             List[HybridResult]: 混合检索结果,按最终分数降序排列
@@ -151,8 +184,22 @@ class HybridRetriever:
         try:
             # 使用asyncio.gather并行执行
             results = await asyncio.gather(
-                self.bm25_retriever.search(query, k, session_id, persona_id),
-                self.vector_retriever.search(query, k, session_id, persona_id),
+                self._search_with_optional_user_id(
+                    self.bm25_retriever,
+                    query,
+                    k,
+                    session_id,
+                    persona_id,
+                    user_id,
+                ),
+                self._search_with_optional_user_id(
+                    self.vector_retriever,
+                    query,
+                    k,
+                    session_id,
+                    persona_id,
+                    user_id,
+                ),
                 return_exceptions=True,
             )
 
@@ -173,16 +220,26 @@ class HybridRetriever:
             # 如果整体失败,尝试单独执行
             if self.fallback_enabled:
                 try:
-                    bm25_results = await self.bm25_retriever.search(
-                        query, k, session_id, persona_id
+                    bm25_results = await self._search_with_optional_user_id(
+                        self.bm25_retriever,
+                        query,
+                        k,
+                        session_id,
+                        persona_id,
+                        user_id,
                     )
                 except Exception as be:
                     bm25_error = be
                     logger.warning(f"BM25检索失败: {bm25_error}")
 
                 try:
-                    vector_results = await self.vector_retriever.search(
-                        query, k, session_id, persona_id
+                    vector_results = await self._search_with_optional_user_id(
+                        self.vector_retriever,
+                        query,
+                        k,
+                        session_id,
+                        persona_id,
+                        user_id,
                     )
                 except Exception as ve:
                     vector_error = ve
@@ -314,7 +371,12 @@ class HybridRetriever:
             last_access_time = metadata.get("last_access_time", 0)
             reference_time = max(create_time, last_access_time)
             days_old = max(0.0, (current_time - reference_time) / 86400)
-            recency_weight = math.exp(-self.decay_rate * days_old)
+
+            # 根据记忆类型调整衰减速率
+            memory_type = metadata.get("memory_type", "fact")
+            type_multiplier = MEMORY_TYPE_DECAY_MULTIPLIERS.get(memory_type, 1.0)
+            effective_decay = self.decay_rate * type_multiplier
+            recency_weight = math.exp(-effective_decay * days_old)
 
             # 归一化 RRF 分数
             rrf_normalized = result.rrf_score / max_rrf
@@ -326,10 +388,21 @@ class HybridRetriever:
                 + self.score_gamma * recency_weight
             )
 
+            # 近期记忆加权：在时间窗口内线性衰减加分
+            recent_boost = 0.0
+            if self.recent_boost_hours > 0 and self.recent_boost_factor > 0:
+                hours_old = days_old * 24
+                if hours_old < self.recent_boost_hours:
+                    recent_boost = self.recent_boost_factor * (
+                        1.0 - hours_old / self.recent_boost_hours
+                    )
+                    final_score += recent_boost
+
             score_breakdown = {
                 "rrf_normalized": round(rrf_normalized, 4),
                 "importance": round(importance, 4),
                 "recency_weight": round(recency_weight, 4),
+                "recent_boost": round(recent_boost, 4),
                 "days_old": round(days_old, 2),
                 "final_score": round(final_score, 4),
             }

@@ -302,6 +302,63 @@ async def test_memory_engine_dual_route_promotes_graph_hits(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_memory_engine_user_filter_applies_to_dual_route(tmp_path: Path):
+    doc_db_path = tmp_path / "memory_user_filter.db"
+    engine = MemoryEngine(
+        db_path=str(doc_db_path),
+        faiss_db=_FakeFaissDB(),
+        graph_vector_db=_FakeFaissDB(),
+        config={
+            "fallback_enabled": True,
+            "graph_memory_enabled": True,
+            "document_route_weight": 0.6,
+            "graph_route_weight": 0.4,
+        },
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="共同项目讨论",
+        session_id="test:private:session_A",
+        persona_id="persona_1",
+        importance=0.8,
+        metadata={
+            "user_ids": ["user-A"],
+            "primary_user_id": "user-A",
+            "topics": ["项目讨论"],
+            "participants": ["张三"],
+            "key_facts": ["共同项目需要周五前交付"],
+            "canonical_summary": "共同项目讨论",
+        },
+    )
+    await engine.add_memory(
+        content="共同项目讨论",
+        session_id="test:private:session_B",
+        persona_id="persona_1",
+        importance=0.8,
+        metadata={
+            "user_ids": ["user-B"],
+            "primary_user_id": "user-B",
+            "topics": ["项目讨论"],
+            "participants": ["李四"],
+            "key_facts": ["共同项目需要周五前交付"],
+            "canonical_summary": "共同项目讨论",
+        },
+    )
+
+    results = await engine.search_memories(
+        query="共同项目",
+        k=5,
+        persona_id="persona_1",
+        user_id="user-A",
+    )
+
+    assert results
+    assert all("user-A" in result.metadata.get("user_ids", []) for result in results)
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
     doc_db_path = tmp_path / "memory_rebuild.db"
     engine = MemoryEngine(

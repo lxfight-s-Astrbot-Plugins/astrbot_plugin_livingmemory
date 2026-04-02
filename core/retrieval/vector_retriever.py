@@ -119,6 +119,7 @@ class VectorRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[VectorResult]:
         """
         执行向量相似度搜索
@@ -128,6 +129,7 @@ class VectorRetriever:
             k: 返回的结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选，匹配 metadata.user_ids 列表)
 
         Returns:
             List[VectorResult]: 向量检索结果,按相似度降序排列
@@ -166,7 +168,9 @@ class VectorRetriever:
 
         # 执行向量检索
         # fetch_k设置为k*2以确保过滤后有足够的结果
-        fetch_k = k * 2 if metadata_filters else k
+        # user_id 使用 Python 侧 post-filter（FAISS 不支持列表成员匹配）
+        has_any_filter = bool(metadata_filters) or user_id is not None
+        fetch_k = k * 2 if has_any_filter else k
 
         faiss_results = await self.faiss_db.retrieve(
             query=processed_query,
@@ -182,6 +186,19 @@ class VectorRetriever:
             # FaissVecDB返回的Result对象包含similarity和data
             # data是包含id, text, metadata的字典
             doc_data = result.data
+            # user_id post-filter: 匹配 primary_user_id 或 user_ids 中任一
+            if user_id is not None:
+                doc_metadata = doc_data.get("metadata", {})
+                if isinstance(doc_metadata, str):
+                    import json
+                    try:
+                        doc_metadata = json.loads(doc_metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        doc_metadata = {}
+                primary = doc_metadata.get("primary_user_id")
+                stored_user_ids = doc_metadata.get("user_ids", [])
+                if primary != user_id and user_id not in stored_user_ids:
+                    continue
             results.append(
                 VectorResult(
                     doc_id=doc_data["id"],

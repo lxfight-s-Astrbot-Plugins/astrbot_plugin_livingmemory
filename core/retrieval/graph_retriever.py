@@ -54,14 +54,27 @@ class GraphRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[GraphResult]:
         """Run graph keyword and vector retrieval in parallel."""
         if not query or not query.strip():
             return []
 
         keyword_results, vector_results = await asyncio.gather(
-            self.keyword_retriever.search(query, k, session_id, persona_id),
-            self.vector_retriever.search(query, k, session_id, persona_id),
+            self.keyword_retriever.search(
+                query,
+                k,
+                session_id,
+                persona_id,
+                user_id=user_id,
+            ),
+            self.vector_retriever.search(
+                query,
+                k,
+                session_id,
+                persona_id,
+                user_id=user_id,
+            ),
         )
 
         if not keyword_results and not vector_results:

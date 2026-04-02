@@ -663,6 +663,8 @@ class MemoryProcessor:
             "canonical_summary": canonical_summary,
             "persona_summary": summary,
             "summary_schema_version": "v2",
+            # 记忆类型分类：fact/preference/intent/event
+            "memory_type": structured_data.get("memory_type", "fact"),
             # summary_quality 由 process_conversation 中的 SummaryValidator 覆盖写入
         }
 
