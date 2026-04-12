@@ -335,7 +335,7 @@ def format_memories_for_injection(memories: list) -> str:
                 content = mem.get("content", "内容缺失")
                 score = mem.get("score", 0.0)
                 metadata = mem.get("metadata", {})
-                timestamp = mem.get("timestamp", None)
+                timestamp = mem.get("timestamp") or metadata.get("create_time")
                 importance = metadata.get("importance", 0.5)
                 interaction_type = metadata.get("interaction_type", "未知")
             else:
@@ -349,6 +349,8 @@ def format_memories_for_injection(memories: list) -> str:
                     if isinstance(metadata_raw, str)
                     else metadata_raw
                 )
+                if not timestamp:
+                    timestamp = metadata.get("create_time")
                 importance = metadata.get("importance", 0.5)
                 interaction_type = metadata.get("interaction_type", "未知")
 
@@ -357,13 +359,14 @@ def format_memories_for_injection(memories: list) -> str:
             if timestamp:
                 try:
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
-                    time_str = f", 时间: {dt.strftime('%Y-%m-%d %H:%M')}"
+                    time_str = dt.strftime('%Y-%m-%d %H:%M')
                 except Exception:
                     pass
 
             # 构建格式化的记忆条目（展示content和元数据信息）
+            time_part = f", 记忆写入时间: {time_str}" if time_str else ""
             entry_parts = [
-                f"记忆 #{idx} (重要性: {importance:.2f}),发生时间:{time_str}"
+                f"记忆 #{idx} (重要性: {importance:.2f}){time_part}"
             ]
 
             # 添加元数据信息
