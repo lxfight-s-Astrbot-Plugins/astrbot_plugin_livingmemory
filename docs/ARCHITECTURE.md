@@ -15,6 +15,7 @@ astrbot_plugin_livingmemory/
 │   ├── plugin_initializer.py       # 插件初始化器
 │   ├── event_handler.py            # 事件处理器
 │   ├── command_handler.py          # 命令处理器
+│   ├── tools/                      # Agent/LLM 工具层
 │   │
 │   ├── base/                        # 基础组件层
 │   │   ├── __init__.py
@@ -54,6 +55,10 @@ astrbot_plugin_livingmemory/
 │   ├── utils/                       # 工具层
 │   │   ├── __init__.py
 │   │   └── stopwords_manager.py     # 停用词管理器
+│   │
+│   ├── tools/                       # Agent 工具层
+│   │   ├── __init__.py
+│   │   └── memory_search_tool.py    # 主动长期记忆回忆工具
 │   │
 │   └── prompts/                     # 提示词模板
 │       ├── private_chat_prompt.txt
@@ -191,7 +196,20 @@ astrbot_plugin_livingmemory/
 
 ---
 
-### 8. 存储层 (storage/)
+### 8. Agent 工具层 (tools/)
+
+**职责**: 为 AstrBot 的 tool loop / agent 模式提供可主动调用的业务工具。
+
+**组件**:
+- `memory_search_tool.py`: 主动长期记忆回忆工具，复用现有记忆检索引擎和过滤配置
+
+**依赖**: base/, managers/, utils/
+
+**被依赖**: main.py（注册到 AstrBot context）
+
+---
+
+### 9. 存储层 (storage/)
 
 **职责**: 数据持久化
 
@@ -205,13 +223,14 @@ astrbot_plugin_livingmemory/
 
 ---
 
-### 9. 顶层组件
+### 10. 顶层组件
 
 **组件**:
 - `plugin_initializer.py`: 插件初始化
 - `event_handler.py`: 事件处理
 - `command_handler.py`: 命令处理
 - `main.py`: 插件注册
+- `tools/`: Agent 工具注册入口的实现来源
 
 **依赖**: 所有下层组件
 
@@ -224,7 +243,7 @@ astrbot_plugin_livingmemory/
 ```
 main.py
   ↓
-plugin_initializer.py, event_handler.py, command_handler.py
+plugin_initializer.py, event_handler.py, command_handler.py, tools/
   ↓
 managers/ (memory_engine, conversation_manager)
   ↓

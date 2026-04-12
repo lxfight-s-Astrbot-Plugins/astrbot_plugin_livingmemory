@@ -93,6 +93,12 @@
         "type": "int",
         "default": 5
       },
+      "max_k": {
+        "description": "主动检索最大数量",
+        "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数。用于限制工具单次召回规模，建议 5-10。",
+        "type": "int",
+        "default": 10
+      },
       "importance_weight": {
         "description": "重要性权重",
         "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。",

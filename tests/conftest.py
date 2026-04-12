@@ -17,6 +17,12 @@ plugins_dir_str = str(PLUGINS_DIR)
 if plugins_dir_str not in sys.path:
     sys.path.insert(0, plugins_dir_str)
 
+# Ensure AstrBot package is importable for tests that import plugin main module.
+ASTRBOT_ROOT = Path(__file__).resolve().parents[4]
+astrbot_root_str = str(ASTRBOT_ROOT)
+if astrbot_root_str not in sys.path:
+    sys.path.insert(0, astrbot_root_str)
+
 
 @pytest.fixture(scope="session")
 def event_loop() -> Generator:

@@ -37,6 +37,9 @@ class RecallEngineConfig(BaseModel):
     """回忆引擎配置"""
 
     top_k: int = Field(default=5, ge=1, le=50, description="返回记忆数量")
+    max_k: int = Field(
+        default=10, ge=1, le=50, description="Agent 主动检索时允许的最大返回数量"
+    )
     importance_weight: float = Field(
         default=1.0, ge=0.0, le=10.0, description="重要性权重"
     )
