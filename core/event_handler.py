@@ -211,6 +211,7 @@ class EventHandler:
                     # 格式化并注入记忆
                     memory_list = [
                         {
+                            "id": getattr(mem, "doc_id", None),
                             "content": mem.content,
                             "score": mem.final_score,
                             "metadata": mem.metadata,

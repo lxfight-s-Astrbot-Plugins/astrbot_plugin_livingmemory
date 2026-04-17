@@ -475,12 +475,18 @@ def format_memories_for_fake_tool_call(
     serialized_results = []
     for mem in memories:
         if isinstance(mem, dict):
+            memory_id = mem.get("id", mem.get("doc_id"))
             content = mem.get("content", "")
             score = mem.get("score", 0.0)
             metadata = mem.get("metadata", {})
         else:
+            memory_id = getattr(mem, "doc_id", None)
+            if not isinstance(memory_id, (str, int)):
+                memory_id = getattr(mem, "id", None)
+                if not isinstance(memory_id, (str, int)):
+                    memory_id = None
             content = getattr(mem, "content", "")
-            score = getattr(mem, "score", 0.0)
+            score = getattr(mem, "score", getattr(mem, "final_score", 0.0))
             metadata_raw = getattr(mem, "metadata", {})
             metadata = (
                 safe_parse_metadata(metadata_raw)
@@ -490,6 +496,7 @@ def format_memories_for_fake_tool_call(
 
         serialized_results.append(
             {
+                "id": memory_id,
                 "content": content,
                 "score": round(score, 4) if isinstance(score, float) else score,
                 "importance": metadata.get("importance", 0.5),
