@@ -569,7 +569,13 @@ async def test_format_memories_for_fake_tool_call():
         },
     ]
 
-    result = format_memories_for_fake_tool_call(memories, query="Python", k=5)
+    result = format_memories_for_fake_tool_call(
+        memories,
+        query="Python",
+        k=5,
+        session_filtered=True,
+        persona_filtered=False,
+    )
 
     # 应返回 2 条消息
     assert len(result) == 2
@@ -591,6 +597,8 @@ async def test_format_memories_for_fake_tool_call():
     assert tool_msg["role"] == "tool"
     assert tool_msg["tool_call_id"] == tc["id"]
     assert "Python" in tool_msg["content"]
+    assert '"session_filtered": true' in tool_msg["content"]
+    assert '"persona_filtered": false' in tool_msg["content"]
     assert '"id": 101' in tool_msg["content"]
     assert '"id": 202' in tool_msg["content"]
     assert "用户喜欢Python编程" in tool_msg["content"]
@@ -667,6 +675,8 @@ async def test_handle_memory_recall_injection_fake_tool_call(
     # 验证 tool 消息
     assert tool_msg["role"] == "tool"
     assert tool_msg["tool_call_id"] == assistant_msg["tool_calls"][0]["id"]
+    assert '"session_filtered": true' in tool_msg["content"]
+    assert '"persona_filtered": true' in tool_msg["content"]
     assert '"id": 99' in tool_msg["content"]
     assert "用户喜欢吃火锅" in tool_msg["content"]
 

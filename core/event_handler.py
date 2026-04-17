@@ -252,6 +252,8 @@ class EventHandler:
                             k=self.config_manager.get(
                                 "recall_engine.top_k", 5
                             ),
+                            session_filtered=use_session_filtering,
+                            persona_filtered=use_persona_filtering,
                         )
                         if fake_messages:
                             req.contexts.extend(fake_messages)
