@@ -48,7 +48,7 @@ class GraphKeywordRetriever:
         if not tokens:
             return []
 
-        escaped_tokens = [f'"{token.replace('"', '""')}"' for token in tokens]
+        escaped_tokens = ['"' + token.replace('"', '""') + '"' for token in tokens]
         fts_query = " OR ".join(escaped_tokens)
 
         direct_hits = await self.graph_store.search_entries_by_bm25(
