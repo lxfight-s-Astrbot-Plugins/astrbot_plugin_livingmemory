@@ -533,3 +533,229 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
     assert session_metadata.get("pending_summary") is None
     # add_memory 不应被调用（放弃了该范围）
     memory_engine.add_memory.assert_not_awaited()
+
+
+
+# ==================== fake_tool_call 注入策略测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_format_memories_for_fake_tool_call():
+    """format_memories_for_fake_tool_call 应生成正确的伪造工具调用消息对。"""
+    from astrbot_plugin_livingmemory.core.utils import (
+        format_memories_for_fake_tool_call,
+    )
+
+    memories = [
+        {
+            "id": 101,
+            "content": "用户喜欢Python编程",
+            "score": 0.85,
+            "metadata": {
+                "importance": 0.9,
+                "session_id": "s1",
+                "persona_id": "p1",
+                "create_time": 1700000000,
+                "last_access_time": 1700001000,
+            },
+            "timestamp": 1700000000,
+        },
+        {
+            "doc_id": 202,
+            "content": "用户讨论过机器学习项目",
+            "score": 0.72,
+            "metadata": {"importance": 0.7},
+            "timestamp": None,
+        },
+    ]
+
+    result = format_memories_for_fake_tool_call(
+        memories,
+        query="Python",
+        k=5,
+        session_filtered=True,
+        persona_filtered=False,
+    )
+
+    # 应返回 2 条消息
+    assert len(result) == 2
+
+    assistant_msg = result[0]
+    tool_msg = result[1]
+
+    # 验证 assistant 消息格式
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] is None
+    assert len(assistant_msg["tool_calls"]) == 1
+
+    tc = assistant_msg["tool_calls"][0]
+    assert tc["type"] == "function"
+    assert tc["function"]["name"] == "recall_long_term_memory"
+    assert tc["id"].startswith("fake_recall_")
+
+    # 验证 tool 消息格式
+    assert tool_msg["role"] == "tool"
+    assert tool_msg["tool_call_id"] == tc["id"]
+    assert "Python" in tool_msg["content"]
+    assert '"session_filtered": true' in tool_msg["content"]
+    assert '"persona_filtered": false' in tool_msg["content"]
+    assert '"id": 101' in tool_msg["content"]
+    assert '"id": 202' in tool_msg["content"]
+    assert "用户喜欢Python编程" in tool_msg["content"]
+    assert "用户讨论过机器学习项目" in tool_msg["content"]
+
+
+@pytest.mark.asyncio
+async def test_format_memories_for_fake_tool_call_empty():
+    """空记忆列表应返回空列表。"""
+    from astrbot_plugin_livingmemory.core.utils import (
+        format_memories_for_fake_tool_call,
+    )
+
+    result = format_memories_for_fake_tool_call([], query="test", k=5)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_injection_fake_tool_call(
+    handler, memory_engine
+):
+    """injection_method=fake_tool_call 时，记忆应以伪造工具调用的形式注入到 contexts。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "fake_tool_call",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    h.conversation_manager.add_message_from_event = AsyncMock()
+
+    recalled = Mock(
+        content="用户喜欢吃火锅",
+        final_score=0.88,
+        metadata={"importance": 0.9, "create_time": 1700000000},
+    )
+    recalled.doc_id = 99
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    req = _make_req("今天吃什么")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    # contexts 应该新增了 2 条消息（assistant + tool）
+    assert len(req.contexts) == 2
+
+    assistant_msg = req.contexts[0]
+    tool_msg = req.contexts[1]
+
+    # 验证 assistant 消息
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] is None
+    assert len(assistant_msg["tool_calls"]) == 1
+    assert assistant_msg["tool_calls"][0]["function"]["name"] == "recall_long_term_memory"
+
+    # 验证 tool 消息
+    assert tool_msg["role"] == "tool"
+    assert tool_msg["tool_call_id"] == assistant_msg["tool_calls"][0]["id"]
+    assert '"session_filtered": true' in tool_msg["content"]
+    assert '"persona_filtered": true' in tool_msg["content"]
+    assert '"id": 99' in tool_msg["content"]
+    assert "用户喜欢吃火锅" in tool_msg["content"]
+
+    # prompt 和 system_prompt 不应被修改
+    assert req.prompt == "今天吃什么"
+    assert req.system_prompt == ""
+
+
+@pytest.mark.asyncio
+async def test_remove_fake_tool_call_from_context(handler):
+    """_remove_fake_tool_call_from_context 应正确移除伪造消息对，保留正常消息。"""
+    req = _make_req("hello")
+    req.contexts = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好啊"},
+        # 伪造的工具调用消息对
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "fake_recall_abc123def456",
+                    "type": "function",
+                    "function": {
+                        "name": "recall_long_term_memory",
+                        "arguments": '{"query": "test", "k": 5}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "fake_recall_abc123def456",
+            "content": '{"query": "test", "count": 1, "results": []}',
+        },
+        {"role": "user", "content": "最近怎么样"},
+    ]
+
+    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+
+    # 应删除 2 条伪造消息
+    assert removed == 2
+
+    # 应保留 3 条正常消息
+    assert len(req.contexts) == 3
+    assert req.contexts[0]["content"] == "你好"
+    assert req.contexts[1]["content"] == "你好啊"
+    assert req.contexts[2]["content"] == "最近怎么样"
+
+
+@pytest.mark.asyncio
+async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
+    """_remove_fake_tool_call_from_context 不应误删真实的工具调用消息。"""
+    req = _make_req("hello")
+    req.contexts = [
+        # 真实的工具调用消息对（ID 不以 fake_recall_ 开头）
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_real_abc123",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"city": "上海"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_real_abc123",
+            "content": '{"temperature": 25}',
+        },
+    ]
+
+    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+
+    # 不应删除任何消息
+    assert removed == 0
+    assert len(req.contexts) == 2

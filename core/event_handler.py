@@ -19,6 +19,7 @@ from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
+    format_memories_for_fake_tool_call,
     format_memories_for_injection,
     get_persona_id,
 )
@@ -152,6 +153,9 @@ class EventHandler:
                     removed = self._remove_injected_memories_from_context(
                         req, session_id
                     )
+                    removed += self._remove_fake_tool_call_from_context(
+                        req, session_id
+                    )
                     if removed > 0:
                         logger.info(
                             f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
@@ -207,6 +211,7 @@ class EventHandler:
                     # 格式化并注入记忆
                     memory_list = [
                         {
+                            "id": getattr(mem, "doc_id", None),
                             "content": mem.content,
                             "score": mem.final_score,
                             "metadata": mem.metadata,
@@ -240,6 +245,22 @@ class EventHandler:
                         logger.info(
                             f"[{session_id}] 成功向用户消息后注入 {len(recalled_memories)} 条记忆"
                         )
+                    elif injection_method == "fake_tool_call":
+                        fake_messages = format_memories_for_fake_tool_call(
+                            memory_list,
+                            query=actual_query,
+                            k=self.config_manager.get(
+                                "recall_engine.top_k", 5
+                            ),
+                            session_filtered=use_session_filtering,
+                            persona_filtered=use_persona_filtering,
+                        )
+                        if fake_messages:
+                            req.contexts.extend(fake_messages)
+                            logger.info(
+                                f"[{session_id}] 成功以伪造工具调用方式注入 "
+                                f"{len(recalled_memories)} 条记忆"
+                            )
                     else:
                         # system_prompt 注入：记忆追加到末尾，确保人格提示词在前
                         req.system_prompt = (
@@ -865,6 +886,73 @@ class EventHandler:
             logger.error(f"[{session_id}] 删除注入记忆时发生错误: {e}", exc_info=True)
 
         return removed_count
+
+    def _remove_fake_tool_call_from_context(
+        self, req: ProviderRequest, session_id: str
+    ) -> int:
+        """从对话历史中删除伪造的工具调用消息对。
+
+        识别并移除以 FAKE_TOOL_CALL_ID_PREFIX 为 ID 前缀的
+        assistant(tool_calls) + tool(result) 消息对。
+
+        Args:
+            req: LLM 请求对象。
+            session_id: 会话 ID，用于日志。
+
+        Returns:
+            删除的消息数量。
+        """
+        from .base.constants import FAKE_TOOL_CALL_ID_PREFIX
+
+        if not hasattr(req, "contexts") or not req.contexts:
+            return 0
+
+        removed = 0
+        indices_to_remove: set[int] = set()
+        fake_call_ids: set[str] = set()
+
+        try:
+            # 第一轮扫描：找到所有伪造的 assistant 消息和对应的 call_id
+            for i, msg in enumerate(req.contexts):
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    for tc in msg["tool_calls"]:
+                        tc_id = (
+                            tc.get("id", "")
+                            if isinstance(tc, dict)
+                            else getattr(tc, "id", "")
+                        )
+                        if tc_id.startswith(FAKE_TOOL_CALL_ID_PREFIX):
+                            fake_call_ids.add(tc_id)
+                            indices_to_remove.add(i)
+
+            # 第二轮扫描：找到对应的 tool 消息
+            for i, msg in enumerate(req.contexts):
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") == "tool":
+                    tc_id = msg.get("tool_call_id", "")
+                    if tc_id in fake_call_ids:
+                        indices_to_remove.add(i)
+
+            # 从后往前删除，避免索引偏移
+            for i in sorted(indices_to_remove, reverse=True):
+                req.contexts.pop(i)
+                removed += 1
+
+            if removed > 0:
+                logger.info(
+                    f"[{session_id}] 清理了 {removed} 条伪造工具调用消息"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"[{session_id}] 清理伪造工具调用时发生错误: {e}",
+                exc_info=True,
+            )
+
+        return removed
 
     async def _build_dedup_key(
         self, event: AstrMessageEvent, session_id: str, content: str
