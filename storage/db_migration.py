@@ -4,7 +4,7 @@
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -134,7 +134,7 @@ class DBMigration:
                     INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
                     VALUES (?, ?, ?, ?)
                 """,
-                    (version, description, datetime.utcnow().isoformat(), duration),
+                    (version, description, datetime.now(timezone.utc).isoformat(), duration),
                 )
                 await db.commit()
                 logger.info(f"数据库版本已更新至: {version}")
@@ -323,7 +323,7 @@ class DBMigration:
                     INSERT OR REPLACE INTO migration_status (key, value, updated_at)
                     VALUES (?, ?, ?)
                 """,
-                    ("needs_index_rebuild", "true", datetime.utcnow().isoformat()),
+                    ("needs_index_rebuild", "true", datetime.now(timezone.utc).isoformat()),
                 )
                 await db.execute(
                     """
@@ -333,7 +333,7 @@ class DBMigration:
                     (
                         "pending_documents_count",
                         str(total_docs),
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                     ),
                 )
                 await db.commit()

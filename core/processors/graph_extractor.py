@@ -98,6 +98,10 @@ class GraphExtractor:
                 "graph_confidence": confidence,
                 "source_window": metadata.get("source_window"),
             }
+            if "user_ids" in metadata:
+                entry_metadata["user_ids"] = metadata.get("user_ids")
+            if "primary_user_id" in metadata:
+                entry_metadata["primary_user_id"] = metadata.get("primary_user_id")
             graph.entries.append(
                 GraphEntry(
                     entry_key=entry_key,

@@ -169,6 +169,9 @@ class EventHandler:
                 use_session_filtering = filtering_config.get(
                     "use_session_filtering", True
                 )
+                use_user_filtering = filtering_config.get(
+                    "use_user_filtering", False
+                )
 
                 # 获取 persona_id，与 AstrBot 主流程保持一致的三级优先级：
                 # 1. session_service_config（最高）
@@ -180,6 +183,12 @@ class EventHandler:
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
+
+                # 用户维度过滤：当启用时替代会话维度做召回边界控制
+                recall_user_id = None
+                if use_user_filtering:
+                    recall_session_id = None
+                    recall_user_id = event.get_sender_id()
 
                 # 使用原始用户输入作为召回关键字
                 # event.message_str 是平台层解析的原始用户消息，不包含：
@@ -201,6 +210,7 @@ class EventHandler:
                     k=self.config_manager.get("recall_engine.top_k", 5),
                     session_id=recall_session_id,
                     persona_id=recall_persona_id,
+                    user_id=recall_user_id,
                 )
 
                 if recalled_memories:
@@ -631,6 +641,34 @@ class EventHandler:
                         "end_index": end_index,
                         "message_count": end_index - start_index,
                     }
+
+                    # 提取参与者的 user_id 列表，用于按用户召回记忆。
+                    # 过滤 bot/assistant 消息，避免将机器人自身混入用户参与者集合。
+                    user_ids = list({
+                        msg.sender_id
+                        for msg in history_messages
+                        if hasattr(msg, "sender_id")
+                        and msg.sender_id
+                        and getattr(msg, "role", "") != "assistant"
+                        and not getattr(msg, "metadata", {}).get("is_bot_message", False)
+                    })
+                    if user_ids:
+                        metadata["user_ids"] = user_ids
+
+                    # primary_user_id 仅在私聊时设置（一对一，语义明确）
+                    # 群聊不设置 primary_user_id，因为无法仅从发言顺序
+                    # 判断"记忆关于谁"，检索层会自动 fallback 到 user_ids
+                    if not is_group_chat:
+                        non_bot_ids = [
+                            msg.sender_id
+                            for msg in history_messages
+                            if hasattr(msg, "sender_id")
+                            and msg.sender_id
+                            and getattr(msg, "role", "") != "assistant"
+                            and not getattr(msg, "metadata", {}).get("is_bot_message", False)
+                        ]
+                        if non_bot_ids:
+                            metadata["primary_user_id"] = non_bot_ids[0]
 
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "

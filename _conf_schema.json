@@ -128,6 +128,18 @@
         "hint": "注入新记忆前自动删除历史中已注入的旧记忆片段，避免重复累积和 token 浪费。建议开启。",
         "type": "bool",
         "default": true
+      },
+      "recent_boost_hours": {
+        "description": "近期记忆加权窗口（小时）",
+        "hint": "在指定小时数内创建的记忆会获得额外的分数加成。设为 0 可禁用近期加权。",
+        "type": "int",
+        "default": 48
+      },
+      "recent_boost_factor": {
+        "description": "近期记忆加权系数",
+        "hint": "近期记忆的额外加分幅度。0.15 表示最多增加 15% 的分数。",
+        "type": "float",
+        "default": 0.15
       }
     }
   },
@@ -172,6 +184,12 @@
         "hint": "开启后每个会话的记忆独立存储，不同会话之间不共享记忆。",
         "type": "bool",
         "default": true
+      },
+      "use_user_filtering": {
+        "description": "按用户隔离记忆",
+        "hint": "开启后以用户维度替代会话维度做召回边界控制，同一用户在不同会话中的长期记忆可自然复用。默认关闭，需配合记忆写入中的用户元数据使用。",
+        "type": "bool",
+        "default": false
       }
     }
   },

@@ -95,6 +95,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             filtering_config = self.config_manager.filtering_settings
             use_persona_filtering = filtering_config.get("use_persona_filtering", True)
             use_session_filtering = filtering_config.get("use_session_filtering", True)
+            use_user_filtering = filtering_config.get("use_user_filtering", False)
 
             session_id = event.unified_msg_origin
             persona_id = (
@@ -105,6 +106,12 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
 
             recall_session_id = session_id if use_session_filtering else None
             recall_persona_id = persona_id if use_persona_filtering else None
+
+            # 用户维度过滤
+            recall_user_id = None
+            if use_user_filtering:
+                recall_session_id = None
+                recall_user_id = event.get_sender_id()
 
             default_k = int(self.config_manager.get("recall_engine.top_k", 5))
             max_k = int(self.config_manager.get("recall_engine.max_k", 10))
@@ -121,6 +128,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                 k=limited_k,
                 session_id=recall_session_id,
                 persona_id=recall_persona_id,
+                user_id=recall_user_id,
             )
 
             serialized_results = []
@@ -145,6 +153,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "applied_filters": {
                         "session_filtered": use_session_filtering,
                         "persona_filtered": use_persona_filtering,
+                        "user_filtered": use_user_filtering,
                     },
                     "count": len(serialized_results),
                     "results": serialized_results,
