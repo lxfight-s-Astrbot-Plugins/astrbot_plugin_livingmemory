@@ -17,7 +17,10 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLUGINS_DIR = Path(__file__).resolve().parents[2]
-ASTRBOT_ROOT = Path(__file__).resolve().parents[4]
+
+# ASTRBOT_ROOT may not exist in standalone development; use graceful fallback
+_p4 = Path(__file__).resolve()
+ASTRBOT_ROOT = _p4.parents[4] if len(_p4.parents) > 4 else _p4.parents[-1]
 
 for candidate in (PROJECT_ROOT, PLUGINS_DIR, ASTRBOT_ROOT):
     candidate_str = str(candidate)

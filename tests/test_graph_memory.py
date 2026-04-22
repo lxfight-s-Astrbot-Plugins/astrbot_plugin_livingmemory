@@ -335,3 +335,47 @@ async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
     stats = await engine.get_statistics()
     assert stats.get("graph_entries", 0) >= 1
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_retriever_user_filter_matches_graph_entry_metadata(tmp_path: Path):
+    doc_db_path = tmp_path / "graph_user_filter.db"
+    engine = MemoryEngine(
+        db_path=str(doc_db_path),
+        faiss_db=_FakeFaissDB(),
+        graph_vector_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "graph_memory_enabled": True},
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="张三确认项目里程碑安排",
+        session_id="test:private:s1",
+        persona_id="persona_1",
+        importance=0.8,
+        metadata={
+            "topics": ["项目里程碑"],
+            "participants": ["张三"],
+            "key_facts": ["下周一验收"],
+            "canonical_summary": "张三确认项目里程碑安排",
+            "user_ids": ["user-A", "user-B"],
+            "primary_user_id": "user-A",
+        },
+    )
+
+    results = await engine.search_memories(
+        query="里程碑",
+        k=5,
+        session_id=None,
+        persona_id="persona_1",
+        user_id="user-A",
+    )
+
+    assert results, "graph route documents should remain visible under matching user filter"
+    assert all(
+        result.metadata.get("primary_user_id") == "user-A"
+        or "user-A" in result.metadata.get("user_ids", [])
+        for result in results
+    )
+
+    await engine.close()

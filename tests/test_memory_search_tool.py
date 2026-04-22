@@ -61,12 +61,14 @@ async def test_memory_search_tool_uses_filtering_settings(memory_engine, astr_co
     assert result["applied_filters"] == {
         "session_filtered": True,
         "persona_filtered": True,
+        "user_filtered": False,
     }
     memory_engine.search_memories.assert_awaited_once_with(
         query="喜欢的游戏",
         k=6,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        user_id=None,
     )
 
 
@@ -99,6 +101,7 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
         k=5,
         session_id=None,
         persona_id=None,
+        user_id=None,
     )
     get_persona.assert_not_awaited()
 
@@ -208,6 +211,7 @@ async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context
         k=4,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        user_id=None,
     )
 
 
@@ -267,6 +271,7 @@ async def test_memory_search_tool_falls_back_to_default_k_for_invalid_input(
         k=3,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        user_id=None,
     )
 
 

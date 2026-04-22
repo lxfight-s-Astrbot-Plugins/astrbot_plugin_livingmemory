@@ -96,7 +96,7 @@ def test_rrf_fusion_orders_combined_results():
 
 
 class _DummyBM25:
-    async def search(self, query, k, session_id=None, persona_id=None):
+    async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
         now = time.time()
         return [
             RRFBM25Result(
@@ -115,7 +115,7 @@ class _DummyBM25:
 
 
 class _DummyVector:
-    async def search(self, query, k, session_id=None, persona_id=None):
+    async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
         now = time.time()
         return [
             VectorResult(
@@ -183,7 +183,7 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
     now = time.time()
 
     class _OldImportantBM25:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 RRFBM25Result(
                     doc_id=1,
@@ -208,7 +208,7 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
             ]
 
     class _OldImportantVector:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 VectorResult(
                     doc_id=1,
@@ -271,7 +271,7 @@ async def test_last_access_time_slows_decay():
     recent_access = now - 86400 * 1  # 1天前访问
 
     class _AccessedBM25:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 RRFBM25Result(
                     doc_id=10,
@@ -296,7 +296,7 @@ async def test_last_access_time_slows_decay():
             ]
 
     class _AccessedVector:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 VectorResult(
                     doc_id=10,
@@ -359,7 +359,7 @@ async def test_score_breakdown_fields_present():
     results = await retriever.search("query", k=2)
     for r in results:
         assert r.score_breakdown is not None
-        for field in ("rrf_normalized", "importance", "recency_weight", "days_old", "final_score"):
+        for field in ("rrf_normalized", "importance", "recency_weight", "days_old", "recent_boost", "final_score"):
             assert field in r.score_breakdown, f"score_breakdown 缺少字段: {field}"
 
 
@@ -372,7 +372,7 @@ async def test_mmr_dedup_reduces_semantic_duplicates():
     now = time.time()
 
     class _DuplicateBM25:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 RRFBM25Result(
                     doc_id=i,
@@ -384,7 +384,7 @@ async def test_mmr_dedup_reduces_semantic_duplicates():
             ]
 
     class _DuplicateVector:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 VectorResult(
                     doc_id=i,
@@ -536,7 +536,7 @@ async def test_hybrid_retriever_metadata_missing_fields_no_crash():
     now = time.time()
 
     class _MinimalBM25:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 RRFBM25Result(
                     doc_id=1,
@@ -547,7 +547,7 @@ async def test_hybrid_retriever_metadata_missing_fields_no_crash():
             ]
 
     class _MinimalVector:
-        async def search(self, query, k, session_id=None, persona_id=None):
+        async def search(self, query, k, session_id=None, persona_id=None, user_id=None):
             return [
                 VectorResult(
                     doc_id=1,
