@@ -341,6 +341,55 @@ async def test_memory_search_tool_passthrough_user_id():
 
 
 @pytest.mark.asyncio
+async def test_memory_search_tool_explicit_user_id_overrides_current_sender():
+    """显式 user_id 应优先于当前发言者 sender_id。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.tools.memory_search_tool import MemorySearchTool
+
+    config_manager = ConfigManager({
+        "filtering_settings": {
+            "use_user_filtering": True,
+            "use_session_filtering": True,
+            "use_persona_filtering": True,
+        },
+        "recall_engine": {"top_k": 5, "max_k": 10},
+    })
+
+    captured_kwargs = {}
+    memory_engine = Mock()
+
+    async def _capture_search(**kwargs):
+        captured_kwargs.update(kwargs)
+        return []
+
+    memory_engine.search_memories = AsyncMock(side_effect=_capture_search)
+
+    mock_context_wrapper = Mock()
+    mock_inner_context = Mock()
+    mock_event = Mock()
+    mock_event.unified_msg_origin = "test:private:session-1"
+    mock_event.get_sender_id = Mock(return_value="user-42")
+    mock_inner_context.event = mock_event
+    mock_context_wrapper.context = mock_inner_context
+
+    tool = MemorySearchTool(
+        context=Mock(),
+        config_manager=config_manager,
+        memory_engine=memory_engine,
+    )
+
+    await tool.call(
+        mock_context_wrapper,
+        query="测试查询",
+        k=5,
+        user_id="user-99",
+    )
+
+    assert captured_kwargs.get("user_id") == "user-99"
+    assert captured_kwargs.get("session_id") is None
+
+
+@pytest.mark.asyncio
 async def test_memory_search_tool_no_user_filtering():
     """当 use_user_filtering=false 时，MemorySearchTool 不应传递 user_id。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
@@ -527,6 +576,49 @@ async def test_vector_retriever_expands_fetch_k_when_user_filtering_only():
 
     assert faiss_db.calls[0]["fetch_k"] == 10
     assert faiss_db.calls[0]["metadata_filters"] is None
+
+
+@pytest.mark.asyncio
+async def test_vector_retriever_parses_string_metadata_for_user_filtering():
+    class _FakeResult:
+        def __init__(self, similarity, data):
+            self.similarity = similarity
+            self.data = data
+
+    class _FakeFaissDB:
+        async def retrieve(self, query, k, fetch_k, rerank, metadata_filters=None):
+            del query, k, fetch_k, rerank, metadata_filters
+            return [
+                _FakeResult(
+                    0.93,
+                    {
+                        "id": 7,
+                        "text": "和 user-A 有关的记忆",
+                        "metadata": json.dumps(
+                            {
+                                "primary_user_id": "user-A",
+                                "user_ids": ["user-A", "user-B"],
+                                "importance": 0.8,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                )
+            ]
+
+    retriever = VectorRetriever(_FakeFaissDB(), text_processor=None, config={})
+
+    results = await retriever.search(
+        query="测试查询",
+        k=5,
+        session_id=None,
+        persona_id=None,
+        user_id="user-A",
+    )
+
+    assert len(results) == 1
+    assert results[0].doc_id == 7
+    assert results[0].metadata["primary_user_id"] == "user-A"
 
 
 @pytest.mark.asyncio

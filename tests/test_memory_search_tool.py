@@ -339,6 +339,87 @@ async def test_memory_search_tool_hides_internal_exception_details(
 
 
 @pytest.mark.asyncio
+async def test_memory_search_tool_supports_explicit_user_id(memory_engine, astr_context):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(
+            {
+                "filtering_settings": {
+                    "use_session_filtering": True,
+                    "use_persona_filtering": True,
+                    "use_user_filtering": False,
+                }
+            }
+        ),
+        memory_engine=memory_engine,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        raw_result = await tool.call(
+            _make_run_context(),
+            query="偏好",
+            user_id="user-123",
+        )
+
+    result = json.loads(raw_result)
+    assert result["applied_filters"] == {
+        "session_filtered": True,
+        "persona_filtered": True,
+        "user_filtered": True,
+    }
+    assert result["target_user_id"] == "user-123"
+    memory_engine.search_memories.assert_awaited_once_with(
+        query="偏好",
+        k=5,
+        session_id=None,
+        persona_id="persona_a",
+        user_id="user-123",
+    )
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_explicit_user_id_overrides_sender_filter(
+    memory_engine, astr_context
+):
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(
+            {
+                "filtering_settings": {
+                    "use_session_filtering": True,
+                    "use_persona_filtering": True,
+                    "use_user_filtering": True,
+                }
+            }
+        ),
+        memory_engine=memory_engine,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(
+            _make_run_context(),
+            query="约定",
+            user_id="user-target",
+        )
+
+    memory_engine.search_memories.assert_awaited_once_with(
+        query="约定",
+        k=5,
+        session_id=None,
+        persona_id="persona_a",
+        user_id="user-target",
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_search_tool_propagates_cancellation(memory_engine, astr_context):
     tool = MemorySearchTool(
         context=astr_context,

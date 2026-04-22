@@ -53,6 +53,10 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "description": "Maximum number of memory items to return for one recall. Keep this small unless more evidence is needed.",
                     "default": 5,
                 },
+                "user_id": {
+                    "type": "string",
+                    "description": "Optional target user ID. When provided, recall memories associated with this user instead of relying on the current speaker.",
+                },
             },
             "required": ["query"],
         }
@@ -63,9 +67,11 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
         context: ContextWrapper[AstrAgentContext],
         query: str,
         k: int = 5,
+        user_id: str | None = None,
     ) -> ToolExecResult:
         """执行长期记忆回忆。"""
         cleaned_query = (query or "").strip()
+        cleaned_user_id = (user_id or "").strip() or None
         if not cleaned_query:
             return _json_result(
                 {
@@ -107,9 +113,12 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             recall_session_id = session_id if use_session_filtering else None
             recall_persona_id = persona_id if use_persona_filtering else None
 
-            # 用户维度过滤
+            # 用户维度过滤：显式 user_id 优先，其次才回退到当前发言者。
             recall_user_id = None
-            if use_user_filtering:
+            if cleaned_user_id is not None:
+                recall_session_id = None
+                recall_user_id = cleaned_user_id
+            elif use_user_filtering:
                 recall_session_id = None
                 recall_user_id = event.get_sender_id()
 
@@ -153,8 +162,9 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "applied_filters": {
                         "session_filtered": use_session_filtering,
                         "persona_filtered": use_persona_filtering,
-                        "user_filtered": use_user_filtering,
+                        "user_filtered": recall_user_id is not None,
                     },
+                    "target_user_id": recall_user_id,
                     "count": len(serialized_results),
                     "results": serialized_results,
                 }

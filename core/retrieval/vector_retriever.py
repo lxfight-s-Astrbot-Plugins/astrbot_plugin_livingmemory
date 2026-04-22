@@ -9,15 +9,17 @@ from typing import Any
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
 from ..processors.text_processor import TextProcessor
+from ..utils import safe_parse_metadata
 
 
-def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
+def _matches_user_id(metadata: Any, user_id: str) -> bool:
     """Check if a memory's metadata matches the given user_id.
 
     Matches if:
     - metadata.primary_user_id == user_id
     - OR user_id is in metadata.user_ids (list)
     """
+    metadata = safe_parse_metadata(metadata)
     if metadata.get("primary_user_id") == user_id:
         return True
     user_ids = metadata.get("user_ids")
@@ -200,7 +202,7 @@ class VectorRetriever:
             # FaissVecDB返回的Result对象包含similarity和data
             # data是包含id, text, metadata的字典
             doc_data = result.data
-            metadata = doc_data["metadata"]
+            metadata = safe_parse_metadata(doc_data.get("metadata"))
 
             # user_id 后过滤（FAISS metadata_filters 不支持 OR 逻辑，需 Python 层过滤）
             if user_id is not None:
