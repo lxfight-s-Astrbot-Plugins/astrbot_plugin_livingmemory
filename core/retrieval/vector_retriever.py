@@ -11,6 +11,21 @@ from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from ..processors.text_processor import TextProcessor
 
 
+def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
+    """Check if a memory's metadata matches the given user_id.
+
+    Matches if:
+    - metadata.primary_user_id == user_id
+    - OR user_id is in metadata.user_ids (list)
+    """
+    if metadata.get("primary_user_id") == user_id:
+        return True
+    user_ids = metadata.get("user_ids")
+    if isinstance(user_ids, list) and user_id in user_ids:
+        return True
+    return False
+
+
 @dataclass
 class VectorResult:
     """向量检索结果"""
@@ -119,6 +134,7 @@ class VectorRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[VectorResult]:
         """
         执行向量相似度搜索
@@ -128,6 +144,7 @@ class VectorRetriever:
             k: 返回的结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选,匹配primary_user_id或user_ids)
 
         Returns:
             List[VectorResult]: 向量检索结果,按相似度降序排列
@@ -165,8 +182,9 @@ class VectorRetriever:
             metadata_filters["persona_id"] = persona_id
 
         # 执行向量检索
-        # fetch_k设置为k*2以确保过滤后有足够的结果
-        fetch_k = k * 2 if metadata_filters else k
+        # session/persona 过滤可走底层 metadata_filters，user_id 只能在 Python 侧后过滤，
+        # 因此两类过滤都需要扩大预取量，避免过滤后结果不足。
+        fetch_k = k * 2 if metadata_filters or user_id is not None else k
 
         faiss_results = await self.faiss_db.retrieve(
             query=processed_query,
@@ -182,12 +200,19 @@ class VectorRetriever:
             # FaissVecDB返回的Result对象包含similarity和data
             # data是包含id, text, metadata的字典
             doc_data = result.data
+            metadata = doc_data["metadata"]
+
+            # user_id 后过滤（FAISS metadata_filters 不支持 OR 逻辑，需 Python 层过滤）
+            if user_id is not None:
+                if not _matches_user_id(metadata, user_id):
+                    continue
+
             results.append(
                 VectorResult(
                     doc_id=doc_data["id"],
                     score=result.similarity,  # FaissVecDB已经归一化到[0,1]
                     content=doc_data["text"],
-                    metadata=doc_data["metadata"],
+                    metadata=metadata,
                 )
             )
 

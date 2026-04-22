@@ -12,6 +12,21 @@ import aiosqlite
 from ..processors.text_processor import TextProcessor
 
 
+def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
+    """Check if a memory's metadata matches the given user_id.
+
+    Matches if:
+    - metadata.primary_user_id == user_id
+    - OR user_id is in metadata.user_ids (list)
+    """
+    if metadata.get("primary_user_id") == user_id:
+        return True
+    user_ids = metadata.get("user_ids")
+    if isinstance(user_ids, list) and user_id in user_ids:
+        return True
+    return False
+
+
 @dataclass
 class BM25Result:
     """BM25检索结果"""
@@ -101,6 +116,7 @@ class BM25Retriever:
         limit: int = 50,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[BM25Result]:
         """
         执行BM25搜索
@@ -110,6 +126,7 @@ class BM25Retriever:
             limit: 返回结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选,匹配primary_user_id或user_ids)
 
         Returns:
             BM25Result列表,按归一化分数降序排列
@@ -135,7 +152,7 @@ class BM25Retriever:
 
         # 有过滤条件时大幅增加预取量，避免过滤后结果不足
         # Python 层过滤（BM25）比 FAISS 内部过滤损耗更大，需要更多候选
-        has_filters = session_id is not None or persona_id is not None
+        has_filters = session_id is not None or persona_id is not None or user_id is not None
         fetch_limit = limit * 10 if has_filters else limit * 2
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -193,6 +210,9 @@ class BM25Retriever:
                 if persona_id is not None:
                     stored_persona_id = metadata.get("persona_id")
                     if stored_persona_id != persona_id:
+                        continue
+                if user_id is not None:
+                    if not _matches_user_id(metadata, user_id):
                         continue
 
                 results.append(

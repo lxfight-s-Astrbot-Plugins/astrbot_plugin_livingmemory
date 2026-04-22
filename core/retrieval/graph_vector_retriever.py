@@ -8,6 +8,16 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
+    """Check if metadata matches the given user_id via primary_user_id or user_ids."""
+    if metadata.get("primary_user_id") == user_id:
+        return True
+    user_ids = metadata.get("user_ids")
+    if isinstance(user_ids, list) and user_id in user_ids:
+        return True
+    return False
+
+
 @dataclass(slots=True)
 class GraphVectorResult:
     """Vector match aggregated to one source memory."""
@@ -46,6 +56,7 @@ class GraphVectorRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[GraphVectorResult]:
         """Search graph entries through vector similarity."""
         if not query or not query.strip():
@@ -57,7 +68,8 @@ class GraphVectorRetriever:
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 
-        fetch_k = k * 2 if metadata_filters else k
+        # graph vector route 与 document vector route 一样，user_id 过滤只能在 Python 侧后处理。
+        fetch_k = k * 2 if metadata_filters or user_id is not None else k
         raw_results = await self.faiss_db.retrieve(
             query=query,
             k=k,
@@ -73,6 +85,9 @@ class GraphVectorRetriever:
             source_memory_id = metadata.get("source_memory_id")
             if source_memory_id is None:
                 continue
+            if user_id is not None:
+                if not _matches_user_id(metadata, user_id):
+                    continue
             results.append(
                 GraphVectorResult(
                     doc_id=int(source_memory_id),

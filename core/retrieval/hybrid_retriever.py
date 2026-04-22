@@ -75,6 +75,10 @@ class HybridRetriever:
         self.importance_weight = self.config.get("importance_weight", 1.0)
         self.fallback_enabled = self.config.get("fallback_enabled", True)
 
+        # 近期记忆加权
+        self.recent_boost_hours = self.config.get("recent_boost_hours", 48)
+        self.recent_boost_factor = self.config.get("recent_boost_factor", 0.15)
+
         # 加权求和各维度权重（可通过配置覆盖）
         self.score_alpha = self.config.get("score_alpha", 0.5)  # 检索相关性
         self.score_beta = self.config.get("score_beta", 0.25)  # 重要性
@@ -126,6 +130,7 @@ class HybridRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[HybridResult]:
         """
         执行混合检索
@@ -135,6 +140,7 @@ class HybridRetriever:
             k: 返回的结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            user_id: 用户ID过滤(可选,匹配primary_user_id或user_ids)
 
         Returns:
             List[HybridResult]: 混合检索结果,按最终分数降序排列
@@ -151,8 +157,8 @@ class HybridRetriever:
         try:
             # 使用asyncio.gather并行执行
             results = await asyncio.gather(
-                self.bm25_retriever.search(query, k, session_id, persona_id),
-                self.vector_retriever.search(query, k, session_id, persona_id),
+                self.bm25_retriever.search(query, k, session_id, persona_id, user_id=user_id),
+                self.vector_retriever.search(query, k, session_id, persona_id, user_id=user_id),
                 return_exceptions=True,
             )
 
@@ -174,7 +180,7 @@ class HybridRetriever:
             if self.fallback_enabled:
                 try:
                     bm25_results = await self.bm25_retriever.search(
-                        query, k, session_id, persona_id
+                        query, k, session_id, persona_id, user_id=user_id
                     )
                 except Exception as be:
                     bm25_error = be
@@ -182,7 +188,7 @@ class HybridRetriever:
 
                 try:
                     vector_results = await self.vector_retriever.search(
-                        query, k, session_id, persona_id
+                        query, k, session_id, persona_id, user_id=user_id
                     )
                 except Exception as ve:
                     vector_error = ve
@@ -326,11 +332,25 @@ class HybridRetriever:
                 + self.score_gamma * recency_weight
             )
 
+            # 近期记忆加权：仅基于 create_time 计算，保持与配置语义一致。
+            recent_boost = 0.0
+            if self.recent_boost_hours > 0 and self.recent_boost_factor > 0:
+                create_hours_old = max(0.0, (current_time - create_time) / 3600)
+                if create_hours_old <= self.recent_boost_hours:
+                    recent_boost = self.recent_boost_factor * (
+                        1.0 - create_hours_old / self.recent_boost_hours
+                    )
+                    final_score += recent_boost
+
             score_breakdown = {
                 "rrf_normalized": round(rrf_normalized, 4),
                 "importance": round(importance, 4),
                 "recency_weight": round(recency_weight, 4),
                 "days_old": round(days_old, 2),
+                "create_hours_old": round(
+                    max(0.0, (current_time - create_time) / 3600), 2
+                ),
+                "recent_boost": round(recent_boost, 4),
                 "final_score": round(final_score, 4),
             }
 

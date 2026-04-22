@@ -9,6 +9,16 @@ from ...storage.graph_store import GraphStore
 from ..processors.text_processor import TextProcessor
 
 
+def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
+    """Check if metadata matches the given user_id via primary_user_id or user_ids."""
+    if metadata.get("primary_user_id") == user_id:
+        return True
+    user_ids = metadata.get("user_ids")
+    if isinstance(user_ids, list) and user_id in user_ids:
+        return True
+    return False
+
+
 @dataclass(slots=True)
 class GraphKeywordResult:
     """Keyword match aggregated to one source memory."""
@@ -39,6 +49,7 @@ class GraphKeywordRetriever:
         limit: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[GraphKeywordResult]:
         """Search the graph route with keyword matching."""
         if not query or not query.strip():
@@ -99,6 +110,8 @@ class GraphKeywordRetriever:
             merge_hit(hit, weight=0.7, match_source="graph_neighbor")
 
         results = sorted(aggregated.values(), key=lambda item: item.score, reverse=True)
+        if user_id is not None:
+            results = [r for r in results if _matches_user_id(r.metadata, user_id)]
         return results[:limit]
 
 

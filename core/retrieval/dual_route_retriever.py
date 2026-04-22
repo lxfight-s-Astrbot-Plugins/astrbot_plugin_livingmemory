@@ -35,13 +35,14 @@ class DualRouteRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[HybridResult]:
         """Run both retrieval routes and merge their memory candidates."""
         doc_results, graph_results = await asyncio.gather(
             self.document_retriever.search(
-                query, max(k * 2, k), session_id, persona_id
+                query, max(k * 2, k), session_id, persona_id, user_id
             ),
-            self.graph_retriever.search(query, max(k * 2, k), session_id, persona_id),
+            self.graph_retriever.search(query, max(k * 2, k), session_id, persona_id, user_id),
         )
 
         if not graph_results:
