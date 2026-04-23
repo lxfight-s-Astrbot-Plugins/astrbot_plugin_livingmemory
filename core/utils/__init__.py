@@ -547,6 +547,7 @@ def format_memories_for_fake_tool_call(
     tool_msg: dict[str, Any] = {
         "role": "tool",
         "tool_call_id": call_id,
+        "name": FAKE_TOOL_CALL_NAME,
         "content": tool_result_json,
     }
 
