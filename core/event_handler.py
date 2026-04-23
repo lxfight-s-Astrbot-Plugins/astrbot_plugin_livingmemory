@@ -122,6 +122,44 @@ class EventHandler:
         except Exception as e:
             logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
 
+    def _resolve_injection_mode(self, configured_mode: str) -> str:
+        """根据当前 Provider 解析最终使用的注入模式。
+
+        Gemini 目前不完全兼容 fake_tool_call，自动降级到 system_prompt。
+        """
+        if configured_mode != "fake_tool_call":
+            return configured_mode
+
+        try:
+            provider = self.context.get_using_provider()
+            if provider:
+                config = getattr(provider, "provider_config", {})
+                provider_type = (
+                    config.get("type", "") if isinstance(config, dict) else ""
+                )
+                model_name = (
+                    provider.get_model()
+                    if hasattr(provider, "get_model")
+                    else ""
+                )
+
+                is_gemini = (
+                    provider_type == "googlegenai_chat_completion"
+                    or "gemini" in model_name.lower()
+                )
+
+                if is_gemini:
+                    logger.info(
+                        "[LivingMemory] fake_tool_call is not fully compatible with "
+                        f"Gemini (type={provider_type}, model={model_name}), "
+                        "fallback to system_prompt."
+                    )
+                    return "system_prompt"
+        except Exception:
+            pass
+
+        return configured_mode
+
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """在 LLM 请求前，查询并注入长期记忆"""
         try:
@@ -228,10 +266,15 @@ class EventHandler:
                             f"内容={mem.content[:100]}..."
                         )
 
-                    # 根据配置选择注入方式
-                    injection_method = self.config_manager.get(
+                    # 根据配置选择注入方式（含 Provider 兼容降级）
+                    configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "system_prompt"
                     )
+                    injection_method = self._resolve_injection_mode(configured_method)
+                    if injection_method != configured_method:
+                        logger.info(
+                            f"[{session_id}] 注入模式从 {configured_method} 降级为 {injection_method}"
+                        )
 
                     memory_str = format_memories_for_injection(memory_list)
 

@@ -596,6 +596,7 @@ async def test_format_memories_for_fake_tool_call():
     # 验证 tool 消息格式
     assert tool_msg["role"] == "tool"
     assert tool_msg["tool_call_id"] == tc["id"]
+    assert tool_msg["name"] == "recall_long_term_memory"
     assert "Python" in tool_msg["content"]
     assert '"session_filtered": true' in tool_msg["content"]
     assert '"persona_filtered": false' in tool_msg["content"]
@@ -675,6 +676,7 @@ async def test_handle_memory_recall_injection_fake_tool_call(
     # 验证 tool 消息
     assert tool_msg["role"] == "tool"
     assert tool_msg["tool_call_id"] == assistant_msg["tool_calls"][0]["id"]
+    assert tool_msg["name"] == "recall_long_term_memory"
     assert '"session_filtered": true' in tool_msg["content"]
     assert '"persona_filtered": true' in tool_msg["content"]
     assert '"id": 99' in tool_msg["content"]
@@ -759,3 +761,159 @@ async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
     # 不应删除任何消息
     assert removed == 0
     assert len(req.contexts) == 2
+
+
+# ==================== fake_tool_call Gemini 降级测试 ====================
+
+
+def test_resolve_injection_mode_non_fake():
+    """非 fake_tool_call 模式应原样返回。"""
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=Mock(),
+        memory_engine=Mock(),
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    assert h._resolve_injection_mode("system_prompt") == "system_prompt"
+    assert h._resolve_injection_mode("user_message_before") == "user_message_before"
+
+
+def test_resolve_injection_mode_gemini_by_type():
+    """provider type 为 googlegenai_chat_completion 时应降级。"""
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    gemini_provider = Mock()
+    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
+    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=gemini_provider)
+
+    h = EventHandler(
+        context=context,
+        config_manager=Mock(),
+        memory_engine=Mock(),
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    assert h._resolve_injection_mode("fake_tool_call") == "system_prompt"
+
+
+def test_resolve_injection_mode_gemini_by_model_name():
+    """model 名包含 gemini 时应降级。"""
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    gemini_provider = Mock()
+    gemini_provider.provider_config = {"type": "some_other_type"}
+    gemini_provider.get_model = Mock(return_value="gemini-1.5-flash")
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=gemini_provider)
+
+    h = EventHandler(
+        context=context,
+        config_manager=Mock(),
+        memory_engine=Mock(),
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    assert h._resolve_injection_mode("fake_tool_call") == "system_prompt"
+
+
+def test_resolve_injection_mode_openai_unchanged():
+    """OpenAI 风格 provider 不应降级。"""
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    openai_provider = Mock()
+    openai_provider.provider_config = {"type": "openai_chat_completion"}
+    openai_provider.get_model = Mock(return_value="gpt-4o")
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=openai_provider)
+
+    h = EventHandler(
+        context=context,
+        config_manager=Mock(),
+        memory_engine=Mock(),
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    assert h._resolve_injection_mode("fake_tool_call") == "fake_tool_call"
+
+
+def test_resolve_injection_mode_no_provider():
+    """获取不到 provider 时不应降级。"""
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=None)
+
+    h = EventHandler(
+        context=context,
+        config_manager=Mock(),
+        memory_engine=Mock(),
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    assert h._resolve_injection_mode("fake_tool_call") == "fake_tool_call"
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
+    memory_engine,
+):
+    """Gemini 下配置 fake_tool_call 应自动降级为 system_prompt 注入。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    gemini_provider = Mock()
+    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
+    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=gemini_provider)
+
+    h = EventHandler(
+        context=context,
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "fake_tool_call",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    h.conversation_manager.add_message_from_event = AsyncMock()
+
+    recalled = Mock(
+        content="用户喜欢吃火锅",
+        final_score=0.88,
+        metadata={"importance": 0.9, "create_time": 1700000000},
+    )
+    recalled.doc_id = 99
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    req = _make_req("今天吃什么")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    # 降级后不应注入 fake_tool_call 消息，而应走 system_prompt
+    assert len(req.contexts) == 0
+    assert req.system_prompt != ""
+    assert "用户喜欢吃火锅" in req.system_prompt
+    assert req.prompt == "今天吃什么"
