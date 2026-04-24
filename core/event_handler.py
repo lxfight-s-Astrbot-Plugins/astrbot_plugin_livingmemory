@@ -235,7 +235,7 @@ class EventHandler:
                     configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "system_prompt"
                     )
-                    provider = self.context.get_using_provider()
+                    provider = self.context.get_using_provider(session_id)
                     injection_method, fallback_reason = self._injection_adapter.resolve(
                         provider, configured_method
                     )
