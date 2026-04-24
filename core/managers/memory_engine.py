@@ -50,7 +50,7 @@ class MemoryEngine:
        - 关系: id ←→ doc_id (一对一映射)
 
     2. **BM25 FTS5索引**
-       - 表: memories_fts (SQLite FTS5虚拟表)
+       - 表: livingmemory_memories_fts (SQLite FTS5虚拟表)
        - 字段: doc_id (UNINDEXED) - 引用documents.id的整数
        - 注意: 只存储分词后的内容，metadata从documents表读取
 
