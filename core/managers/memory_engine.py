@@ -79,7 +79,7 @@ class MemoryEngine:
        - 关系: id ←→ doc_id (一对一映射)
 
     2. **BM25 FTS5索引**
-       - 表: memories_fts (SQLite FTS5虚拟表)
+       - 表: livingmemory_memories_fts (SQLite FTS5虚拟表)
        - 字段: doc_id (UNINDEXED) - 引用documents.id的整数
        - 注意: 只存储分词后的内容，metadata从documents表读取
 
@@ -235,6 +235,8 @@ class MemoryEngine:
         """
         # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
         if self.db_connection is not None:
+            await self._drop_legacy_documents_fts_triggers()
+
             await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -347,6 +349,21 @@ class MemoryEngine:
                 await self.db_connection.commit()
 
                 logger.info("已初始化数据库版本信息: v3")
+
+    async def _drop_legacy_documents_fts_triggers(self):
+        if self.db_connection is None:
+            return
+
+        cursor = await self.db_connection.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='trigger' AND tbl_name='documents'
+              AND sql LIKE '%documents_fts%'
+        """)
+        rows = await cursor.fetchall()
+        for row in rows:
+            trigger_name = row[0]
+            await self.db_connection.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
+            logger.warning(f"已清理旧 LivingMemory FTS 触发器: {trigger_name}")
 
     # ==================== 核心记忆操作 ====================
 

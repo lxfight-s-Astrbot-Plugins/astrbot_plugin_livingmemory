@@ -17,7 +17,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 5
+    CURRENT_VERSION = 6
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -26,6 +26,7 @@ class DBMigration:
         3: "会话ID迁移 - 标记需要session_id格式升级",
         4: "Schema v2 - 双通道总结字段 + source_window 溯源支持",
         5: "Graph memory - graph tables and dual-route retrieval metadata",
+        6: "插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 安全重命名备份",
     }
 
     def __init__(self, db_path: str):
@@ -226,6 +227,10 @@ class DBMigration:
                 # 从版本4升级到版本5
                 if current_version <= 4:
                     migration_steps.append(self._migrate_v4_to_v5)
+
+                # 从版本5升级到版本6
+                if current_version <= 5:
+                    migration_steps.append(self._migrate_v5_to_v6)
 
                 # 执行所有迁移步骤
                 for step in migration_steps:
@@ -521,7 +526,7 @@ class DBMigration:
                 )
                 await db.execute(
                     """
-                    CREATE VIRTUAL TABLE IF NOT EXISTS graph_entries_fts
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
                     USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
                     """
                 )
@@ -541,6 +546,120 @@ class DBMigration:
         except Exception as e:
             logger.error(f"v4 -> v5 迁移失败: {e}", exc_info=True)
             raise
+
+    async def _migrate_v5_to_v6(
+        self,
+        sparse_retriever: Any | None,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """
+        从版本5迁移到版本6
+        主要变更：插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 仅在精确匹配旧结构时重命名备份。
+        """
+        logger.info("执行迁移步骤: v5 -> v6 (FTS 表前缀化与旧表备份)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_memories_fts
+                    USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
+                """)
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
+                    USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
+                """)
+
+                await self._copy_fts_rows_if_exists(
+                    db,
+                    source_table="memories_fts",
+                    target_table="livingmemory_memories_fts",
+                    columns=("doc_id", "content"),
+                )
+                await self._copy_fts_rows_if_exists(
+                    db,
+                    source_table="graph_entries_fts",
+                    target_table="livingmemory_graph_entries_fts",
+                    columns=("entry_id", "content"),
+                )
+                await self._backup_legacy_documents_fts_if_safe(db)
+
+                await db.commit()
+                logger.info("v5 -> v6 FTS 表前缀化完成")
+
+        except Exception as e:
+            logger.error(f"v5 -> v6 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _copy_fts_rows_if_exists(
+        self,
+        db: aiosqlite.Connection,
+        source_table: str,
+        target_table: str,
+        columns: tuple[str, str],
+    ):
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (source_table,),
+        )
+        if not await cursor.fetchone():
+            return
+
+        first_column, second_column = columns
+        await db.execute(f"DELETE FROM {target_table}")
+        await db.execute(
+            f"""
+            INSERT INTO {target_table}({first_column}, {second_column})
+            SELECT {first_column}, {second_column} FROM {source_table}
+            """
+        )
+        await db.execute(f"DROP TABLE IF EXISTS {source_table}")
+        logger.info(f"已迁移并删除旧 FTS 表: {source_table} -> {target_table}")
+
+    async def _backup_legacy_documents_fts_if_safe(self, db: aiosqlite.Connection):
+        cursor = await db.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='table' AND name='documents_fts'
+        """)
+        row = await cursor.fetchone()
+        if not row:
+            logger.info("未发现 documents_fts 表，跳过旧表备份")
+            return
+
+        if not await self._is_legacy_livingmemory_documents_fts(db, row[0] or ""):
+            logger.warning("documents_fts 不完全匹配旧 LivingMemory FTS 结构，保留不处理")
+            return
+
+        cursor = await db.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='livingmemory_legacy_documents_fts_backup'
+        """)
+        if await cursor.fetchone():
+            logger.warning("旧表备份 livingmemory_legacy_documents_fts_backup 已存在，保留 documents_fts 不处理")
+            return
+
+        await db.execute(
+            "ALTER TABLE documents_fts RENAME TO livingmemory_legacy_documents_fts_backup"
+        )
+        logger.warning(
+            "已将旧 LivingMemory documents_fts 重命名为 livingmemory_legacy_documents_fts_backup"
+        )
+
+    async def _is_legacy_livingmemory_documents_fts(
+        self,
+        db: aiosqlite.Connection,
+        create_sql: str,
+    ) -> bool:
+        normalized_sql = " ".join(create_sql.lower().replace("\n", " ").split())
+        expected_sql = (
+            "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
+        )
+        if normalized_sql != expected_sql:
+            return False
+
+        cursor = await db.execute("PRAGMA table_xinfo(documents_fts)")
+        rows = await cursor.fetchall()
+        visible_columns = [row[1] for row in rows if int(row[6]) == 0]
+        return visible_columns == ["content", "doc_id"]
 
     async def get_migration_info(self) -> dict[str, Any]:
         """

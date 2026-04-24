@@ -50,14 +50,14 @@ class BM25Retriever:
         self.db_path = db_path
         self.text_processor = text_processor
         self.config = config or {}
-        self.fts_table = "memories_fts"
+        self.fts_table = "livingmemory_memories_fts"
         self.doc_table = "documents"
 
     async def initialize(self):
         """
         初始化FTS5索引
 
-        创建memories_fts虚拟表用于全文检索。
+        创建 livingmemory_memories_fts 虚拟表用于全文检索。
         使用unicode61分词器处理已预处理的文本。
         """
         async with aiosqlite.connect(self.db_path) as db:

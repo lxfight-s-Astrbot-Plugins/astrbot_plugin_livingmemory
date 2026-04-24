@@ -108,7 +108,7 @@ class GraphStore:
             )
             await db.execute(
                 """
-                CREATE VIRTUAL TABLE IF NOT EXISTS graph_entries_fts
+                CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
                 USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
                 """
             )
@@ -266,7 +266,7 @@ class GraphStore:
                     ),
                 )
                 await db.execute(
-                    "DELETE FROM graph_entries_fts WHERE entry_id = ?", (entry_id,)
+                    "DELETE FROM livingmemory_graph_entries_fts WHERE entry_id = ?", (entry_id,)
                 )
                 await db.execute(
                     "DELETE FROM graph_entry_nodes WHERE entry_id = ?", (entry_id,)
@@ -297,7 +297,7 @@ class GraphStore:
                 entry_id = int(cursor.lastrowid)
 
             await db.execute(
-                "INSERT INTO graph_entries_fts(entry_id, content) VALUES (?, ?)",
+                "INSERT INTO livingmemory_graph_entries_fts(entry_id, content) VALUES (?, ?)",
                 (entry_id, entry.content),
             )
             for node_key in entry.node_keys:
@@ -337,7 +337,7 @@ class GraphStore:
             if entry_ids:
                 placeholders = ",".join("?" * len(entry_ids))
                 await db.execute(
-                    f"DELETE FROM graph_entries_fts WHERE entry_id IN ({placeholders})",
+                    f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({placeholders})",
                     entry_ids,
                 )
                 await db.execute(
@@ -393,10 +393,10 @@ class GraphStore:
                 f"""
                 SELECT ge.id, ge.source_memory_id, ge.content, ge.metadata,
                        ge.entry_type, ge.relation_type, ge.session_id, ge.persona_id,
-                       bm25(graph_entries_fts) AS score
-                FROM graph_entries_fts
-                JOIN graph_entries ge ON ge.id = graph_entries_fts.entry_id
-                WHERE graph_entries_fts MATCH ? {where_clause}
+                       bm25(livingmemory_graph_entries_fts) AS score
+                FROM livingmemory_graph_entries_fts
+                JOIN graph_entries ge ON ge.id = livingmemory_graph_entries_fts.entry_id
+                WHERE livingmemory_graph_entries_fts MATCH ? {where_clause}
                 ORDER BY score ASC
                 LIMIT ?
                 """,

@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### 修复
+- 修复 AstrBot 4.23.2+ 中 `documents_fts` 同名表冲突导致总结记忆存储失败的问题。
+- 插件自有 FTS 表统一改为 `livingmemory_` 前缀，避免污染 AstrBot 本体数据库命名空间。
+- v6 迁移仅在 `documents_fts` 完全匹配旧 LivingMemory FTS schema 时重命名为 `livingmemory_legacy_documents_fts_backup`，不删除 AstrBot 本体表。
+
 ## [2.2.3] - 2026-02-21
 
 ### 修复

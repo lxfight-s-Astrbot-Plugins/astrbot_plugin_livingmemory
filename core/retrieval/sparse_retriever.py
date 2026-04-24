@@ -36,7 +36,7 @@ class FTSManager:
 
     def __init__(self, db_path: str, stopwords_manager: StopwordsManager | None = None):
         self.db_path = db_path
-        self.fts_table_name = "documents_fts"
+        self.fts_table_name = "livingmemory_documents_fts"
         self.stopwords_manager = stopwords_manager
         self.use_stopwords = stopwords_manager is not None
 

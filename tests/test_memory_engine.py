@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import aiosqlite
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 
 
@@ -96,6 +97,43 @@ class _FakeFaissDB:
                 break
         if target is not None:
             self.docs.pop(target, None)
+
+
+@pytest.mark.asyncio
+async def test_initialize_drops_legacy_documents_fts_triggers(tmp_path: Path):
+    db_path = tmp_path / "legacy_trigger.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}'
+            )
+        """)
+        await db.execute("""
+            CREATE TRIGGER documents_au AFTER UPDATE ON documents BEGIN
+                INSERT INTO documents_fts(rowid, content, doc_id)
+                VALUES (new.id, new.text, new.doc_id);
+            END
+        """)
+        await db.commit()
+
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "rrf_k": 60},
+    )
+    await engine.initialize()
+    await engine.close()
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='trigger' AND name='documents_au'
+        """)
+        row = await cursor.fetchone()
+
+    assert row is None
 
 
 @pytest.mark.asyncio

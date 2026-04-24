@@ -95,7 +95,7 @@ class _DummyMemoryEngine:
                 raise RuntimeError("failed to insert document: lastrowid is None")
             new_id = int(new_id_raw)
             conn.execute(
-                "INSERT INTO memories_fts (doc_id, content) VALUES (?, ?)",
+                "INSERT INTO livingmemory_memories_fts (doc_id, content) VALUES (?, ?)",
                 (new_id, content),
             )
             conn.commit()
@@ -118,7 +118,7 @@ def _prepare_db(db_path: Path) -> None:
         )
         conn.execute(
             """
-            CREATE TABLE memories_fts (
+            CREATE TABLE livingmemory_memories_fts (
                 doc_id INTEGER,
                 content TEXT
             )
@@ -145,7 +145,7 @@ def _prepare_db(db_path: Path) -> None:
             if inserted_id is None:
                 raise RuntimeError("failed to seed document: lastrowid is None")
             conn.execute(
-                "INSERT INTO memories_fts (doc_id, content) VALUES (?, ?)",
+                "INSERT INTO livingmemory_memories_fts (doc_id, content) VALUES (?, ?)",
                 (int(inserted_id), f"doc-{i}"),
             )
         conn.commit()
@@ -175,7 +175,7 @@ async def test_rebuild_indexes_avoids_sqlite_lock_during_faiss_delete(tmp_path: 
 
     with sqlite3.connect(db_path) as conn:
         doc_count_row = conn.execute("SELECT COUNT(*) FROM documents").fetchone()
-        fts_count_row = conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()
+        fts_count_row = conn.execute("SELECT COUNT(*) FROM livingmemory_memories_fts").fetchone()
     assert doc_count_row is not None
     assert fts_count_row is not None
     doc_count = int(doc_count_row[0])
