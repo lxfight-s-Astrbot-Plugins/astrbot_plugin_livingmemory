@@ -59,6 +59,33 @@ def safe_serialize_metadata(metadata: dict[str, Any]) -> str:
         return "{}"
 
 
+def matches_user_id(metadata: Any, user_id: str | None) -> bool:
+    """检查记忆元数据是否匹配给定的 user_id。
+
+    匹配任一条件即返回 True:
+    - metadata.primary_user_id == user_id
+    - user_id 在 metadata.user_ids 列表中
+
+    可处理 dict 和 JSON 字符串格式的元数据。
+
+    Args:
+        metadata: 原始元数据（dict 或 JSON 字符串）
+        user_id: 目标用户 ID，None 时始终返回 False
+
+    Returns:
+        bool: 是否匹配
+    """
+    if not user_id:
+        return False
+    parsed = safe_parse_metadata(metadata)
+    if parsed.get("primary_user_id") == user_id:
+        return True
+    user_ids = parsed.get("user_ids")
+    if isinstance(user_ids, list) and user_id in user_ids:
+        return True
+    return False
+
+
 def validate_timestamp(timestamp: Any, default_time: float | None = None) -> float:
     """
     验证和标准化时间戳。

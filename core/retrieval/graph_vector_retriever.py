@@ -7,15 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-
-def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
-    """Check if metadata matches the given user_id via primary_user_id or user_ids."""
-    if metadata.get("primary_user_id") == user_id:
-        return True
-    user_ids = metadata.get("user_ids")
-    if isinstance(user_ids, list) and user_id in user_ids:
-        return True
-    return False
+from ..utils import matches_user_id
 
 
 @dataclass(slots=True)
@@ -86,7 +78,7 @@ class GraphVectorRetriever:
             if source_memory_id is None:
                 continue
             if user_id is not None:
-                if not _matches_user_id(metadata, user_id):
+                if not matches_user_id(metadata, user_id):
                     continue
             results.append(
                 GraphVectorResult(

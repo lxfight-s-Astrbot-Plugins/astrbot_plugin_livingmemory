@@ -1,7 +1,7 @@
 """
 Tests for user_id filtering and recent boost capabilities.
 Covers:
-  1. _matches_user_id OR matching (primary_user_id OR user_ids)
+  1. matches_user_id OR matching (primary_user_id OR user_ids)
   2. BM25 retriever user_id filtering
   3. event_handler._storage_task metadata generation (user_ids / primary_user_id)
   4. MemorySearchTool user filtering passthrough
@@ -19,19 +19,10 @@ import pytest
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 from astrbot_plugin_livingmemory.core.retrieval.bm25_retriever import (
     BM25Retriever,
-    _matches_user_id as bm25_matches_user_id,
-)
-from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import (
-    _matches_user_id as vector_matches_user_id,
-)
-from astrbot_plugin_livingmemory.core.retrieval.graph_keyword_retriever import (
-    _matches_user_id as graph_kw_matches_user_id,
-)
-from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
-    _matches_user_id as graph_vec_matches_user_id,
 )
 from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import VectorRetriever
 from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import GraphVectorRetriever
+from astrbot_plugin_livingmemory.core.utils import matches_user_id
 
 
 # ── Helper: seed BM25 retriever with documents ──
@@ -61,36 +52,31 @@ async def _seed_bm25(tmp_path: Path, docs: list[tuple[int, str, dict]]) -> BM25R
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. _matches_user_id: OR matching across all retrievers
+# 1. matches_user_id: OR matching across all retrievers
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.parametrize("match_fn", [bm25_matches_user_id, vector_matches_user_id,
-                                       graph_kw_matches_user_id, graph_vec_matches_user_id])
+@pytest.mark.parametrize("match_fn", [matches_user_id])
 def test_matches_primary_user_id(match_fn):
     assert match_fn({"primary_user_id": "user-A", "user_ids": ["user-A", "user-B"]}, "user-A") is True
 
 
-@pytest.mark.parametrize("match_fn", [bm25_matches_user_id, vector_matches_user_id,
-                                       graph_kw_matches_user_id, graph_vec_matches_user_id])
+@pytest.mark.parametrize("match_fn", [matches_user_id])
 def test_matches_user_ids_not_primary(match_fn):
     assert match_fn({"primary_user_id": "user-A", "user_ids": ["user-A", "user-B"]}, "user-B") is True
 
 
-@pytest.mark.parametrize("match_fn", [bm25_matches_user_id, vector_matches_user_id,
-                                       graph_kw_matches_user_id, graph_vec_matches_user_id])
+@pytest.mark.parametrize("match_fn", [matches_user_id])
 def test_rejects_non_participant(match_fn):
     assert match_fn({"primary_user_id": "user-A", "user_ids": ["user-A"]}, "user-X") is False
 
 
-@pytest.mark.parametrize("match_fn", [bm25_matches_user_id, vector_matches_user_id,
-                                       graph_kw_matches_user_id, graph_vec_matches_user_id])
+@pytest.mark.parametrize("match_fn", [matches_user_id])
 def test_no_user_fields_always_rejects(match_fn):
     assert match_fn({}, "user-A") is False
 
 
-@pytest.mark.parametrize("match_fn", [bm25_matches_user_id, vector_matches_user_id,
-                                       graph_kw_matches_user_id, graph_vec_matches_user_id])
+@pytest.mark.parametrize("match_fn", [matches_user_id])
 def test_user_ids_only_no_primary(match_fn):
     assert match_fn({"user_ids": ["user-A", "user-B"]}, "user-B") is True
 

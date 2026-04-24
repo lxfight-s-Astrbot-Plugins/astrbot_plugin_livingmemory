@@ -10,21 +10,7 @@ from typing import Any
 import aiosqlite
 
 from ..processors.text_processor import TextProcessor
-
-
-def _matches_user_id(metadata: dict[str, Any], user_id: str) -> bool:
-    """Check if a memory's metadata matches the given user_id.
-
-    Matches if:
-    - metadata.primary_user_id == user_id
-    - OR user_id is in metadata.user_ids (list)
-    """
-    if metadata.get("primary_user_id") == user_id:
-        return True
-    user_ids = metadata.get("user_ids")
-    if isinstance(user_ids, list) and user_id in user_ids:
-        return True
-    return False
+from ..utils import matches_user_id
 
 
 @dataclass
@@ -212,7 +198,7 @@ class BM25Retriever:
                     if stored_persona_id != persona_id:
                         continue
                 if user_id is not None:
-                    if not _matches_user_id(metadata, user_id):
+                    if not matches_user_id(metadata, user_id):
                         continue
 
                 results.append(

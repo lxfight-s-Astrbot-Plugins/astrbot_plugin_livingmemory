@@ -9,23 +9,7 @@ from typing import Any
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
 from ..processors.text_processor import TextProcessor
-from ..utils import safe_parse_metadata
-
-
-def _matches_user_id(metadata: Any, user_id: str) -> bool:
-    """Check if a memory's metadata matches the given user_id.
-
-    Matches if:
-    - metadata.primary_user_id == user_id
-    - OR user_id is in metadata.user_ids (list)
-    """
-    metadata = safe_parse_metadata(metadata)
-    if metadata.get("primary_user_id") == user_id:
-        return True
-    user_ids = metadata.get("user_ids")
-    if isinstance(user_ids, list) and user_id in user_ids:
-        return True
-    return False
+from ..utils import safe_parse_metadata, matches_user_id
 
 
 @dataclass
@@ -206,7 +190,7 @@ class VectorRetriever:
 
             # user_id 后过滤（FAISS metadata_filters 不支持 OR 逻辑，需 Python 层过滤）
             if user_id is not None:
-                if not _matches_user_id(metadata, user_id):
+                if not matches_user_id(metadata, user_id):
                     continue
 
             results.append(

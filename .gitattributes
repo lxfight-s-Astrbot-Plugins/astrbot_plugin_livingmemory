@@ -1,0 +1,3 @@
+# Ensure consistent LF line endings for JSON and Python source files
+*.json text eol=lf
+*.py text eol=lf
