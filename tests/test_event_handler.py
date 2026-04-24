@@ -799,7 +799,7 @@ def test_resolve_injection_mode_gemini_by_type():
         memory_processor=Mock(),
         conversation_manager=Mock(),
     )
-    assert h._resolve_injection_mode("fake_tool_call") == "system_prompt"
+    assert h._resolve_injection_mode("fake_tool_call") == "user_message_before"
 
 
 def test_resolve_injection_mode_gemini_by_model_name():
@@ -820,7 +820,7 @@ def test_resolve_injection_mode_gemini_by_model_name():
         memory_processor=Mock(),
         conversation_manager=Mock(),
     )
-    assert h._resolve_injection_mode("fake_tool_call") == "system_prompt"
+    assert h._resolve_injection_mode("fake_tool_call") == "user_message_before"
 
 
 def test_resolve_injection_mode_openai_unchanged():
@@ -865,7 +865,7 @@ def test_resolve_injection_mode_no_provider():
 async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
     memory_engine,
 ):
-    """Gemini 下配置 fake_tool_call 应自动降级为 system_prompt 注入。"""
+    """Gemini 下配置 fake_tool_call 应自动降级为 user_message_before 注入。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
@@ -912,8 +912,8 @@ async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    # 降级后不应注入 fake_tool_call 消息，而应走 system_prompt
+    # 降级后不应注入 fake_tool_call 消息，而应走 user_message_before
     assert len(req.contexts) == 0
-    assert req.system_prompt != ""
-    assert "用户喜欢吃火锅" in req.system_prompt
-    assert req.prompt == "今天吃什么"
+    assert req.system_prompt == ""
+    assert "用户喜欢吃火锅" in req.prompt
+    assert req.prompt.index("<RAG-Faiss-Memory>") < req.prompt.index("今天吃什么")

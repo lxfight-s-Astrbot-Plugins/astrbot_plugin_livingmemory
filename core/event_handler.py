@@ -126,7 +126,7 @@ class EventHandler:
     def _resolve_injection_mode(self, configured_mode: str) -> str:
         """根据当前 Provider 解析最终使用的注入模式。
 
-        Gemini 目前不完全兼容 fake_tool_call，自动降级到 system_prompt。
+        Gemini 目前不完全兼容 fake_tool_call，自动降级到 user_message_before。
         """
         if configured_mode != "fake_tool_call":
             return configured_mode
@@ -150,12 +150,12 @@ class EventHandler:
                 )
 
                 if is_gemini:
-                    logger.info(
+                    logger.warning(
                         "[LivingMemory] fake_tool_call is not fully compatible with "
                         f"Gemini (type={provider_type}, model={model_name}), "
-                        "fallback to system_prompt."
+                        "fallback to user_message_before."
                     )
-                    return "system_prompt"
+                    return "user_message_before"
         except Exception:
             pass
 
@@ -273,7 +273,7 @@ class EventHandler:
                     )
                     injection_method = self._resolve_injection_mode(configured_method)
                     if injection_method != configured_method:
-                        logger.info(
+                        logger.warning(
                             f"[{session_id}] 注入模式从 {configured_method} 降级为 {injection_method}"
                         )
 
