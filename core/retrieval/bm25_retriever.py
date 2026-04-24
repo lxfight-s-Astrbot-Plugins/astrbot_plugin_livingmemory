@@ -84,12 +84,28 @@ class BM25Retriever:
         if not row:
             return
 
-        table_sql = (row[0] or "").lower()
-        if "search_text" in table_sql:
+        if await self._is_legacy_livingmemory_documents_fts(db, row[0] or ""):
             logger.warning(
                 "检测到插件废弃 documents_fts 表；当前版本改用 livingmemory_memories_fts，"
                 "请确认数据库迁移已执行到 v6"
             )
+
+    async def _is_legacy_livingmemory_documents_fts(
+        self,
+        db: aiosqlite.Connection,
+        create_sql: str,
+    ) -> bool:
+        normalized_sql = " ".join(create_sql.lower().replace("\n", " ").split())
+        expected_sql = (
+            "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
+        )
+        if normalized_sql != expected_sql:
+            return False
+
+        cursor = await db.execute("PRAGMA table_xinfo(documents_fts)")
+        rows = await cursor.fetchall()
+        visible_columns = [row[1] for row in rows if int(row[6]) == 0]
+        return visible_columns == ["content", "doc_id"]
 
     async def add_document(
         self, doc_id: int, content: str, metadata: dict[str, Any] | None = None

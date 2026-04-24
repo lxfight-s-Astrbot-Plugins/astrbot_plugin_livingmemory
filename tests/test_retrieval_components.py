@@ -125,6 +125,31 @@ async def test_bm25_ignores_astrbot_documents_fts_schema(tmp_path: Path):
     assert host_count[0] == 0
 
 
+@pytest.mark.asyncio
+async def test_bm25_does_not_warn_for_non_exact_documents_fts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db_path = tmp_path / "non_exact_documents_fts.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            CREATE VIRTUAL TABLE documents_fts
+            USING fts5(search_text, doc_id UNINDEXED, tokenize='unicode61')
+        """)
+        await db.commit()
+
+    warnings = []
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.retrieval.bm25_retriever.logger.warning",
+        lambda message: warnings.append(message),
+    )
+
+    retriever = BM25Retriever(str(db_path), TextProcessor())
+    await retriever.initialize()
+
+    assert warnings == []
+
+
 def test_rrf_fusion_orders_combined_results():
     fusion = RRFFusion(k=60)
     bm25 = [
