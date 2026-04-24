@@ -62,7 +62,6 @@ async def test_process_conversation_success():
     content, metadata, importance = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -80,7 +79,6 @@ async def test_process_conversation_handles_non_json_response_with_fallback():
     content, metadata, importance = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -136,7 +134,6 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
     content, metadata, importance = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -172,7 +169,6 @@ async def test_canonical_summary_includes_key_facts():
     content, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -198,7 +194,6 @@ async def test_summary_quality_normal_for_valid_response():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -222,7 +217,6 @@ async def test_summary_quality_low_for_empty_summary():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -246,7 +240,6 @@ async def test_summary_quality_low_for_missing_key_facts():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -270,7 +263,6 @@ async def test_summary_quality_low_for_generic_terms():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -371,7 +363,6 @@ async def test_process_group_chat_sets_interaction_type():
     content, metadata, importance = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -397,7 +388,6 @@ async def test_process_group_chat_extracts_participants():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -425,7 +415,6 @@ async def test_process_group_chat_dual_channel_summary():
     content, metadata, _ = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -455,7 +444,6 @@ async def test_process_group_chat_missing_participants_uses_default():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -481,7 +469,6 @@ async def test_process_private_chat_no_participants_field():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -523,7 +510,6 @@ async def test_process_group_chat_long_content():
     content, metadata, importance = await processor.process_conversation(
         messages=long_messages,
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -551,7 +537,6 @@ async def test_process_group_chat_quality_low_for_generic_terms():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 

@@ -46,10 +46,13 @@ astrbot_plugin_livingmemory/
 │   │
 │   ├── retrieval/                   # 检索系统层
 │   │   ├── __init__.py
-│   │   ├── hybrid_retriever.py      # 混合检索器
+│   │   ├── dual_route_retriever.py  # 文档路/图路双路融合
+│   │   ├── hybrid_retriever.py      # 文档路混合检索器
 │   │   ├── bm25_retriever.py        # BM25检索器
 │   │   ├── vector_retriever.py      # 向量检索器
-│   │   ├── sparse_retriever.py      # 稀疏检索器
+│   │   ├── graph_keyword_retriever.py # 图路关键词检索
+│   │   ├── graph_vector_retriever.py  # 图路向量检索
+│   │   ├── graph_retriever.py       # 图路融合检索器
 │   │   └── rrf_fusion.py            # RRF融合器
 │   │
 │   ├── utils/                       # 工具层
@@ -144,9 +147,13 @@ astrbot_plugin_livingmemory/
 **职责**: 实现记忆检索功能
 
 **组件**:
-- `hybrid_retriever.py`: 混合检索器（协调者）
-- `bm25_retriever.py`: BM25稀疏检索
-- `vector_retriever.py`: 向量密集检索
+- `dual_route_retriever.py`: 协调文档路与图路的最终排序
+- `hybrid_retriever.py`: 文档路混合检索器（BM25 + 向量）
+- `bm25_retriever.py`: 文档路关键词检索
+- `vector_retriever.py`: 文档路向量检索
+- `graph_keyword_retriever.py`: 图路关键词检索
+- `graph_vector_retriever.py`: 图路向量检索
+- `graph_retriever.py`: 图路结果融合
 - `rrf_fusion.py`: RRF融合算法
 
 **依赖**: base/, processors/text_processor
@@ -342,7 +349,7 @@ from ...storage import ConversationStore
 | base/ | 基础设施 | 异常、配置、常量 |
 | models/ | 数据定义 | Message、Session |
 | processors/ | 数据处理 | 文本处理、LLM调用 |
-| retrieval/ | 检索实现 | BM25、向量检索 |
+| retrieval/ | 检索实现 | 文档路、图路、RRF 融合 |
 | managers/ | 业务逻辑 | 记忆管理、会话管理 |
 | validators/ | 验证逻辑 | 索引验证 |
 | utils/ | 工具函数 | 停用词、辅助函数 |

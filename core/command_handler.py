@@ -431,10 +431,6 @@ WebUI 功能:
             if not is_group_chat and "GroupMessage" in session_id:
                 is_group_chat = True
 
-            save_original = self.config_manager.get(
-                "reflection_engine.save_original_conversation", False
-            )
-
             if not self._memory_processor:
                 yield event.plain_result(
                     self._component_not_ready_message("记忆处理器", "/lmem summarize")
@@ -448,7 +444,6 @@ WebUI 功能:
             ) = await self._memory_processor.process_conversation(
                 messages=history_messages,
                 is_group_chat=is_group_chat,
-                save_original=save_original,
                 persona_id=persona_id,
             )
 

@@ -17,7 +17,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 5
+    CURRENT_VERSION = 6
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -26,6 +26,7 @@ class DBMigration:
         3: "会话ID迁移 - 标记需要session_id格式升级",
         4: "Schema v2 - 双通道总结字段 + source_window 溯源支持",
         5: "Graph memory - graph tables and dual-route retrieval metadata",
+        6: "插件 FTS 表统一 livingmemory 前缀，避免与 AstrBot 数据库冲突",
     }
 
     def __init__(self, db_path: str):
@@ -163,14 +164,12 @@ class DBMigration:
 
     async def migrate(
         self,
-        sparse_retriever: Any | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """
         执行数据库迁移
 
         Args:
-            sparse_retriever: 稀疏检索器实例（用于重建索引）
             progress_callback: 进度回调函数 (message, current, total)
 
         Returns:
@@ -227,9 +226,13 @@ class DBMigration:
                 if current_version <= 4:
                     migration_steps.append(self._migrate_v4_to_v5)
 
+                # 从版本5升级到版本6
+                if current_version <= 5:
+                    migration_steps.append(self._migrate_v5_to_v6)
+
                 # 执行所有迁移步骤
                 for step in migration_steps:
-                    await step(sparse_retriever, progress_callback)
+                    await step(progress_callback)
 
                 # 计算耗时
                 duration = (datetime.now() - start_time).total_seconds()
@@ -262,7 +265,6 @@ class DBMigration:
 
     async def _migrate_v1_to_v2(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -344,7 +346,6 @@ class DBMigration:
 
     async def _migrate_v2_to_v3(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -378,7 +379,6 @@ class DBMigration:
 
     async def _migrate_v3_to_v4(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -439,7 +439,6 @@ class DBMigration:
 
     async def _migrate_v4_to_v5(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -521,7 +520,7 @@ class DBMigration:
                 )
                 await db.execute(
                     """
-                    CREATE VIRTUAL TABLE IF NOT EXISTS graph_entries_fts
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
                     USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
                     """
                 )
@@ -541,6 +540,87 @@ class DBMigration:
         except Exception as e:
             logger.error(f"v4 -> v5 迁移失败: {e}", exc_info=True)
             raise
+
+    async def _migrate_v5_to_v6(
+        self,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """
+        从版本5迁移到版本6
+        主要变更：插件 FTS 表统一 livingmemory 前缀，并清理旧冲突表。
+        """
+        logger.info("执行迁移步骤: v5 -> v6 (FTS 表前缀化)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_memories_fts
+                    USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
+                """)
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
+                    USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
+                """)
+
+                await self._copy_fts_rows_if_exists(
+                    db,
+                    source_table="memories_fts",
+                    target_table="livingmemory_memories_fts",
+                    columns=("doc_id", "content"),
+                )
+                await self._copy_fts_rows_if_exists(
+                    db,
+                    source_table="graph_entries_fts",
+                    target_table="livingmemory_graph_entries_fts",
+                    columns=("entry_id", "content"),
+                )
+
+                cursor = await db.execute("""
+                    SELECT sql FROM sqlite_master
+                    WHERE type='table' AND name='documents_fts'
+                """)
+                row = await cursor.fetchone()
+
+                if not row:
+                    logger.info("未发现 documents_fts 表，跳过旧冲突表清理")
+                elif "search_text" not in (row[0] or "").lower():
+                    logger.info("documents_fts 非插件旧表，保留不处理")
+                else:
+                    logger.warning("发现插件废弃 documents_fts 表，开始删除以解除表名冲突")
+                    await db.execute("DROP TABLE IF EXISTS documents_fts")
+                    logger.info("废弃 documents_fts 表清理完成")
+
+                await db.commit()
+                logger.info("v5 -> v6 FTS 表前缀化完成")
+
+        except Exception as e:
+            logger.error(f"v5 -> v6 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _copy_fts_rows_if_exists(
+        self,
+        db: aiosqlite.Connection,
+        source_table: str,
+        target_table: str,
+        columns: tuple[str, str],
+    ):
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (source_table,),
+        )
+        if not await cursor.fetchone():
+            return
+
+        first_column, second_column = columns
+        await db.execute(f"DELETE FROM {target_table}")
+        await db.execute(
+            f"""
+            INSERT INTO {target_table}({first_column}, {second_column})
+            SELECT {first_column}, {second_column} FROM {source_table}
+            """
+        )
+        await db.execute(f"DROP TABLE IF EXISTS {source_table}")
+        logger.info(f"已迁移并删除旧 FTS 表: {source_table} -> {target_table}")
 
     async def get_migration_info(self) -> dict[str, Any]:
         """

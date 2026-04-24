@@ -52,7 +52,7 @@ class IndexValidator:
                     # Wait up to 10s for lock release before failing fast.
                     await db.execute("PRAGMA busy_timeout = 10000")
                     try:
-                        await db.execute("DELETE FROM memories_fts")
+                        await db.execute("DELETE FROM livingmemory_memories_fts")
                     except Exception as e:
                         logger.warning(f"清空BM25索引失败: {e}")
 
@@ -122,22 +122,22 @@ class IndexValidator:
                 cursor = await db.execute("SELECT id FROM documents")
                 doc_ids = {row[0] for row in await cursor.fetchall()}
 
-                # 2. 检查BM25索引（memories_fts表）
+                # 2. 检查BM25索引（livingmemory_memories_fts表）
                 cursor = await db.execute("""
                     SELECT name FROM sqlite_master
-                    WHERE type='table' AND name='memories_fts'
+                    WHERE type='table' AND name='livingmemory_memories_fts'
                 """)
                 has_fts_table = await cursor.fetchone()
 
                 if has_fts_table:
                     cursor = await db.execute(
-                        "SELECT COUNT(DISTINCT doc_id) FROM memories_fts"
+                        "SELECT COUNT(DISTINCT doc_id) FROM livingmemory_memories_fts"
                     )
                     bm25_result = await cursor.fetchone()
                     bm25_count = bm25_result[0] if bm25_result else 0
 
                     cursor = await db.execute(
-                        "SELECT DISTINCT doc_id FROM memories_fts"
+                        "SELECT DISTINCT doc_id FROM livingmemory_memories_fts"
                     )
                     bm25_ids = {row[0] for row in await cursor.fetchall()}
                 else:

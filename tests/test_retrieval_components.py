@@ -78,6 +78,53 @@ async def test_bm25_add_search_update_delete(tmp_path: Path):
     assert all(r.doc_id != 1 for r in res3)
 
 
+@pytest.mark.asyncio
+async def test_bm25_uses_livingmemory_prefixed_fts_table(tmp_path: Path):
+    db_path = tmp_path / "bm25_prefixed.db"
+    retriever = BM25Retriever(str(db_path), TextProcessor())
+    await retriever.initialize()
+    await retriever.add_document(1, "前缀隔离测试", {})
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='livingmemory_memories_fts'
+        """)
+        assert await cursor.fetchone() is not None
+
+        cursor = await db.execute("SELECT COUNT(*) FROM livingmemory_memories_fts")
+        row = await cursor.fetchone()
+
+    assert row is not None
+    assert row[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_bm25_ignores_astrbot_documents_fts_schema(tmp_path: Path):
+    db_path = tmp_path / "astrbot_documents_fts.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            CREATE VIRTUAL TABLE documents_fts
+            USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
+        """)
+        await db.commit()
+
+    retriever = BM25Retriever(str(db_path), TextProcessor())
+    await retriever.initialize()
+    await retriever.add_document(1, "宿主同名表不应影响插件索引", {})
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM livingmemory_memories_fts")
+        prefixed_count = await cursor.fetchone()
+        cursor = await db.execute("SELECT COUNT(*) FROM documents_fts")
+        host_count = await cursor.fetchone()
+
+    assert prefixed_count is not None
+    assert prefixed_count[0] == 1
+    assert host_count is not None
+    assert host_count[0] == 0
+
+
 def test_rrf_fusion_orders_combined_results():
     fusion = RRFFusion(k=60)
     bm25 = [

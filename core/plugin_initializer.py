@@ -287,6 +287,7 @@ class PluginInitializer:
             index_path = data_dir_path / "livingmemory.index"
             graph_doc_path = data_dir_path / "livingmemory_graph_documents.db"
             graph_index_path = data_dir_path / "livingmemory_graph.index"
+            graph_memory_enabled = self.config_manager.get("graph_memory.enabled", True)
 
             if not self.embedding_provider:
                 raise ProviderNotReadyError("Embedding Provider 未初始化")
@@ -295,7 +296,8 @@ class PluginInitializer:
 
             # 检查索引文件维度与当前 embedding provider 维度是否一致
             await self._check_and_fix_dimension_mismatch(str(index_path))
-            await self._check_and_fix_dimension_mismatch(str(graph_index_path))
+            if graph_memory_enabled:
+                await self._check_and_fix_dimension_mismatch(str(graph_index_path))
 
             self.db = FaissVecDB(
                 str(db_path),
@@ -303,12 +305,14 @@ class PluginInitializer:
                 self.embedding_provider,
             )
             await self.db.initialize()
-            self.graph_db = FaissVecDB(
-                str(graph_doc_path),
-                str(graph_index_path),
-                self.embedding_provider,
-            )
-            await self.graph_db.initialize()
+            self.graph_db = None
+            if graph_memory_enabled:
+                self.graph_db = FaissVecDB(
+                    str(graph_doc_path),
+                    str(graph_index_path),
+                    self.embedding_provider,
+                )
+                await self.graph_db.initialize()
             logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
 
             # 初始化数据库迁移管理器
@@ -343,9 +347,7 @@ class PluginInitializer:
                     "forgetting_agent.auto_cleanup_enabled", True
                 ),
                 "stopwords_path": str(stopwords_dir),
-                "graph_memory_enabled": self.config_manager.get(
-                    "graph_memory.enabled", True
-                ),
+                "graph_memory_enabled": graph_memory_enabled,
                 "document_route_weight": self.config_manager.get(
                     "graph_memory.document_route_weight", 0.65
                 ),
@@ -469,7 +471,7 @@ class PluginInitializer:
                     logger.info(f"数据库备份已创建: {backup_path}")
 
             result = await self.db_migration.migrate(
-                sparse_retriever=None, progress_callback=None
+                progress_callback=None
             )
 
             if result.get("success"):

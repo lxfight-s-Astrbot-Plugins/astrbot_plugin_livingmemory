@@ -9,6 +9,8 @@ from typing import Any
 
 import aiosqlite
 
+from astrbot.api import logger
+
 from ..processors.text_processor import TextProcessor
 
 
@@ -24,7 +26,7 @@ class BM25Result:
 
 class BM25Retriever:
     """
-    BM25稀疏检索器
+    文档路 BM25 关键词检索器
 
     使用SQLite FTS5实现BM25算法的全文检索。
     主要特性:
@@ -50,17 +52,18 @@ class BM25Retriever:
         self.db_path = db_path
         self.text_processor = text_processor
         self.config = config or {}
-        self.fts_table = "memories_fts"
+        self.fts_table = "livingmemory_memories_fts"
         self.doc_table = "documents"
 
     async def initialize(self):
         """
         初始化FTS5索引
 
-        创建memories_fts虚拟表用于全文检索。
+        创建 livingmemory_memories_fts 虚拟表用于全文检索。
         使用unicode61分词器处理已预处理的文本。
         """
         async with aiosqlite.connect(self.db_path) as db:
+            await self._warn_if_legacy_documents_fts_exists(db)
             # 创建FTS5虚拟表
             await db.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table}
@@ -71,6 +74,22 @@ class BM25Retriever:
                 )
             """)
             await db.commit()
+
+    async def _warn_if_legacy_documents_fts_exists(self, db: aiosqlite.Connection):
+        cursor = await db.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='table' AND name='documents_fts'
+        """)
+        row = await cursor.fetchone()
+        if not row:
+            return
+
+        table_sql = (row[0] or "").lower()
+        if "search_text" in table_sql:
+            logger.warning(
+                "检测到插件废弃 documents_fts 表；当前版本改用 livingmemory_memories_fts，"
+                "请确认数据库迁移已执行到 v6"
+            )
 
     async def add_document(
         self, doc_id: int, content: str, metadata: dict[str, Any] | None = None

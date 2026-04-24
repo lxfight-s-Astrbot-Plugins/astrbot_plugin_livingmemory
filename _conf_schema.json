@@ -185,12 +185,6 @@
         "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。",
         "type": "int",
         "default": 10
-      },
-      "save_original_conversation": {
-        "description": "同时保存原始对话",
-        "hint": "开启后在结构化摘要之外额外保存完整对话原文，适合需要完整上下文的场景，但会增加 60-80% 存储空间。默认关闭，只保存结构化摘要。",
-        "type": "bool",
-        "default": false
       }
     }
   },
@@ -309,68 +303,6 @@
         "hint": "重要性低于该值的旧记忆才会被清理。0.3 表示重要性低于 30% 的记忆。",
         "type": "float",
         "default": 0.3
-      }
-    }
-  },
-  "sparse_retriever": {
-    "description": "BM25 关键词检索",
-    "hint": "基于关键词匹配的稀疏检索，与向量检索互补",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用 BM25 检索",
-        "hint": "关闭后只使用向量检索，关键词匹配能力会下降。建议保持开启。",
-        "type": "bool",
-        "default": true
-      },
-      "bm25_k1": {
-        "description": "词频饱和度 (k1)",
-        "hint": "控制词频对得分的影响上限。值越大高频词权重增长越慢。推荐 0.9-2.0，默认 1.2。",
-        "type": "float",
-        "default": 1.2
-      },
-      "bm25_b": {
-        "description": "长度归一化 (b)",
-        "hint": "控制文档长度对得分的影响。0 不归一化，1 完全归一化。推荐 0.5-0.9，默认 0.75。",
-        "type": "float",
-        "default": 0.75
-      },
-      "use_chinese_tokenizer": {
-        "description": "启用中文分词",
-        "hint": "使用 jieba 进行中文分词，提升中文检索效果。关闭后使用空格分词。",
-        "type": "bool",
-        "default": true
-      },
-      "enable_stopwords_filtering": {
-        "description": "启用停用词过滤",
-        "hint": "过滤「的」「了」等无意义词，提升检索精度。",
-        "type": "bool",
-        "default": true
-      },
-      "stopwords_source": {
-        "description": "停用词表来源",
-        "hint": "选择内置停用词表：hit（哈工大）、baidu（百度）、cn（通用中文）。",
-        "type": "string",
-        "default": "hit"
-      },
-      "custom_stopwords": {
-        "description": "自定义停用词",
-        "hint": "额外的停用词，用逗号或空格分隔，与所选停用词表合并使用。",
-        "type": "string",
-        "default": ""
-      }
-    }
-  },
-  "dense_retriever": {
-    "description": "向量语义检索",
-    "hint": "基于向量嵌入的语义相似度检索",
-    "type": "object",
-    "items": {
-      "enable_query_preprocessing": {
-        "description": "启用查询预处理",
-        "hint": "对检索查询进行预处理（去除特殊字符等），提升向量检索稳定性。建议开启。",
-        "type": "bool",
-        "default": true
       }
     }
   }

@@ -436,8 +436,7 @@ except DatabaseError as e:
     "auto_remove_injected": true
   },
   "reflection_engine": {
-    "summary_trigger_rounds": 10,
-    "save_original_conversation": false
+    "summary_trigger_rounds": 10
   }
 }
 ```
