@@ -1,3 +1,4 @@
-# Ensure consistent LF line endings for JSON and Python source files
-*.json text eol=lf
-*.py text eol=lf
+# Keep the current baseline line endings for files that already carry
+# non-normalized EOLs, otherwise Git will expand the patch with EOL-only noise.
+_conf_schema.json -text
+core/retrieval/graph_vector_retriever.py -text
