@@ -11,9 +11,12 @@ def test_config_manager_loads_defaults() -> None:
     config = manager.get_all()
 
     assert isinstance(config, dict)
+    assert "sparse_retriever" not in config
+    assert "dense_retriever" not in config
     assert manager.get("recall_engine.top_k") == 5
     assert manager.get("fusion_strategy.rrf_k") == 60
     assert manager.get("session_manager.max_sessions") == 100
+    assert manager.get("reflection_engine.save_original_conversation") is None
 
 
 def test_config_manager_supports_nested_get_and_default() -> None:

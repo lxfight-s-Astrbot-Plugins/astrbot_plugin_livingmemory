@@ -8,8 +8,6 @@ from typing import Any
 
 from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
-from ..processors.text_processor import TextProcessor
-
 
 @dataclass
 class VectorResult:
@@ -27,7 +25,7 @@ class VectorRetriever:
 
     封装AstrBot的FaissVecDB,提供统一的向量相似度检索接口。
     主要特性:
-    1. 支持可选的查询预处理(使用TextProcessor去除停用词)
+    1. 保持查询文本原样检索，避免额外预处理带来的行为分叉
     2. 元数据包含:importance, create_time, last_access_time, session_id, persona_id
     3. 相似度分数已归一化到[0,1]区间
     4. 支持通过metadata过滤session_id和persona_id
@@ -37,7 +35,6 @@ class VectorRetriever:
     def __init__(
         self,
         faiss_db: FaissVecDB,
-        text_processor: TextProcessor | None = None,
         config: dict[str, Any] | None = None,
     ):
         """
@@ -45,17 +42,10 @@ class VectorRetriever:
 
         Args:
             faiss_db: FaissVecDB实例
-            text_processor: 文本处理器实例(可选,用于查询预处理)
             config: 配置字典(可选)
         """
         self.faiss_db = faiss_db
-        self.text_processor = text_processor
         self.config = config or {}
-
-        # 是否启用查询预处理
-        self.enable_query_preprocessing = self.config.get(
-            "enable_query_preprocessing", False
-        )
 
         # 优化3: ID映射缓存 (int_id -> uuid)
         self._id_cache: dict[int, str] = {}
@@ -135,15 +125,7 @@ class VectorRetriever:
         if not query or not query.strip():
             return []
 
-        # 可选的查询预处理
         processed_query = query
-        if self.enable_query_preprocessing and self.text_processor:
-            tokens = self.text_processor.tokenize(query, remove_stopwords=True)
-            if tokens:
-                processed_query = " ".join(tokens)
-            else:
-                # 如果预处理后为空,使用原始查询
-                processed_query = query
 
         # 防止 embedding API token 超限：截断过长的查询文本
         # 大多数 embedding 模型限制在 8192 tokens 以内，按字符数保守截断

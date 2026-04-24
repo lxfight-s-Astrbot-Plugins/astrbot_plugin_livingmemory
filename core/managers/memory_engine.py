@@ -27,35 +27,6 @@ from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
 
 
-def _extract_session_uuid(session_id: str | None) -> str | None:
-    """
-    从 session_id 中提取 UUID 部分用于比较
-
-    支持两种格式：
-    - 新版本：platform:message_type:uuid → 返回 uuid
-    - 旧版本：uuid → 返回 uuid
-
-    Args:
-        session_id: session_id 字符串
-
-    Returns:
-        Optional[str]: 提取出的 UUID 部分，如果无法提取则返回原值
-    """
-    if not session_id:
-        return None
-
-    # 尝试按新版本格式分割（冒号或感叹号分隔）
-    if ":" in session_id:
-        parts = session_id.split(":")
-        return parts[-1]  # 返回最后一部分（UUID）
-    elif "!" in session_id:
-        parts = session_id.split("!")
-        return parts[-1]  # 返回最后一部分（UUID）
-
-    # 已经是 UUID 格式，直接返回
-    return session_id
-
-
 class MemoryEngine:
     """
     统一记忆引擎
@@ -176,9 +147,7 @@ class MemoryEngine:
         await self.bm25_retriever.initialize()
 
         # 6. 初始化向量检索器
-        self.vector_retriever = VectorRetriever(
-            self.faiss_db, self.text_processor, self.config
-        )
+        self.vector_retriever = VectorRetriever(self.faiss_db, self.config)
 
         # 7. 初始化混合检索器
         self.hybrid_retriever = HybridRetriever(

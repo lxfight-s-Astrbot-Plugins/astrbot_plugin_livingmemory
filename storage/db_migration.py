@@ -164,14 +164,12 @@ class DBMigration:
 
     async def migrate(
         self,
-        sparse_retriever: Any | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """
         执行数据库迁移
 
         Args:
-            sparse_retriever: 稀疏检索器实例（用于重建索引）
             progress_callback: 进度回调函数 (message, current, total)
 
         Returns:
@@ -234,7 +232,7 @@ class DBMigration:
 
                 # 执行所有迁移步骤
                 for step in migration_steps:
-                    await step(sparse_retriever, progress_callback)
+                    await step(progress_callback)
 
                 # 计算耗时
                 duration = (datetime.now() - start_time).total_seconds()
@@ -267,7 +265,6 @@ class DBMigration:
 
     async def _migrate_v1_to_v2(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -349,7 +346,6 @@ class DBMigration:
 
     async def _migrate_v2_to_v3(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -383,7 +379,6 @@ class DBMigration:
 
     async def _migrate_v3_to_v4(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -444,7 +439,6 @@ class DBMigration:
 
     async def _migrate_v4_to_v5(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -549,7 +543,6 @@ class DBMigration:
 
     async def _migrate_v5_to_v6(
         self,
-        sparse_retriever: Any | None,
         progress_callback: Callable[[str, int, int], None] | None,
     ):
         """
@@ -581,6 +574,7 @@ class DBMigration:
                     target_table="livingmemory_graph_entries_fts",
                     columns=("entry_id", "content"),
                 )
+
                 await self._backup_legacy_documents_fts_if_safe(db)
 
                 await db.commit()

@@ -241,7 +241,6 @@ class MemoryProcessor:
         self,
         messages: list[Message],
         is_group_chat: bool = False,
-        save_original: bool = False,
         persona_id: str | None = None,
     ) -> tuple[str, dict[str, Any], float]:
         """
@@ -250,7 +249,6 @@ class MemoryProcessor:
         Args:
             messages: 消息列表(Message对象)
             is_group_chat: 是否为群聊
-            save_original: 是否保存原始对话历史（默认False，只保存LLM生成的总结）
             persona_id: 人格ID,用于获取人格提示词
 
         Returns:
@@ -317,8 +315,13 @@ class MemoryProcessor:
             structured_data["_quality"] = quality
 
             # 5. 构建存储格式
+            fallback_excerpt = (
+                conversation_text[:200] + "..."
+                if len(conversation_text) > 200
+                else conversation_text
+            )
             content, metadata = self._build_storage_format(
-                conversation_text, structured_data, is_group_chat
+                fallback_excerpt, structured_data, is_group_chat
             )
             # 将质量标记写入 metadata
             metadata["summary_quality"] = structured_data.get("_quality", "normal")
@@ -616,7 +619,7 @@ class MemoryProcessor:
 
     def _build_storage_format(
         self,
-        conversation_text: str,
+        fallback_excerpt: str,
         structured_data: dict[str, Any],
         is_group_chat: bool,
     ) -> tuple[str, dict[str, Any]]:
@@ -624,7 +627,7 @@ class MemoryProcessor:
         构建存储格式
 
         Args:
-            conversation_text: 原始对话文本（已不再使用，保留参数以兼容旧代码）
+            fallback_excerpt: 当摘要为空时使用的对话摘录
             structured_data: 结构化数据
             is_group_chat: 是否为群聊
 
@@ -645,11 +648,7 @@ class MemoryProcessor:
         if canonical_summary:
             content = canonical_summary
         else:
-            content = (
-                conversation_text[:200] + "..."
-                if len(conversation_text) > 200
-                else conversation_text
-            )
+            content = fallback_excerpt
 
         # metadata字段:存储结构化信息
         # 注意：不要在这里设置 create_time 和 last_access_time

@@ -151,7 +151,7 @@ async def test_migrate_private_chat_legacy_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -174,7 +174,7 @@ async def test_migrate_group_chat_legacy_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -196,7 +196,7 @@ async def test_migrate_null_metadata_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -214,7 +214,7 @@ async def test_migrate_empty_string_metadata_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -231,7 +231,7 @@ async def test_migrate_v2_record_not_overwritten(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -253,7 +253,7 @@ async def test_migrate_mixed_private_and_group_records(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     assert len(records) == 4
@@ -272,8 +272,8 @@ async def test_migrate_idempotent(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -343,7 +343,7 @@ async def test_bulk_migration_100_records(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None, None)
+    await migration._migrate_v3_to_v4(None)
 
     records = await _get_all_metadata(db_path)
     assert len(records) == 100
@@ -374,7 +374,7 @@ async def test_migrate_v5_to_v6_renames_plugin_fts_tables(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None, None)
+    await migration._migrate_v5_to_v6(None)
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM livingmemory_memories_fts")
@@ -395,6 +395,35 @@ async def test_migrate_v5_to_v6_renames_plugin_fts_tables(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_migrate_v5_to_v6_keeps_astrbot_documents_fts(tmp_path):
+    db_path = str(tmp_path / "host_fts.db")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            CREATE VIRTUAL TABLE documents_fts
+            USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
+        """)
+        await db.execute(
+            "INSERT INTO documents_fts(doc_id, content) VALUES (?, ?)",
+            (10, "宿主索引"),
+        )
+        await db.commit()
+
+    migration = DBMigration(db_path)
+    await migration._migrate_v5_to_v6(None)
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM documents_fts")
+        host_count = await cursor.fetchone()
+        cursor = await db.execute("SELECT COUNT(*) FROM livingmemory_memories_fts")
+        plugin_count = await cursor.fetchone()
+
+    assert host_count is not None
+    assert host_count[0] == 1
+    assert plugin_count is not None
+    assert plugin_count[0] == 0
+
+
+@pytest.mark.asyncio
 async def test_migrate_v5_to_v6_backs_up_exact_legacy_documents_fts(tmp_path):
     db_path = str(tmp_path / "legacy_documents_fts.db")
     async with aiosqlite.connect(db_path) as db:
@@ -409,7 +438,7 @@ async def test_migrate_v5_to_v6_backs_up_exact_legacy_documents_fts(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None, None)
+    await migration._migrate_v5_to_v6(None)
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("""
@@ -429,7 +458,7 @@ async def test_migrate_v5_to_v6_backs_up_exact_legacy_documents_fts(tmp_path):
 
 @pytest.mark.asyncio
 async def test_migrate_v5_to_v6_keeps_non_exact_documents_fts(tmp_path):
-    db_path = str(tmp_path / "host_documents_fts.db")
+    db_path = str(tmp_path / "unknown_documents_fts.db")
     async with aiosqlite.connect(db_path) as db:
         await db.execute("""
             CREATE VIRTUAL TABLE documents_fts
@@ -437,24 +466,24 @@ async def test_migrate_v5_to_v6_keeps_non_exact_documents_fts(tmp_path):
         """)
         await db.execute(
             "INSERT INTO documents_fts(doc_id, search_text) VALUES (?, ?)",
-            (20, "宿主或未知结构索引"),
+            (20, "非旧 LivingMemory 精确结构索引"),
         )
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None, None)
+    await migration._migrate_v5_to_v6(None)
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM documents_fts")
-        host_count = await cursor.fetchone()
+        existing_count = await cursor.fetchone()
         cursor = await db.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='livingmemory_legacy_documents_fts_backup'
         """)
         backup_table = await cursor.fetchone()
 
-    assert host_count is not None
-    assert host_count[0] == 1
+    assert existing_count is not None
+    assert existing_count[0] == 1
     assert backup_table is None
 
 

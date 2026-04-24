@@ -609,10 +609,6 @@ class EventHandler:
                     logger.info(
                         f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
                     )
-                    save_original = self.config_manager.get(
-                        "reflection_engine.save_original_conversation", False
-                    )
-
                     (
                         content,
                         metadata,
@@ -620,7 +616,6 @@ class EventHandler:
                     ) = await self.memory_processor.process_conversation(
                         messages=history_messages,
                         is_group_chat=is_group_chat,
-                        save_original=save_original,
                         persona_id=persona_id,
                     )
 

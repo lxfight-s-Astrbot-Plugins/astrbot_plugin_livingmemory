@@ -468,7 +468,6 @@ async def test_prompt_template_contains_current_date_placeholder():
     await processor.process_conversation(
         messages=_make_private_messages(),
         is_group_chat=False,
-        save_original=False,
         persona_id=None,
     )
 
@@ -489,7 +488,6 @@ async def test_group_prompt_template_contains_current_date():
     await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
@@ -709,7 +707,6 @@ async def test_group_memory_quality_low_for_group_member_generic_term():
     _, metadata, _ = await processor.process_conversation(
         messages=_make_group_messages(),
         is_group_chat=True,
-        save_original=False,
         persona_id=None,
     )
 
