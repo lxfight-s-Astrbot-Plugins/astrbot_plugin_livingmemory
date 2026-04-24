@@ -543,3 +543,37 @@ def test_format_injection_minimal_metadata_no_crash():
     result = format_memories_for_injection(memories)
     assert result != ""
     assert "用户提到了一些事情" in result
+
+
+def test_format_injection_strips_tool_transcript_blocks():
+    """注入字符串应移除工具调用轨迹，仅保留自然语言摘要。"""
+    memories = [
+        {
+            "content": (
+                "用户昨天主要在问华为和群聊统计。\n"
+                "[工具调用记录]\n"
+                "- qts_get_recent_messages({\"sender_id\": \"2586151169\"}) → 命中 20 条\n"
+                "[工具调用结束]\n"
+                "最后确认他昨天没主动讨论华为。"
+            ),
+            "score": 0.8,
+            "timestamp": time.time() - 3600,
+            "metadata": {
+                "importance": 0.7,
+                "topics": ["华为", "群聊统计"],
+                "key_facts": [
+                    "用户昨天主要在问华为和群聊统计",
+                    "[工具调用记录]\n- search({\"query\": \"华为 昨天\"}) → 10 条\n[工具调用结束]",
+                ],
+            },
+        },
+    ]
+
+    result = format_memories_for_injection(memories)
+
+    assert "用户昨天主要在问华为和群聊统计" in result
+    assert "最后确认他昨天没主动讨论华为" in result
+    assert "qts_get_recent_messages" not in result
+    assert "search({\"query\": \"华为 昨天\"})" not in result
+    assert "[工具调用记录]" not in result
+    assert "[工具调用结束]" not in result

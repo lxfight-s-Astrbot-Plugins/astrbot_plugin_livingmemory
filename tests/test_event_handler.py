@@ -617,6 +617,40 @@ async def test_format_memories_for_fake_tool_call_empty():
 
 
 @pytest.mark.asyncio
+async def test_format_memories_for_fake_tool_call_strips_tool_transcript():
+    """fake_tool_call 注入也应清理工具轨迹，避免模型继续沿用旧调用链。"""
+    from astrbot_plugin_livingmemory.core.utils import (
+        format_memories_for_fake_tool_call,
+    )
+
+    result = format_memories_for_fake_tool_call(
+        [
+            {
+                "doc_id": 301,
+                "content": (
+                    "用户昨天主要在问华为。\n"
+                    "[工具调用记录]\n"
+                    "- search({\"query\": \"华为 昨天\"}) → 10 条\n"
+                    "[工具调用结束]\n"
+                    "最后确认没有直接提华为。"
+                ),
+                "score": 0.91,
+                "metadata": {"importance": 0.8},
+            }
+        ],
+        query="华为",
+        k=3,
+    )
+
+    assert len(result) == 2
+    tool_msg = result[1]
+    assert "用户昨天主要在问华为" in tool_msg["content"]
+    assert "最后确认没有直接提华为" in tool_msg["content"]
+    assert "search({\"query\": \"华为 昨天\"})" not in tool_msg["content"]
+    assert "[工具调用记录]" not in tool_msg["content"]
+
+
+@pytest.mark.asyncio
 async def test_handle_memory_recall_injection_fake_tool_call(
     handler, memory_engine
 ):

@@ -541,6 +541,44 @@ def test_recent_boost_uses_create_time_not_last_access_time():
     assert results[0].score_breakdown["recent_boost"] == 0.0
 
 
+def test_recency_weight_uses_create_time_not_last_access_time():
+    """基础时间衰减也不应被 last_access_time 刷新。"""
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
+
+    config = {
+        "recent_boost_hours": 0,
+        "recent_boost_factor": 0.15,
+        "decay_rate": 0.1,
+        "importance_weight": 1.0,
+        "score_alpha": 0.5,
+        "score_beta": 0.25,
+        "score_gamma": 0.25,
+    }
+    retriever = HybridRetriever(Mock(), Mock(), Mock(), config)
+
+    now = time.time()
+    fused_results = [
+        FusedResult(
+            doc_id=1,
+            rrf_score=0.5,
+            bm25_score=0.6,
+            vector_score=0.7,
+            content="旧但最近被访问的记忆",
+            metadata={
+                "importance": 0.5,
+                "create_time": now - 30 * 86400,
+                "last_access_time": now,
+            },
+        ),
+    ]
+
+    results = retriever._apply_weighting(fused_results, now)
+
+    assert results[0].score_breakdown["days_old"] == 30.0
+    assert results[0].score_breakdown["recency_weight"] < 0.1
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 6. Vector routes: fetch_k should expand for user-side filtering
 # ══════════════════════════════════════════════════════════════════════════════

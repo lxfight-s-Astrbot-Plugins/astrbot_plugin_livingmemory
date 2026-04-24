@@ -453,9 +453,11 @@ class MemoryEngine:
                 query, k, session_id, persona_id, user_id
             )
 
-        # 异步更新访问时间(不阻塞返回)
-        for result in results:
-            asyncio.create_task(self._update_access_time_internal(result.doc_id))
+        # 注意: 不再自动更新 last_access_time
+        # 自修复 Issue #反复回复: 时间衰减现仅基于 create_time，
+        # 避免每次检索后刷新访问时间导致旧记忆反复被召回
+        # for result in results:
+        #     asyncio.create_task(self._update_access_time_internal(result.doc_id))
 
         return results
 

@@ -111,9 +111,7 @@ class GraphRetriever:
 
             importance = max(0.0, min(1.0, float(metadata.get("importance", 0.5))))
             create_time = float(metadata.get("create_time") or current_time)
-            last_access_time = float(metadata.get("last_access_time") or 0.0)
-            reference_time = max(create_time, last_access_time)
-            days_old = max(0.0, (current_time - reference_time) / 86400)
+            days_old = max(0.0, (current_time - create_time) / 86400)
             recency_weight = math.exp(-self.decay_rate * days_old)
             graph_confidence = max(
                 0.0,

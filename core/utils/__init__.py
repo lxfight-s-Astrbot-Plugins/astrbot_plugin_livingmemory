@@ -299,6 +299,43 @@ def get_now_datetime_from_context(context: Context) -> datetime:
         return get_now_datetime()
 
 
+_TOOL_TRANSCRIPT_BLOCK_RE = re.compile(
+    r"\[工具调用记录\][\s\S]*?\[工具调用结束\]",
+    re.MULTILINE,
+)
+_TRAILING_TOOL_TRANSCRIPT_RE = re.compile(
+    r"\[工具调用记录\][\s\S]*$",
+    re.MULTILINE,
+)
+
+
+def _sanitize_memory_text(text: Any) -> str:
+    """移除记忆文本中的工具调用轨迹，避免污染后续提示词。"""
+    if text is None:
+        return ""
+
+    cleaned = str(text)
+    cleaned = _TOOL_TRANSCRIPT_BLOCK_RE.sub("\n", cleaned)
+    cleaned = _TRAILING_TOOL_TRANSCRIPT_RE.sub("\n", cleaned)
+    cleaned = cleaned.replace("[工具调用记录]", "")
+    cleaned = cleaned.replace("[工具调用结束]", "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _sanitize_memory_string_list(values: Any) -> list[str]:
+    """清洗记忆元数据中的字符串列表，移除空项与工具轨迹残片。"""
+    if not isinstance(values, list):
+        return []
+
+    cleaned_values = []
+    for value in values:
+        cleaned = _sanitize_memory_text(value)
+        if cleaned:
+            cleaned_values.append(cleaned)
+    return cleaned_values
+
+
 def format_memories_for_injection(memories: list) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
@@ -354,6 +391,8 @@ def format_memories_for_injection(memories: list) -> str:
                 importance = metadata.get("importance", 0.5)
                 interaction_type = metadata.get("interaction_type", "未知")
 
+            content = _sanitize_memory_text(content)
+
             # 格式化时间戳
             time_str = ""
             if timestamp:
@@ -373,27 +412,25 @@ def format_memories_for_injection(memories: list) -> str:
             metadata_parts = []
 
             # 添加主题
-            topics = metadata.get("topics", [])
-            if topics and isinstance(topics, list) and len(topics) > 0:
-                topics_str = "、".join(str(t) for t in topics if t)
+            topics = _sanitize_memory_string_list(metadata.get("topics", []))
+            if topics:
+                topics_str = "、".join(topics)
                 if topics_str:
                     metadata_parts.append(f"主题: {topics_str}")
 
             # 添加参与者（仅群聊）
-            participants = metadata.get("participants", [])
-            if (
-                participants
-                and isinstance(participants, list)
-                and len(participants) > 0
-            ):
-                participants_str = "、".join(str(p) for p in participants if p)
+            participants = _sanitize_memory_string_list(
+                metadata.get("participants", [])
+            )
+            if participants:
+                participants_str = "、".join(participants)
                 if participants_str:
                     metadata_parts.append(f"参与者: {participants_str}")
 
             # 添加关键事实
-            key_facts = metadata.get("key_facts", [])
-            if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
-                facts_str = "; ".join(str(f) for f in key_facts if f)
+            key_facts = _sanitize_memory_string_list(metadata.get("key_facts", []))
+            if key_facts:
+                facts_str = "; ".join(key_facts)
                 if facts_str:
                     metadata_parts.append(f"关键信息: {facts_str}")
 
@@ -402,7 +439,14 @@ def format_memories_for_injection(memories: list) -> str:
                 entry_parts.append(" | ".join(metadata_parts))
 
             # 添加记忆内容
-            entry_parts.append(content)
+            if content:
+                entry_parts.append(content)
+
+            if len(entry_parts) == 1:
+                logger.debug(
+                    "[format_memories_for_injection] 记忆仅包含工具轨迹，跳过注入"
+                )
+                continue
 
             entry = "\n".join(entry_parts)
             formatted_entries.append(entry)
@@ -497,6 +541,8 @@ def format_memories_for_fake_tool_call(
                 if isinstance(metadata_raw, str)
                 else metadata_raw
             )
+
+        content = _sanitize_memory_text(content)
 
         serialized_results.append(
             {

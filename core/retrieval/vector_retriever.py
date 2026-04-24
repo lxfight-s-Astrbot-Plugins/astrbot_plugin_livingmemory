@@ -45,7 +45,8 @@ class VectorRetriever:
     封装AstrBot的FaissVecDB,提供统一的向量相似度检索接口。
     主要特性:
     1. 支持可选的查询预处理(使用TextProcessor去除停用词)
-    2. 元数据包含:importance, create_time, last_access_time, session_id, persona_id
+    2. 元数据包含:importance, create_time, session_id, persona_id
+       (last_access_time 已不再使用，但保留字段以兼容旧数据)
     3. 相似度分数已归一化到[0,1]区间
     4. 支持通过metadata过滤session_id和persona_id
     5. ID映射缓存优化UUID查询性能
@@ -86,7 +87,7 @@ class VectorRetriever:
 
         Args:
             content: 文档内容
-            metadata: 文档元数据(必须包含:importance, create_time, last_access_time,
+            metadata: 文档元数据(必须包含:importance, create_time,
                      session_id, persona_id)
 
         Returns:
@@ -99,7 +100,7 @@ class VectorRetriever:
         required_fields = [
             "importance",
             "create_time",
-            "last_access_time",
+            # "last_access_time",  # 不再用于时间衰减，保留字段以兼容旧数据
             "session_id",
             "persona_id",
         ]
@@ -108,9 +109,8 @@ class VectorRetriever:
                 # 提供默认值
                 if field == "importance":
                     metadata[field] = 0.5
-                elif field in ["create_time", "last_access_time"]:
+                elif field == "create_time":
                     import time
-
                     metadata[field] = time.time()
                 else:  # session_id, persona_id
                     metadata[field] = None

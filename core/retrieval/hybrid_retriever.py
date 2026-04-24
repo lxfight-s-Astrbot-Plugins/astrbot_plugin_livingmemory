@@ -95,8 +95,9 @@ class HybridRetriever:
 
         Args:
             content: 记忆内容
-            metadata: 元数据(必须包含:importance, create_time, last_access_time,
+            metadata: 元数据(必须包含:importance, create_time,
                      session_id, persona_id)
+                     注:last_access_time 不再用于时间衰减计算
 
         Returns:
             int: 文档ID(两个索引中一致)
@@ -109,8 +110,9 @@ class HybridRetriever:
             metadata["importance"] = 0.5
         if "create_time" not in metadata:
             metadata["create_time"] = time.time()
-        if "last_access_time" not in metadata:
-            metadata["last_access_time"] = time.time()
+        # last_access_time 不再用于时间衰减，但保留字段以兼容旧数据
+        # if "last_access_time" not in metadata:
+        #     metadata["last_access_time"] = time.time()
         if "session_id" not in metadata:
             metadata["session_id"] = None
         if "persona_id" not in metadata:
@@ -265,7 +267,7 @@ class HybridRetriever:
         应用重要性和时间衰减加权
 
         使用加权求和（而非乘法）避免任何单一维度低分导致整体清零。
-        时间衰减基于 max(create_time, last_access_time)，高频访问记忆衰减更慢。
+        时间衰减仅基于 create_time，避免检索后刷新访问时间导致旧记忆反复冒头。
 
         Args:
             fused_results: RRF融合后的结果
@@ -314,12 +316,10 @@ class HybridRetriever:
             # 获取重要性(默认0.5)，限制在 [0, 1]
             importance = max(0.0, min(1.0, metadata.get("importance", 0.5)))
 
-            # 时间衰减：取 create_time 与 last_access_time 的较大值
-            # 高频访问的记忆衰减更慢，符合"记忆强化"认知规律
+            # 时间衰减：仅基于 create_time 计算，避免召回后访问时间
+            # 被刷新导致旧记忆在后续检索中反复冒头。
             create_time = metadata.get("create_time", current_time)
-            last_access_time = metadata.get("last_access_time", 0)
-            reference_time = max(create_time, last_access_time)
-            days_old = max(0.0, (current_time - reference_time) / 86400)
+            days_old = max(0.0, (current_time - create_time) / 86400)
             recency_weight = math.exp(-self.decay_rate * days_old)
 
             # 归一化 RRF 分数
