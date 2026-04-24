@@ -438,6 +438,185 @@ def format_memories_for_injection(memories: list) -> str:
     return result
 
 
+def format_memories_for_fake_tool_call(
+    memories: list,
+    query: str,
+    k: int = 5,
+    session_filtered: bool = True,
+    persona_filtered: bool = True,
+) -> list[dict]:
+    """将检索到的记忆列表格式化为伪造的工具调用消息对。
+
+    生成两条 OpenAI 格式的消息：
+    1. assistant 消息，包含 tool_calls（调用 recall_long_term_memory）
+    2. tool 消息，包含工具调用结果（记忆内容，JSON 格式）
+
+    返回的 JSON 格式与 MemorySearchTool.call() 的真实返回值保持一致，
+    使 LLM 对伪造调用和真实调用有相同的理解。
+
+    Args:
+        memories: 记忆字典列表，每条包含 content、score、metadata、timestamp 字段。
+        query: 用户查询文本（作为工具调用参数）。
+        k: 召回数量（作为工具调用参数）。
+        session_filtered: 本次检索是否启用了会话过滤。
+        persona_filtered: 本次检索是否启用了人格过滤。
+
+    Returns:
+        两条 OpenAI 格式消息的列表 [assistant_msg, tool_msg]；
+        若 memories 为空则返回空列表。
+    """
+    import uuid
+
+    from ..base.constants import FAKE_TOOL_CALL_ID_PREFIX, FAKE_TOOL_CALL_NAME
+
+    if not memories:
+        return []
+
+    # 生成唯一的伪造调用 ID
+    call_id = f"{FAKE_TOOL_CALL_ID_PREFIX}{uuid.uuid4().hex[:12]}"
+
+    # 将记忆序列化为与 MemorySearchTool.call() 一致的 JSON 格式
+    serialized_results = []
+    for mem in memories:
+        if isinstance(mem, dict):
+            memory_id = mem.get("id", mem.get("doc_id"))
+            content = mem.get("content", "")
+            score = mem.get("score", 0.0)
+            metadata = mem.get("metadata", {})
+        else:
+            memory_id = getattr(mem, "doc_id", None)
+            if not isinstance(memory_id, (str, int)):
+                memory_id = getattr(mem, "id", None)
+                if not isinstance(memory_id, (str, int)):
+                    memory_id = None
+            content = getattr(mem, "content", "")
+            score = getattr(mem, "score", getattr(mem, "final_score", 0.0))
+            metadata_raw = getattr(mem, "metadata", {})
+            metadata = (
+                safe_parse_metadata(metadata_raw)
+                if isinstance(metadata_raw, str)
+                else metadata_raw
+            )
+
+        serialized_results.append(
+            {
+                "id": memory_id,
+                "content": content,
+                "score": round(score, 4) if isinstance(score, float) else score,
+                "importance": metadata.get("importance", 0.5),
+                "session_id": metadata.get("session_id"),
+                "persona_id": metadata.get("persona_id"),
+                "create_time": metadata.get("create_time"),
+                "last_access_time": metadata.get("last_access_time"),
+            }
+        )
+
+    tool_result_json = json.dumps(
+        {
+            "query": query[:200],
+            "applied_filters": {
+                "session_filtered": session_filtered,
+                "persona_filtered": persona_filtered,
+            },
+            "count": len(serialized_results),
+            "results": serialized_results,
+        },
+        ensure_ascii=False,
+    )
+
+    # 构造 assistant 消息（伪造的工具调用）
+    assistant_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": FAKE_TOOL_CALL_NAME,
+                    "arguments": json.dumps(
+                        {"query": query[:200], "k": k},
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        ],
+    }
+
+    # 构造 tool 消息（伪造的返回结果）
+    tool_msg: dict[str, Any] = {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": tool_result_json,
+    }
+
+    logger.info(
+        f"[format_memories_for_fake_tool_call] "
+        f"生成伪造工具调用: call_id={call_id}, 记忆条数={len(serialized_results)}"
+    )
+
+    return [assistant_msg, tool_msg]
+
+
+def format_memories_for_fake_tool_call_deepseek_v4(
+    memories: list,
+    query: str,
+    k: int = 5,
+    session_filtered: bool = True,
+    persona_filtered: bool = True,
+) -> str:
+    """将记忆格式化为 DeepSeek V4 可兼容的“伪工具调用文本转录”。
+
+    DeepSeek V4 thinking 模式会校验历史 assistant/tool 协议消息中的
+    thinking 回传，不能直接注入协议层 fake tool call。
+    这里改为文本形式回放，保留工具调用语义，避免触发协议校验。
+    """
+    from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+    fake_messages = format_memories_for_fake_tool_call(
+        memories=memories,
+        query=query,
+        k=k,
+        session_filtered=session_filtered,
+        persona_filtered=persona_filtered,
+    )
+    if not fake_messages:
+        return ""
+
+    assistant_msg = fake_messages[0] if len(fake_messages) > 0 else {}
+    tool_msg = fake_messages[1] if len(fake_messages) > 1 else {}
+    tool_calls = (
+        assistant_msg.get("tool_calls", [])
+        if isinstance(assistant_msg, dict)
+        else []
+    )
+    tool_call = tool_calls[0] if tool_calls else {}
+    function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+
+    function_name = (
+        function.get("name", "recall_long_term_memory")
+        if isinstance(function, dict)
+        else "recall_long_term_memory"
+    )
+    function_args = (
+        function.get("arguments", "{}") if isinstance(function, dict) else "{}"
+    )
+    tool_result = (
+        tool_msg.get("content", "{}")
+        if isinstance(tool_msg, dict)
+        else "{}"
+    )
+
+    return (
+        f"{MEMORY_INJECTION_HEADER}\n"
+        "[DeepSeekV4-FakeToolCall-Replay]\n"
+        f"assistant -> {function_name}({function_args})\n"
+        f"tool -> {tool_result}\n"
+        "[/DeepSeekV4-FakeToolCall-Replay]\n"
+        f"{MEMORY_INJECTION_FOOTER}"
+    )
+
+
 __all__ = [
     "StopwordsManager",
     "get_stopwords_manager",
@@ -452,4 +631,6 @@ __all__ = [
     "get_now_datetime",
     "get_now_datetime_from_context",
     "format_memories_for_injection",
+    "format_memories_for_fake_tool_call",
+    "format_memories_for_fake_tool_call_deepseek_v4",
 ]

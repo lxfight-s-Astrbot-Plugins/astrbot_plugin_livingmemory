@@ -113,13 +113,15 @@
       },
       "injection_method": {
         "description": "记忆注入位置",
-        "hint": "记忆注入到 LLM 请求的位置。user_message_before：作为用户消息前缀；system_prompt：追加到系统提示词；user_message_after：作为用户消息后缀。",
+        "hint": "记忆注入到 LLM 请求的位置。user_message_before：作为用户消息前缀；system_prompt：追加到系统提示词；user_message_after：作为用户消息后缀；fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。",
         "type": "string",
         "default": "user_message_before",
         "options": [
           "user_message_before",
           "system_prompt",
-          "user_message_after"
+          "user_message_after",
+          "fake_tool_call",
+          "fake_tool_call_deepseek_v4"
         ]
       },
       "auto_remove_injected": {
