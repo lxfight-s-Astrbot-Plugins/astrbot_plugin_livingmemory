@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 移除
+- 移除废弃的 `sparse_retriever` 实现与配置入口，统一使用文档路 BM25/向量检索、图路检索和 RRF 融合链路。
+- 移除废弃的 `reflection_engine.save_original_conversation` 配置项和向量查询预处理开关，减少无效配置面。
+
+### 文档
+- 更新 README 与架构文档中的检索层描述，避免继续引用旧的单路混合检索表述。
+
 ## [2.2.3] - 2026-02-21
 
 ### 修复

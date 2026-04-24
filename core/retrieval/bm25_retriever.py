@@ -24,7 +24,7 @@ class BM25Result:
 
 class BM25Retriever:
     """
-    BM25稀疏检索器
+    文档路 BM25 关键词检索器
 
     使用SQLite FTS5实现BM25算法的全文检索。
     主要特性:

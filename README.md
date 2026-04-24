@@ -72,7 +72,7 @@ astrbot_plugin_livingmemory/
 ├── core/
 │   ├── base/                        # 基础组件（配置、常量、异常）
 │   ├── managers/                    # 核心管理器（MemoryEngine、ConversationManager）
-│   ├── retrieval/                   # 检索层（HybridRetriever、BM25、向量）
+│   ├── retrieval/                   # 检索层（文档路、图路、RRF 融合）
 │   ├── validators/                  # 验证器（IndexValidator）
 │   ├── plugin_initializer.py        # 插件初始化器
 │   ├── event_handler.py             # 事件处理器
@@ -114,7 +114,7 @@ astrbot_plugin_livingmemory/
 
 ## Agent 主动记忆回忆
 
-除了原有的每轮自动记忆召回外，插件现在还会在运行时注册一个 LLM 工具：`recall_long_term_memory`。
+除了自动记忆召回外，插件还会在运行时注册一个 LLM 工具：`recall_long_term_memory`。
 
 这个工具的特点：
 
