@@ -120,7 +120,8 @@
           "user_message_before",
           "system_prompt",
           "user_message_after",
-          "fake_tool_call"
+          "fake_tool_call",
+          "fake_tool_call_deepseek_v4"
         ]
       },
       "auto_remove_injected": {

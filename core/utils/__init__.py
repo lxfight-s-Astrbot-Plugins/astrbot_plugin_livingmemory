@@ -559,6 +559,60 @@ def format_memories_for_fake_tool_call(
     return [assistant_msg, tool_msg]
 
 
+def format_memories_for_fake_tool_call_deepseek_v4(
+    memories: list,
+    query: str,
+    k: int = 5,
+    session_filtered: bool = True,
+    persona_filtered: bool = True,
+) -> str:
+    """将伪工具调用转换成 DeepSeek V4 可接受的文本转录。"""
+    from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+    fake_messages = format_memories_for_fake_tool_call(
+        memories=memories,
+        query=query,
+        k=k,
+        session_filtered=session_filtered,
+        persona_filtered=persona_filtered,
+    )
+    if not fake_messages:
+        return ""
+
+    assistant_msg = fake_messages[0] if len(fake_messages) > 0 else {}
+    tool_msg = fake_messages[1] if len(fake_messages) > 1 else {}
+    tool_calls = (
+        assistant_msg.get("tool_calls", [])
+        if isinstance(assistant_msg, dict)
+        else []
+    )
+    tool_call = tool_calls[0] if tool_calls else {}
+    function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+
+    function_name = (
+        function.get("name", "recall_long_term_memory")
+        if isinstance(function, dict)
+        else "recall_long_term_memory"
+    )
+    function_args = (
+        function.get("arguments", "{}") if isinstance(function, dict) else "{}"
+    )
+    tool_result = (
+        tool_msg.get("content", "{}")
+        if isinstance(tool_msg, dict)
+        else "{}"
+    )
+
+    return (
+        f"{MEMORY_INJECTION_HEADER}\n"
+        "[DeepSeekV4-FakeToolCall-Replay]\n"
+        f"assistant -> {function_name}({function_args})\n"
+        f"tool -> {tool_result}\n"
+        "[/DeepSeekV4-FakeToolCall-Replay]\n"
+        f"{MEMORY_INJECTION_FOOTER}"
+    )
+
+
 __all__ = [
     "StopwordsManager",
     "get_stopwords_manager",
@@ -574,4 +628,5 @@ __all__ = [
     "get_now_datetime_from_context",
     "format_memories_for_injection",
     "format_memories_for_fake_tool_call",
+    "format_memories_for_fake_tool_call_deepseek_v4",
 ]

@@ -20,6 +20,7 @@ from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
+    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     get_persona_id,
 )
@@ -302,6 +303,22 @@ class EventHandler:
                             req.contexts.extend(fake_messages)
                             logger.info(
                                 f"[{session_id}] 成功以伪造工具调用方式注入 "
+                                f"{len(recalled_memories)} 条记忆"
+                            )
+                    elif injection_method == "fake_tool_call_deepseek_v4":
+                        fake_replay = format_memories_for_fake_tool_call_deepseek_v4(
+                            memory_list,
+                            query=actual_query,
+                            k=self.config_manager.get(
+                                "recall_engine.top_k", 5
+                            ),
+                            session_filtered=use_session_filtering,
+                            persona_filtered=use_persona_filtering,
+                        )
+                        if fake_replay:
+                            req.prompt = fake_replay + "\n\n" + (req.prompt or "")
+                            logger.info(
+                                f"[{session_id}] 成功以 DeepSeek V4 兼容伪工具转录方式注入 "
                                 f"{len(recalled_memories)} 条记忆"
                             )
                     else:
