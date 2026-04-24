@@ -24,6 +24,7 @@ from .utils import (
     format_memories_for_injection,
     get_persona_id,
 )
+from .utils.injection_adapter import InjectionAdapter
 
 
 class EventHandler:
@@ -63,6 +64,7 @@ class EventHandler:
         self._storage_sessions_inflight: set[str] = set()
         self._storage_state_lock = asyncio.Lock()
         self._shutting_down = False
+        self._injection_adapter = InjectionAdapter()
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """捕获所有群聊消息用于记忆存储"""
@@ -122,44 +124,6 @@ class EventHandler:
 
         except Exception as e:
             logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
-
-    def _resolve_injection_mode(self, configured_mode: str) -> str:
-        """根据当前 Provider 解析最终使用的注入模式。
-
-        Gemini 目前不完全兼容 fake_tool_call，自动降级到 user_message_before。
-        """
-        if configured_mode != "fake_tool_call":
-            return configured_mode
-
-        try:
-            provider = self.context.get_using_provider()
-            if provider:
-                config = getattr(provider, "provider_config", {})
-                provider_type = (
-                    config.get("type", "") if isinstance(config, dict) else ""
-                )
-                model_name = (
-                    provider.get_model()
-                    if hasattr(provider, "get_model")
-                    else ""
-                )
-
-                is_gemini = (
-                    provider_type == "googlegenai_chat_completion"
-                    or "gemini" in model_name.lower()
-                )
-
-                if is_gemini:
-                    logger.warning(
-                        "[LivingMemory] fake_tool_call is not fully compatible with "
-                        f"Gemini (type={provider_type}, model={model_name}), "
-                        "fallback to user_message_before."
-                    )
-                    return "user_message_before"
-        except Exception:
-            pass
-
-        return configured_mode
 
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """在 LLM 请求前，查询并注入长期记忆"""
@@ -271,10 +235,14 @@ class EventHandler:
                     configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "system_prompt"
                     )
-                    injection_method = self._resolve_injection_mode(configured_method)
-                    if injection_method != configured_method:
+                    provider = self.context.get_using_provider()
+                    injection_method, fallback_reason = self._injection_adapter.resolve(
+                        provider, configured_method
+                    )
+                    if fallback_reason:
                         logger.warning(
-                            f"[{session_id}] 注入模式从 {configured_method} 降级为 {injection_method}"
+                            f"[{session_id}] 注入模式从 {configured_method} 降级为 "
+                            f"{injection_method}: {fallback_reason}"
                         )
 
                     memory_str = format_memories_for_injection(memory_list)
