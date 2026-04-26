@@ -36,7 +36,7 @@ class SessionManagerConfig(BaseModel):
 class RecallEngineConfig(BaseModel):
     """回忆引擎配置"""
 
-    top_k: int = Field(default=5, ge=1, le=50, description="返回记忆数量")
+    top_k: int = Field(default=5, ge=0, le=50, description="返回记忆数量。设为 0 则跳过自动召回和注入")
     max_k: int = Field(
         default=10, ge=1, le=50, description="Agent 主动检索时允许的最大返回数量"
     )
