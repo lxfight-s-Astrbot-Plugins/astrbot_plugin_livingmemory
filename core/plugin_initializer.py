@@ -217,7 +217,7 @@ class PluginInitializer:
         # 初始化 Embedding Provider
         emb_id = self.config_manager.get("provider_settings.embedding_provider_id")
         if emb_id:
-            provider = self.context.get_provider_by_id(emb_id)
+            provider = self._get_provider_by_id(emb_id, silent=silent)
             if provider and isinstance(provider, EmbeddingProvider):
                 self.embedding_provider = provider
                 if not silent:
@@ -245,7 +245,7 @@ class PluginInitializer:
         self.llm_provider = None
         llm_id = self.config_manager.get("provider_settings.llm_provider_id")
         if llm_id:
-            provider = self.context.get_provider_by_id(llm_id)
+            provider = self._get_provider_by_id(llm_id, silent=silent)
             if provider and isinstance(provider, Provider):
                 self.llm_provider = provider
                 if not silent:
@@ -257,6 +257,9 @@ class PluginInitializer:
 
         if not self.llm_provider:
             try:
+                if silent and not self.context.get_all_providers():
+                    self.llm_provider = None
+                    return
                 default_provider = self.context.get_using_provider()
                 if default_provider and not isinstance(default_provider, Provider):
                     if not silent:
@@ -272,6 +275,18 @@ class PluginInitializer:
                 if not silent:
                     logger.debug(f"获取默认 LLM Provider 失败: {e}")
                 self.llm_provider = None
+
+    def _get_provider_by_id(self, provider_id: str, *, silent: bool):
+        """静默检查阶段绕过会打印 warning 的 AstrBot 查询接口。"""
+        if not provider_id:
+            return None
+        if not silent:
+            return self.context.get_provider_by_id(provider_id)
+        provider_manager = getattr(self.context, "provider_manager", None)
+        inst_map = getattr(provider_manager, "inst_map", None)
+        if isinstance(inst_map, dict):
+            return inst_map.get(provider_id)
+        return None
 
     async def _complete_initialization(self):
         """完成完整的初始化流程"""
