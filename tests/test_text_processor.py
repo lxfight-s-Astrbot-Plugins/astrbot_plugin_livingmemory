@@ -4,8 +4,8 @@ Tests for TextProcessor behaviors.
 
 from pathlib import Path
 
-import pytest
 import astrbot_plugin_livingmemory.core.processors.text_processor as text_processor_mod
+import pytest
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 
 

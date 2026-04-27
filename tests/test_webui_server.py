@@ -2,9 +2,8 @@
 
 from types import SimpleNamespace
 
-import pytest
-
 import astrbot_plugin_livingmemory.webui.server as webui_server_mod
+import pytest
 from astrbot_plugin_livingmemory.webui.server import WebUIServer
 
 
@@ -37,4 +36,3 @@ async def test_webui_start_failure_does_not_raise_system_exit(monkeypatch):
     assert server._server is None
     assert server._server_task is None
     assert server._cleanup_task is None
-
