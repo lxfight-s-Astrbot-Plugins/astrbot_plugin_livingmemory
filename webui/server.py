@@ -118,6 +118,8 @@ class WebUIServer:
         self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._server_error: BaseException | None = None
 
         self._app = FastAPI(title="LivingMemory WebUI", version="2.0.0")
         self._setup_routes()
@@ -128,38 +130,70 @@ class WebUIServer:
 
     async def start(self):
         """启动WebUI服务"""
-        if self._server_task and not self._server_task.done():
-            logger.warning("WebUI 服务已经在运行")
-            return
-
-        config = uvicorn.Config(
-            app=self._app,
-            host=self.host,
-            port=self.port,
-            log_level="info",
-            loop="asyncio",
-            lifespan="on",
-        )
-        self._server = uvicorn.Server(config)
-        self._server_task = asyncio.create_task(self._server.serve())
-
-        # 启动定期清理任务
-        self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
-
-        # 等待服务启动
-        for _ in range(50):
-            if getattr(self._server, "started", False):
-                logger.info(f"WebUI 已启动: http://{self.host}:{self.port}")
+        async with self._lifecycle_lock:
+            if self._server_task and not self._server_task.done():
+                logger.warning("WebUI 服务已经在运行")
                 return
-            if self._server_task.done():
-                error = self._server_task.exception()
-                raise RuntimeError(f"WebUI 启动失败: {error}") from error
-            await asyncio.sleep(0.1)
 
-        logger.warning("WebUI 启动耗时较长，仍在后台启动中")
+            self._server_error = None
+            config = uvicorn.Config(
+                app=self._app,
+                host=self.host,
+                port=self.port,
+                log_level="info",
+                loop="asyncio",
+                lifespan="on",
+            )
+            self._server = uvicorn.Server(config)
+            self._server_task = asyncio.create_task(self._serve_safely())
+
+            # 启动定期清理任务
+            self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
+
+            try:
+                # 等待服务启动
+                for _ in range(50):
+                    if getattr(self._server, "started", False):
+                        logger.info(f"WebUI 已启动: http://{self.host}:{self.port}")
+                        return
+                    if self._server_error is not None:
+                        raise RuntimeError(
+                            f"WebUI 启动失败: {self._server_error}"
+                        ) from self._server_error
+                    if self._server_task.done():
+                        raise RuntimeError("WebUI 启动失败，服务任务已提前结束")
+                    await asyncio.sleep(0.1)
+
+                logger.warning("WebUI 启动耗时较长，仍在后台启动中")
+            except asyncio.CancelledError:
+                await self._stop_locked()
+                raise
+            except Exception:
+                await self._stop_locked()
+                raise
 
     async def stop(self):
         """停止WebUI服务"""
+        async with self._lifecycle_lock:
+            await self._stop_locked()
+
+    async def _serve_safely(self):
+        try:
+            if self._server:
+                await self._server.serve()
+        except asyncio.CancelledError:
+            raise
+        except SystemExit as e:
+            self._server_error = e
+            logger.error(
+                f"WebUI 启动失败，监听地址可能已被占用: {self.host}:{self.port}。"
+                "如果刚重载插件，通常是旧实例端口尚未释放。"
+            )
+        except Exception as e:
+            self._server_error = e
+            logger.error(f"WebUI 服务异常退出: {e}", exc_info=True)
+
+    async def _stop_locked(self):
         # 停止定期清理任务
         if self._cleanup_task and not self._cleanup_task.done():
             self._cleanup_task.cancel()
@@ -171,7 +205,12 @@ class WebUIServer:
         if self._server:
             self._server.should_exit = True
         if self._server_task:
-            await self._server_task
+            try:
+                await self._server_task
+            except asyncio.CancelledError:
+                pass
+            except BaseException as e:
+                logger.debug(f"WebUI 服务任务结束时返回异常: {e}")
         self._server = None
         self._server_task = None
         self._cleanup_task = None

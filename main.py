@@ -55,6 +55,7 @@ class LivingMemoryPlugin(Star):
         self._background_tasks: set[asyncio.Task] = set()
         self._component_init_lock = asyncio.Lock()
         self._llm_tools_registered = False
+        self._terminating = False
 
         # 启动非阻塞的初始化任务
         self._create_tracked_task(self._initialize_plugin())
@@ -80,10 +81,14 @@ class LivingMemoryPlugin(Star):
 
     async def _ensure_runtime_components(self) -> bool:
         """确保运行期组件（事件/命令处理器、WebUI）已就绪"""
+        if self._terminating:
+            return False
         if not self.initializer.is_initialized:
             return False
 
         async with self._component_init_lock:
+            if self._terminating:
+                return False
             # 检查必要组件是否初始化成功
             if not all(
                 [
@@ -159,6 +164,8 @@ class LivingMemoryPlugin(Star):
 
     async def _start_webui(self):
         """根据配置启动 WebUI 控制台"""
+        if self._terminating:
+            return
         webui_config = self.config_manager.webui_settings
         if not webui_config.get("enabled"):
             return
@@ -491,6 +498,7 @@ class LivingMemoryPlugin(Star):
     async def terminate(self):
         """插件停止时的清理逻辑"""
         logger.info("LivingMemory 插件正在停止...")
+        self._terminating = True
 
         # 取消所有后台任务
         if self._background_tasks:

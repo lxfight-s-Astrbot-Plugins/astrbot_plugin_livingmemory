@@ -5,6 +5,7 @@
 
 import re
 import string
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -14,6 +15,7 @@ try:
     JIEBA_AVAILABLE = True
 except ImportError:
     JIEBA_AVAILABLE = False
+JIEBA_RUNTIME_DISABLED = False
 
 
 class TextProcessor:
@@ -294,8 +296,6 @@ class TextProcessor:
 
         # 检查 jieba 是否可用
         if not JIEBA_AVAILABLE:
-            import warnings
-
             warnings.warn(
                 "jieba 库未安装,中文分词将受限。建议安装: pip install jieba",
                 UserWarning,
@@ -445,15 +445,21 @@ class TextProcessor:
             >>> processor.add_custom_words(["LivingMemory", "AstrBot"])
         """
         if not JIEBA_AVAILABLE:
-            import warnings
-
             warnings.warn("jieba 未安装,无法添加自定义词汇", UserWarning)
             return
 
         self.custom_words.update(words)
 
         for word in words:
-            jieba.add_word(word)
+            try:
+                jieba.add_word(word)
+            except Exception as e:
+                warnings.warn(
+                    f"jieba 初始化失败，已跳过自定义词加载并降级分词: {e}",
+                    UserWarning,
+                )
+                self._disable_jieba_runtime()
+                return
 
     def add_stopwords(self, words: list[str]):
         """
@@ -565,13 +571,49 @@ class TextProcessor:
         # 检查是否包含中文
         has_chinese = any("\u4e00" <= char <= "\u9fff" for char in text)
 
-        if has_chinese and JIEBA_AVAILABLE:
+        if has_chinese and JIEBA_AVAILABLE and not JIEBA_RUNTIME_DISABLED:
             # 使用 jieba 分词 (搜索模式,适合检索)
-            tokens = list(jieba.cut_for_search(text))
+            try:
+                tokens = list(jieba.cut_for_search(text))
+            except Exception as e:
+                warnings.warn(
+                    f"jieba 分词初始化失败，已降级为内置中文分词: {e}",
+                    UserWarning,
+                )
+                self._disable_jieba_runtime()
+                tokens = self._fallback_segment(text)
         else:
             # 按空格分词 (适用于英文或 jieba 不可用时)
-            tokens = text.split()
+            tokens = self._fallback_segment(text)
 
+        return tokens
+
+    @staticmethod
+    def _disable_jieba_runtime() -> None:
+        global JIEBA_RUNTIME_DISABLED
+        JIEBA_RUNTIME_DISABLED = True
+
+    @staticmethod
+    def _fallback_segment(text: str) -> list[str]:
+        tokens: list[str] = []
+        buffer: list[str] = []
+
+        def flush_buffer():
+            if buffer:
+                tokens.append("".join(buffer))
+                buffer.clear()
+
+        for char in text:
+            if "\u4e00" <= char <= "\u9fff":
+                flush_buffer()
+                tokens.append(char)
+                continue
+            if char.isspace():
+                flush_buffer()
+                continue
+            buffer.append(char)
+
+        flush_buffer()
         return tokens
 
     def is_stopword(self, word: str) -> bool:
