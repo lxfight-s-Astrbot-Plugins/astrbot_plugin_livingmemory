@@ -6,9 +6,6 @@
 
 from typing import Any
 
-from astrbot.api import logger
-
-
 class InjectionAdapter:
     """根据 Provider/模型自动选择记忆注入策略的适配层。"""
 
@@ -49,9 +46,6 @@ class InjectionAdapter:
                     reason = (
                         f"fake_tool_call is not fully compatible with "
                         f"Gemini (type={provider_type}, model={model_name})"
-                    )
-                    logger.warning(
-                        "[LivingMemory] " + reason + f", fallback to {downgrade}."
                     )
                     return downgrade, reason
 

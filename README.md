@@ -32,6 +32,10 @@
 - `embedding_provider_id`: 向量嵌入模型 ID（留空使用默认）
 - `llm_provider_id`: 大语言模型 ID（留空使用默认）
 
+**记忆注入兼容性说明**:
+- `fake_tool_call` 在 Gemini 提供者下会自动降级为 `user_message_before`，以避免工具消息协议不兼容。
+- DeepSeek V4 `thinking` 模式如需保留伪工具调用语义，请手动选择 `fake_tool_call_deepseek_v4`。
+
 **WebUI 配置**:
 ```json
 {
