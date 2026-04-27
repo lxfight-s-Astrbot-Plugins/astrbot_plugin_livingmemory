@@ -35,6 +35,8 @@ class ConversationManager:
     - AstrBot事件集成
     """
 
+    _UNKNOWN_SENDER_NAMES = {"", "unknown", "none", "null", "n/a", "na", "未知"}
+
     def __init__(
         self,
         store: ConversationStore,
@@ -101,11 +103,7 @@ class ConversationManager:
         if not sender_id:
             sender_id = session_id
 
-        # 尝试获取发送者昵称
-        if hasattr(event, "get_sender_name"):
-            sender_name = event.get_sender_name()
-        elif hasattr(event, "sender_name"):
-            sender_name = event.sender_name
+        sender_name = self._resolve_sender_name(event, sender_id)
 
         # Debug: 记录原始 message_obj.sender 信息
         if hasattr(event, "message_obj") and hasattr(event.message_obj, "sender"):
@@ -227,6 +225,88 @@ class ConversationManager:
             )
 
         return message
+
+    @classmethod
+    def _normalize_sender_name(cls, value) -> str | None:
+        """过滤平台占位昵称，保留可读名称。"""
+        if value is None:
+            return None
+        text = str(value).strip()
+        if text.lower() in cls._UNKNOWN_SENDER_NAMES:
+            return None
+        return text
+
+    @staticmethod
+    def _raw_get(obj, key: str):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    @classmethod
+    def _format_raw_user_name(cls, raw_user, sender_id: str | None) -> str | None:
+        username = cls._normalize_sender_name(cls._raw_get(raw_user, "username"))
+        if username:
+            return username
+
+        first_name = cls._normalize_sender_name(cls._raw_get(raw_user, "first_name"))
+        last_name = cls._normalize_sender_name(cls._raw_get(raw_user, "last_name"))
+        full_name = " ".join(part for part in (first_name, last_name) if part).strip()
+        if full_name:
+            return full_name
+
+        display_name = cls._normalize_sender_name(cls._raw_get(raw_user, "full_name"))
+        if display_name:
+            return display_name
+
+        raw_id = cls._normalize_sender_name(cls._raw_get(raw_user, "id"))
+        if raw_id:
+            return raw_id
+
+        return cls._normalize_sender_name(sender_id)
+
+    @classmethod
+    def _iter_raw_sender_candidates(cls, event):
+        message_obj = getattr(event, "message_obj", None)
+        raw_message = getattr(message_obj, "raw_message", None)
+        for source in (
+            raw_message,
+            cls._raw_get(raw_message, "message"),
+            cls._raw_get(raw_message, "effective_message"),
+            cls._raw_get(raw_message, "callback_query"),
+        ):
+            raw_user = cls._raw_get(source, "from_user")
+            if raw_user is not None:
+                yield raw_user
+        effective_user = cls._raw_get(raw_message, "effective_user")
+        if effective_user is not None:
+            yield effective_user
+
+    @classmethod
+    def _resolve_sender_name(cls, event, sender_id: str | None) -> str | None:
+        sender_name = None
+        if hasattr(event, "get_sender_name"):
+            sender_name = event.get_sender_name()
+        elif hasattr(event, "sender_name"):
+            sender_name = event.sender_name
+
+        normalized = cls._normalize_sender_name(sender_name)
+        if normalized:
+            return normalized
+
+        message_obj = getattr(event, "message_obj", None)
+        raw_sender = getattr(message_obj, "sender", None)
+        raw_nickname = cls._normalize_sender_name(cls._raw_get(raw_sender, "nickname"))
+        if raw_nickname:
+            return raw_nickname
+
+        for raw_user in cls._iter_raw_sender_candidates(event):
+            candidate = cls._format_raw_user_name(raw_user, sender_id)
+            if candidate:
+                return candidate
+
+        return cls._normalize_sender_name(sender_id)
 
     async def get_context(
         self,

@@ -3,6 +3,7 @@ Tests for ConversationManager behaviors.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
@@ -31,6 +32,40 @@ class _DummyEvent:
 
     def get_platform_name(self):
         return "test"
+
+
+class _DummyTelegramEvent(_DummyEvent):
+    def __init__(
+        self,
+        session_id: str,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        user_id: int = 12345,
+    ):
+        super().__init__(session_id, group=False)
+        self.sender_id = str(user_id)
+        raw_user = SimpleNamespace(
+            id=user_id,
+            username=None,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        self.message_obj = SimpleNamespace(
+            sender=SimpleNamespace(user_id=str(user_id), nickname="Unknown"),
+            raw_message=SimpleNamespace(
+                message=SimpleNamespace(from_user=raw_user),
+                effective_user=raw_user,
+            ),
+        )
+
+    def get_sender_id(self):
+        return self.sender_id
+
+    def get_sender_name(self):
+        return "Unknown"
+
+    def get_platform_name(self):
+        return "telegram"
 
 
 @pytest.mark.asyncio
@@ -85,5 +120,46 @@ async def test_conversation_manager_range_and_metadata(tmp_path: Path):
 
     await manager.clear_session("test:private:s2")
     assert await store.get_message_count("test:private:s2") == 0
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_manager_resolves_telegram_name_without_username(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "telegram.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+    manager = ConversationManager(store=store, max_cache_size=2, context_window_size=10)
+
+    event = _DummyTelegramEvent(
+        "telegram:private:s3",
+        first_name="Alice",
+        last_name="Lee",
+        user_id=67890,
+    )
+    message = await manager.add_message_from_event(event, role="user", content="hello")
+
+    assert message.sender_id == "67890"
+    assert message.sender_name == "Alice Lee"
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_conversation_manager_falls_back_to_sender_id_for_unknown_name(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "telegram-id.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+    manager = ConversationManager(store=store, max_cache_size=2, context_window_size=10)
+
+    event = _DummyTelegramEvent("telegram:private:s4", user_id=24680)
+    message = await manager.add_message_from_event(event, role="user", content="hello")
+
+    assert message.sender_id == "24680"
+    assert message.sender_name == "24680"
 
     await store.close()
