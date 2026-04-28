@@ -508,6 +508,10 @@ class IndexValidator:
 
         for start in range(0, len(contents), embedding_batch_size):
             chunk = contents[start : start + embedding_batch_size]
+            logger.debug(
+                "Embedding 子请求: "
+                f"offset={start}, size={len(chunk)}, total={len(contents)}"
+            )
             vectors.extend(
                 await self._embed_request_with_retry(
                     provider,
@@ -588,12 +592,20 @@ class IndexValidator:
         failed_ids: set[int] = set()
         batch_delay = float(options["batch_delay"])
         max_failure_ratio = float(options["max_failure_ratio"])
+        batch_index = 0
 
         async for batch in self._iter_document_batches(
             int(options["batch_size"]), missing_ids
         ):
+            batch_index += 1
             ids = [int(row[0]) for row in batch]
             contents = [row[2] or "" for row in batch]
+            logger.info(
+                "向量补写批次开始: "
+                f"batch={batch_index}, size={len(ids)}, "
+                f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
+                f"failed={len(failed_ids)}"
+            )
             try:
                 vectors = await self._embed_batch_with_retry(provider, contents, options)
                 vectors_array = np.asarray(vectors, dtype=np.float32)
@@ -613,6 +625,12 @@ class IndexValidator:
                     total,
                     f"向量补写已处理 {processed}/{total} 条",
                 )
+
+            logger.info(
+                "向量补写进度: "
+                f"processed={processed}/{total}, failed={len(failed_ids)}, "
+                f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
+            )
 
             if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
                 break
@@ -653,10 +671,18 @@ class IndexValidator:
         failed_ids: set[int] = set()
         batch_delay = float(options["batch_delay"])
         max_failure_ratio = float(options["max_failure_ratio"])
+        batch_index = 0
 
         async for batch in self._iter_document_batches(int(options["batch_size"])):
+            batch_index += 1
             ids = [int(row[0]) for row in batch]
             contents = [row[2] or "" for row in batch]
+            logger.info(
+                "向量重建批次开始: "
+                f"batch={batch_index}, size={len(ids)}, "
+                f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
+                f"failed={len(failed_ids)}"
+            )
             try:
                 vectors = await self._embed_batch_with_retry(provider, contents, options)
                 vectors_array = np.asarray(vectors, dtype=np.float32)
@@ -680,6 +706,12 @@ class IndexValidator:
                     total,
                     f"向量索引已处理 {processed}/{total} 条",
                 )
+
+            logger.info(
+                "向量重建进度: "
+                f"processed={processed}/{total}, failed={len(failed_ids)}, "
+                f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
+            )
 
             if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
                 logger.error(
