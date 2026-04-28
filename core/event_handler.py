@@ -161,6 +161,14 @@ class EventHandler:
                             f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
                         )
 
+
+                # 若 top_k <= 0，跳过记忆检索和注入，但上述清理已执行完毕
+                top_k = self.config_manager.get("recall_engine.top_k", 5)
+                if top_k <= 0:
+                    logger.info(
+                        f"[{session_id}] top_k={top_k} <= 0，跳过记忆检索和注入"
+                    )
+                    return
                 # 获取过滤配置
                 filtering_config = self.config_manager.filtering_settings
                 use_persona_filtering = filtering_config.get(
