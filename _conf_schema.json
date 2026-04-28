@@ -262,6 +262,61 @@
       }
     }
   },
+  "index_rebuild_settings": {
+    "description": "索引重建",
+    "hint": "控制 /lmem rebuild-index 的分批大小、Embedding 请求速率和失败容忍度。低配云服务器建议保持较小并发。",
+    "type": "object",
+    "items": {
+      "batch_size": {
+        "description": "读取批量",
+        "hint": "每批从 documents 表读取的记忆条数。越大内存峰值越高、失败时影响的条数越多，建议 25-100。",
+        "type": "int",
+        "default": 50
+      },
+      "embedding_batch_size": {
+        "description": "Embedding 批量",
+        "hint": "单次 Embedding API 请求包含的文本数量。服务商 TPM 限流严格时继续调小。",
+        "type": "int",
+        "default": 8
+      },
+      "tasks_limit": {
+        "description": "Embedding 并发",
+        "hint": "批量 Embedding 内部并发上限。为避免触发 API 限流，默认 1。",
+        "type": "int",
+        "default": 1
+      },
+      "max_retries": {
+        "description": "批次重试次数",
+        "hint": "单个 Embedding 批次失败后的最大重试次数。",
+        "type": "int",
+        "default": 5
+      },
+      "retry_base_delay": {
+        "description": "重试等待秒数",
+        "hint": "批次失败后的指数退避基础等待时间。遇到 429/TPM 限流时会至少等待 30 秒。",
+        "type": "float",
+        "default": 30.0
+      },
+      "batch_delay": {
+        "description": "读取批次间隔秒数",
+        "hint": "每个 documents 读取批次之间的额外等待时间，用于主动降低整体重建速率。",
+        "type": "float",
+        "default": 5.0
+      },
+      "request_delay": {
+        "description": "Embedding 请求间隔秒数",
+        "hint": "每个 Embedding API 子请求之间的等待时间。频繁触发 429/TPM 时优先增大此项。",
+        "type": "float",
+        "default": 5.0
+      },
+      "max_failure_ratio": {
+        "description": "允许失败比例",
+        "hint": "全量向量重建时，失败比例不超过该值才允许切换新索引。0.02 表示最多允许 2% 失败。",
+        "type": "float",
+        "default": 0.02
+      }
+    }
+  },
   "backup_settings": {
     "description": "定期备份",
     "hint": "每日自动备份记忆数据库，防止数据意外丢失",

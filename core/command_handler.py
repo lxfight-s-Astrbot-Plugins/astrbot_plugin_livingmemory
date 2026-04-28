@@ -268,12 +268,22 @@ class CommandHandler:
             result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
             if result["success"]:
+                partial_notice = ""
+                if result.get("partial"):
+                    partial_notice = (
+                        "\n注意: 本次重建存在少量失败，失败率 "
+                        f"{result.get('failure_ratio', 0):.2%}，未超过安全阈值。"
+                        "可稍后再次执行 /lmem rebuild-index 补齐。"
+                    )
                 result_msg = f"""索引重建完成。
 
 处理结果:
 • 成功: {result["processed"]} 条
 • 失败: {result["errors"]} 条
 • 总计: {result["total"]} 条
+• 向量处理模式: {result.get("vector_mode", "unknown")}
+• 新索引切换: {"是" if result.get("switched") else "否"}
+{partial_notice}
 
 现在可以继续使用召回功能。"""
                 yield event.plain_result(result_msg)

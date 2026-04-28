@@ -3,7 +3,7 @@
 """
 
 import asyncio
-import json
+import os
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -44,19 +44,28 @@ class IndexValidator:
         self.db_path = db_path
         self.faiss_db = faiss_db
 
-    async def _clear_sqlite_storages_with_retry(self, max_attempts: int = 5) -> None:
-        """Clear BM25 and documents tables with retry on sqlite lock."""
+    DEFAULT_REBUILD_BATCH_SIZE = 50
+    DEFAULT_EMBEDDING_BATCH_SIZE = 8
+    DEFAULT_TASKS_LIMIT = 1
+    DEFAULT_MAX_RETRIES = 5
+    DEFAULT_RETRY_BASE_DELAY = 30.0
+    DEFAULT_BATCH_DELAY = 5.0
+    DEFAULT_REQUEST_DELAY = 5.0
+    RATE_LIMIT_RETRY_MIN_DELAY = 30.0
+    DEFAULT_MAX_FAILURE_RATIO = 0.02
+
+    async def _clear_bm25_with_retry(
+        self, table_name: str = "livingmemory_memories_fts", max_attempts: int = 5
+    ) -> None:
+        """清空 BM25 索引表，不触碰 documents 原始数据。"""
         for attempt in range(max_attempts):
             try:
                 async with aiosqlite.connect(self.db_path) as db:
-                    # Wait up to 10s for lock release before failing fast.
                     await db.execute("PRAGMA busy_timeout = 10000")
                     try:
-                        await db.execute("DELETE FROM livingmemory_memories_fts")
+                        await db.execute(f"DELETE FROM {table_name}")
                     except Exception as e:
                         logger.warning(f"清空BM25索引失败: {e}")
-
-                    await db.execute("DELETE FROM documents")
                     await db.commit()
                 return
             except Exception as e:
@@ -67,38 +76,6 @@ class IndexValidator:
                     wait_seconds = 0.2 * (attempt + 1)
                     logger.warning(
                         f"清空SQLite存储遇到锁，{wait_seconds:.1f}s后重试 "
-                        f"({attempt + 1}/{max_attempts}): {e}"
-                    )
-                    await asyncio.sleep(wait_seconds)
-                    continue
-                raise
-
-    async def _delete_vector_entry_with_retry(
-        self,
-        memory_engine: Any,
-        doc_id: int,
-        doc_uuid: str | None,
-        max_attempts: int = 5,
-    ) -> None:
-        """Delete one vector/document mapping with retry on sqlite lock."""
-        for attempt in range(max_attempts):
-            try:
-                removed = False
-                if doc_uuid:
-                    await memory_engine.faiss_db.delete(doc_uuid)
-                    removed = True
-
-                if not removed:
-                    await memory_engine.faiss_db.embedding_storage.delete([int(doc_id)])
-                return
-            except Exception as e:
-                if (
-                    "database is locked" in str(e).lower()
-                    and attempt < max_attempts - 1
-                ):
-                    wait_seconds = 0.2 * (attempt + 1)
-                    logger.warning(
-                        f"删除Faiss文档遇到锁(doc_id={doc_id})，{wait_seconds:.1f}s后重试 "
                         f"({attempt + 1}/{max_attempts}): {e}"
                     )
                     await asyncio.sleep(wait_seconds)
@@ -278,14 +255,616 @@ class IndexValidator:
             logger.error(f"获取迁移状态失败: {e}", exc_info=True)
             return False, 0
 
+    def _get_rebuild_options(self, memory_engine: Any) -> dict[str, Any]:
+        config = getattr(memory_engine, "config", {}) or {}
+
+        def read_int(key: str, default: int, minimum: int, maximum: int) -> int:
+            try:
+                value = int(config.get(key, default))
+            except (TypeError, ValueError):
+                value = default
+            return max(minimum, min(maximum, value))
+
+        def read_float(
+            key: str, default: float, minimum: float, maximum: float
+        ) -> float:
+            try:
+                value = float(config.get(key, default))
+            except (TypeError, ValueError):
+                value = default
+            return max(minimum, min(maximum, value))
+
+        return {
+            "batch_size": read_int(
+                "index_rebuild_batch_size", self.DEFAULT_REBUILD_BATCH_SIZE, 1, 500
+            ),
+            "embedding_batch_size": read_int(
+                "index_rebuild_embedding_batch_size",
+                self.DEFAULT_EMBEDDING_BATCH_SIZE,
+                1,
+                256,
+            ),
+            "tasks_limit": read_int(
+                "index_rebuild_tasks_limit", self.DEFAULT_TASKS_LIMIT, 1, 8
+            ),
+            "max_retries": read_int(
+                "index_rebuild_max_retries", self.DEFAULT_MAX_RETRIES, 1, 8
+            ),
+            "retry_base_delay": read_float(
+                "index_rebuild_retry_base_delay",
+                self.DEFAULT_RETRY_BASE_DELAY,
+                0.0,
+                60.0,
+            ),
+            "batch_delay": read_float(
+                "index_rebuild_batch_delay", self.DEFAULT_BATCH_DELAY, 0.0, 10.0
+            ),
+            "request_delay": read_float(
+                "index_rebuild_request_delay", self.DEFAULT_REQUEST_DELAY, 0.0, 60.0
+            ),
+            "max_failure_ratio": read_float(
+                "index_rebuild_max_failure_ratio",
+                self.DEFAULT_MAX_FAILURE_RATIO,
+                0.0,
+                1.0,
+            ),
+        }
+
+    @staticmethod
+    def _failure_ratio(errors: int, total: int) -> float:
+        if total <= 0:
+            return 0.0
+        return errors / total
+
+    @staticmethod
+    def _is_rate_limit_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            "429" in message
+            or "rate limit" in message
+            or "tpm limit" in message
+            or "too many requests" in message
+        )
+
+    async def _get_document_count(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM documents")
+            row = await cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    async def _get_document_ids(self) -> set[int]:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT id FROM documents")
+            return {int(row[0]) for row in await cursor.fetchall()}
+
+    async def _iter_document_batches(
+        self,
+        batch_size: int,
+        document_ids: set[int] | None = None,
+    ):
+        if document_ids is not None:
+            sorted_ids = sorted(int(doc_id) for doc_id in document_ids)
+            for start in range(0, len(sorted_ids), batch_size):
+                chunk = sorted_ids[start : start + batch_size]
+                placeholders = ",".join("?" for _ in chunk)
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute("PRAGMA busy_timeout = 10000")
+                    cursor = await db.execute(
+                        f"""
+                        SELECT id, doc_id, text, metadata
+                        FROM documents
+                        WHERE id IN ({placeholders})
+                        ORDER BY id
+                        """,
+                        chunk,
+                    )
+                    yield await cursor.fetchall()
+            return
+
+        last_id = 0
+        while True:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA busy_timeout = 10000")
+                cursor = await db.execute(
+                    """
+                    SELECT id, doc_id, text, metadata
+                    FROM documents
+                    WHERE id > ?
+                    ORDER BY id
+                    LIMIT ?
+                    """,
+                    (last_id, batch_size),
+                )
+                rows = await cursor.fetchall()
+
+            if not rows:
+                break
+            last_id = int(rows[-1][0])
+            yield rows
+
+    def _get_vector_count(self) -> int:
+        embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
+        index = getattr(embedding_storage, "index", None)
+        if index is None:
+            return 0
+        return int(getattr(index, "ntotal", 0))
+
+    def _get_vector_ids(self) -> set[int] | None:
+        embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
+        index = getattr(embedding_storage, "index", None)
+        if index is None:
+            return set()
+        try:
+            import faiss
+
+            if hasattr(index, "id_map"):
+                vector_to_array = getattr(faiss, "vector_to_array", None)
+                if callable(vector_to_array):
+                    raw_ids = cast(Any, vector_to_array(index.id_map))
+                    return {int(i) for i in raw_ids}
+        except Exception as e:
+            logger.debug(f"读取向量ID失败: {e}")
+        return None
+
+    async def _rebuild_bm25_index(
+        self,
+        memory_engine: Any,
+        total: int,
+        options: dict[str, Any],
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        bm25_retriever = getattr(memory_engine, "bm25_retriever", None)
+        text_processor = getattr(bm25_retriever, "text_processor", None)
+        if text_processor is None:
+            text_processor = getattr(memory_engine, "text_processor", None)
+        if text_processor is None:
+            raise RuntimeError("无法重建 BM25：TextProcessor 未初始化")
+
+        table_name = getattr(bm25_retriever, "fts_table", "livingmemory_memories_fts")
+        batch_size = int(options["batch_size"])
+        max_failure_ratio = float(options["max_failure_ratio"])
+
+        await self._clear_bm25_with_retry(table_name)
+        processed = 0
+        failed_ids: set[int] = set()
+
+        async for batch in self._iter_document_batches(batch_size):
+            rows_to_insert: list[tuple[int, str]] = []
+            for doc_id, _doc_uuid, text, _metadata_json in batch:
+                try:
+                    if hasattr(text_processor, "preprocess_for_bm25"):
+                        processed_content = text_processor.preprocess_for_bm25(
+                            text or ""
+                        )
+                    else:
+                        tokens = text_processor.tokenize(text or "", True)
+                        processed_content = " ".join(tokens)
+                    rows_to_insert.append((int(doc_id), processed_content))
+                except Exception as e:
+                    failed_ids.add(int(doc_id))
+                    logger.error(f"BM25 预处理失败 doc_id={doc_id}: {e}")
+
+            if rows_to_insert:
+                try:
+                    async with aiosqlite.connect(self.db_path) as db:
+                        await db.execute("PRAGMA busy_timeout = 10000")
+                        await db.executemany(
+                            f"INSERT INTO {table_name}(doc_id, content) VALUES (?, ?)",
+                            rows_to_insert,
+                        )
+                        await db.commit()
+                    processed += len(rows_to_insert)
+                except Exception as batch_error:
+                    logger.warning(
+                        f"BM25 批量写入失败，将逐条重试: {batch_error}"
+                    )
+                    for row_doc_id, processed_content in rows_to_insert:
+                        try:
+                            async with aiosqlite.connect(self.db_path) as db:
+                                await db.execute("PRAGMA busy_timeout = 10000")
+                                await db.execute(
+                                    f"INSERT INTO {table_name}(doc_id, content) VALUES (?, ?)",
+                                    (row_doc_id, processed_content),
+                                )
+                                await db.commit()
+                            processed += 1
+                        except Exception as e:
+                            failed_ids.add(int(row_doc_id))
+                            logger.error(f"BM25 写入失败 doc_id={row_doc_id}: {e}")
+
+            if progress_callback:
+                await progress_callback(
+                    processed,
+                    total,
+                    f"BM25 已处理 {processed}/{total} 条",
+                )
+
+            if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
+                logger.error(
+                    f"BM25 重建失败率过高: {len(failed_ids)}/{total}，停止后续重建"
+                )
+                break
+
+        return {
+            "processed": processed,
+            "errors": len(failed_ids),
+            "failed_ids": failed_ids,
+        }
+
+    async def _embed_batch_with_retry(
+        self,
+        provider: Any,
+        contents: list[str],
+        options: dict[str, Any],
+    ) -> list[Any]:
+        if not contents:
+            return []
+
+        max_retries = int(options["max_retries"])
+        retry_base_delay = float(options["retry_base_delay"])
+        embedding_batch_size = int(options["embedding_batch_size"])
+        request_delay = float(options["request_delay"])
+        vectors: list[Any] = []
+
+        for start in range(0, len(contents), embedding_batch_size):
+            chunk = contents[start : start + embedding_batch_size]
+            logger.debug(
+                "Embedding 子请求: "
+                f"offset={start}, size={len(chunk)}, total={len(contents)}"
+            )
+            vectors.extend(
+                await self._embed_request_with_retry(
+                    provider,
+                    chunk,
+                    max_retries=max_retries,
+                    retry_base_delay=retry_base_delay,
+                )
+            )
+            if request_delay > 0 and start + embedding_batch_size < len(contents):
+                await asyncio.sleep(request_delay)
+
+        return vectors
+
+    async def _embed_request_with_retry(
+        self,
+        provider: Any,
+        contents: list[str],
+        *,
+        max_retries: int,
+        retry_base_delay: float,
+    ) -> list[Any]:
+        last_error: Exception | None = None
+
+        for attempt in range(max_retries):
+            try:
+                get_embeddings = getattr(provider, "get_embeddings", None)
+                if callable(get_embeddings):
+                    return await get_embeddings(contents)
+
+                if hasattr(provider, "get_embeddings_batch"):
+                    try:
+                        return await provider.get_embeddings_batch(
+                            contents,
+                            batch_size=len(contents),
+                            tasks_limit=1,
+                            max_retries=1,
+                        )
+                    except TypeError:
+                        return await provider.get_embeddings_batch(contents)
+
+                vectors = []
+                for content in contents:
+                    vectors.append(await provider.get_embedding(content))
+                return vectors
+            except Exception as e:
+                last_error = e
+                if attempt >= max_retries - 1:
+                    break
+                wait_seconds = retry_base_delay * (2**attempt)
+                if self._is_rate_limit_error(e):
+                    wait_seconds = max(wait_seconds, self.RATE_LIMIT_RETRY_MIN_DELAY)
+                logger.warning(
+                    f"Embedding 批次失败，{wait_seconds:.1f}s 后重试 "
+                    f"({attempt + 1}/{max_retries}): {e}"
+                )
+                if wait_seconds > 0:
+                    await asyncio.sleep(wait_seconds)
+
+        raise RuntimeError(f"Embedding 批次重试失败: {last_error}") from last_error
+
+    async def _repair_missing_vectors(
+        self,
+        memory_engine: Any,
+        missing_ids: set[int],
+        options: dict[str, Any],
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        import numpy as np
+
+        faiss_db = getattr(memory_engine, "faiss_db", None)
+        embedding_storage = getattr(faiss_db, "embedding_storage", None)
+        provider = getattr(faiss_db, "embedding_provider", None)
+        if embedding_storage is None or provider is None:
+            raise RuntimeError("无法修复向量索引：Embedding 组件未初始化")
+
+        total = len(missing_ids)
+        processed = 0
+        failed_ids: set[int] = set()
+        batch_delay = float(options["batch_delay"])
+        max_failure_ratio = float(options["max_failure_ratio"])
+        batch_index = 0
+
+        async for batch in self._iter_document_batches(
+            int(options["batch_size"]), missing_ids
+        ):
+            batch_index += 1
+            ids = [int(row[0]) for row in batch]
+            contents = [row[2] or "" for row in batch]
+            logger.info(
+                "向量补写批次开始: "
+                f"batch={batch_index}, size={len(ids)}, "
+                f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
+                f"failed={len(failed_ids)}"
+            )
+            try:
+                vectors = await self._embed_batch_with_retry(provider, contents, options)
+                vectors_array = np.asarray(vectors, dtype=np.float32)
+                if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
+                    raise ValueError(
+                        f"Embedding 返回数量不匹配: 期望 {len(ids)}，实际 {len(vectors_array)}"
+                    )
+                await embedding_storage.insert_batch(vectors_array, ids)
+                processed += len(ids)
+            except Exception as e:
+                failed_ids.update(ids)
+                logger.error(f"向量补写批次失败 ids={ids[:3]}...: {e}", exc_info=True)
+
+            if progress_callback:
+                await progress_callback(
+                    processed,
+                    total,
+                    f"向量补写已处理 {processed}/{total} 条",
+                )
+
+            logger.info(
+                "向量补写进度: "
+                f"processed={processed}/{total}, failed={len(failed_ids)}, "
+                f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
+            )
+
+            if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
+                break
+            if batch_delay > 0:
+                await asyncio.sleep(batch_delay)
+
+        return {
+            "mode": "repair",
+            "processed": processed,
+            "errors": len(failed_ids),
+            "failed_ids": failed_ids,
+            "switched": False,
+            "partial": len(failed_ids) > 0,
+        }
+
+    async def _rebuild_vector_index_full(
+        self,
+        memory_engine: Any,
+        total: int,
+        options: dict[str, Any],
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        import faiss
+        import numpy as np
+
+        faiss_db = getattr(memory_engine, "faiss_db", None)
+        embedding_storage = getattr(faiss_db, "embedding_storage", None)
+        provider = getattr(faiss_db, "embedding_provider", None)
+        if embedding_storage is None or provider is None:
+            raise RuntimeError("无法重建向量索引：Embedding 组件未初始化")
+
+        dimension = int(getattr(embedding_storage, "dimension", 0) or 0)
+        if dimension <= 0:
+            raise RuntimeError("无法重建向量索引：索引维度无效")
+
+        temp_index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+        processed = 0
+        failed_ids: set[int] = set()
+        batch_delay = float(options["batch_delay"])
+        max_failure_ratio = float(options["max_failure_ratio"])
+        batch_index = 0
+
+        async for batch in self._iter_document_batches(int(options["batch_size"])):
+            batch_index += 1
+            ids = [int(row[0]) for row in batch]
+            contents = [row[2] or "" for row in batch]
+            logger.info(
+                "向量重建批次开始: "
+                f"batch={batch_index}, size={len(ids)}, "
+                f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
+                f"failed={len(failed_ids)}"
+            )
+            try:
+                vectors = await self._embed_batch_with_retry(provider, contents, options)
+                vectors_array = np.asarray(vectors, dtype=np.float32)
+                if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
+                    raise ValueError(
+                        f"Embedding 返回数量不匹配: 期望 {len(ids)}，实际 {len(vectors_array)}"
+                    )
+                if vectors_array.shape[1] != dimension:
+                    raise ValueError(
+                        f"Embedding 维度不匹配: 期望 {dimension}，实际 {vectors_array.shape[1]}"
+                    )
+                temp_index.add_with_ids(vectors_array, np.asarray(ids, dtype=np.int64))
+                processed += len(ids)
+            except Exception as e:
+                failed_ids.update(ids)
+                logger.error(f"向量重建批次失败 ids={ids[:3]}...: {e}", exc_info=True)
+
+            if progress_callback:
+                await progress_callback(
+                    processed,
+                    total,
+                    f"向量索引已处理 {processed}/{total} 条",
+                )
+
+            logger.info(
+                "向量重建进度: "
+                f"processed={processed}/{total}, failed={len(failed_ids)}, "
+                f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
+            )
+
+            if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
+                logger.error(
+                    f"向量重建失败率过高: {len(failed_ids)}/{total}，不会切换新索引"
+                )
+                return {
+                    "mode": "full",
+                    "processed": processed,
+                    "errors": len(failed_ids),
+                    "failed_ids": failed_ids,
+                    "switched": False,
+                    "partial": True,
+                }
+            if batch_delay > 0:
+                await asyncio.sleep(batch_delay)
+
+        if total > 0 and processed == 0:
+            return {
+                "mode": "full",
+                "processed": 0,
+                "errors": max(total, len(failed_ids)),
+                "failed_ids": failed_ids,
+                "switched": False,
+                "partial": True,
+            }
+
+        index_path = getattr(embedding_storage, "path", None)
+        if index_path:
+            temp_path = f"{index_path}.rebuild.tmp"
+            try:
+                faiss.write_index(temp_index, temp_path)
+                os.replace(temp_path, index_path)
+            finally:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+
+        embedding_storage.index = temp_index
+        return {
+            "mode": "full",
+            "processed": processed,
+            "errors": len(failed_ids),
+            "failed_ids": failed_ids,
+            "switched": True,
+            "partial": len(failed_ids) > 0,
+        }
+
+    async def _rebuild_or_repair_vector_index(
+        self,
+        memory_engine: Any,
+        total: int,
+        options: dict[str, Any],
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        document_ids = await self._get_document_ids()
+        if not document_ids:
+            return {
+                "mode": "skip",
+                "processed": 0,
+                "errors": 0,
+                "failed_ids": set(),
+                "switched": False,
+                "partial": False,
+            }
+
+        vector_ids = self._get_vector_ids()
+        vector_count = self._get_vector_count()
+        if vector_ids is not None:
+            missing_ids = document_ids - vector_ids
+            if not missing_ids:
+                return {
+                    "mode": "skip",
+                    "processed": 0,
+                    "errors": 0,
+                    "failed_ids": set(),
+                    "switched": False,
+                    "partial": False,
+                }
+            if vector_ids:
+                logger.info(f"检测到 {len(missing_ids)} 条向量缺失，执行增量补写")
+                return await self._repair_missing_vectors(
+                    memory_engine, missing_ids, options, progress_callback
+                )
+
+        if vector_ids is None and vector_count >= total:
+            logger.info("向量索引计数不小于 documents 数量，跳过全量向量重建")
+            return {
+                "mode": "skip",
+                "processed": 0,
+                "errors": 0,
+                "failed_ids": set(),
+                "switched": False,
+                "partial": False,
+            }
+
+        logger.info("向量索引缺失或为空，执行安全全量重建")
+        return await self._rebuild_vector_index_full(
+            memory_engine, total, options, progress_callback
+        )
+
+    async def _update_migration_rebuild_status(
+        self, completed_value: str = "true"
+    ) -> None:
+        from datetime import datetime, timezone
+
+        try:
+            async with aiosqlite.connect(self.db_path) as status_db:
+                await status_db.execute("""
+                    CREATE TABLE IF NOT EXISTS migration_status (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TEXT
+                    )
+                """)
+                await status_db.execute(
+                    """
+                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        "needs_index_rebuild",
+                        "false",
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                await status_db.execute(
+                    """
+                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        "index_rebuild_completed",
+                        completed_value,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                await status_db.commit()
+        except Exception as e:
+            logger.warning(f"更新迁移状态失败: {e}")
+
     async def rebuild_indexes(
         self, memory_engine: Any, progress_callback=None
     ) -> dict[str, Any]:
         """
-        重建所有索引
+        分批安全重建索引
 
-        安全策略：先备份原始数据到临时表，重建成功后再删除备份；
-        任何步骤失败都可从临时表恢复，不会造成数据丢失。
+        安全策略：
+        1. documents 表只读，始终作为原始数据源。
+        2. BM25 直接按 documents 分批重建。
+        3. 向量索引优先增量补缺；需要全量重建时先构建临时 FAISS 索引。
+        4. 失败率超过阈值时不切换全量重建的新向量索引。
 
         Args:
             memory_engine: MemoryEngine实例
@@ -295,176 +874,117 @@ class IndexValidator:
             Dict: 重建结果
         """
         try:
-            logger.info("开始重建索引。")
+            logger.info("开始分批安全重建索引。")
+            options = self._get_rebuild_options(memory_engine)
+            total = await self._get_document_count()
 
-            # 1. 读取所有文档到内存，同时备份到临时表（原子操作，防止读取期间数据变化）
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("PRAGMA busy_timeout = 10000")
-                logger.info("读取 documents 表数据并创建备份。")
-
-                # 创建备份临时表（如已存在则先删除，避免上次失败残留）
-                await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
-                await db.execute("""
-                    CREATE TABLE _documents_rebuild_backup AS
-                    SELECT id, doc_id, text, metadata, created_at, updated_at
-                    FROM documents
-                """)
-                await db.commit()
-
-                cursor = await db.execute(
-                    "SELECT id, doc_id, text, metadata FROM _documents_rebuild_backup ORDER BY id"
-                )
-                documents = list(await cursor.fetchall())
-
-            if not documents:
-                # 清理空备份表
-                async with aiosqlite.connect(self.db_path) as db:
-                    await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
-                    await db.commit()
+            if total <= 0:
                 return {
                     "success": True,
                     "message": "没有需要重建的文档",
                     "processed": 0,
                     "errors": 0,
+                    "total": 0,
+                    "partial": False,
+                    "switched": False,
                 }
 
-            total = len(documents)
-            logger.info(f"找到 {total} 条文档需要重建索引（备份已创建）")
-            logger.info("清空 documents 表、BM25 索引和向量索引。")
+            logger.info(
+                "重建参数: "
+                f"total={total}, batch_size={options['batch_size']}, "
+                f"embedding_batch_size={options['embedding_batch_size']}, "
+                f"tasks_limit={options['tasks_limit']}, "
+                f"request_delay={options['request_delay']}, "
+                f"batch_delay={options['batch_delay']}, "
+                f"max_failure_ratio={options['max_failure_ratio']}"
+            )
 
-            # 2. 删除向量索引条目（不持有 SQLite 写锁）
-            for doc_id, doc_uuid, _text, _metadata_json in documents:
-                try:
-                    await self._delete_vector_entry_with_retry(
-                        memory_engine=memory_engine,
-                        doc_id=int(doc_id),
-                        doc_uuid=str(doc_uuid) if doc_uuid else None,
+            bm25_result = await self._rebuild_bm25_index(
+                memory_engine, total, options, progress_callback
+            )
+            bm25_failed_ids = set(bm25_result["failed_ids"])
+            if (
+                self._failure_ratio(len(bm25_failed_ids), total)
+                > float(options["max_failure_ratio"])
+            ):
+                message = (
+                    f"BM25 重建失败率过高: {len(bm25_failed_ids)}/{total}。"
+                    "documents 原始数据未被删除，已停止向量重建。"
+                )
+                logger.error(message)
+                return {
+                    "success": False,
+                    "message": message,
+                    "processed": total - len(bm25_failed_ids),
+                    "errors": len(bm25_failed_ids),
+                    "total": total,
+                    "partial": True,
+                    "switched": False,
+                    "bm25_processed": bm25_result["processed"],
+                    "bm25_errors": bm25_result["errors"],
+                    "vector_processed": 0,
+                    "vector_errors": 0,
+                    "failure_ratio": self._failure_ratio(len(bm25_failed_ids), total),
+                }
+
+            vector_result = await self._rebuild_or_repair_vector_index(
+                memory_engine, total, options, progress_callback
+            )
+            vector_failed_ids = set(vector_result["failed_ids"])
+            failed_ids = bm25_failed_ids | vector_failed_ids
+            failure_ratio = self._failure_ratio(len(failed_ids), total)
+            accepted = failure_ratio <= float(options["max_failure_ratio"])
+            partial = bool(failed_ids)
+
+            if accepted:
+                await self._update_migration_rebuild_status(
+                    "partial" if partial else "true"
+                )
+                message = (
+                    "索引重建完成"
+                    if not partial
+                    else (
+                        "索引已按失败率阈值完成可接受切换，"
+                        f"仍有 {len(failed_ids)} 条需后续重试"
                     )
-                except Exception as e:
-                    logger.warning(
-                        f"删除Faiss文档失败 (doc_id={doc_id}, uuid={doc_uuid}): {e}"
-                    )
+                )
+            else:
+                message = (
+                    f"索引重建失败率过高: {len(failed_ids)}/{total}。"
+                    "全量向量重建未切换新索引，documents 原始数据未被删除。"
+                )
 
-            # 3. 清空 BM25/documents 表（此时备份表仍完整保留）
-            await self._clear_sqlite_storages_with_retry()
-            logger.info("所有存储已清空，开始重建。")
-
-            # 4. 逐条重建（documents + BM25 + vector）
-            success_count = 0
-            error_count = 0
-            batch_size = 100
-            last_progress_update = 0
-
-            for i, (doc_id, _doc_uuid, text, metadata_json) in enumerate(documents, 1):
-                try:
-                    metadata = json.loads(metadata_json) if metadata_json else {}
-
-                    if "importance" not in metadata:
-                        metadata["importance"] = 0.5
-                    if "create_time" not in metadata:
-                        import time
-
-                        metadata["create_time"] = time.time()
-                    if "last_access_time" not in metadata:
-                        metadata["last_access_time"] = metadata.get(
-                            "create_time", time.time()
-                        )
-                    if "session_id" not in metadata:
-                        metadata["session_id"] = None
-                    if "persona_id" not in metadata:
-                        metadata["persona_id"] = None
-
-                    await memory_engine.add_memory(
-                        content=text,
-                        session_id=metadata.get("session_id"),
-                        persona_id=metadata.get("persona_id"),
-                        importance=metadata.get("importance", 0.5),
-                        metadata=metadata,
-                    )
-
-                    success_count += 1
-
-                    progress_percentage = (i * 100) // total
-                    if progress_callback and progress_percentage > last_progress_update:
-                        await progress_callback(i, total, f"已处理 {i}/{total} 条")
-                        last_progress_update = progress_percentage
-
-                    if i % batch_size == 0:
-                        logger.info(f"重建进度: {i}/{total} ({i * 100 // total}%)")
-
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"重建索引失败 doc_id={doc_id}: {e}")
-
-            logger.info(f"索引重建完成: 成功 {success_count} 条, 失败 {error_count} 条")
-
-            # 5. 重建完成后删除备份表（只有全部流程成功才到这里）
-            try:
-                async with aiosqlite.connect(self.db_path) as db:
-                    await db.execute("DROP TABLE IF EXISTS _documents_rebuild_backup")
-                    await db.commit()
-                    logger.info("已删除重建备份表")
-            except Exception as e:
-                logger.warning(f"删除备份表失败（不影响功能）: {e}")
-
-            # 6. 更新迁移状态标记
-            from datetime import datetime, timezone
-
-            try:
-                async with aiosqlite.connect(self.db_path) as status_db:
-                    await status_db.execute("""
-                        CREATE TABLE IF NOT EXISTS migration_status (
-                            key TEXT PRIMARY KEY,
-                            value TEXT,
-                            updated_at TEXT
-                        )
-                    """)
-                    await status_db.execute(
-                        """
-                        INSERT OR REPLACE INTO migration_status (key, value, updated_at)
-                        VALUES (?, ?, ?)
-                    """,
-                        (
-                            "needs_index_rebuild",
-                            "false",
-                            datetime.now(timezone.utc).isoformat(),
-                        ),
-                    )
-                    await status_db.execute(
-                        """
-                        INSERT OR REPLACE INTO migration_status (key, value, updated_at)
-                        VALUES (?, ?, ?)
-                    """,
-                        (
-                            "index_rebuild_completed",
-                            "true",
-                            datetime.now(timezone.utc).isoformat(),
-                        ),
-                    )
-                    await status_db.commit()
-                    logger.info(
-                        "已更新迁移状态: needs_index_rebuild=false, index_rebuild_completed=true"
-                    )
-            except Exception as e:
-                logger.warning(f"更新迁移状态失败: {e}")
+            logger.info(
+                "索引重建结果: "
+                f"accepted={accepted}, partial={partial}, "
+                f"bm25={bm25_result['processed']}/{total}, "
+                f"vector={vector_result['processed']}/{total}, "
+                f"errors={len(failed_ids)}, vector_mode={vector_result['mode']}"
+            )
 
             return {
-                "success": True,
-                "message": "索引重建完成",
-                "processed": success_count,
-                "errors": error_count,
+                "success": accepted,
+                "message": message,
+                "processed": max(0, total - len(failed_ids)),
+                "errors": len(failed_ids),
                 "total": total,
+                "partial": partial,
+                "switched": bool(vector_result["switched"]),
+                "bm25_processed": bm25_result["processed"],
+                "bm25_errors": bm25_result["errors"],
+                "vector_processed": vector_result["processed"],
+                "vector_errors": vector_result["errors"],
+                "vector_mode": vector_result["mode"],
+                "failure_ratio": failure_ratio,
             }
 
         except Exception as e:
             logger.error(f"重建索引失败: {e}", exc_info=True)
-            # 尝试从备份表恢复
-            await self._try_restore_from_backup()
             return {
                 "success": False,
                 "message": (
-                    f"重建索引失败: {str(e)}。"
-                    "系统已尝试自动恢复备份，请查看日志后重试 /lmem rebuild-index。"
+                    f"重建索引失败: {str(e)}。documents 原始数据未被删除，"
+                    "请查看日志后重试 /lmem rebuild-index。"
                 ),
                 "error": str(e),
             }
