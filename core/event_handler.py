@@ -20,9 +20,11 @@ from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
+    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     get_persona_id,
 )
+from .utils.injection_adapter import InjectionAdapter
 
 
 class EventHandler:
@@ -62,6 +64,7 @@ class EventHandler:
         self._storage_sessions_inflight: set[str] = set()
         self._storage_state_lock = asyncio.Lock()
         self._shutting_down = False
+        self._injection_adapter = InjectionAdapter()
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """捕获所有群聊消息用于记忆存储"""
@@ -228,10 +231,21 @@ class EventHandler:
                             f"内容={mem.content[:100]}..."
                         )
 
-                    # 根据配置选择注入方式
-                    injection_method = self.config_manager.get(
+                    # 根据配置选择注入方式（含 Provider 兼容降级）
+                    configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "system_prompt"
                     )
+                    provider = None
+                    if configured_method == "fake_tool_call":
+                        provider = self.context.get_using_provider(session_id)
+                    injection_method, fallback_reason = self._injection_adapter.resolve(
+                        provider, configured_method
+                    )
+                    if fallback_reason:
+                        logger.warning(
+                            f"[{session_id}] 注入模式从 {configured_method} 降级为 "
+                            f"{injection_method}: {fallback_reason}"
+                        )
 
                     memory_str = format_memories_for_injection(memory_list)
 
@@ -259,6 +273,22 @@ class EventHandler:
                             req.contexts.extend(fake_messages)
                             logger.info(
                                 f"[{session_id}] 成功以伪造工具调用方式注入 "
+                                f"{len(recalled_memories)} 条记忆"
+                            )
+                    elif injection_method == "fake_tool_call_deepseek_v4":
+                        fake_replay = format_memories_for_fake_tool_call_deepseek_v4(
+                            memory_list,
+                            query=actual_query,
+                            k=self.config_manager.get(
+                                "recall_engine.top_k", 5
+                            ),
+                            session_filtered=use_session_filtering,
+                            persona_filtered=use_persona_filtering,
+                        )
+                        if fake_replay:
+                            req.prompt = fake_replay + "\n\n" + (req.prompt or "")
+                            logger.info(
+                                f"[{session_id}] 成功以 DeepSeek V4 兼容伪工具转录方式注入 "
                                 f"{len(recalled_memories)} 条记忆"
                             )
                     else:
