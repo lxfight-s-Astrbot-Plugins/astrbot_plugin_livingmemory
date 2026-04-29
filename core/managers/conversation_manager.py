@@ -35,7 +35,7 @@ class ConversationManager:
     - AstrBot事件集成
     """
 
-    _UNKNOWN_SENDER_NAMES = {"", "unknown", "none", "null", "n/a", "na", "未知"}
+    _UNKNOWN_SENDER_NAMES = {"", "unknown", "Unknown", "none", "null", "n/a", "na", "user", "user_", "tg", "未知"}
 
     def __init__(
         self,
