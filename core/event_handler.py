@@ -161,6 +161,33 @@ class EventHandler:
                             f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
                         )
 
+                # 先提取用户消息（消息存储和召回都需要）
+                actual_query = self._get_event_message_str(event)
+
+                # 存储用户消息（仅私聊），无论是否启用召回都需要
+                is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+                if not is_group and actual_query:
+                    message_to_store = await self._extract_message_content(event, req)
+                    if not message_to_store:
+                        message_to_store = actual_query.strip()
+                    await self.conversation_manager.add_message_from_event(
+                        event=event,
+                        role="user",
+                        content=message_to_store,
+                    )
+                    await self._enforce_message_limit(session_id)
+
+                top_k = self.config_manager.get("recall_engine.top_k", 5)
+                if top_k <= 0:
+                    logger.info(
+                        f"[{session_id}] top_k={top_k} <= 0，跳过记忆检索和注入"
+                    )
+                    return
+
+                if not actual_query:
+                    logger.warning(f"[{session_id}] 原始用户消息为空，跳过记忆召回")
+                    return
+
                 # 获取过滤配置
                 filtering_config = self.config_manager.filtering_settings
                 use_persona_filtering = filtering_config.get(
@@ -180,16 +207,6 @@ class EventHandler:
 
                 recall_session_id = session_id if use_session_filtering else None
                 recall_persona_id = persona_id if use_persona_filtering else None
-
-                # 使用原始用户输入作为召回关键字
-                # event.message_str 是平台层解析的原始用户消息，不包含：
-                # - AstrBot 的 prompt_prefix 配置添加的内容
-                # - 群聊上下文感知（LTM）添加的聊天历史
-                # 这些内容只会被添加到 req.prompt 或 req.system_prompt 中
-                actual_query = self._get_event_message_str(event)
-                if not actual_query:
-                    logger.warning(f"[{session_id}] 原始用户消息为空，跳过记忆召回")
-                    return
 
                 # 执行记忆召回
                 logger.info(
@@ -271,20 +288,6 @@ class EventHandler:
                         )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
-
-                # 存储用户消息（仅私聊）
-                is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
-                if not is_group and actual_query:
-                    message_to_store = await self._extract_message_content(event, req)
-                    if not message_to_store:
-                        message_to_store = actual_query.strip()
-                    await self.conversation_manager.add_message_from_event(
-                        event=event,
-                        role="user",
-                        content=message_to_store,
-                    )
-                    # 执行消息数量上限控制
-                    await self._enforce_message_limit(session_id)
 
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
