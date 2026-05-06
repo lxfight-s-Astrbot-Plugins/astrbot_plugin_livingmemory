@@ -14,7 +14,7 @@
   --neutral-700: #334155;
   --neutral-800: #1e293b;
   --neutral-900: #0f172a;
-  
+
   /* 高级语义化颜色 - 更精致的蓝紫色系 */
   --primary: #6366f1;
   --primary-hover: #4f46e5;
@@ -26,29 +26,29 @@
   --warning-light: rgba(245, 158, 11, 0.1);
   --danger: #ef4444;
   --danger-light: rgba(239, 68, 68, 0.1);
-  
+
   /* 玻璃效果背景 */
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(255, 255, 255, 0.18);
   --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
-  
+
   /* 背景色 - 渐变背景 */
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
   --bg-tertiary: #f1f5f9;
   --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --bg-gradient-subtle: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  
+
   /* 边框色 */
   --border-light: rgba(226, 232, 240, 0.6);
   --border-medium: rgba(203, 213, 225, 0.8);
   --border-dark: rgba(148, 163, 184, 0.9);
-  
+
   /* 文字色 */
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #94a3b8;
-  
+
   /* 增强阴影系统 */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
@@ -56,7 +56,7 @@
   --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.12), 0 8px 10px -6px rgb(0 0 0 / 0.08);
   --shadow-xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
   --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.3);
-  
+
   /* 圆角 */
   --radius-sm: 0.5rem;
   --radius: 0.75rem;
@@ -64,7 +64,7 @@
   --radius-lg: 1.25rem;
   --radius-xl: 1.5rem;
   --radius-2xl: 2rem;
-  
+
   /* 间距 */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -77,13 +77,13 @@
   --space-12: 3rem;
   --space-16: 4rem;
   --space-20: 5rem;
-  
+
   /* 流畅动画系统 */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-bounce: 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  
+
   /* 模糊效果 */
   --blur-sm: 4px;
   --blur: 8px;
@@ -108,7 +108,7 @@
   --neutral-700: #e2e8f0;
   --neutral-800: #f1f5f9;
   --neutral-900: #f8fafc;
-  
+
   /* 深色模式语义化颜色 */
   --primary: #818cf8;
   --primary-hover: #6366f1;
@@ -120,29 +120,29 @@
   --warning-light: rgba(251, 191, 36, 0.15);
   --danger: #f87171;
   --danger-light: rgba(248, 113, 113, 0.15);
-  
+
   /* 深色玻璃效果 */
   --glass-bg: rgba(30, 41, 59, 0.7);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  
+
   /* 深色背景 */
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
   --bg-tertiary: #334155;
   --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --bg-gradient-subtle: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-  
+
   /* 深色边框 */
   --border-light: rgba(71, 85, 105, 0.4);
   --border-medium: rgba(100, 116, 139, 0.6);
   --border-dark: rgba(148, 163, 184, 0.8);
-  
+
   /* 深色文字 */
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
-  
+
   /* 深色增强阴影 */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
   --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
@@ -172,8 +172,8 @@ html {
 /* 主题切换时的平滑过渡 */
 html.theme-transitioning,
 html.theme-transitioning * {
-  transition: background-color var(--transition), 
-              color var(--transition), 
+  transition: background-color var(--transition),
+              color var(--transition),
               border-color var(--transition) !important;
 }
 
@@ -294,52 +294,177 @@ body::before {
   }
 }
 
-.login-theme-toggle {
-  position: fixed !important;
-  top: var(--space-4) !important;
-  right: var(--space-4) !important;
-  left: auto !important;
+.login-actions {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  gap: var(--space-3);
   z-index: 100;
-  padding: var(--space-3);
-  width: 2.75rem;
-  height: 2.75rem;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--blur-md));
-  -webkit-backdrop-filter: blur(var(--blur-md));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
+}
+
+.login-actions .btn-ghost {
+  padding: 0;
+  width: 3rem;
+  height: 3rem;
+  background: var(--bg-primary);
+  border: none;
+  border-radius: 50%;
   box-shadow: var(--shadow-md);
   transition: all var(--transition);
-}
-
-.login-theme-toggle:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-lg);
-  background: var(--bg-primary);
-}
-
-.login-theme-toggle svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-#theme-toggle {
-  padding: var(--space-2);
-  width: 2.5rem;
-  height: 2.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform var(--transition-fast);
+  cursor: pointer;
+}
+
+.login-actions .btn-ghost:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-secondary);
+}
+
+.login-actions .btn-ghost svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--text-secondary);
+  transition: color var(--transition);
+}
+
+.login-actions .btn-ghost:hover svg {
+  color: var(--text-primary);
+}
+
+/* Language toggle */
+.language-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.btn-ghost.language-toggle,
+.language-toggle {
+  padding: 0;
+  width: 3rem;
+  height: 3rem;
+  background: var(--bg-primary);
+  border: none !important;
+  border-radius: 50%;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-ghost.language-toggle:hover,
+.language-toggle:hover {
+  transform: scale(1.05) !important;
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-secondary);
+  border: none !important;
+}
+
+.language-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 10rem;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  z-index: 200;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.language-menu.hidden {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  pointer-events: none;
+}
+
+.language-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition), color var(--transition);
+}
+
+.language-menu-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.language-menu-item.active {
+  color: var(--primary);
+  font-weight: 600;
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .language-menu {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+#theme-toggle {
+  padding: 0;
+  width: 3rem;
+  height: 3rem;
+  background: var(--bg-primary);
+  border: none;
+  border-radius: 50%;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 #theme-toggle:hover {
-  transform: rotate(20deg);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-secondary);
 }
 
 #theme-toggle svg {
   width: 1.25rem;
   height: 1.25rem;
+}
+
+/* Logout button — circular style matching Globe/Moon */
+#logout-button {
+  padding: 0 var(--space-4);
+  height: 3rem;
+  background: var(--bg-primary);
+  border: none;
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+#logout-button:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-secondary);
 }
 
 .login-card {
@@ -1300,6 +1425,10 @@ body::before {
   background-color: var(--danger);
 }
 
+[data-theme="dark"] .toast {
+  color: #1e293b;
+}
+
 /* ============================================
    召回测试功能
    ============================================ */
@@ -1804,22 +1933,22 @@ body::before {
     align-items: stretch;
     gap: var(--space-4);
   }
-  
+
   .header-actions {
     justify-content: flex-end;
   }
-  
+
   .control-panel {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-4);
   }
-  
+
   .input-group {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .selection-section {
     justify-content: flex-end;
   }
@@ -1831,48 +1960,48 @@ body::before {
     padding-left: var(--space-6);
     padding-right: var(--space-6);
   }
-  
+
   .tab-navigation {
     padding: 0 var(--space-6);
   }
-  
+
   .nuke-banner {
     margin-left: var(--space-6);
     margin-right: var(--space-6);
   }
-  
+
   .stats-grid {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: var(--space-3);
   }
-  
+
   .stat-card {
     padding: var(--space-4);
   }
-  
+
   .form-row {
     grid-template-columns: 1fr;
     gap: var(--space-4);
   }
-  
+
   .pagination-container {
     flex-direction: column;
     gap: var(--space-4);
     align-items: stretch;
   }
-  
+
   .pagination-controls {
     justify-content: space-between;
   }
-  
+
   .page-size-control {
     justify-content: center;
   }
-  
+
   .detail-meta {
     grid-template-columns: 1fr;
   }
-  
+
   .result-metadata {
     grid-template-columns: 1fr;
   }
@@ -1882,49 +2011,49 @@ body::before {
   .login-container {
     padding: var(--space-4);
   }
-  
+
   .login-card {
     padding: var(--space-6);
   }
-  
+
   .toolbar-group {
     flex-wrap: wrap;
   }
-  
+
   .stats-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .table-wrapper {
     margin: 0 -var(--space-4);
     padding: 0 var(--space-4);
   }
-  
+
   .data-table {
     font-size: 0.75rem;
   }
-  
+
   .data-table th,
   .data-table td {
     padding: var(--space-2);
   }
-  
+
   .summary-cell {
     max-width: 150px;
   }
-  
+
   .drawer {
     padding: var(--space-4);
   }
-  
+
   .drawer-content {
     max-height: calc(100vh - var(--space-8));
   }
-  
+
   .modal {
     padding: var(--space-2);
   }
-  
+
   .toast {
     bottom: var(--space-4);
     right: var(--space-4);
@@ -1983,11 +2112,11 @@ body::before {
   .nuke-overlay {
     display: none !important;
   }
-  
+
   .dashboard-content {
     padding: 0;
   }
-  
+
   .table-container {
     box-shadow: none;
     border: 1px solid var(--border-dark);

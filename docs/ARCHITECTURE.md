@@ -1,7 +1,13 @@
+<div align="center">
+
+[中文](ARCHITECTURE.md) | [English](ARCHITECTURE_en.md) | [Русский](ARCHITECTURE_ru.md)
+
+</div>
+
 # LivingMemory 架构文档
 
-**版本**: v2.0.0
-**更新日期**: 2025-12-17
+**版本**: v2.2.10
+**更新日期**: 2026-04-28
 
 ---
 
@@ -57,7 +63,8 @@ astrbot_plugin_livingmemory/
 │   │
 │   ├── utils/                       # 工具层
 │   │   ├── __init__.py
-│   │   └── stopwords_manager.py     # 停用词管理器
+│   │   ├── stopwords_manager.py     # 停用词管理器
+│   │   └── (FakeToolCallFormatter)   # 伪造工具调用格式化器
 │   │
 │   ├── tools/                       # Agent 工具层
 │   │   ├── __init__.py
@@ -70,7 +77,8 @@ astrbot_plugin_livingmemory/
 ├── storage/                         # 存储层
 │   ├── __init__.py
 │   ├── conversation_store.py        # 会话存储
-│   └── db_migration.py              # 数据库迁移
+│   ├── db_migration.py              # 数据库迁移
+│   └── backup_manager.py            # 定时自动备份管理器
 │
 ├── webui/                           # Web管理界面
 │   ├── __init__.py
@@ -80,7 +88,9 @@ astrbot_plugin_livingmemory/
 ├── static/                          # 静态资源
 │   ├── index.html
 │   ├── styles.css
-│   └── app.js
+│   ├── app.js
+│   ├── graph-ui.js                  # 3D 知识图谱渲染器
+│   └── i18n.js                      # 国际化引擎
 │
 ├── tests/                           # 测试套件
 │   ├── conftest.py
@@ -191,15 +201,18 @@ astrbot_plugin_livingmemory/
 
 ### 7. 工具层 (utils/)
 
-**职责**: 提供通用工具函数
+**职责**: 提供通用工具函数和格式化器
 
 **组件**:
 - `stopwords_manager.py`: 停用词管理
-- 其他工具函数
+- `FakeToolCallFormatter` (`__init__.py`): 伪造工具调用格式化器
+  - 将记忆内容封装为 `tool_calls` + `tool` 消息对
+  - 使用固定前缀 `fake_recall_` 作为 call_id，便于 `EventHandler` 自动清理
+  - 支持 token 预算截断，避免超出上下文限制
 
 **依赖**: base/
 
-**被依赖**: processors/, retrieval/
+**被依赖**: processors/, retrieval/, event_handler.py
 
 ---
 
@@ -218,15 +231,19 @@ astrbot_plugin_livingmemory/
 
 ### 9. 存储层 (storage/)
 
-**职责**: 数据持久化
+**职责**: 数据持久化与备份
 
 **组件**:
 - `conversation_store.py`: 会话数据存储
 - `db_migration.py`: 数据库迁移
+- `backup_manager.py`: 定时自动备份管理器
+  - 基于间隔时间的备份调度（cron / asyncio sleep）
+  - 可配置的保留策略（按天数或数量）
+  - 失败时自动重试与告警
 
 **依赖**: base/, models/
 
-**被依赖**: managers/conversation_manager
+**被依赖**: managers/conversation_manager, plugin_initializer
 
 ---
 
@@ -357,6 +374,24 @@ from ...storage import ConversationStore
 
 ---
 
+### WebUI 前端架构
+
+**文件**:
+- `index.html`: 单页应用骨架，包含双语切换器、深色模式切换器
+- `app.js`: 主仪表盘逻辑（记忆表格、搜索、分页、CRUD）
+- `graph-ui.js`: 3D 知识图谱渲染器
+  - 基于 `ForceGraph3D` (Three.js) 的力导向图
+  - 支持节点拖拽、缩放、旋转、hover 提示
+  - 实体类型着色：人物、地点、事件、概念、其他
+  - 与 `app.js` 通过事件总线通信，共享过滤条件
+- `i18n.js`: 国际化引擎
+  - 支持 `zh` / `en` / `ru`（俄语为回退）
+  - 基于 `data-i18n` 属性的 DOM 翻译
+  - `localStorage` 持久化 + `navigator.language` 自动检测
+- `styles.css`: 玻璃拟态 (glassmorphism) 设计系统
+
+---
+
 ## 扩展指南
 
 ### 添加新的处理器
@@ -423,6 +458,15 @@ from ..processors import TextProcessor
 
 ## 版本历史
 
+### v2.2.10
+
+- **Fake Tool Call Injection**: 新增伪造工具调用注入策略，兼容 Agent / Tool Loop 模式
+- **Image Caption Memory**: 支持将 AstrBot 图片转述结果自动存入长期记忆
+- **3D Knowledge Graph WebUI**: 新增基于 ForceGraph3D 的 3D 力导向图可视化
+- **Scheduled Auto-Backup**: 新增定时自动备份子系统 (`backup_manager.py`)
+- **Safe Batched Index Rebuild**: 索引重建支持安全分批模式，避免内存溢出
+- **i18n**: WebUI 新增完整国际化支持（中/英/俄），命令响应全面英文化
+
 ### v2.0.0 (2025-12-17)
 
 - 重新组织目录结构
@@ -439,5 +483,5 @@ from ..processors import TextProcessor
 
 ---
 
-**文档版本**: v2.0.0
-**最后更新**: 2025-12-17
+**文档版本**: v2.2.10
+**最后更新**: 2026-04-28

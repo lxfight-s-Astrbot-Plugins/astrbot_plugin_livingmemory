@@ -24,8 +24,8 @@ from .webui import WebUIServer
 @register(
     "LivingMemory",
     "lxfight",
-    "一个拥有动态生命周期的智能长期记忆插件。",
-    "2.0.0",
+    "An intelligent long-term memory plugin with a dynamic lifecycle for AstrBot.",
+    "2.2.10",
     "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -269,7 +269,7 @@ class LivingMemoryPlugin(Star):
 
     @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
     async def handle_all_group_messages(self, event: AstrMessageEvent):
-        """[事件钩子] 捕获所有群聊消息用于记忆存储"""
+        """[Event Hook] Capture all group messages for memory storage"""
         if not self.initializer.is_initialized:
             return
 
@@ -284,7 +284,7 @@ class LivingMemoryPlugin(Star):
 
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
-        """[事件钩子] 在 LLM 请求前，查询并注入长期记忆"""
+        """[Event Hook] Query and inject long-term memory before LLM request"""
         ready, _ = await self._ensure_plugin_ready()
         if not ready:
             logger.debug("插件未完成初始化，跳过记忆召回")
@@ -299,7 +299,7 @@ class LivingMemoryPlugin(Star):
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
-        """[事件钩子] 在 LLM 响应后，检查是否需要进行反思和记忆存储"""
+        """[Event Hook] Check if reflection and memory storage is needed after LLM response"""
         ready, _ = await self._ensure_plugin_ready()
         if not ready:
             logger.debug("插件未完成初始化，跳过记忆反思")
@@ -312,7 +312,7 @@ class LivingMemoryPlugin(Star):
 
     @filter.after_message_sent()
     async def handle_session_reset(self, event: AstrMessageEvent):
-        """[事件钩子] 消息发送后，检查是否需要清空插件会话上下文（/reset 或 /new）"""
+        """[Event Hook] After message sent, check if plugin session context needs clearing (/reset or /new)"""
         if not event.get_extra("_clean_ltm_session", False):
             return
 
@@ -329,7 +329,7 @@ class LivingMemoryPlugin(Star):
 
     @filter.command_group("lmem")
     def lmem(self):
-        """长期记忆管理命令组 /lmem"""
+        """Long-term memory management command group /lmem"""
         pass
 
     @permission_type(PermissionType.ADMIN)
@@ -337,7 +337,7 @@ class LivingMemoryPlugin(Star):
     async def status(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 显示记忆系统状态"""
+        """[Admin] Show memory system status"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -354,7 +354,7 @@ class LivingMemoryPlugin(Star):
     async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 搜索记忆"""
+        """[Admin] Search memories"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -372,7 +372,7 @@ class LivingMemoryPlugin(Star):
     async def forget(
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 删除指定记忆"""
+        """[Admin] Delete specified memory"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -390,7 +390,7 @@ class LivingMemoryPlugin(Star):
     async def rebuild_index(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 手动重建索引"""
+        """[Admin] Manually rebuild index"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -408,7 +408,7 @@ class LivingMemoryPlugin(Star):
     async def rebuild_graph(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 手动重建图记忆索引"""
+        """[Admin] Manually rebuild graph memory index"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -426,7 +426,7 @@ class LivingMemoryPlugin(Star):
     async def webui(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 显示WebUI访问信息"""
+        """[Admin] Show WebUI access information"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -444,7 +444,7 @@ class LivingMemoryPlugin(Star):
     async def summarize(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 立即触发当前会话的记忆总结"""
+        """[Admin] Immediately trigger memory summarization for current session"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -462,7 +462,7 @@ class LivingMemoryPlugin(Star):
     async def reset(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 重置当前会话的长期记忆上下文"""
+        """[Admin] Reset long-term memory context for current session"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -480,10 +480,10 @@ class LivingMemoryPlugin(Star):
     async def cleanup(
         self, event: AstrMessageEvent, mode: str = "preview"
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 清理历史消息中的记忆注入片段
+        """[Admin] Clean up memory injection fragments from historical messages
 
         Args:
-            mode: 执行模式, "preview"(默认)为预演, "exec"为实际清理
+            mode: Execution mode, "preview" (default) for rehearsal, "exec" for actual cleanup
         """
         ready, message = await self._ensure_plugin_ready()
         if not ready:
@@ -507,7 +507,7 @@ class LivingMemoryPlugin(Star):
     async def help(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """[管理员] 显示帮助信息"""
+        """[Admin] Show help information"""
         ready, message = await self._ensure_plugin_ready()
         if not ready:
             yield event.plain_result(message)
@@ -523,7 +523,7 @@ class LivingMemoryPlugin(Star):
     # ==================== 生命周期管理 ====================
 
     async def terminate(self):
-        """插件停止时的清理逻辑"""
+        """Cleanup logic when plugin stops"""
         logger.info("LivingMemory 插件正在停止...")
         self._terminating = True
 

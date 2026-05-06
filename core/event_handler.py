@@ -64,7 +64,7 @@ class EventHandler:
         self._shutting_down = False
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
-        """捕获所有群聊消息用于记忆存储"""
+        """Capture all group messages for memory storage"""
         # 检查配置
         if not self.config_manager.get(
             "session_manager.enable_full_group_capture", True
@@ -123,7 +123,7 @@ class EventHandler:
             logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
 
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
-        """在 LLM 请求前，查询并注入长期记忆"""
+        """Query and inject long-term memory before LLM request"""
         try:
             session_id = event.unified_msg_origin
             logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
@@ -295,7 +295,7 @@ class EventHandler:
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
-        """在 LLM 响应后，检查是否需要进行反思和记忆存储"""
+        """Check if reflection and memory storage is needed after LLM response"""
         logger.debug(
             f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
         )

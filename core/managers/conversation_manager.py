@@ -304,6 +304,18 @@ class ConversationManager:
             sender_name = event.sender_name
 
         normalized = cls._normalize_sender_name(sender_name)
+
+        # Fallback for platforms like Telegram: if sender_name is a placeholder
+        # (e.g. "Unknown"), try to extract first_name + last_name from raw sender
+        if not normalized:
+            message_obj = getattr(event, "message_obj", None)
+            raw_sender = getattr(message_obj, "sender", None)
+            first_name = cls._normalize_sender_name(cls._raw_get(raw_sender, "first_name"))
+            last_name = cls._normalize_sender_name(cls._raw_get(raw_sender, "last_name"))
+            full_name = " ".join(part for part in (first_name, last_name) if part).strip()
+            if full_name:
+                return full_name
+
         if normalized:
             return normalized
 

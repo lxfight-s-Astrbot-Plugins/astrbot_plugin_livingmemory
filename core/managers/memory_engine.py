@@ -128,6 +128,8 @@ class MemoryEngine:
         # 1. 连接数据库
         self.db_connection = await aiosqlite.connect(self.db_path)
         self.db_connection.row_factory = aiosqlite.Row
+        await self.db_connection.execute("PRAGMA journal_mode = WAL")
+        await self.db_connection.execute("PRAGMA busy_timeout = 10000")
 
         # 2. 创建表结构
         await self._create_tables()

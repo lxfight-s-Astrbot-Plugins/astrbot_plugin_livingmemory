@@ -1,7 +1,13 @@
+<div align="center">
+
+[中文](API.md) | [English](API_en.md) | [Русский](API_ru.md)
+
+</div>
+
 # LivingMemory API 文档
 
-**版本**: v2.0.0
-**更新日期**: 2025-12-17
+**版本**: v2.2.10
+**更新日期**: 2026-04-28
 
 ---
 
@@ -254,6 +260,28 @@ async for message in command_handler.handle_status(event):
 - `query`: 搜索查询
 - `k`: 返回结果数量
 
+##### `async handle_summarize(event: AstrMessageEvent)`
+
+处理 `/lmem summarize` 命令，立即触发当前会话的记忆总结。
+
+**参数**:
+- `event`: AstrBot消息事件
+
+##### `async handle_rebuild_graph(event: AstrMessageEvent)`
+
+处理 `/lmem rebuild-graph` 命令，重建图记忆索引（为旧记忆回填图数据）。
+
+**参数**:
+- `event`: AstrBot消息事件
+
+##### `async handle_cleanup(event: AstrMessageEvent, mode: str = "preview")`
+
+处理 `/lmem cleanup [preview|exec]` 命令，清理历史消息中的记忆注入片段。
+
+**参数**:
+- `event`: AstrBot消息事件
+- `mode`: 模式，`preview`（预览，默认）或 `exec`（执行）
+
 ---
 
 ## Agent 工具
@@ -322,6 +350,44 @@ async for message in command_handler.handle_status(event):
 ##### `async handle_help(event: AstrMessageEvent)`
 
 处理 `/lmem help` 命令，显示帮助信息。
+
+---
+
+## 辅助工具
+
+### FakeToolCallFormatter (`core/utils/`)
+
+将记忆格式化为伪造的 LLM 工具调用消息，兼容 Agent / Tool Loop 模式。
+
+#### `format_memories_for_fake_tool_call(memories: list, max_token_budget: int) -> list`
+
+**参数**:
+- `memories`: 记忆列表（含 content、score、importance 等字段）
+- `max_token_budget`: 最大 token 预算，超过时自动截断
+
+**返回**: 包含 `tool_calls` 和 `tool` 角色的消息列表，可直接注入 AstrBot 对话上下文。
+
+**特点**:
+- 使用固定前缀 `fake_recall_` 作为 call_id，便于 `EventHandler` 在每轮新消息前自动清理
+- 记忆内容以 JSON 形式放入 tool 返回，避免污染用户可见文本
+
+---
+
+### AutoBackup (`storage/`)
+
+定时自动备份子系统。
+
+#### `async run_backup_cycle()`
+
+执行一次备份周期：检查是否到达备份时间 → 创建 `.db` 备份 → 清理过期文件。
+
+**配置项** (通过 `ConfigManager`):
+- `backup.enabled`: 是否启用自动备份
+- `backup.interval_hours`: 备份间隔（小时）
+- `backup.retention_days`: 保留天数
+- `backup.directory`: 备份目录路径
+
+**返回**: `{"success": bool, "backup_path": str | None, "error": str | None}`
 
 ---
 
@@ -451,5 +517,5 @@ except DatabaseError as e:
 
 ---
 
-**文档版本**: v2.0.0
-**最后更新**: 2025-12-17
+**文档版本**: v2.2.10
+**最后更新**: 2026-04-28

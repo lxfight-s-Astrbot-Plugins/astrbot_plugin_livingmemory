@@ -78,7 +78,11 @@
   function init() {
     // 初始化主题
     initTheme();
-    
+
+    // 初始化 i18n 翻译
+    applyTranslations();
+    initLanguageSelector();
+
     dom.loginForm.addEventListener("submit", onLoginSubmit);
     dom.refreshButton.addEventListener("click", fetchAll);
     dom.nukeButton.addEventListener("click", onNukeClick);
@@ -174,19 +178,69 @@
 
     if (state.token) {
       switchView("dashboard");
-      showToast("会话已恢复，正在验证...");
+      showToast(i18n.t("toast.session_restored"));
       fetchStats()
         .then(() => {
-          showToast("验证成功，正在加载数据...");
+          showToast(i18n.t("toast.verify_success"));
           return fetchMemories();
         })
         .catch((error) => {
-          console.warn("Token 验证失败:", error.message);
+          console.warn("Token validation failed:", error.message);
           handleAuthFailure();
         });
     } else {
       switchView("login");
     }
+  }
+
+  function initLanguageSelector() {
+    document.querySelectorAll(".language-dropdown").forEach((dropdown) => {
+      const toggle = dropdown.querySelector(".language-toggle");
+      const menu = dropdown.querySelector(".language-menu");
+      const items = dropdown.querySelectorAll(".language-menu-item");
+
+      if (!toggle || !menu) return;
+
+      // Mark current language as active
+      items.forEach((item) => {
+        item.classList.toggle("active", item.dataset.lang === i18n.lang);
+      });
+
+      // Toggle menu on button click
+      toggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.classList.toggle("hidden");
+        // Close other open language menus
+        document.querySelectorAll(".language-menu").forEach((m) => {
+          if (m !== menu) m.classList.add("hidden");
+        });
+      });
+
+      // Language selection
+      items.forEach((item) => {
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const lang = item.dataset.lang;
+          if (i18n.setLanguage(lang)) {
+            applyTranslations();
+            // Update active states
+            items.forEach((it) =>
+              it.classList.toggle("active", it.dataset.lang === lang)
+            );
+            // Update dynamic elements
+            renderTable();
+            updatePagination();
+            updateNukeBannerWithEffects();
+          }
+          menu.classList.add("hidden");
+        });
+      });
+    });
+
+    // Close menus when clicking outside
+    document.addEventListener("click", () => {
+      document.querySelectorAll(".language-menu").forEach((m) => m.classList.add("hidden"));
+    });
   }
 
   async function onLoginSubmit(event) {
@@ -195,7 +249,7 @@
     dom.loginError.textContent = "";
 
     if (!password) {
-      dom.loginError.textContent = "Please enter the password";
+      dom.loginError.textContent = i18n.t("login.error_empty");
       return;
     }
 
@@ -209,10 +263,10 @@
       localStorage.setItem("lmem_token", state.token);
       dom.passwordInput.value = "";
       switchView("dashboard");
-      showToast("Login successful, loading data...");
+      showToast(i18n.t("toast.login_success"));
       fetchAll();
     } catch (error) {
-      dom.loginError.textContent = error.message || "Login failed, please try again";
+      dom.loginError.textContent = error.message || i18n.t("login.error_failed");
     }
   }
 
@@ -235,7 +289,7 @@
     try {
       const response = await apiRequest("/api/stats");
       if (!response.success) {
-        throw new Error(response.error || "获取统计信息失败");
+        throw new Error(response.error || i18n.t("toast.fetch_stats_failed"));
       }
 
       const stats = response.data || {};
@@ -262,7 +316,7 @@
       });
     } catch (error) {
       logger.error("[统计信息获取失败]", error.message);
-      showToast(error.message || "无法获取统计信息", true);
+      showToast(error.message || i18n.t("toast.fetch_stats_failed"), true);
     }
   }
 
@@ -271,7 +325,7 @@
 
   async function fetchMemories() {
     const params = new URLSearchParams();
-    
+
     // 根据loadAll状态决定请求参数
     if (state.loadAll) {
       // 加载全部模式：请求所有数据
@@ -282,7 +336,7 @@
       params.set("page", state.page.toString());
       params.set("page_size", state.pageSize.toString());
     }
-    
+
     // 添加会话筛选（可选）
     if (state.filters.session_id) {
       params.set("session_id", state.filters.session_id);
@@ -291,32 +345,32 @@
     try {
       const response = await apiRequest(`/api/memories?${params.toString()}`);
       if (!response.success) {
-        throw new Error(response.error || "获取记忆失败");
+        throw new Error(response.error || i18n.t("toast.fetch_memories_failed"));
       }
 
       const data = response.data || {};
       const rawItems = Array.isArray(data.items) ? data.items : [];
-      
+
       // 更新总数和分页状态
       state.total = data.total || 0;
-      
+
       // 在loadAll模式下，设置hasMore为false
       if (state.loadAll) {
         state.hasMore = false;
       } else {
         state.hasMore = data.has_more || false;
       }
-      
+
       // 转换API返回的数据格式以匹配前端期望
       state.items = rawItems.map((item) => {
         // 确保使用正确的ID字段
         const actualId = item.id !== undefined ? item.id : (item.doc_id || item.memory_id);
-        
+
         return {
           memory_id: actualId,  // 使用实际的整数ID
           doc_id: actualId,     // 使用实际的整数ID
           uuid: item.doc_id,    // 保存UUID以供显示（如果存在）
-          summary: item.text || item.content || "（无内容）",
+          summary: item.text || item.content || i18n.t("table.no_content"),
           content: item.text || item.content,
           memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
           importance: item.metadata?.importance ?? 5.0,
@@ -328,15 +382,15 @@
           raw_json: JSON.stringify(item, null, 2),
         };
       });
-      
+
       state.selected.clear();
       dom.selectAll.checked = false;
       dom.deleteSelected.disabled = true;
       renderTable();
       updatePagination();
     } catch (error) {
-      renderEmptyTable(error.message || "加载失败");
-      showToast(error.message || "获取记忆失败", true);
+      renderEmptyTable(error.message || i18n.t("toast.error"));
+      showToast(error.message || i18n.t("toast.fetch_memories_failed"), true);
     }
   }
 
@@ -377,7 +431,7 @@
 
   function renderTable() {
     if (!state.items.length) {
-      renderEmptyTable("暂无数据");
+      renderEmptyTable(i18n.t("table.empty"));
       return;
     }
 
@@ -401,19 +455,19 @@
               )}" ${checked} />
             </td>
             <td class="mono">${escapeHTML(item.memory_id || item.doc_id || "-")}</td>
-            <td class="summary-cell" title="${escapeHTML(item.summary || "")}">
-              ${escapeHTML(item.summary || "（无摘要）")}
+              <td class="summary-cell" title="${escapeHTML(item.summary || "")}">
+              ${escapeHTML(item.summary || i18n.t("table.no_summary"))}
             </td>
             <td>${escapeHTML(item.memory_type || "--")}</td>
             <td>${importance}</td>
             <td>${statusPill}</td>
             <td>${escapeHTML(item.created_at || "--")}</td>
             <td>${escapeHTML(item.last_access || "--")}</td>
-            <td>
+              <td>
               <div class="table-actions">
                 <button class="ghost detail-btn" data-key="${escapeHTML(
                   key
-                )}">详情</button>
+                )}">${i18n.t("table.detail")}</button>
               </div>
             </td>
           </tr>
@@ -433,14 +487,14 @@
 
     // 显示搜索结果计数
     if (state.filters.keyword || state.filters.status !== "all") {
-      showToast(`搜索结果：找到 ${state.total} 条记忆，当前显示第 ${state.items.length} 条`);
+      showToast(i18n.t("toast.search_results", { total: state.total, shown: state.items.length }));
     }
   }
 
   function renderEmptyTable(message) {
     dom.tableBody.innerHTML = `
       <tr>
-        <td colspan="9" class="empty">${escapeHTML(message)}</td>
+        <td colspan="9" class="empty">${escapeHTML(message || i18n.t("table.empty"))}</td>
       </tr>
     `;
   }
@@ -497,7 +551,7 @@
     state.filters.status = dom.statusFilter.value;
     state.filters.keyword = dom.keywordInput.value.trim();
     state.page = 1;
-    
+
     // 服务端分页：重新请求数据
     fetchMemories();
   }
@@ -505,7 +559,7 @@
   function onPageSizeChange() {
     state.pageSize = Number(dom.pageSize.value) || 20;
     state.page = 1;
-    
+
     // 服务端分页：重新请求数据
     fetchMemories();
   }
@@ -528,7 +582,7 @@
 
   function updatePagination() {
     if (state.loadAll) {
-      dom.paginationInfo.textContent = `共 ${state.items.length} 条记录（已加载全部）`;
+      dom.paginationInfo.textContent = i18n.t("page.all_loaded", { count: state.items.length });
       // 加载全部模式：禁用翻页按钮
       dom.prevPage.disabled = true;
       dom.nextPage.disabled = true;
@@ -536,8 +590,8 @@
       const totalPages = state.total
         ? Math.max(1, Math.ceil(state.total / state.pageSize))
         : 1;
-      dom.paginationInfo.textContent = `第 ${state.page} / ${totalPages} 页 · 共 ${state.total} 条`;
-      
+      dom.paginationInfo.textContent = i18n.t("page.info", { page: state.page, total: totalPages, count: state.total });
+
       // 正常分页模式：根据实际情况启用/禁用翻页按钮
       dom.prevPage.disabled = state.page <= 1;
       dom.nextPage.disabled = !state.hasMore;
@@ -545,12 +599,12 @@
 
     // 显示当前筛选状态
     if (state.filters.keyword || state.filters.status !== "all") {
-      let filterInfo = "筛选中:";
+      let filterInfo = i18n.t("page.filtering") + ":";
       if (state.filters.keyword) {
-        filterInfo += ` 关键词="${state.filters.keyword}"`;
+        filterInfo += ` ${i18n.t("page.keyword")}="${state.filters.keyword}"`;
       }
       if (state.filters.status !== "all") {
-        filterInfo += ` 状态="${state.filters.status}"`;
+        filterInfo += ` ${i18n.t("page.status")}="${state.filters.status}"`;
       }
       dom.paginationInfo.textContent += ` | ${filterInfo}`;
     }
@@ -564,14 +618,14 @@
 
     // 改进的确认对话框
     const confirmed = window.confirm(
-      `️  确认删除？\n\n` +
-      `即将删除 ${count} 条记忆。\n` +
-      `此操作无法撤销！\n\n` +
-      `点击"确定"继续删除，点击"取消"保留。`
+      `${i18n.t("toast.delete_confirm_title")}\n\n` +
+      `${i18n.t("toast.delete_confirm_body", { count })}\n` +
+      `${i18n.t("toast.delete_confirm_irreversible")}\n\n` +
+      `${i18n.t("toast.delete_confirm_action")}`
     );
 
     if (!confirmed) {
-      showToast("已取消删除操作");
+      showToast(i18n.t("toast.delete_cancelled"));
       return;
     }
 
@@ -597,7 +651,7 @@
       // 显示加载状态
       dom.deleteSelected.disabled = true;
       const originalText = dom.deleteSelected.textContent;
-      dom.deleteSelected.textContent = "删除中...";
+      dom.deleteSelected.textContent = i18n.t("toolbar.deleting");
 
       console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
 
@@ -609,7 +663,7 @@
       });
 
       if (!response.success) {
-        throw new Error(response.error || "删除失败");
+        throw new Error(response.error || i18n.t("toast.delete_failed"));
       }
 
       const data = response.data || {};
@@ -627,25 +681,23 @@
       if (deletedCount === 0 && failedCount > 0) {
         //  全部失败
         showToast(
-          ` 删除失败：全部 ${failedCount} 条记忆无法删除\n` +
-          `失败ID: ${failedIds.join(", ")}\n` +
-          `请检查日志了解详情`,
+          `${i18n.t("toast.delete_failed_all", { count: failedCount })}\n` +
+          `IDs: ${failedIds.join(", ")}`,
           true
         );
-        logger.error("删除失败 - 所有记忆都无法删除", { failedIds });
+        logger.error("Delete failed - all memories", { failedIds });
       } else if (failedCount > 0) {
-        // ️ 部分失败
+        //  部分失败
         showToast(
-          `️ 部分删除失败：成功 ${deletedCount} 条，失败 ${failedCount} 条\n` +
-          `失败ID: ${failedIds.join(", ")}`
+          i18n.t("toast.delete_partial", { success: deletedCount, failed: failedCount })
         );
-        logger.warn("部分删除失败", { deletedCount, failedCount, failedIds });
+        logger.warn("Partial delete failed", { deletedCount, failedCount, failedIds });
       } else if (deletedCount > 0) {
         //  全部成功
-        showToast(` 已成功删除 ${deletedCount} 条记忆`);
+        showToast(i18n.t("toast.delete_success", { count: deletedCount }));
       } else {
-        // ️ 没有删除任何记忆
-        showToast("️ 没有删除任何记忆", true);
+        //  没有删除任何记忆
+        showToast(i18n.t("toast.delete_none"), true);
       }
 
       // 清空选择并刷新数据
@@ -655,7 +707,7 @@
       await fetchStats();
     } catch (error) {
       logger.error("[删除异常]", error);
-      showToast(error.message || "删除失败，请稍后重试", true);
+      showToast(error.message || i18n.t("toast.delete_failed"), true);
     } finally {
       dom.deleteSelected.disabled = false;
       dom.deleteSelected.textContent = originalText;
@@ -667,7 +719,7 @@
     state.selected.clear();
     localStorage.removeItem("lmem_token");
     switchView("login");
-    showToast("Logged out");
+    showToast(i18n.t("toast.logout"));
   }
 
   function onDetailClick(event) {
@@ -675,7 +727,7 @@
     if (!key) return;
     const item = state.items.find((record) => getItemKey(record) === key);
     if (!item) {
-      showToast("未找到对应的记录", true);
+      showToast(i18n.t("toast.record_not_found"), true);
       return;
     }
     openDetailDrawer(item);
@@ -685,7 +737,7 @@
     state.currentMemoryItem = item; // 保存当前项
     dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
     dom.detail.source.textContent =
-      item.source === "storage" ? "自定义存储" : "向量存储";
+      item.source === "storage" ? i18n.t("detail.source_storage") : i18n.t("detail.source_vector");
     dom.detail.status.textContent = item.status || "--";
     dom.detail.importance.textContent =
       item.importance !== undefined && item.importance !== null
@@ -725,13 +777,13 @@
     try {
       // 直接触发核爆倒计时，不需要确认
       startNukeCountdown({
-        seconds_left: 10,  // 缩短到10秒，更刺激
+        seconds_left: 10,
         operation_id: "nuke_" + Date.now(),
       });
-      showToast("💥 核爆倒计时启动！");
+      showToast(i18n.t("toast.nuke_start"));
     } catch (error) {
       dom.nukeButton.disabled = false;
-      showToast(error.message || "无法启动核爆模式", true);
+      showToast(error.message || i18n.t("toast.error"), true);
     }
   }
 
@@ -743,11 +795,11 @@
     try {
       // 取消核爆
       stopNukeCountdown();
-      showToast(" 核爆已取消！记忆保留");
+      showToast(i18n.t("toast.nuke_cancel"));
       dom.nukeButton.disabled = false;
     } catch (error) {
       dom.nukeCancel.disabled = false;
-      showToast(error.message || "取消失败，请稍后重试", true);
+      showToast(error.message || i18n.t("toast.error"), true);
     }
   }
 
@@ -779,15 +831,15 @@
       setTimeout(async () => {
         // 停止核爆倒计时
         stopNukeCountdown();
-        
+
         // 清空所有数据的视觉显示
         state.items = [];
         state.total = 0;
         state.page = 1;
         state.selected.clear();
-        
+
         // 更新表格显示
-        renderEmptyTable(" 核爆完成！所有记忆已被抹除。点击「刷新」重新加载。");
+        renderEmptyTable(i18n.t("nuke.table_empty"));
         updatePagination();
 
         // 清空统计信息显示
@@ -796,12 +848,12 @@
         dom.stats.archived.textContent = "0";
         dom.stats.deleted.textContent = "0";
         dom.stats.sessions.textContent = "0";
-        
+
         // 重置选择状态
         dom.selectAll.checked = false;
         dom.deleteSelected.disabled = true;
-        
-        showToast(" 核爆完成！所有记忆已从界面移除（仅视觉效果）");
+
+        showToast(i18n.t("nuke.done"));
       }, 4000); // 核爆动画时长
     }, 1000);
   }
@@ -848,7 +900,7 @@
         if (!skipAuth) {
           if (!state.token) {
             handleAuthFailure();
-            throw new Error("尚未登录");
+            throw new Error(i18n.t("toast.not_logged_in"));
           }
           headers.set("Authorization", `Bearer ${state.token}`);
         }
@@ -867,19 +919,19 @@
 
         if (response.status === 401) {
           handleAuthFailure();
-          throw new Error("会话已过期，请重新登录");
+          throw new Error(i18n.t("toast.session_expired"));
         }
 
         let data;
         try {
           data = await response.json();
         } catch (error) {
-          throw new Error("服务器返回格式错误");
+          throw new Error(i18n.t("toast.server_format_error"));
         }
 
         if (!response.ok) {
           const message =
-            (data && (data.detail || data.message || data.error)) || "请求失败";
+            (data && (data.detail || data.message || data.error)) || i18n.t("toast.request_failed");
           throw new Error(message);
         }
 
@@ -888,7 +940,7 @@
         lastError = error;
 
         // 如果是最后一次尝试或不应该重试的错误，直接抛出
-        if (attempt === retries || error.message.includes("未登录") || error.message.includes("会话已过期")) {
+        if (attempt === retries || error.message.includes(i18n.t("toast.not_logged_in")) || error.message.includes(i18n.t("toast.session_expired"))) {
           throw error;
         }
 
@@ -898,7 +950,7 @@
       }
     }
 
-    throw lastError || new Error("请求失败");
+    throw lastError || new Error(i18n.t("toast.request_failed"));
   }
 
   function handleAuthFailure() {
@@ -932,16 +984,16 @@
 
   function formatStatus(status) {
     const value = (status || "active").toLowerCase();
-    let text = "活跃";
+    let key = "status.active";
     let cls = "status-pill";
     if (value === "archived") {
-      text = "已归档";
+      key = "status.archived";
       cls += " archived";
     } else if (value === "deleted") {
-      text = "已删除";
+      key = "status.deleted";
       cls += " deleted";
     }
-    return `<span class="${cls}">${text}</span>`;
+    return `<span class="${cls}">${i18n.t(key)}</span>`;
   }
 
   function escapeHTML(text) {
@@ -1215,8 +1267,8 @@
     // 更新倒计时文本
     const message =
       seconds > 0
-        ? `所有记忆将在 ${seconds} 秒后被抹除。立即取消以中止核爆！`
-        : "正在抹除所有记忆... 请保持窗口打开。";
+        ? i18n.t("nuke.message", { seconds })
+        : i18n.t("nuke.message_zero");
     dom.nukeMessage.textContent = message;
 
     // 禁用/启用取消按钮
@@ -1293,7 +1345,7 @@
 
   function openEditModal() {
     if (!state.currentMemoryItem) {
-      showToast("未找到当前记忆信息", true);
+      showToast(i18n.t("toast.memory_not_found"), true);
       return;
     }
 
@@ -1340,7 +1392,7 @@
 
   async function saveMemoryEdit() {
     if (!state.currentMemoryItem) {
-      showToast("未找到当前记忆信息", true);
+      showToast(i18n.t("toast.memory_not_found"), true);
       return;
     }
 
@@ -1358,13 +1410,13 @@
     }
 
     if (!value) {
-      showToast("请输入新值", true);
+      showToast(i18n.t("toast.enter_new_value"), true);
       return;
     }
 
     const reason = document.getElementById("edit-reason").value.trim();
     const memoryId = state.currentMemoryItem.memory_id || state.currentMemoryItem.doc_id;
-    
+
     // 调试：输出将要使用的ID
     console.log('[编辑] 准备更新记忆:', {
       memory_id: memoryId,
@@ -1380,12 +1432,12 @@
         body: { field, value, reason },
       });
 
-      showToast(result.message || "更新成功");
+      showToast(result.message || i18n.t("toast.update_success"));
       closeEditModal();
       closeDetailDrawer();
       fetchMemories(); // 刷新列表
     } catch (error) {
-      showToast(error.message || "更新失败", true);
+      showToast(error.message || i18n.t("toast.update_failed"), true);
     } finally {
       document.getElementById("save-edit").disabled = false;
     }
@@ -1423,13 +1475,13 @@
     const session_id = document.getElementById("recall-session-id").value.trim() || null;
 
     if (!query) {
-      showToast("请输入查询内容", true);
+      showToast(i18n.t("recall.empty"), true);
       return;
     }
 
     const recallSearchBtn = document.getElementById("recall-search-btn");
     recallSearchBtn.disabled = true;
-    recallSearchBtn.textContent = "执行中...";
+    recallSearchBtn.textContent = i18n.t("recall.searching");
 
     try {
       const payload = {
@@ -1448,18 +1500,18 @@
       });
 
       if (!response.success) {
-        throw new Error(response.error || "召回失败");
+        throw new Error(response.error || i18n.t("toast.recall_failed"));
       }
 
       const data = response.data;
       displayRecallResults(data);
-      showToast(`成功召回 ${data.total} 条记忆`);
+      showToast(i18n.t("toast.recall_success", { count: data.total }));
     } catch (error) {
-      logger.error("[召回测试失败]", error.message);
-      showToast(error.message || "召回失败", true);
+      logger.error("[Recall test failed]", error.message);
+      showToast(error.message || i18n.t("toast.error"), true);
     } finally {
       recallSearchBtn.disabled = false;
-      recallSearchBtn.textContent = "执行召回";
+      recallSearchBtn.textContent = i18n.t("recall.search");
     }
   }
 
@@ -1481,7 +1533,7 @@
 
     if (data.total === 0) {
       resultsContainer.innerHTML =
-        '<div class="empty-state"><p>未找到匹配的记忆</p></div>';
+        `<div class="empty-state"><p>${i18n.t("recall.no_match")}</p></div>`;
       return;
     }
 
@@ -1494,7 +1546,7 @@
         return `
           <div class="recall-result-card">
             <div class="result-header">
-              <h4>结果 #${index + 1}</h4>
+              <h4>${i18n.t("recall.result_header", { number: index + 1 })}</h4>
               <span class="score-badge ${scoreColor}">
                 ${scorePercentage.toFixed(1)}%
               </span>
@@ -1506,27 +1558,27 @@
 
             <div class="result-metadata">
               <div class="meta-item">
-                <span class="meta-label">记忆 ID:</span>
+                <span class="meta-label">${i18n.t("recall.result_memory_id")}:</span>
                 <span class="meta-value mono">${result.memory_id}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">相似度得分:</span>
+                <span class="meta-label">${i18n.t("recall.result_similarity")}:</span>
                 <span class="meta-value">${result.similarity_score}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">会话 UUID:</span>
+                <span class="meta-label">${i18n.t("recall.result_session")}:</span>
                 <span class="meta-value mono">${result.metadata.session_id || "--"}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">重要性:</span>
+                <span class="meta-label">${i18n.t("recall.result_importance")}:</span>
                 <span class="meta-value">${(result.metadata.importance * 10).toFixed(1)}/10</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">类型:</span>
+                <span class="meta-label">${i18n.t("recall.result_type")}:</span>
                 <span class="meta-value">${result.metadata.memory_type}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">状态:</span>
+                <span class="meta-label">${i18n.t("recall.result_status")}:</span>
                 <span class="meta-value">${formatStatus(result.metadata.status)}</span>
               </div>
             </div>
@@ -1549,7 +1601,7 @@
     document.getElementById("recall-query").value = "";
     document.getElementById("recall-session-id").value = "";
     document.getElementById("recall-results").innerHTML =
-      '<div class="empty-state"><p>暂无召回结果 · 请输入查询内容并执行召回</p></div>';
+      `<div class="empty-state"><p>${i18n.t("recall.empty")}</p></div>`;
     document.getElementById("recall-stats").classList.add("hidden");
   }
 
@@ -1568,19 +1620,19 @@
     const newTheme = currentTheme === "light" ? "dark" : "light";
     applyTheme(newTheme);
     localStorage.setItem("lmem_theme", newTheme);
-    showToast(newTheme === "dark" ? "🌙 已切换到深色模式" : "☀️ 已切换到浅色模式");
+    showToast(newTheme === "dark" ? i18n.t("toast.theme_dark") : i18n.t("toast.theme_light"));
   }
 
   function applyTheme(theme) {
     // 添加过渡类以实现平滑切换
     document.documentElement.classList.add("theme-transitioning");
-    
+
     // 设置主题属性
     document.documentElement.setAttribute("data-theme", theme);
-    
+
     // 更新图标
     updateThemeIcons(theme);
-    
+
     // 移除过渡类
     setTimeout(() => {
       document.documentElement.classList.remove("theme-transitioning");
@@ -1590,14 +1642,14 @@
   function updateThemeIcons(theme) {
     const themeIcon = document.getElementById("theme-icon");
     const loginThemeIcon = document.getElementById("login-theme-icon");
-    
+
     if (themeIcon) {
       themeIcon.setAttribute("data-lucide", theme === "dark" ? "sun" : "moon");
     }
     if (loginThemeIcon) {
       loginThemeIcon.setAttribute("data-lucide", theme === "dark" ? "sun" : "moon");
     }
-    
+
     // 重新初始化图标
     if (typeof lucide !== "undefined" && lucide.createIcons) {
       lucide.createIcons();

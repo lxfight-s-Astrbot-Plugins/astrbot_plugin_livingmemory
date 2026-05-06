@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const state = {
     payload: null,
     graphIndex: null,
@@ -17,10 +17,10 @@
   const dom = {};
 
   const NODE_TYPE_LABELS = {
-    topic: "主题",
-    person: "人物",
-    fact: "事实",
-    summary: "摘要",
+    topic: () => i18n.t("graph.node_topic"),
+    person: () => i18n.t("graph.node_person"),
+    fact: () => i18n.t("graph.node_fact"),
+    summary: () => i18n.t("graph.node_summary"),
   };
 
   const NODE_TYPE_COLORS = {
@@ -51,16 +51,16 @@
   ];
 
   const MODE_LABELS = {
-    overview: "最近概览",
-    query: "检索视图",
-    memory_focus: "记忆聚焦",
+    overview: () => i18n.t("graph.mode_overview"),
+    query: () => i18n.t("graph.mode_query"),
+    memory_focus: () => i18n.t("graph.mode_memory_focus"),
   };
 
   const SCORE_LABELS = [
-    ["document_keyword_score", "文档关键词"],
-    ["document_vector_score", "文档向量"],
-    ["graph_keyword_score", "图关键词"],
-    ["graph_vector_score", "图向量"],
+    ["document_keyword_score", () => i18n.t("graph.score_doc_kw")],
+    ["document_vector_score", () => i18n.t("graph.score_doc_vec")],
+    ["graph_keyword_score", () => i18n.t("graph.score_graph_kw")],
+    ["graph_vector_score", () => i18n.t("graph.score_graph_vec")],
   ];
 
   function init() {
@@ -125,8 +125,8 @@
     initResizeObserver();
     setCanvasMessage(
       typeof window.ForceGraph3D === "function"
-        ? "点击“最近概览”加载图谱，或直接输入检索词。"
-        : "3D 图谱组件未加载，请刷新页面并检查静态资源。",
+        ? i18n.t("graph.canvas_hint")
+        : i18n.t("graph.canvas_no_3d"),
       false
     );
   }
@@ -157,7 +157,7 @@
   async function requestGraph(path, options = {}) {
     const token = getToken();
     if (!token) {
-      throw new Error("当前会话未登录，请先登录 WebUI。");
+      throw new Error(i18n.t("graph.not_logged_in"));
     }
 
     const headers = new Headers(options.headers || {});
@@ -180,18 +180,18 @@
 
     const data = await response
       .json()
-      .catch(() => ({ success: false, error: "服务器响应格式错误" }));
+      .catch(() => ({ success: false, error: i18n.t("graph.server_format_error") }));
     if (!response.ok) {
-      throw new Error(data.detail || data.error || data.message || "图谱请求失败");
+      throw new Error(data.detail || data.error || data.message || i18n.t("graph.request_failed"));
     }
     if (!data.success) {
-      throw new Error(data.error || "图谱请求失败");
+      throw new Error(data.error || i18n.t("graph.request_failed"));
     }
     return data.data || {};
   }
 
   async function fetchOverview() {
-    setLoading(true, "正在加载最近图谱概览...");
+    setLoading(true, i18n.t("graph.loading_overview"));
     try {
       const filters = getFilters();
       const params = new URLSearchParams();
@@ -206,7 +206,7 @@
       state.hasLoadedOverview = true;
       renderPayload(payload, { focusSelection: !state.sceneReady });
     } catch (error) {
-      renderError(error.message || "无法加载图谱概览");
+      renderError(error.message || i18n.t("graph.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -219,7 +219,7 @@
       return;
     }
 
-    setLoading(true, `正在检索“${query}”相关图谱...`);
+    setLoading(true, i18n.t("graph.searching_query", { query }));
     try {
       const filters = getFilters();
       const payload = await requestGraph("/api/graph/query", {
@@ -232,7 +232,7 @@
       });
       renderPayload(payload, { focusSelection: true });
     } catch (error) {
-      renderError(error.message || "图谱检索失败");
+      renderError(error.message || i18n.t("graph.search_failed"));
     } finally {
       setLoading(false);
     }
@@ -241,17 +241,17 @@
   async function focusMemory() {
     const memoryIdText = dom.memoryInput.value.trim();
     if (!memoryIdText) {
-      renderError("请输入要定位的记忆 ID。");
+      renderError(i18n.t("graph.enter_memory_id"));
       return;
     }
 
     const memoryId = Number.parseInt(memoryIdText, 10);
     if (Number.isNaN(memoryId)) {
-      renderError("记忆 ID 必须是整数。");
+      renderError(i18n.t("graph.memory_id_integer"));
       return;
     }
 
-    setLoading(true, `正在聚焦记忆 #${memoryId} 的关系图...`);
+    setLoading(true, i18n.t("graph.focusing_memory", { memoryId }));
     try {
       const filters = getFilters();
       const payload = await requestGraph("/api/graph/query", {
@@ -264,7 +264,7 @@
       });
       renderPayload(payload, { memoryId, focusSelection: true });
     } catch (error) {
-      renderError(error.message || "定位记忆失败");
+      renderError(error.message || i18n.t("graph.focus_failed"));
     } finally {
       setLoading(false);
     }
@@ -276,7 +276,7 @@
     dom.focusButton.disabled = isLoading;
     dom.overviewButton.disabled = isLoading;
     if (isLoading) {
-      setCanvasMessage(message || "图谱载入中...", true);
+      setCanvasMessage(message || i18n.t("graph.loading"), true);
     }
   }
   function renderPayload(payload, options = {}) {
@@ -349,57 +349,57 @@
 
   function renderDisabled() {
     state.sceneReady = false;
-    dom.modeBadge.textContent = "图记忆未启用";
-    dom.statusLine.textContent = "当前实例未启用图记忆功能，请先开启图记忆并完成索引。";
+    dom.modeBadge.textContent = i18n.t("graph.disabled_title");
+    dom.statusLine.textContent = i18n.t("graph.disabled_message");
     renderStats({ summary: {} });
-    dom.routeLabel.textContent = "未启用";
-    dom.legend.innerHTML = '<span class="graph-legend-chip muted">暂无图数据</span>';
+    dom.routeLabel.textContent = i18n.t("graph.disabled_route");
+    dom.legend.innerHTML = `<span class="graph-legend-chip muted">${i18n.t("graph.no_data")}</span>`;
     dom.topNodes.innerHTML = emptyPanel("__PLACEHOLDER__");
-    dom.relatedMemories.innerHTML = emptyPanel("暂无可展示的图记忆");
-    dom.retrievalList.innerHTML = emptyPanel("点击“最近概览”加载图谱，或直接输入检索词。");
-    dom.inspector.innerHTML = emptyPanel("请选择节点或记忆查看详细信息。");
+    dom.relatedMemories.innerHTML = emptyPanel(i18n.t("graph.no_memories"));
+    dom.retrievalList.innerHTML = emptyPanel(i18n.t("graph.canvas_hint"));
+    dom.inspector.innerHTML = emptyPanel(i18n.t("graph.select_node_hint"));
     clearGraphScene();
-    setCanvasMessage("当前实例尚未启用图记忆。", false);
+    setCanvasMessage(i18n.t("graph.not_enabled"), false);
   }
 
   function renderError(message) {
     state.sceneReady = false;
-    dom.modeBadge.textContent = "图谱加载失败";
+    dom.modeBadge.textContent = i18n.t("graph.load_failed_title");
     dom.statusLine.textContent = message;
-    dom.legend.innerHTML = '<span class="graph-legend-chip danger">请求失败</span>';
-    dom.topNodes.innerHTML = emptyPanel("暂无数据");
-    dom.relatedMemories.innerHTML = emptyPanel("暂无数据");
-    dom.retrievalList.innerHTML = emptyPanel("暂无数据");
+    dom.legend.innerHTML = `<span class="graph-legend-chip danger">${i18n.t("graph.request_failed_chip")}</span>`;
+    dom.topNodes.innerHTML = emptyPanel(i18n.t("graph.no_data_panel"));
+    dom.relatedMemories.innerHTML = emptyPanel(i18n.t("graph.no_data_panel"));
+    dom.retrievalList.innerHTML = emptyPanel(i18n.t("graph.no_data_panel"));
     dom.inspector.innerHTML = emptyPanel(message);
     clearGraphScene();
     setCanvasMessage(message, false);
   }
 
   function renderStatus(payload) {
-    const modeText = MODE_LABELS[payload.mode] || "图谱视图";
+    const modeText = MODE_LABELS[payload.mode] ? MODE_LABELS[payload.mode]() : "Graph View";
     dom.modeBadge.textContent = modeText;
 
     const filters = payload.filters || {};
     const filterParts = [];
     if (filters.session_id) {
-      filterParts.push(`会话 ${filters.session_id}`);
+      filterParts.push(i18n.t("graph.session_filter_label", { sessionId: filters.session_id }));
     }
     if (filters.persona_id) {
-      filterParts.push(`人格 ${filters.persona_id}`);
+      filterParts.push(i18n.t("graph.persona_filter_label", { personaId: filters.persona_id }));
     }
 
-    let line = "展示图记忆中的核心连接。";
+    let line = i18n.t("graph.core_connections");
     if (payload.mode === "query" && payload.query) {
-      line = `当前展示 “${payload.query}” 的双路四模式召回对应子图。`;
+      line = i18n.t("graph.query_subgraph", { query: payload.query });
     } else if (payload.mode === "memory_focus" && payload.memory_id !== null) {
-      line = `当前聚焦记忆 #${payload.memory_id} 的关系子图。`;
+      line = i18n.t("graph.memory_subgraph", { memoryId: payload.memory_id });
     }
     if (filterParts.length) {
-      line += ` 过滤条件：${filterParts.join(" · ")}`;
+      line += ` ${i18n.t("graph.filter_conditions", { conditions: filterParts.join(" · ") })}`;
     }
     dom.statusLine.textContent = line;
     dom.routeLabel.textContent =
-      payload.mode === "query" ? "文档 + 图 · 关键词 + 向量" : "图谱浏览";
+      payload.mode === "query" ? i18n.t("graph.route_doc_graph") : i18n.t("graph.route_browse");
   }
 
   function renderStats(payload) {
@@ -439,7 +439,7 @@
     const chips = [...nodeChips, ...relationChips];
     dom.legend.innerHTML = chips.length
       ? chips.join("")
-      : '<span class="graph-legend-chip muted">暂无图谱连接</span>';
+      : `<span class="graph-legend-chip muted">${i18n.t("graph.no_connections")}</span>`;
   }
 
   function renderCanvas(payload, options = {}) {
@@ -447,13 +447,13 @@
     if (!nodes.length) {
       state.sceneReady = false;
       clearGraphScene();
-      setCanvasMessage("当前范围内暂无可视化图数据。", false);
+      setCanvasMessage(i18n.t("graph.no_visible_data"), false);
       return;
     }
 
     if (!ensureGraphScene()) {
       state.sceneReady = false;
-      setCanvasMessage("当前页面未能加载 3D 图谱组件，请刷新页面后重试。", false);
+      setCanvasMessage(i18n.t("graph.no_3d_reload"), false);
       return;
     }
 
@@ -497,7 +497,7 @@
   function renderTopNodes(payload) {
     const topNodes = payload.top_nodes || [];
     if (!topNodes.length) {
-      dom.topNodes.innerHTML = emptyPanel("暂无核心节点");
+      dom.topNodes.innerHTML = emptyPanel(i18n.t("graph.no_core_nodes"));
       return;
     }
 
@@ -508,8 +508,8 @@
             class="graph-chip ${state.selectedNodeId === Number(node.id) ? "is-active" : ""}"
             data-node-select="${node.id}"
           >
-            <span class="graph-chip-title">${escapeHTML(truncate(node.label || "未命名节点", 18))}</span>
-            <span class="graph-chip-meta">${escapeHTML(typeLabel(node.type))} · 度 ${Number(node.degree || 0)}</span>
+            <span class="graph-chip-title">${escapeHTML(truncate(node.label || i18n.t("graph.unnamed_node"), 18))}</span>
+            <span class="graph-chip-meta">${escapeHTML(typeLabel(node.type))} · ${i18n.t("graph.degree", { degree: Number(node.degree || 0) })}</span>
           </button>
         `
       )
@@ -519,7 +519,7 @@
   function renderRelatedMemories(payload) {
     const memories = payload.snapshot?.memories || [];
     if (!memories.length) {
-      dom.relatedMemories.innerHTML = emptyPanel("暂无关联记忆");
+      dom.relatedMemories.innerHTML = emptyPanel(i18n.t("graph.no_related_memories"));
       return;
     }
 
@@ -553,13 +553,13 @@
               <span class="graph-memory-id">#${memoryId}</span>
               ${scoreBadge}
             </div>
-            <h4 class="graph-memory-title">${escapeHTML(truncate(memory.summary || "无摘要", 46))}</h4>
+            <h4 class="graph-memory-title">${escapeHTML(truncate(memory.summary || i18n.t("graph.no_summary"), 46))}</h4>
             <div class="graph-memory-metrics">
-              <span>节点 ${memory.node_count || 0}</span>
-              <span>条目 ${memory.entry_count || 0}</span>
-              <span>关系 ${memory.edge_count || 0}</span>
+              <span>${i18n.t("graph.node_count_label", { count: memory.node_count || 0 })}</span>
+              <span>${i18n.t("graph.entry_count_label", { count: memory.entry_count || 0 })}</span>
+              <span>${i18n.t("graph.edge_count_label", { count: memory.edge_count || 0 })}</span>
             </div>
-            <button class="btn btn-ghost graph-memory-action" type="button" data-memory-focus="${memoryId}">聚焦此记忆</button>
+            <button class="btn btn-ghost graph-memory-action" type="button" data-memory-focus="${memoryId}">${i18n.t("graph.focus_memory_btn")}</button>
           </article>
         `;
       })
@@ -570,7 +570,7 @@
     const items = payload.retrieval?.items || [];
     if (!items.length) {
       dom.retrievalList.innerHTML = emptyPanel(
-        "执行检索后，这里会展示文档 / 图 × 关键词 / 向量的召回细节。"
+        i18n.t("graph.retrieval_hint")
       );
       return;
     }
@@ -578,11 +578,11 @@
     dom.retrievalList.innerHTML = items
       .slice(0, 6)
       .map((item, index) => {
-        const bars = SCORE_LABELS.map(([key, label]) => {
+        const bars = SCORE_LABELS.map(([key, labelFn]) => {
           const value = clamp01(Number(item.score_breakdown?.[key] || 0));
           return `
             <div class="graph-score-row">
-              <span>${escapeHTML(label)}</span>
+              <span>${escapeHTML(labelFn())}</span>
               <div class="graph-score-track"><span style="width:${(value * 100).toFixed(1)}%"></span></div>
               <strong>${formatScore(value)}</strong>
             </div>
@@ -593,7 +593,7 @@
             <div class="graph-retrieval-header">
               <div>
                 <span class="graph-retrieval-rank">TOP ${index + 1}</span>
-                <h4>记忆 #${item.memory_id}</h4>
+                <h4>${i18n.t("graph.memory_header", { memoryId: item.memory_id })}</h4>
               </div>
               <span class="graph-score-pill strong">${formatScore(item.final_score)}</span>
             </div>
@@ -607,7 +607,7 @@
   function renderInspector() {
     const selection = getSelectionContext();
     if (!selection.type) {
-      dom.inspector.innerHTML = emptyPanel("点击节点、记忆卡片或召回结果查看详细信息。");
+      dom.inspector.innerHTML = emptyPanel(i18n.t("graph.select_node_inspector"));
       return;
     }
 
@@ -618,32 +618,32 @@
       dom.inspector.innerHTML = `
         <div class="graph-inspector-header">
           <span class="graph-detail-badge graph-node-${escapeHTML(node.type || "other")}">${escapeHTML(typeLabel(node.type))}</span>
-          <h3>${escapeHTML(node.label || "未命名节点")}</h3>
+          <h3>${escapeHTML(node.label || i18n.t("graph.unnamed_node"))}</h3>
           <p>${escapeHTML(node.canonical_value || node.label || "")}</p>
         </div>
         <div class="graph-detail-grid">
-          <div><span>关联记忆</span><strong>${node.memory_count || 0}</strong></div>
-          <div><span>连接度</span><strong>${node.degree || 0}</strong></div>
-          <div><span>命中条目</span><strong>${node.entry_count || 0}</strong></div>
-          <div><span>权重</span><strong>${Number(node.weight || 0).toFixed(2)}</strong></div>
+          <div><span>${i18n.t("graph.inspector_memory_count")}</span><strong>${node.memory_count || 0}</strong></div>
+          <div><span>${i18n.t("graph.inspector_degree")}</span><strong>${node.degree || 0}</strong></div>
+          <div><span>${i18n.t("graph.inspector_entries")}</span><strong>${node.entry_count || 0}</strong></div>
+          <div><span>${i18n.t("graph.inspector_weight")}</span><strong>${Number(node.weight || 0).toFixed(2)}</strong></div>
         </div>
         <div class="graph-detail-section">
-          <h4>相关记忆</h4>
+          <h4>${i18n.t("graph.related_memories_title")}</h4>
           ${relatedMemories.length ? relatedMemories.map((memory) => `
             <button class="graph-inline-item" data-memory-select="${memory.memory_id}">
               <span>#${memory.memory_id}</span>
-              <strong>${escapeHTML(truncate(memory.summary || "无摘要", 30))}</strong>
+              <strong>${escapeHTML(truncate(memory.summary || i18n.t("graph.no_summary"), 30))}</strong>
             </button>
-          `).join("") : '<p class="graph-muted-copy">暂无相关记忆</p>'}
+          `).join("") : `<p class="graph-muted-copy">${i18n.t("graph.no_related_memories_panel")}</p>`}
         </div>
         <div class="graph-detail-section">
-          <h4>相关条目</h4>
+          <h4>${i18n.t("graph.related_entries_title")}</h4>
           ${entries.length ? entries.map((entry) => `
             <article class="graph-entry-card">
               <span class="graph-entry-type">${escapeHTML(typeLabel(entry.entry_type))}</span>
               <p>${escapeHTML(truncate(entry.content || "", 120))}</p>
             </article>
-          `).join("") : '<p class="graph-muted-copy">暂无相关条目</p>'}
+          `).join("") : `<p class="graph-muted-copy">${i18n.t("graph.no_related_entries_panel")}</p>`}
         </div>
       `;
       return;
@@ -654,36 +654,36 @@
     const nodeIds = [...selection.highlightNodeIds];
     dom.inspector.innerHTML = `
       <div class="graph-inspector-header">
-        <span class="graph-detail-badge secondary">记忆 #${memory.memory_id}</span>
-        <h3>${escapeHTML(truncate(memory.summary || "无摘要", 56))}</h3>
-        <p>${escapeHTML(memory.session_id || "未设置会话")}</p>
+        <span class="graph-detail-badge secondary">${i18n.t("graph.inspector_memory_label", { memoryId: memory.memory_id })}</span>
+        <h3>${escapeHTML(truncate(memory.summary || i18n.t("graph.no_summary"), 56))}</h3>
+        <p>${escapeHTML(memory.session_id || "—")}</p>
       </div>
       <div class="graph-detail-grid">
-        <div><span>节点</span><strong>${memory.node_count || 0}</strong></div>
-        <div><span>条目</span><strong>${memory.entry_count || 0}</strong></div>
-        <div><span>关系</span><strong>${memory.edge_count || 0}</strong></div>
-        <div><span>重要性</span><strong>${formatImportance(memory.importance)}</strong></div>
+        <div><span>${i18n.t("graph.node_count_label", { count: memory.node_count || 0 })}</span><strong>${memory.node_count || 0}</strong></div>
+        <div><span>${i18n.t("graph.entry_count_label", { count: memory.entry_count || 0 })}</span><strong>${memory.entry_count || 0}</strong></div>
+        <div><span>${i18n.t("graph.edge_count_label", { count: memory.edge_count || 0 })}</span><strong>${memory.edge_count || 0}</strong></div>
+        <div><span>${i18n.t("table.col_importance")}</span><strong>${formatImportance(memory.importance)}</strong></div>
       </div>
       <div class="graph-detail-section">
-        <h4>节点分布</h4>
+        <h4>${i18n.t("graph.node_distribution")}</h4>
         <div class="graph-inline-chips">
           ${nodeIds.length ? nodeIds.slice(0, 8).map((nodeId) => {
             const node = state.graphIndex.nodeMap.get(nodeId);
             if (!node) {
               return "";
             }
-            return `<button class="graph-inline-chip" data-node-select="${nodeId}">${escapeHTML(truncate(node.label || "未命名节点", 18))}</button>`;
-          }).join("") : '<span class="graph-muted-copy">暂无节点</span>'}
+            return `<button class="graph-inline-chip" data-node-select="${nodeId}">${escapeHTML(truncate(node.label || i18n.t("graph.unnamed_node"), 18))}</button>`;
+          }).join("") : `<span class="graph-muted-copy">${i18n.t("graph.no_nodes")}</span>`}
         </div>
       </div>
       <div class="graph-detail-section">
-        <h4>图谱条目</h4>
+        <h4>${i18n.t("graph.graph_entries_title")}</h4>
         ${entries.length ? entries.map((entry) => `
           <article class="graph-entry-card">
             <span class="graph-entry-type">${escapeHTML(typeLabel(entry.entry_type))}</span>
             <p>${escapeHTML(truncate(entry.content || "", 120))}</p>
           </article>
-        `).join("") : '<p class="graph-muted-copy">暂无图谱条目</p>'}
+        `).join("") : `<p class="graph-muted-copy">${i18n.t("graph.no_graph_entries")}</p>`}
       </div>
     `;
   }
@@ -1090,7 +1090,7 @@
           source,
           target,
           __color: linkColor(relationBaseColor, { isActive, isMemoryHighlighted }),
-          __label: `${relationLabel(edge.relation_type)} · 记忆 #${edge.memory_id}`,
+          __label: `${relationLabel(edge.relation_type)} · ${i18n.t("graph.memory_header", { memoryId: edge.memory_id })}`,
           __width: isMemoryHighlighted ? 2.6 : isActive ? 1.2 : 0.32,
           __curvature: baseCurvature,
           __arrowLength: isMemoryHighlighted ? 5.2 : isActive ? 3.2 : 0,
@@ -1236,13 +1236,13 @@
 
   function buildNodeTooltip(node) {
     const typeKey = normalizeNodeType(node.type);
-    const detailText = node.canonical_value || node.label || "未命名节点";
+    const detailText = node.canonical_value || node.label || i18n.t("graph.unnamed_node");
     return `
       <div class="graph-tooltip">
         <span class="graph-tooltip-badge graph-node-${escapeHTML(typeKey)}">${escapeHTML(typeLabel(node.type))}</span>
-        <strong>${escapeHTML(node.label || "未命名节点")}</strong>
+        <strong>${escapeHTML(node.label || i18n.t("graph.unnamed_node"))}</strong>
         <span>${escapeHTML(truncate(detailText, 72))}</span>
-        <small>记忆 ${Number(node.memory_count || 0)} · 关系 ${Number(node.degree || 0)} · 条目 ${Number(node.entry_count || 0)}</small>
+        <small>${i18n.t("graph.graph_tooltip_meta", { memoryCount: Number(node.memory_count || 0), degree: Number(node.degree || 0), entryCount: Number(node.entry_count || 0) })}</small>
       </div>
     `;
   }
@@ -1335,7 +1335,7 @@
   }
 
   function typeLabel(type) {
-    return NODE_TYPE_LABELS[type] || type || "节点";
+    return NODE_TYPE_LABELS[type] ? NODE_TYPE_LABELS[type]() : type || "Node";
   }
 
   function relationLabel(type) {

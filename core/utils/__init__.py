@@ -313,12 +313,12 @@ def format_memories_for_injection(memories: list) -> str:
     # 添加更详细的说明文本
     header = (
         f"{MEMORY_INJECTION_HEADER}\n"
-        f"以下是从历史对话中提取的相关记忆，可以帮助你更好地理解用户的背景、偏好和过往交流内容。\n"
-        f"请参考这些记忆来提供更个性化、更连贯的回答。\n\n"
+        f"The following are relevant memories extracted from historical conversations, which can help you better understand the user's background, preferences, and past interactions.\n"
+        f"Please refer to these memories to provide more personalized and coherent responses.\n\n"
     )
     footer = (
         f"\n\n"
-        f"注意：以上记忆来自历史对话，请结合当前对话上下文使用这些信息。\n"
+        f"Note: The above memories come from historical conversations, please use this information in conjunction with the current conversation context.\n"
         f"{MEMORY_INJECTION_FOOTER}"
     )
 
@@ -332,15 +332,15 @@ def format_memories_for_injection(memories: list) -> str:
             # 修复：memories 传入的是字典列表，不是对象
             # 从字典中获取数据
             if isinstance(mem, dict):
-                content = mem.get("content", "内容缺失")
+                content = mem.get("content", "Content missing")
                 score = mem.get("score", 0.0)
                 metadata = mem.get("metadata", {})
                 timestamp = mem.get("timestamp") or metadata.get("create_time")
                 importance = metadata.get("importance", 0.5)
-                interaction_type = metadata.get("interaction_type", "未知")
+                interaction_type = metadata.get("interaction_type", "Unknown")
             else:
                 # 如果是对象，尝试访问属性
-                content = getattr(mem, "content", "内容缺失")
+                content = getattr(mem, "content", "Content missing")
                 score = getattr(mem, "score", 0.0)
                 timestamp = getattr(mem, "timestamp", None)
                 metadata_raw = getattr(mem, "metadata", {})
@@ -352,7 +352,7 @@ def format_memories_for_injection(memories: list) -> str:
                 if not timestamp:
                     timestamp = metadata.get("create_time")
                 importance = metadata.get("importance", 0.5)
-                interaction_type = metadata.get("interaction_type", "未知")
+                interaction_type = metadata.get("interaction_type", "Unknown")
 
             # 格式化时间戳
             time_str = ""
@@ -364,9 +364,9 @@ def format_memories_for_injection(memories: list) -> str:
                     pass
 
             # 构建格式化的记忆条目（展示content和元数据信息）
-            time_part = f", 记忆写入时间: {time_str}" if time_str else ""
+            time_part = f", Memory write time: {time_str}" if time_str else ""
             entry_parts = [
-                f"记忆 #{idx} (重要性: {importance:.2f}){time_part}"
+                f"Memory #{idx} (Importance: {importance:.2f}){time_part}"
             ]
 
             # 添加元数据信息
@@ -377,7 +377,7 @@ def format_memories_for_injection(memories: list) -> str:
             if topics and isinstance(topics, list) and len(topics) > 0:
                 topics_str = "、".join(str(t) for t in topics if t)
                 if topics_str:
-                    metadata_parts.append(f"主题: {topics_str}")
+                    metadata_parts.append(f"Topics: {topics_str}")
 
             # 添加参与者（仅群聊）
             participants = metadata.get("participants", [])
@@ -388,14 +388,14 @@ def format_memories_for_injection(memories: list) -> str:
             ):
                 participants_str = "、".join(str(p) for p in participants if p)
                 if participants_str:
-                    metadata_parts.append(f"参与者: {participants_str}")
+                    metadata_parts.append(f"Participants: {participants_str}")
 
             # 添加关键事实
             key_facts = metadata.get("key_facts", [])
             if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
                 facts_str = "; ".join(str(f) for f in key_facts if f)
                 if facts_str:
-                    metadata_parts.append(f"关键信息: {facts_str}")
+                    metadata_parts.append(f"Key facts: {facts_str}")
 
             # 组装元数据行
             if metadata_parts:

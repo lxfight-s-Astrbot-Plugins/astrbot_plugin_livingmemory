@@ -1,3 +1,9 @@
+<div align="center">
+
+[中文](DEVELOPMENT.md) | [English](DEVELOPMENT_en.md) | [Русский](DEVELOPMENT_ru.md)
+
+</div>
+
 # LivingMemory 开发者指南
 
 **版本**: v2.2.10
@@ -22,7 +28,7 @@
 ### 前置要求
 
 - Python 3.10+
-- AstrBot 开发环境（若开发官方插件 Pages，要求 AstrBot >= 4.5.7）
+- AstrBot 开发环境（若开发官方插件 Pages，要求 AstrBot >= 4.24.2）
 - Git
 
 ### 安装依赖
@@ -74,11 +80,18 @@ astrbot_plugin_livingmemory/
 │   └── ...
 ├── storage/                        # 存储层
 │   ├── conversation_store.py       # 会话存储
-│   └── db_migration.py             # 数据库迁移
+│   ├── db_migration.py             # 数据库迁移
+│   └── backup_manager.py           # 定时自动备份管理器
 ├── pages/                           # AstrBot 官方插件 Pages 资源
 │   └── dashboard/                   # 官方插件页 dashboard
 ├── webui/                           # 旧版独立 WebUI（兼容入口）
 │   └── server.py                    # FastAPI服务器
+├── static/                          # 旧版独立 WebUI 静态资源
+│   ├── index.html
+│   ├── styles.css
+│   ├── app.js
+│   ├── graph-ui.js                 # 3D 知识图谱渲染器
+│   └── i18n.js                     # 国际化引擎
 ├── tests/                          # 测试套件
 │   ├── conftest.py                 # pytest配置
 │   ├── test_*.py                   # 单元测试
@@ -238,6 +251,79 @@ async def test_with_async_mock():
 
     result = await mock_obj.async_method()
     assert result == "test"
+```
+
+### 新功能专项测试
+
+#### Fake Tool Call Injection 测试
+
+```python
+# tests/test_event_handler.py
+from unittest.mock import Mock
+from core.utils import format_memories_for_fake_tool_call
+
+def test_format_memories_for_fake_tool_call():
+    """测试伪造工具调用格式化"""
+    memories = [
+        {"id": 1, "content": "用户喜欢猫", "score": 0.9, "importance": 0.8}
+    ]
+    messages = format_memories_for_fake_tool_call(memories, max_token_budget=500)
+
+    assert len(messages) == 2  # tool_calls + tool
+    assert messages[0]["role"] == "assistant"
+    assert "tool_calls" in messages[0]
+    assert messages[0]["tool_calls"][0]["id"].startswith("fake_recall_")
+    assert messages[1]["role"] == "tool"
+    assert "用户喜欢猫" in messages[1]["content"]
+```
+
+#### 定时自动备份测试
+
+```python
+# tests/test_backup.py
+import pytest
+from storage.backup_manager import BackupManager
+from core.base.config_manager import ConfigManager
+
+@pytest.mark.asyncio
+async def test_backup_cycle():
+    """测试备份周期"""
+    config = ConfigManager({"backup": {"enabled": True, "interval_hours": 24, "retention_days": 7}})
+    bm = BackupManager(config)
+
+    result = await bm.run_backup_cycle()
+    assert "success" in result
+    assert result["success"] is True or result["error"] is not None
+```
+
+#### 图片转述记忆测试
+
+```python
+# tests/test_event_handler.py
+async def test_image_caption_memory():
+    """测试图片转述内容存入记忆"""
+    event = Mock()
+    event.get_messages.return_value = [Mock(role="user", text="<image_caption>一只猫</image_caption>")]
+
+    # 触发消息处理
+    await event_handler.handle_all_group_messages(event)
+
+    # 验证记忆库存储了图片描述
+    memories = await memory_engine.search_memories("猫")
+    assert any("一只猫" in m["content"] for m in memories)
+```
+
+#### 3D 图谱前端测试
+
+```bash
+# 手动测试 3D 图谱
+# 1. 启动 WebUI
+# 2. 打开浏览器控制台
+# 3. 检查 ForceGraph3D 是否加载成功
+# 4. 验证节点拖拽、缩放、旋转是否正常
+
+# 运行前端单元测试（如有）
+pytest tests/test_graph_ui.py
 ```
 
 ### 性能测试
@@ -464,6 +550,14 @@ A:
 3. 添加单元测试
 4. 更新帮助文档
 
+### Q: 如何为 WebUI 添加新的语言？
+
+A:
+1. 在 `static/i18n.js` 的 `TRANSLATIONS` 对象中添加新语言字典
+2. 确保所有 `data-i18n` 键都有对应翻译
+3. 在 HTML 的 `<select>` 中添加新选项
+4. 测试自动检测逻辑（`navigator.language`）和手动切换
+
 ### Q: 如何调试初始化问题？
 
 A:
@@ -483,5 +577,5 @@ A:
 
 ---
 
-**文档版本**: v2.0.0
-**最后更新**: 2025-12-17
+**文档版本**: v2.2.10
+**最后更新**: 2026-05-06

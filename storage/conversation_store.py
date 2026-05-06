@@ -41,6 +41,8 @@ class ConversationStore:
         self.connection = await aiosqlite.connect(self.db_path)
         if self.connection is not None:
             self.connection.row_factory = aiosqlite.Row
+            await self.connection.execute("PRAGMA journal_mode = WAL")
+            await self.connection.execute("PRAGMA busy_timeout = 10000")
 
         await self._create_tables()
         await self._create_indexes()
