@@ -759,3 +759,111 @@ async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
     # 不应删除任何消息
     assert removed == 0
     assert len(req.contexts) == 2
+
+
+# ==================== top_k=0 回归测试 ====================
+
+
+def _make_handler_with_top_k_0(
+    memory_engine, memory_processor, conversation_manager
+):
+    """创建一个 top_k=0 的 EventHandler 用于回归测试。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    return EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {"top_k": 0, "injection_method": "system_prompt"},
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+        conversation_manager=conversation_manager,
+    )
+
+
+@pytest.mark.asyncio
+async def test_top_k_0_skips_search_memories(memory_engine, memory_processor, conversation_manager):
+    """top_k=0 时不应调用 memory_engine.search_memories()。"""
+    handler = _make_handler_with_top_k_0(memory_engine, memory_processor, conversation_manager)
+    event = _make_event(group=False)
+    req = _make_req("hello world")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    memory_engine.search_memories.assert_not_awaited()
+    assert req.prompt == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_top_k_0_still_cleans_injected_memories(memory_engine, memory_processor, conversation_manager):
+    """top_k=0 时仍应清理历史注入的旧记忆片段。"""
+    from astrbot_plugin_livingmemory.core.base.constants import (
+        MEMORY_INJECTION_HEADER,
+        MEMORY_INJECTION_FOOTER,
+    )
+
+    handler = _make_handler_with_top_k_0(memory_engine, memory_processor, conversation_manager)
+    event = _make_event(group=False)
+    req = _make_req("test query")
+    req.system_prompt = (
+        f"你是助手。\n{MEMORY_INJECTION_HEADER}\n旧记忆内容\n{MEMORY_INJECTION_FOOTER}\n请回答。"
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    assert MEMORY_INJECTION_HEADER not in req.system_prompt
+    assert MEMORY_INJECTION_FOOTER not in req.system_prompt
+    memory_engine.search_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_top_k_0_still_stores_private_message(memory_engine, memory_processor, conversation_manager):
+    """top_k=0 时私聊场景仍应写入用户消息和消息数量控制。"""
+    handler = _make_handler_with_top_k_0(memory_engine, memory_processor, conversation_manager)
+    event = _make_event(group=False)
+    req = _make_req("private message")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    conversation_manager.add_message_from_event.assert_awaited_once()
+    conversation_manager.add_message_from_event.assert_awaited_with(
+        event=event, role="user", content="private message"
+    )
+
+
+@pytest.mark.asyncio
+async def test_top_k_0_does_not_store_group_message(memory_engine, memory_processor, conversation_manager):
+    """top_k=0 时群聊场景不应写入用户消息（群聊由 handle_all_group_messages 负责）。"""
+    handler = _make_handler_with_top_k_0(memory_engine, memory_processor, conversation_manager)
+    event = _make_event(group=True)
+    req = _make_req("group message")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_recall(event, req)
+
+    conversation_manager.add_message_from_event.assert_not_awaited()
+    memory_engine.search_memories.assert_not_awaited()
