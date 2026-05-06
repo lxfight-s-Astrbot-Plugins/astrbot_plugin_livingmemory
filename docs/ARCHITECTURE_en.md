@@ -68,7 +68,8 @@ astrbot_plugin_livingmemory/
 │   │
 │   ├── tools/                       # Agent tool layer
 │   │   ├── __init__.py
-│   │   └── memory_search_tool.py    # Proactive long-term memory recall tool
+│   │   ├── memory_search_tool.py    # Proactive long-term memory recall tool
+│   │   └── memory_memorize_tool.py  # Proactive long-term memory write tool
 │   │
 │   └── prompts/                     # Prompt templates
 │       ├── private_chat_prompt.txt
@@ -222,8 +223,9 @@ astrbot_plugin_livingmemory/
 
 **Components**:
 - `memory_search_tool.py`: Proactive long-term memory recall tool, reusing the existing memory retrieval engine and filtering configuration.
+- `memory_memorize_tool.py`: Proactive long-term memory write tool, reusing the standard `MemoryProcessor` formatting flow and always writing to the current UMO and persona.
 
-**Dependencies**: base/, managers/, utils/
+**Dependencies**: base/, managers/, processors/, utils/
 
 **Depended upon**: main.py (registered to AstrBot context)
 

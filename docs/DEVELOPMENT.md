@@ -113,7 +113,7 @@ astrbot_plugin_livingmemory/
 | event_handler.py | 事件处理 | memory_engine, conversation_manager |
 | command_handler.py | 命令处理 | memory_engine, conversation_manager |
 | page_api.py | 官方插件 Page Web API 适配 | memory_engine, graph_store |
-| tools/ | Agent 工具封装 | memory_engine, config_manager |
+| tools/ | Agent 工具封装（主动回忆与主动写入） | memory_engine, memory_processor, config_manager |
 
 ### 官方插件 Pages 开发说明
 

@@ -17,7 +17,7 @@
 - **Intelligent Summarization**: Uses an LLM to summarize conversation history into structured memories.
 - **Dual-Channel Summarization**: Stores `canonical_summary` and `persona_summary` separately for retrieval and prompt injection.
 - **Session Isolation**: Supports persona-level and session-level memory isolation.
-- **Agent Proactive Recall**: Exposes `recall_long_term_memory` so agents can decide when to recall and which keywords to use.
+- **Agent Memory Tools**: Exposes `recall_long_term_memory` and `memorize_long_term_memory` so agents can actively recall or write long-term memories when needed.
 - **Auto-Forgetting**: Cleans up stale memories based on time and importance.
 - **Data Safety**: Includes automatic backup before migration, rollback on index rebuild failure, and transactional deletion.
 - **WebUI Management**: Supports both the AstrBot official plugin Pages dashboard and the legacy standalone WebUI compatibility entry.
@@ -120,11 +120,10 @@ astrbot_plugin_livingmemory/
    - Memory recall
    - Memory reflection
 
-3. **Agent Memory Tool**
-   - Tool name: `recall_long_term_memory`
-   - Reuses existing session and persona isolation
-   - Returns raw memory results without additional prompt injection
-   - Useful for recall and history lookup scenarios
+3. **Agent Memory Tools**
+   - `recall_long_term_memory`: actively recalls long-term memories, reusing current session/persona filtering settings and returning raw memory results
+   - `memorize_long_term_memory`: actively writes long-term memories, always using the current UMO and persona while reusing the automatic summarization storage format
+   - Useful for scenarios such as “do you remember”, “what did I say before”, and “please remember ...”
 
 4. **CommandHandler**
    - Unified command responses
@@ -142,24 +141,12 @@ astrbot_plugin_livingmemory/
 
 ---
 
-## Agent Proactive Recall
+## Agent Memory Tools
 
-Besides automatic recall, the plugin registers an LLM tool at runtime: `recall_long_term_memory`.
+The plugin registers two LLM tools at runtime so agents can actively manage long-term memory:
 
-Key characteristics:
-
-- The agent can decide whether to recall long-term memory instead of relying only on the current message as the query.
-- The recall scope automatically follows the current session and persona isolation settings.
-- Results are returned as tool output and do not pass through the prompt injection path again.
-- It is useful when the user asks to remember, recall, or retrieve earlier context.
-
-Recommended strategy:
-
-- Prefer short keywords instead of copying the full user input.
-- Prioritize topics, entity names, preferences, agreements, and historical events.
-- If the first recall is not good enough, try a more specific or more abstract keyword.
-
-Results are returned as raw memories with content, relevance score, importance, and session/persona metadata so the agent can decide what is relevant.
+- `recall_long_term_memory`: actively recalls existing memories. Use it when the user asks what the bot remembers, asks about previous context, or when ambiguous references require checking history. Prefer short keywords such as topics, entities, preferences, or agreements.
+- `memorize_long_term_memory`: actively writes long-term memory. Use it when the user explicitly asks the bot to remember something, or when stable preferences, durable facts, agreements, identity details, or long-lived project context appear.
 
 ---
 

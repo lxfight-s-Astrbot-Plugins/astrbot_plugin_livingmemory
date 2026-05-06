@@ -327,6 +327,43 @@ async for message in command_handler.handle_status(event):
 - `create_time`
 - `last_access_time`
 
+### MemoryMemorizeTool
+
+供 tool loop / agent 主动调用的长期记忆写入工具。
+
+#### 工具名
+
+`memorize_long_term_memory`
+
+#### 行为
+
+- 只在用户明确要求记住，或 Agent 判断出现稳定偏好、长期事实、约定、身份信息、项目背景时写入长期记忆。
+- 写入时始终使用当前 `event.unified_msg_origin` 与当前人格 ID，归属方式与自动总结记忆一致。
+- 写入前复用 `MemoryProcessor.build_memory_from_structured_data()`，生成与自动总结一致的存储结构。
+- 不接收自定义 `session_id`、`persona_id` 或任意 metadata，避免 Agent 写入错误归属或污染存储结构。
+
+#### 输入参数
+
+- `memory: str` - 要保存的简短事实化长期记忆，不应直接复制整段对话。
+- `topics: list[str] = []` - 可选主题标签，最多保留 5 个。
+- `key_facts: list[str] = []` - 可选关键事实，最多保留 5 个。
+- `sentiment: str = "neutral"` - 情感标签，支持 `positive`、`neutral`、`negative`。
+- `importance: float = 0.7` - 重要性评分，最终由 `MemoryProcessor` 规范化到 `0.0-1.0`。
+- `reason: str = ""` - 可选写入原因，仅作为来源说明写入 metadata。
+
+#### 返回结果
+
+返回 JSON 文本，包含以下字段：
+
+- `memorized`: 是否写入成功
+- `id`: 新记忆 ID
+- `content`: 经过标准格式化后的记忆内容
+- `importance`: 规范化后的重要性
+- `session_id`: 当前会话 UMO
+- `persona_id`: 当前人格 ID
+
+写入产生的 metadata 会包含自动总结同款字段，如 `canonical_summary`、`persona_summary`、`topics`、`key_facts`、`sentiment`、`interaction_type`、`summary_schema_version`、`summary_quality`，并额外标记 `memory_origin=agent_memorize_tool`。
+
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 
 处理 `/lmem forget` 命令，删除指定记忆。
