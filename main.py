@@ -17,7 +17,7 @@ from .core.base.config_manager import ConfigManager
 from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
 from .core.plugin_initializer import PluginInitializer
-from .core.tools import MemorySearchTool
+from .core.tools import MemoryMemorizeTool, MemorySearchTool
 from .webui import WebUIServer
 
 
@@ -163,7 +163,7 @@ class LivingMemoryPlugin(Star):
         """在核心组件就绪后注册 LLM 工具。"""
         if self._llm_tools_registered:
             return
-        if not self.initializer.memory_engine:
+        if not self.initializer.memory_engine or not self.initializer.memory_processor:
             return
 
         self.context.add_llm_tools(
@@ -171,6 +171,11 @@ class LivingMemoryPlugin(Star):
                 context=self.context,
                 config_manager=self.config_manager,
                 memory_engine=self.initializer.memory_engine,
+            ),
+            MemoryMemorizeTool(
+                context=self.context,
+                memory_engine=self.initializer.memory_engine,
+                memory_processor=self.initializer.memory_processor,
             ),
         )
         self._llm_tools_registered = True
