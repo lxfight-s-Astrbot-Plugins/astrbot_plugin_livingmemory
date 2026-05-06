@@ -21,11 +21,13 @@ def test_register_llm_tools_is_idempotent():
 
     plugin.context.add_llm_tools.assert_called_once()
     tools = plugin.context.add_llm_tools.call_args.args
-    assert len(tools) == 2
-    assert isinstance(tools[0], MemorySearchTool)
-    assert tools[0].name == "recall_long_term_memory"
-    assert isinstance(tools[1], MemoryMemorizeTool)
-    assert tools[1].name == "memorize_long_term_memory"
+    tools_by_name = {tool.name: tool for tool in tools}
+    assert set(tools_by_name) == {
+        "recall_long_term_memory",
+        "memorize_long_term_memory",
+    }
+    assert isinstance(tools_by_name["recall_long_term_memory"], MemorySearchTool)
+    assert isinstance(tools_by_name["memorize_long_term_memory"], MemoryMemorizeTool)
     assert plugin._llm_tools_registered is True
 
 

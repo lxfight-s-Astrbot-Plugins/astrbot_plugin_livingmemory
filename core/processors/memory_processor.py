@@ -740,7 +740,7 @@ class MemoryProcessor:
             is_group_chat,
         )
         metadata["summary_quality"] = quality
-        return content, metadata, float(normalized.get("importance", 0.5))
+        return content, metadata, self._validate_importance(normalized.get("importance"))
 
     def _get_default_value(self, field: str) -> Any:
         """获取字段的默认值"""
