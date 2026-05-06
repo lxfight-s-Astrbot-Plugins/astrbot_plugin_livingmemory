@@ -157,6 +157,60 @@ async def test_memory_memorize_tool_detects_group_chat(memory_engine, memory_pro
 
 
 @pytest.mark.asyncio
+async def test_memory_memorize_tool_normalizes_invalid_sentiment(
+    memory_engine, memory_processor
+):
+    tool = MemoryMemorizeTool(
+        context=Mock(),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_memorize_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(
+            _make_run_context(),
+            memory="用户希望记住插件行为",
+            sentiment="SURPRISED",
+        )
+
+    structured_data = memory_processor.build_memory_from_structured_data.call_args.kwargs[
+        "structured_data"
+    ]
+    assert structured_data["sentiment"] == "neutral"
+
+
+@pytest.mark.asyncio
+async def test_memory_memorize_tool_handles_non_string_sentiment(
+    memory_engine, memory_processor
+):
+    tool = MemoryMemorizeTool(
+        context=Mock(),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_memorize_tool.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(
+            _make_run_context(),
+            memory="用户希望记住插件行为",
+            sentiment=1,
+        )
+
+    structured_data = memory_processor.build_memory_from_structured_data.call_args.kwargs[
+        "structured_data"
+    ]
+    assert structured_data["sentiment"] == "neutral"
+
+
+@pytest.mark.asyncio
 async def test_memory_memorize_tool_returns_error_for_empty_memory(
     memory_engine, memory_processor
 ):

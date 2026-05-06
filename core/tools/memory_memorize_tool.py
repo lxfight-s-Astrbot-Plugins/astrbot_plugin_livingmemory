@@ -102,6 +102,10 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
         if not cleaned_memory:
             return _json_result({"memorized": False, "error": "memory is empty"})
 
+        normalized_sentiment = str(sentiment or "neutral").strip().lower()
+        if normalized_sentiment not in {"positive", "neutral", "negative"}:
+            normalized_sentiment = "neutral"
+
         if (
             self.context is None
             or self.memory_engine is None
@@ -124,7 +128,7 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
                 "summary": cleaned_memory,
                 "topics": _normalize_list(topics),
                 "key_facts": _normalize_list(key_facts),
-                "sentiment": sentiment or "neutral",
+                "sentiment": normalized_sentiment,
                 "importance": importance,
             }
 
