@@ -1,0 +1,237 @@
+{
+  "metadata": {
+    "display_name": "LivingMemory",
+    "short_desc": "Intelligent long-term memory for AstrBot",
+    "desc": "An intelligent long-term memory plugin with hybrid retrieval (BM25 + vector + graph), WebUI management, and dynamic lifecycle. Supports session/persona isolation, importance decay, and auto-cleanup."
+  },
+  "config": {
+    "provider_settings": {
+      "description": "Model Provider",
+      "hint": "Configure the AI models used by the memory system"
+    },
+    "embedding_provider_id": {
+      "description": "Embedding Model ID",
+      "hint": "The Embedding model ID used to generate memory vectors. Leave blank to use AstrBot default. You can find existing Embedding Provider IDs in the AstrBot admin panel under 'LLM Configuration' (e.g., openai_embedding)."
+    },
+    "llm_provider_id": {
+      "description": "LLM Model ID",
+      "hint": "The large language model ID used for summarizing conversations and evaluating memory importance. Leave blank to use AstrBot default. A model with strong reasoning capabilities is recommended."
+    },
+    "webui_settings": {
+      "description": "WebUI Admin Panel",
+      "hint": "Enable browser-based visual management of memories and sessions"
+    },
+    "enabled": {
+      "description": "Enable WebUI",
+      "hint": "Once enabled, the memory management panel can be accessed via browser."
+    },
+    "host": {
+      "description": "Listen Address",
+      "hint": "127.0.0.1 for local access only; 0.0.0.0 to allow LAN access."
+    },
+    "port": {
+      "description": "Listen Port",
+      "hint": "WebUI service port. Make sure it does not conflict with the AstrBot main port (default 6185)."
+    },
+    "access_password": {
+      "description": "Access Password",
+      "hint": "Password required to log in to the WebUI. If left blank, the system will auto-generate a random password and display it in the logs. Manual setup is recommended."
+    },
+    "session_timeout": {
+      "description": "Session Timeout (seconds)",
+      "hint": "How long a login session remains valid before requiring re-authentication. Default is 3600 (1 hour)."
+    },
+    "session_manager": {
+      "description": "Session Management",
+      "hint": "Manage user session states and conversation history caching behavior"
+    },
+    "max_sessions": {
+      "description": "Max Cached Sessions",
+      "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database."
+    },
+    "session_ttl": {
+      "description": "Session Idle Timeout (seconds)",
+      "hint": "Sessions inactive for longer than this duration are removed from cache. Default is 3600 (1 hour)."
+    },
+    "context_window_size": {
+      "description": "Context Window Size (messages)",
+      "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100."
+    },
+    "recall_engine": {
+      "description": "Memory Recall",
+      "hint": "Control memory retrieval and injection into conversations"
+    },
+    "top_k": {
+      "description": "Recall Count Per Request",
+      "hint": "Number of most relevant memories returned per retrieval. Set to 0 to skip automatic recall/injection while keeping historical injection cleanup. Recommended: 3-10."
+    },
+    "max_k": {
+      "description": "Max Active Retrieval Count",
+      "hint": "Maximum memories returned when the Agent actively calls the long-term memory retrieval tool. Used to limit single-tool recall scale. Recommended: 5-10."
+    },
+    "importance_weight": {
+      "description": "Importance Weight",
+      "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories."
+    },
+    "fallback_to_vector": {
+      "description": "Fallback to Pure Vector Search",
+      "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."
+    },
+    "injection_method": {
+      "description": "Memory Injection Position",
+      "hint": "Where to inject memories into LLM requests. user_message_before: as a user message prefix; system_prompt: append to system prompt; user_message_after: as a user message suffix; fake_tool_call: inject as a fake tool call message pair into conversation history, letting the LLM naturally understand this as retrieval results."
+    },
+    "auto_remove_injected": {
+      "description": "Auto-Clear Old Injection Fragments",
+      "hint": "Automatically remove previously injected memory fragments from history before injecting new ones, preventing duplicate accumulation and token waste. Recommended to keep enabled."
+    },
+    "importance_decay": {
+      "description": "Importance Decay",
+      "hint": "Gradually reduce the importance of old memories over time to prevent outdated information from retaining high weight indefinitely"
+    },
+    "decay_rate": {
+      "description": "Daily Decay Rate",
+      "hint": "The proportion of memory importance decayed per day. 0.01 means a 1% decrease daily. Set to 0 to disable decay."
+    },
+    "fusion_strategy": {
+      "description": "Retrieval Fusion Strategy",
+      "hint": "Fusion parameters for BM25 and vector search results (internally uses the RRF algorithm)"
+    },
+    "rrf_k": {
+      "description": "RRF Fusion Parameter k",
+      "hint": "Lower values emphasize top-ranked results; higher values produce smoother fusion. Recommended: 30-120. Default is 60."
+    },
+    "filtering_settings": {
+      "description": "Memory Isolation Settings",
+      "hint": ""
+    },
+    "use_persona_filtering": {
+      "description": "Isolate Memories by Persona",
+      "hint": "When enabled, only memories related to the current persona are recalled. Memories of different personas do not interfere with each other."
+    },
+    "use_session_filtering": {
+      "description": "Isolate Memories by Session",
+      "hint": "When enabled, each session's memories are stored independently and not shared across sessions."
+    },
+    "reflection_engine": {
+      "description": "Memory Generation Settings",
+      "hint": "Control when conversation summarization is triggered and memories are generated"
+    },
+    "summary_trigger_rounds": {
+      "description": "Summary Trigger Rounds",
+      "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round)."
+    },
+    "graph_memory": {
+      "description": "Graph Memory Dual-Path Retrieval",
+      "hint": "When enabled, both document-based and graph-based paths are maintained simultaneously, each supporting keyword and vector retrieval, with results unified into a single fused recall set."
+    },
+    "enabled_graph": {
+      "description": "Enable Graph Memory Retrieval",
+      "hint": "When enabled, graph nodes, edges, and graph vector indexes are automatically built. Recommended to keep enabled."
+    },
+    "document_route_weight": {
+      "description": "Document Path Weight",
+      "hint": "The proportion of the document path fusion score in the final dual-path ranking."
+    },
+    "graph_route_weight": {
+      "description": "Graph Path Weight",
+      "hint": "The proportion of the graph path fusion score in the final dual-path ranking."
+    },
+    "cross_route_bonus": {
+      "description": "Dual-Path Hit Bonus",
+      "hint": "Extra score added when the same memory is hit by both the document path and the graph path."
+    },
+    "expansion_limit": {
+      "description": "Graph Neighbor Expansion Limit",
+      "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval."
+    },
+    "max_topics_per_memory": {
+      "description": "Max Topics Per Memory",
+      "hint": "Maximum number of topic nodes extracted from a single memory."
+    },
+    "max_participants_per_memory": {
+      "description": "Max Participants Per Memory",
+      "hint": "Maximum number of participant nodes extracted from a single memory."
+    },
+    "max_facts_per_memory": {
+      "description": "Max Facts Per Memory",
+      "hint": "Maximum number of key facts extracted from a single memory to enter the graph index."
+    },
+    "migration_settings": {
+      "description": "Database Migration",
+      "hint": "Control database version upgrade behavior on plugin startup"
+    },
+    "auto_migrate": {
+      "description": "Auto Migrate",
+      "hint": "Automatically detect and upgrade outdated database versions on plugin startup. Recommended to keep enabled."
+    },
+    "create_backup": {
+      "description": "Auto Backup Before Migration",
+      "hint": "Automatically create a backup file before performing database migration to prevent data loss in case of migration failure. Recommended to keep enabled."
+    },
+    "index_rebuild_settings": {
+      "description": "Index Rebuild",
+      "hint": "Control batch size, Embedding request rate, and failure tolerance for the /lmem rebuild-index command. Low-spec cloud servers should keep concurrency small."
+    },
+    "batch_size": {
+      "description": "Read Batch Size",
+      "hint": "Number of memories read from the documents table per batch. Larger values increase memory peak and affect more entries on failure. Recommended: 25-100."
+    },
+    "embedding_batch_size": {
+      "description": "Embedding Batch Size",
+      "hint": "Number of texts included in a single Embedding API request. Reduce further if the provider has strict TPM rate limits."
+    },
+    "tasks_limit": {
+      "description": "Embedding Concurrency",
+      "hint": "Internal concurrency limit for batch Embedding. To avoid triggering API rate limits, the default is 1."
+    },
+    "max_retries": {
+      "description": "Batch Retry Count",
+      "hint": "Maximum retry attempts for a failed Embedding batch."
+    },
+    "retry_base_delay": {
+      "description": "Retry Wait (seconds)",
+      "hint": "Base wait time for exponential backoff after a batch failure. At least 30 seconds will be waited when encountering 429/TPM rate limits."
+    },
+    "batch_delay": {
+      "description": "Read Batch Interval (seconds)",
+      "hint": "Additional wait time between each documents read batch, used to proactively reduce overall rebuild rate."
+    },
+    "request_delay": {
+      "description": "Embedding Request Interval (seconds)",
+      "hint": "Wait time between each Embedding API sub-request. Increase this first if 429/TPM is triggered frequently."
+    },
+    "max_failure_ratio": {
+      "description": "Allowed Failure Ratio",
+      "hint": "During full vector rebuild, the new index will only be switched if the failure ratio does not exceed this value. 0.02 means up to 2% failure is allowed."
+    },
+    "backup_settings": {
+      "description": "Periodic Backup",
+      "hint": "Automatically back up the memory database daily to prevent accidental data loss"
+    },
+    "enabled_backup": {
+      "description": "Enable Daily Auto Backup",
+      "hint": "Automatically back up the database after daily decay tasks. Recommended to keep enabled."
+    },
+    "keep_days": {
+      "description": "Backup Retention Days",
+      "hint": "Backup files older than this number of days will be automatically deleted. Default is 7 days."
+    },
+    "forgetting_agent": {
+      "description": "Auto Cleanup Settings",
+      "hint": "Periodically clean up old memories that are both outdated and low importance to control memory store size"
+    },
+    "auto_cleanup_enabled": {
+      "description": "Enable Daily Auto Cleanup",
+      "hint": "Automatically clean up eligible old memories after daily importance decay."
+    },
+    "cleanup_days_threshold": {
+      "description": "Cleanup Age Threshold (days)",
+      "hint": "Memories older than this many days become cleanup candidates. They will only be deleted if their importance is also below the threshold."
+    },
+    "cleanup_importance_threshold": {
+      "description": "Cleanup Importance Threshold",
+      "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance."
+    }
+  }
+}
