@@ -67,6 +67,17 @@ class ReflectionEngineConfig(BaseModel):
     )
 
 
+class AgentToolsConfig(BaseModel):
+    """Agent 工具配置"""
+
+    enable_recall_tool: bool = Field(
+        default=True, description="是否启用 Agent 主动回忆工具"
+    )
+    enable_memorize_tool: bool = Field(
+        default=True, description="是否启用 Agent 主动记忆写入工具"
+    )
+
+
 class ForgettingAgentConfig(BaseModel):
     """遗忘代理配置"""
 
@@ -196,6 +207,7 @@ class LivingMemoryConfig(BaseModel):
     reflection_engine: ReflectionEngineConfig = Field(
         default_factory=ReflectionEngineConfig
     )
+    agent_tools: AgentToolsConfig = Field(default_factory=AgentToolsConfig)
     forgetting_agent: ForgettingAgentConfig = Field(
         default_factory=ForgettingAgentConfig
     )

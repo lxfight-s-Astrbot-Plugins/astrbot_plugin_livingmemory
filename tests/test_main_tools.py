@@ -59,3 +59,60 @@ def test_register_llm_tools_no_memory_processor():
 
     plugin.context.add_llm_tools.assert_not_called()
     assert plugin._llm_tools_registered is False
+
+
+def test_register_llm_tools_respects_recall_tool_disabled():
+    plugin = LivingMemoryPlugin.__new__(LivingMemoryPlugin)
+    plugin.context = Mock()
+    plugin.config_manager = ConfigManager(
+        {"agent_tools": {"enable_recall_tool": False, "enable_memorize_tool": True}}
+    )
+    plugin.initializer = Mock()
+    plugin.initializer.memory_engine = Mock()
+    plugin.initializer.memory_processor = Mock()
+    plugin._llm_tools_registered = False
+
+    plugin._register_llm_tools_if_needed()
+
+    plugin.context.add_llm_tools.assert_called_once()
+    tools = plugin.context.add_llm_tools.call_args.args
+    assert [tool.name for tool in tools] == ["memorize_long_term_memory"]
+    assert isinstance(tools[0], MemoryMemorizeTool)
+    assert plugin._llm_tools_registered is True
+
+
+def test_register_llm_tools_respects_memorize_tool_disabled():
+    plugin = LivingMemoryPlugin.__new__(LivingMemoryPlugin)
+    plugin.context = Mock()
+    plugin.config_manager = ConfigManager(
+        {"agent_tools": {"enable_recall_tool": True, "enable_memorize_tool": False}}
+    )
+    plugin.initializer = Mock()
+    plugin.initializer.memory_engine = Mock()
+    plugin.initializer.memory_processor = Mock()
+    plugin._llm_tools_registered = False
+
+    plugin._register_llm_tools_if_needed()
+
+    plugin.context.add_llm_tools.assert_called_once()
+    tools = plugin.context.add_llm_tools.call_args.args
+    assert [tool.name for tool in tools] == ["recall_long_term_memory"]
+    assert isinstance(tools[0], MemorySearchTool)
+    assert plugin._llm_tools_registered is True
+
+
+def test_register_llm_tools_respects_all_tools_disabled():
+    plugin = LivingMemoryPlugin.__new__(LivingMemoryPlugin)
+    plugin.context = Mock()
+    plugin.config_manager = ConfigManager(
+        {"agent_tools": {"enable_recall_tool": False, "enable_memorize_tool": False}}
+    )
+    plugin.initializer = Mock()
+    plugin.initializer.memory_engine = Mock()
+    plugin.initializer.memory_processor = Mock()
+    plugin._llm_tools_registered = False
+
+    plugin._register_llm_tools_if_needed()
+
+    plugin.context.add_llm_tools.assert_not_called()
+    assert plugin._llm_tools_registered is True

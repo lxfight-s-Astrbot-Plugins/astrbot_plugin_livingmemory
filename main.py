@@ -166,18 +166,26 @@ class LivingMemoryPlugin(Star):
         if not self.initializer.memory_engine or not self.initializer.memory_processor:
             return
 
-        self.context.add_llm_tools(
-            MemorySearchTool(
-                context=self.context,
-                config_manager=self.config_manager,
-                memory_engine=self.initializer.memory_engine,
-            ),
-            MemoryMemorizeTool(
-                context=self.context,
-                memory_engine=self.initializer.memory_engine,
-                memory_processor=self.initializer.memory_processor,
-            ),
-        )
+        tools = []
+        if self.config_manager.get("agent_tools.enable_recall_tool", True):
+            tools.append(
+                MemorySearchTool(
+                    context=self.context,
+                    config_manager=self.config_manager,
+                    memory_engine=self.initializer.memory_engine,
+                )
+            )
+        if self.config_manager.get("agent_tools.enable_memorize_tool", True):
+            tools.append(
+                MemoryMemorizeTool(
+                    context=self.context,
+                    memory_engine=self.initializer.memory_engine,
+                    memory_processor=self.initializer.memory_processor,
+                )
+            )
+
+        if tools:
+            self.context.add_llm_tools(*tools)
         self._llm_tools_registered = True
 
     async def _ensure_plugin_ready(self) -> tuple[bool, str]:

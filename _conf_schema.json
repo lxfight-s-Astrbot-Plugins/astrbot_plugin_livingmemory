@@ -188,6 +188,25 @@
       }
     }
   },
+  "agent_tools": {
+    "description": "Agent 主动记忆工具",
+    "hint": "控制是否向 AstrBot Agent 注册长期记忆回忆与写入工具。",
+    "type": "object",
+    "items": {
+      "enable_recall_tool": {
+        "description": "启用主动回忆工具",
+        "hint": "开启后注册 recall_long_term_memory，允许 Agent 主动检索长期记忆。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_memorize_tool": {
+        "description": "启用主动记忆写入工具",
+        "hint": "开启后注册 memorize_long_term_memory，允许 Agent 主动写入长期记忆。",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
   "graph_memory": {
     "description": "图记忆双路检索",
     "hint": "启用后会同时维护文档路和图路，两边都支持关键词与向量检索，再统一融合召回结果。",
