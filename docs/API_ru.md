@@ -540,6 +540,10 @@ except DatabaseError as e:
   },
   "reflection_engine": {
     "summary_trigger_rounds": 10
+  },
+  "agent_tools": {
+    "enable_recall_tool": true,
+    "enable_memorize_tool": true
   }
 }
 ```
