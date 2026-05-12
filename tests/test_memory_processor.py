@@ -303,6 +303,32 @@ def test_validate_summary_quality_directly():
     }) == "low"
 
 
+def test_build_memory_from_structured_data_uses_standard_storage_format():
+    processor = MemoryProcessor(llm_provider=Mock(), context=None)
+
+    content, metadata, importance = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户希望主动记忆工具复用自动总结格式",
+            "topics": ["LivingMemory", "主动记忆"],
+            "key_facts": ["主动记忆应复用 MemoryProcessor 格式化流程"],
+            "sentiment": "neutral",
+            "importance": 0.8,
+        },
+        is_group_chat=False,
+        fallback_excerpt="fallback",
+    )
+
+    assert content == metadata["canonical_summary"]
+    assert metadata["persona_summary"] == "用户希望主动记忆工具复用自动总结格式"
+    assert metadata["topics"] == ["LivingMemory", "主动记忆"]
+    assert metadata["key_facts"] == ["主动记忆应复用 MemoryProcessor 格式化流程"]
+    assert metadata["sentiment"] == "neutral"
+    assert metadata["interaction_type"] == "private_chat"
+    assert metadata["summary_schema_version"] == "v2"
+    assert metadata["summary_quality"] == "normal"
+    assert importance == 0.8
+
+
 # ── 群聊路径测试 ──────────────────────────────────────────────────────────────
 
 

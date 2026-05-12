@@ -327,6 +327,43 @@ Each memory result contains:
 - `create_time`
 - `last_access_time`
 
+### MemoryMemorizeTool
+
+A long-term memory write tool for active use by the tool loop / agent.
+
+#### Tool Name
+
+`memorize_long_term_memory`
+
+#### Behavior
+
+- Writes long-term memory only when the user explicitly asks the bot to remember something, or when the agent identifies stable preferences, durable facts, agreements, identity details, or long-lived project context.
+- Writes always use the current `event.unified_msg_origin` and current persona ID, matching the ownership model used by automatic summarization.
+- Before storage, it reuses `MemoryProcessor.build_memory_from_structured_data()` to generate the same storage structure as automatic summaries.
+- It does not accept custom `session_id`, `persona_id`, or arbitrary metadata, preventing the agent from writing to the wrong scope or polluting the storage schema.
+
+#### Input Parameters
+
+- `memory: str` - Concise factual long-term memory to save. Do not copy the full conversation.
+- `topics: list[str] = []` - Optional topic tags, up to 5 retained.
+- `key_facts: list[str] = []` - Optional key facts, up to 5 retained.
+- `sentiment: str = "neutral"` - Sentiment tag. Supported values are `positive`, `neutral`, and `negative`.
+- `importance: float = 0.7` - Importance score, normalized by `MemoryProcessor` to `0.0-1.0`.
+- `reason: str = ""` - Optional reason for writing the memory, stored only as source metadata.
+
+#### Return Result
+
+Returns JSON text containing the following fields:
+
+- `memorized`: Whether the write succeeded
+- `id`: New memory ID
+- `content`: Standard-formatted memory content
+- `importance`: Normalized importance
+- `session_id`: Current session UMO
+- `persona_id`: Current persona ID
+
+The written metadata includes the same fields as automatic summaries, such as `canonical_summary`, `persona_summary`, `topics`, `key_facts`, `sentiment`, `interaction_type`, `summary_schema_version`, and `summary_quality`, plus `memory_origin=agent_memorize_tool`.
+
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 
 Handle `/lmem forget` command, delete a specific memory.
@@ -503,6 +540,10 @@ except DatabaseError as e:
   },
   "reflection_engine": {
     "summary_trigger_rounds": 10
+  },
+  "agent_tools": {
+    "enable_recall_tool": true,
+    "enable_memorize_tool": true
   }
 }
 ```

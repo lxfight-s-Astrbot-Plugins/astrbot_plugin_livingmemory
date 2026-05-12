@@ -110,7 +110,7 @@ astrbot_plugin_livingmemory/
 | plugin_initializer.py | Инициализация плагина | Все основные модули |
 | event_handler.py | Обработка событий | memory_engine, conversation_manager |
 | command_handler.py | Обработка команд | memory_engine, conversation_manager |
-| tools/ | Инкапсуляция инструментов Agent | memory_engine, config_manager |
+| tools/ | Инкапсуляция инструментов Agent (активное восстановление и активная запись) | memory_engine, memory_processor, config_manager |
 
 ---
 
