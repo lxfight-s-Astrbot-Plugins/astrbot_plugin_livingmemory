@@ -219,14 +219,41 @@ class EventHandler:
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # 使用原始用户输入作为召回关键字
+                query_for_search = actual_query
+
+                # 上下文扩展：拼接最近2轮对话作为查询，提升检索精准度
+                if self.config_manager.get("recall_engine.inject_with_recent_context", False):
+                    try:
+                        recent_messages = await self.conversation_manager.get_context(
+                            session_id, max_messages=5
+                        )
+                        if recent_messages and len(recent_messages) > 1:
+                            # recent_messages 按 timestamp DESC 排列（最新在前）
+                            # 跳过索引0（当前消息），取后续消息作为扩展上下文
+                            context_parts = []
+                            for msg in reversed(recent_messages[1:]):
+                                content = msg.get("content", "")
+                                if content and content.strip():
+                                    context_parts.append(content.strip())
+                            if context_parts:
+                                expanded = " | ".join(context_parts)
+                                query_for_search = expanded + " " + actual_query
+                                logger.info(
+                                    f"[{session_id}] 上下文扩展查询: "
+                                    f"{len(context_parts)}条历史消息 + 当前消息"
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"[{session_id}] 获取上下文扩展失败: {e}"
+                        )
 
                 # 执行记忆召回
                 logger.info(
-                    f"[{session_id}] 开始记忆召回，查询='{actual_query[:50]}...'"
+                    f"[{session_id}] 开始记忆召回，查询='{query_for_search[:80]}...'"
                 )
 
                 recalled_memories = await self.memory_engine.search_memories(
-                    query=actual_query,
+                    query=query_for_search,
                     k=self.config_manager.get("recall_engine.top_k", 5),
                     session_id=recall_session_id,
                     persona_id=recall_persona_id,

@@ -57,6 +57,9 @@ class RecallEngineConfig(BaseModel):
     auto_remove_injected: bool = Field(
         default=True, description="是否自动删除对话历史中已注入的记忆片段"
     )
+    inject_with_recent_context: bool = Field(
+        default=False, description="启用后使用最近2轮对话作为扩展查询关键词，提升检索精准度"
+    )
 
 
 class FusionStrategyConfig(BaseModel):
