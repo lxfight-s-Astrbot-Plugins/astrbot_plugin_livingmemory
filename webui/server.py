@@ -597,6 +597,8 @@ class WebUIServer:
         ):
             query = request.query_params
             session_id = query.get("session_id")
+            keyword = query.get("keyword", "").strip()
+            status = query.get("status", "").strip()
             page = max(1, int(query.get("page", 1)))
             page_size = max(1, int(query.get("page_size", 20)))
 
@@ -616,49 +618,52 @@ class WebUIServer:
                     "0)"
                 )
 
+                # 动态构建 WHERE 子句（支持 keyword / status / session_id 组合筛选）
+                where_parts: list[str] = []
+                where_params: list[Any] = []
+
+                if session_id:
+                    where_parts.append(
+                        "CASE WHEN json_valid(metadata) "
+                        "THEN json_extract(metadata, '$.session_id') END = ?"
+                    )
+                    where_params.append(session_id)
+
+                if keyword:
+                    where_parts.append("text LIKE ?")
+                    where_params.append(f"%{keyword}%")
+
+                if status and status != "all":
+                    where_parts.append(
+                        "COALESCE(CASE WHEN json_valid(metadata) "
+                        "THEN json_extract(metadata, '$.status') END, 'active') = ?"
+                    )
+                    where_params.append(status)
+
+                where_clause = ""
+                if where_parts:
+                    where_clause = "WHERE " + " AND ".join(where_parts)
+
                 async with aiosqlite.connect(db_path) as db:
                     db.row_factory = aiosqlite.Row
 
-                    if session_id:
-                        # Use exact session_id to match current storage format.
-                        normalized_session_id = session_id
-                        where_clause = (
-                            "WHERE CASE WHEN json_valid(metadata) "
-                            "THEN json_extract(metadata, '$.session_id') END = ?"
-                        )
-                        count_cursor = await db.execute(
-                            f"SELECT COUNT(*) as total FROM documents {where_clause}",
-                            (normalized_session_id,),
-                        )
-                        count_row = await count_cursor.fetchone()
-                        total = int(count_row["total"]) if count_row else 0
+                    count_cursor = await db.execute(
+                        f"SELECT COUNT(*) as total FROM documents {where_clause}",
+                        where_params,
+                    )
+                    count_row = await count_cursor.fetchone()
+                    total = int(count_row["total"]) if count_row else 0
 
-                        cursor = await db.execute(
-                            f"""
-                            SELECT id, doc_id, text, metadata, created_at, updated_at
-                            FROM documents
-                            {where_clause}
-                            ORDER BY {sort_expr} DESC, id DESC
-                            LIMIT ? OFFSET ?
-                            """,
-                            (normalized_session_id, page_size, offset),
-                        )
-                    else:
-                        count_cursor = await db.execute(
-                            "SELECT COUNT(*) as total FROM documents"
-                        )
-                        count_row = await count_cursor.fetchone()
-                        total = int(count_row["total"]) if count_row else 0
-
-                        cursor = await db.execute(
-                            f"""
-                            SELECT id, doc_id, text, metadata, created_at, updated_at
-                            FROM documents
-                            ORDER BY {sort_expr} DESC, id DESC
-                            LIMIT ? OFFSET ?
-                            """,
-                            (page_size, offset),
-                        )
+                    cursor = await db.execute(
+                        f"""
+                        SELECT id, doc_id, text, metadata, created_at, updated_at
+                        FROM documents
+                        {where_clause}
+                        ORDER BY {sort_expr} DESC, id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (*where_params, page_size, offset),
+                    )
 
                     rows = await cursor.fetchall()
 
@@ -702,7 +707,6 @@ class WebUIServer:
                 logger.error(f"获取记忆列表失败: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
-        # 获取记忆详情
         @self._app.get("/api/memories/{memory_id}")
         async def get_memory_detail(
             memory_id: int, token: str = Depends(self._auth_dependency())
@@ -808,8 +812,6 @@ class WebUIServer:
                         "[编辑记忆] get_memory返回None，尝试直接从documents表读取"
                     )
                     try:
-                        import json
-
                         cursor = await self.memory_engine.db_connection.execute(
                             "SELECT id, text, metadata FROM documents WHERE id = ?",
                             (memory_id,),
@@ -910,8 +912,6 @@ class WebUIServer:
                         old_text = memory.get("text", "")
                         current_metadata = memory.get("metadata", {})
                         if isinstance(current_metadata, str):
-                            import json
-
                             try:
                                 current_metadata = json.loads(current_metadata)
                             except (json.JSONDecodeError, TypeError):
@@ -991,8 +991,6 @@ class WebUIServer:
 
                     # 降级方案：直接更新documents表和FAISS元数据
                     try:
-                        import json
-
                         current_metadata = memory.get("metadata", {})
                         if isinstance(current_metadata, str):
                             try:
@@ -1025,8 +1023,6 @@ class WebUIServer:
 
                         # 2. 尝试更新FAISS元数据（如果记录存在）
                         try:
-                            # 注意：这里假设faiss_db有update_metadata方法
-                            # 如果没有，这步会失败，但documents已更新
                             if hasattr(self.memory_engine.faiss_db, "update_metadata"):
                                 await self.memory_engine.faiss_db.update_metadata(
                                     memory_id, current_metadata
@@ -1073,7 +1069,7 @@ class WebUIServer:
             try:
                 deleted_count = 0
                 failed_count = 0
-                failed_ids = []  # 记录失败的 ID 用于诊断
+                failed_ids = []
 
                 logger.info(
                     f"[批量删除] 准备删除 {len(memory_ids)} 条记忆: {memory_ids}"
@@ -1081,39 +1077,20 @@ class WebUIServer:
 
                 for memory_id in memory_ids:
                     try:
-                        # 转换为整数
                         mid = int(memory_id)
-                        logger.debug(f"[批量删除] 尝试删除 memory_id={mid}")
 
                         success = await self.memory_engine.delete_memory(mid)
                         if success:
                             deleted_count += 1
-                            logger.debug(f"[批量删除] 成功删除 memory_id={mid}")
                         else:
                             failed_count += 1
                             failed_ids.append(mid)
-                            logger.warning(
-                                f"[批量删除]  删除失败 memory_id={mid} (引擎返回False)"
-                            )
                     except ValueError as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
-                        logger.error(
-                            f"[批量删除]  memory_id 格式错误 '{memory_id}': {e}",
-                            exc_info=True,
-                        )
                     except Exception as e:
                         failed_count += 1
                         failed_ids.append(memory_id)
-                        logger.error(
-                            f"[批量删除]  删除异常 memory_id={memory_id}: {e}",
-                            exc_info=True,
-                        )
-
-                logger.info(
-                    f"[批量删除] 完成 - 成功: {deleted_count}, 失败: {failed_count}, "
-                    f"失败ID: {failed_ids}"
-                )
 
                 return {
                     "success": True,
@@ -1121,7 +1098,7 @@ class WebUIServer:
                         "deleted_count": deleted_count,
                         "failed_count": failed_count,
                         "total": len(memory_ids),
-                        "failed_ids": failed_ids,  # 返回失败的 ID 用于客户端诊断
+                        "failed_ids": failed_ids,
                     },
                 }
             except Exception as e:
@@ -1309,13 +1286,13 @@ class WebUIServer:
                 matched_memory_ids: list[int] = []
                 seen_memory_ids: set[int] = set()
                 for result in search_results:
-                    memory_id = int(result.doc_id)
-                    if memory_id not in seen_memory_ids:
-                        seen_memory_ids.add(memory_id)
-                        matched_memory_ids.append(memory_id)
+                    mid = int(result.doc_id)
+                    if mid not in seen_memory_ids:
+                        seen_memory_ids.add(mid)
+                        matched_memory_ids.append(mid)
                     retrieval_items.append(
                         {
-                            "memory_id": memory_id,
+                            "memory_id": mid,
                             "content": result.content,
                             "metadata": result.metadata,
                             "final_score": round(float(result.final_score), 6),
@@ -1353,10 +1330,10 @@ class WebUIServer:
                         persona_id=persona_id,
                     )
                     for hit in node_entry_hits:
-                        memory_id = int(hit["source_memory_id"])
-                        if memory_id not in seen_memory_ids:
-                            seen_memory_ids.add(memory_id)
-                            matched_memory_ids.append(memory_id)
+                        mid = int(hit["source_memory_id"])
+                        if mid not in seen_memory_ids:
+                            seen_memory_ids.add(mid)
+                            matched_memory_ids.append(mid)
 
                     fts_query = self._build_graph_fts_query(tokens)
                     if fts_query:
@@ -1367,10 +1344,10 @@ class WebUIServer:
                             persona_id=persona_id,
                         )
                         for hit in bm25_hits:
-                            memory_id = int(hit["source_memory_id"])
-                            if memory_id not in seen_memory_ids:
-                                seen_memory_ids.add(memory_id)
-                                matched_memory_ids.append(memory_id)
+                            mid = int(hit["source_memory_id"])
+                            if mid not in seen_memory_ids:
+                                seen_memory_ids.add(mid)
+                                matched_memory_ids.append(mid)
 
                 snapshot = await graph_store.get_subgraph_for_memories(
                     matched_memory_ids[:limit_memories],
@@ -1450,31 +1427,25 @@ class WebUIServer:
                 )
 
             k = min(50, max(1, int(payload.get("k", 5))))
-            session_id = payload.get("session_id")  # 可选的会话过滤
+            session_id = payload.get("session_id")
 
             try:
-                import time
-
-                # 记录开始时间
                 start_time = time.time()
 
                 logger.info(
                     f"[召回测试] 开始执行：query='{query[:50]}...', k={k}, session_id={session_id}"
                 )
 
-                # 执行召回
                 results = await self.memory_engine.search_memories(
                     query=query, k=k, session_id=session_id, persona_id=None
                 )
 
-                # 计算耗时（毫秒）
                 elapsed_time = (time.time() - start_time) * 1000
 
                 logger.info(
                     f"[召回测试] 完成：返回 {len(results)} 条结果，耗时 {elapsed_time:.2f}ms"
                 )
 
-                # 格式化结果，包含详细信息
                 formatted_results = []
                 for result in results:
                     formatted_results.append(
@@ -1518,14 +1489,12 @@ class WebUIServer:
                 stats = await self.memory_engine.get_statistics()
                 sessions = stats.get("sessions", {})
 
-                # 格式化为列表
                 session_list = []
                 for session_id, count in sessions.items():
                     session_list.append(
                         {"session_id": session_id, "memory_count": count}
                     )
 
-                # 按记忆数量排序
                 session_list.sort(key=lambda x: x["memory_count"], reverse=True)
 
                 return {
@@ -1540,7 +1509,6 @@ class WebUIServer:
         @self._app.get("/api/config")
         async def get_config(token: str = Depends(self._auth_dependency())):
             try:
-                # 返回安全的配置信息(不包含敏感数据)
                 safe_config = {
                     "session_timeout": self.session_timeout,
                     "memory_config": {
@@ -1578,7 +1546,6 @@ class WebUIServer:
                         },
                     }
 
-                # 检查索引一致性
                 status = await self.index_validator.check_consistency()
 
                 return {
@@ -1609,7 +1576,6 @@ class WebUIServer:
 
                 logger.info("[WebUI] 开始手动重建索引")
 
-                # 使用IndexValidator重建索引
                 result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
                 if result["success"]:
@@ -1717,13 +1683,12 @@ class WebUIServer:
             try:
                 query = request.query_params
                 limit = min(200, max(1, int(query.get("limit", 50))))
-                sender_id = query.get("sender_id")  # 可选的发送者过滤
+                sender_id = query.get("sender_id")
 
                 messages = await self.conversation_manager.get_messages(
                     session_id=session_id, limit=limit, sender_id=sender_id
                 )
 
-                # 格式化消息列表
                 formatted_messages = [
                     {
                         "id": msg.id,
@@ -1808,7 +1773,6 @@ class WebUIServer:
                     session_id=session_id, keyword=keyword, limit=limit
                 )
 
-                # 格式化消息列表
                 formatted_messages = [
                     {
                         "id": msg.id,
@@ -1869,7 +1833,6 @@ class WebUIServer:
 
                 sessions = await self.conversation_manager.get_recent_sessions(limit)
 
-                # 格式化会话列表
                 formatted_sessions = [
                     {
                         "session_id": session.session_id,
@@ -1907,14 +1870,12 @@ class WebUIServer:
                 )
 
             try:
-                # 获取会话信息
                 session_info = await self.conversation_manager.get_session_info(
                     session_id
                 )
                 if not session_info:
                     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在")
 
-                # 获取用户消息统计
                 user_stats = (
                     await self.conversation_manager.store.get_user_message_stats(
                         session_id
