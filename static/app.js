@@ -5,7 +5,6 @@
     pageSize: 20,
     total: 0,
     hasMore: false,
-    loadAll: false,
     filters: {
       status: "all",
       keyword: "",
@@ -324,24 +323,21 @@
     }
   }
 
-  // 存储所有加载的记忆数据
-  let allMemories = [];
 
   async function fetchMemories() {
     const params = new URLSearchParams();
-    
-    // 根据loadAll状态决定请求参数
-    if (state.loadAll) {
-      // 加载全部模式：请求所有数据
-      params.set("page", "1");
-      params.set("page_size", "999999"); // 大数值以获取所有数据
-    } else {
-      // 正常分页模式：只加载当前页数据
-      params.set("page", state.page.toString());
-      params.set("page_size", state.pageSize.toString());
+
+    // 服务端分页：只加载当前页数据
+    params.set("page", state.page.toString());
+    params.set("page_size", state.pageSize.toString());
+
+    // 添加筛选参数（服务端 SQL 过滤）
+    if (state.filters.keyword) {
+      params.set("keyword", state.filters.keyword);
     }
-    
-    // 添加会话筛选（可选）
+    if (state.filters.status && state.filters.status !== "all") {
+      params.set("status", state.filters.status);
+    }
     if (state.filters.session_id) {
       params.set("session_id", state.filters.session_id);
     }
@@ -354,26 +350,16 @@
 
       const data = response.data || {};
       const rawItems = Array.isArray(data.items) ? data.items : [];
-      
-      // 更新总数和分页状态
-      state.total = data.total || 0;
-      
-      // 在loadAll模式下，设置hasMore为false
-      if (state.loadAll) {
-        state.hasMore = false;
-      } else {
-        state.hasMore = data.has_more || false;
-      }
-      
+
       // 转换API返回的数据格式以匹配前端期望
       state.items = rawItems.map((item) => {
         // 确保使用正确的ID字段
         const actualId = item.id !== undefined ? item.id : (item.doc_id || item.memory_id);
-        
+
         return {
-          memory_id: actualId,  // 使用实际的整数ID
-          doc_id: actualId,     // 使用实际的整数ID
-          uuid: item.doc_id,    // 保存UUID以供显示（如果存在）
+          memory_id: actualId,
+          doc_id: actualId,
+          uuid: item.doc_id,
           summary: item.text || item.content || i18n.t("table.no_content"),
           content: item.text || item.content,
           memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
@@ -386,7 +372,11 @@
           raw_json: JSON.stringify(item, null, 2),
         };
       });
-      
+
+      // 直接用服务端返回的分页数据
+      state.total = data.total || 0;
+      state.hasMore = data.has_more || false;
+
       state.selected.clear();
       dom.selectAll.checked = false;
       if (dom.selectAllTable) dom.selectAllTable.checked = false;
@@ -399,40 +389,7 @@
     }
   }
 
-  // 客户端过滤和分页
-  function applyClientSideFilters() {
-    let filtered = [...allMemories];
 
-    // 应用关键词过滤
-    if (state.filters.keyword) {
-      const keyword = state.filters.keyword.toLowerCase();
-      filtered = filtered.filter((item) =>
-        item.summary?.toLowerCase().includes(keyword) ||
-        item.memory_id?.toString().includes(keyword)
-      );
-    }
-
-    // 应用状态过滤
-    if (state.filters.status && state.filters.status !== "all") {
-      filtered = filtered.filter((item) =>
-        item.status === state.filters.status
-      );
-    }
-
-    // 更新总数
-    state.total = filtered.length;
-
-    // 应用分页（除非"加载全部"模式）
-    if (state.loadAll) {
-      state.items = filtered;
-      state.hasMore = false;
-    } else {
-      const startIndex = (state.page - 1) * state.pageSize;
-      const endIndex = startIndex + state.pageSize;
-      state.items = filtered.slice(startIndex, endIndex);
-      state.hasMore = endIndex < filtered.length;
-    }
-  }
 
   function renderTable() {
     if (!state.items.length) {
@@ -588,21 +545,14 @@
   }
 
   function updatePagination() {
-    if (state.loadAll) {
-      dom.paginationInfo.textContent = i18n.t("page.all_loaded", { count: state.items.length });
-      // 加载全部模式：禁用翻页按钮
-      dom.prevPage.disabled = true;
-      dom.nextPage.disabled = true;
-    } else {
-      const totalPages = state.total
-        ? Math.max(1, Math.ceil(state.total / state.pageSize))
-        : 1;
-      dom.paginationInfo.textContent = i18n.t("page.info", { page: state.page, total: totalPages, count: state.total });
+    const totalPages = state.total
+      ? Math.max(1, Math.ceil(state.total / state.pageSize))
+      : 1;
+    dom.paginationInfo.textContent = i18n.t("page.info", { page: state.page, total: totalPages, count: state.total });
 
-      // 正常分页模式：根据实际情况启用/禁用翻页按钮
-      dom.prevPage.disabled = state.page <= 1;
-      dom.nextPage.disabled = !state.hasMore;
-    }
+    // 正常分页模式：根据实际情况启用/禁用翻页按钮
+    dom.prevPage.disabled = state.page <= 1;
+    dom.nextPage.disabled = !state.hasMore;
 
     // 显示当前筛选状态
     if (state.filters.keyword || state.filters.status !== "all") {
