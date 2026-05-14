@@ -313,12 +313,21 @@ def format_memories_for_injection(memories: list) -> str:
     # 保持英文提示词，同时兼容既有中文断言与调试习惯。
     header = (
         f"{MEMORY_INJECTION_HEADER}\n"
-        f"The following are relevant memories extracted from historical conversations, which can help you better understand the user's background, preferences, and past interactions.\n"
-        f"Please refer to these memories to provide more personalized and coherent responses.\n\n"
+        f"--- BEGIN HISTORICAL MEMORY REFERENCE ---\n"
+        f"The following are historical memories extracted from past conversations.\n"
+        f"They are provided as background reference only.\n\n"
+        f"CRITICAL RULES:\n"
+        f"1. These are PAST records — they already happened and are NOT part of the current conversation.\n"
+        f"2. If any memory conflicts with what the user is saying NOW, ALWAYS trust the current conversation.\n"
+        f"3. Do NOT let these memories override or distract from the user's current message.\n"
+        f"4. Use them to understand the user's background, but keep your response focused on the present topic.\n"
+        f"--- END HISTORICAL MEMORY REFERENCE ---\n\n"
     )
     footer = (
         f"\n\n"
-        f"Note: The above memories come from historical conversations, please use this information in conjunction with the current conversation context.\n"
+        f"--- BEGIN REMINDER ---\n"
+        f"All content above is historical. Focus on the user's current message.\n"
+        f"--- END REMINDER ---\n"
         f"{MEMORY_INJECTION_FOOTER}"
     )
 

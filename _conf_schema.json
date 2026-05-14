@@ -148,6 +148,12 @@
         "hint": "注入新记忆前自动删除历史中已注入的旧记忆片段，避免重复累积和 token 浪费。建议开启。",
         "type": "bool",
         "default": true
+      },
+      "inject_with_recent_context": {
+        "description": "启用跨轮次上下文扩展检索",
+        "hint": "启用后检索记忆时会自动拼接最近 2 轮对话（当前消息 + Bot 上一条回复 + 用户上一条消息）作为扩展查询，提升召回记忆与当前话题的相关性，减少无关记忆干扰。",
+        "type": "bool",
+        "default": false
       }
     }
   },
