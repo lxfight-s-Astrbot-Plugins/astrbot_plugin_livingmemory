@@ -491,15 +491,13 @@ class HybridRetriever:
         Returns:
             bool: 是否成功删除
         """
-        import aiosqlite
-
         backup_content: str | None = None
         backup_metadata: dict[str, Any] = {}
 
         try:
             # Backup the original document so BM25 can be restored on failure.
             try:
-                async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
+                async with self.bm25_retriever._connect() as db:
                     cursor = await db.execute(
                         "SELECT text, metadata FROM documents WHERE id = ?", (doc_id,)
                     )
@@ -549,7 +547,7 @@ class HybridRetriever:
 
             # 最后删除documents表记录
             try:
-                async with aiosqlite.connect(self.bm25_retriever.db_path) as db:
+                async with self.bm25_retriever._connect() as db:
                     await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
                     await db.commit()
                 logger.debug(f"[删除] documents表已删除 (doc_id={doc_id})")

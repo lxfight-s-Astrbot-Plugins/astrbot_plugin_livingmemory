@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +17,17 @@ class GraphStore:
 
     def __init__(self, db_path: str):
         self.db_path = db_path
+
+    @asynccontextmanager
+    async def _connect(self):
+        """创建新的SQLite连接并启用WAL模式和busy_timeout。"""
+        db = await aiosqlite.connect(self.db_path)
+        try:
+            await db.execute("PRAGMA journal_mode = WAL")
+            await db.execute("PRAGMA busy_timeout = 10000")
+            yield db
+        finally:
+            await db.close()
 
     @staticmethod
     def _now_iso() -> str:
@@ -39,7 +51,7 @@ class GraphStore:
 
     async def initialize(self) -> None:
         """Create tables used by the graph-memory layer."""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute("PRAGMA journal_mode = WAL")
             await db.execute("PRAGMA busy_timeout = 10000")
             await db.execute("PRAGMA foreign_keys = ON")
@@ -134,7 +146,7 @@ class GraphStore:
     async def upsert_node(self, node: GraphNode) -> int:
         """Insert or update one graph node and return its identifier."""
         now = self._now_iso()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id FROM graph_nodes WHERE node_key = ?",
                 (node.node_key,),
@@ -181,7 +193,7 @@ class GraphStore:
         source_node_id = node_key_to_id[edge.source_key]
         target_node_id = node_key_to_id[edge.target_key]
         now = self._now_iso()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id FROM graph_edges WHERE edge_key = ?",
                 (edge.edge_key,),
@@ -239,7 +251,7 @@ class GraphStore:
     ) -> int:
         """Insert or update a searchable graph entry."""
         now = self._now_iso()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id FROM graph_entries WHERE entry_key = ?",
                 (entry.entry_key,),
@@ -317,7 +329,7 @@ class GraphStore:
         self, entry_id: int, vector_doc_id: int
     ) -> None:
         """Persist the vector-store identifier for one graph entry."""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "UPDATE graph_entries SET vector_doc_id = ?, updated_at = ? WHERE id = ?",
                 (vector_doc_id, self._now_iso(), entry_id),
@@ -327,7 +339,7 @@ class GraphStore:
     async def delete_memory(self, source_memory_id: int) -> list[int]:
         """Delete graph artifacts belonging to one source memory."""
         vector_doc_ids: list[int] = []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id, vector_doc_id FROM graph_entries WHERE source_memory_id = ?",
                 (source_memory_id,),
@@ -389,7 +401,7 @@ class GraphStore:
 
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"""
@@ -442,7 +454,7 @@ class GraphStore:
             return []
         clauses = ["canonical_value LIKE ?" for _ in tokens]
         params = [f"%{token}%" for token in tokens]
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"""
@@ -491,7 +503,7 @@ class GraphStore:
             params.append(persona_id)
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"""
@@ -545,7 +557,7 @@ class GraphStore:
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"""
@@ -591,7 +603,7 @@ class GraphStore:
 
         memory_placeholders = ",".join("?" * len(normalized_memory_ids))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             entry_cursor = await db.execute(
                 f"""
@@ -878,7 +890,7 @@ class GraphStore:
 
     async def get_memory_entry_stats(self) -> dict[str, int]:
         """Return graph storage counts for status reporting."""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             node_cursor = await db.execute("SELECT COUNT(*) FROM graph_nodes")
             edge_cursor = await db.execute("SELECT COUNT(*) FROM graph_edges")
             entry_cursor = await db.execute("SELECT COUNT(*) FROM graph_entries")
