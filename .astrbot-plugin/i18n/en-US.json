@@ -64,6 +64,14 @@
       "context_window_size": {
         "description": "Context Window Size (messages)",
         "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100."
+      },
+      "max_messages_per_session": {
+        "description": "Max History Messages Per Session",
+        "hint": "Maximum number of historical messages retained per session in the database. When exceeded, only the oldest summarized messages are deleted to avoid losing unsummarized context."
+      },
+      "cleanup_batch_size": {
+        "description": "History Cleanup Batch Size",
+        "hint": "Minimum number of old summarized messages to delete per batch when the session history exceeds the limit. A value too small will cause only a few messages to be deleted each round after overflow."
       }
     },
     "recall_engine": {
