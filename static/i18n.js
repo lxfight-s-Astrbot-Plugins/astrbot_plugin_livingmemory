@@ -44,6 +44,7 @@ const TRANSLATIONS = {
     "toolbar.select_all": "全选",
     "toolbar.delete_selected": "删除选中",
     "toolbar.deleting": "删除中...",
+    "toolbar.session_placeholder": "输入会话 ID 筛选（可选）",
 
     // Stats
     "stat.total": "总记忆",
@@ -80,6 +81,7 @@ const TRANSLATIONS = {
     "page.filtering": "筛选中",
     "page.keyword": "关键词",
     "page.status": "状态",
+    "page.session": "会话",
 
     // Detail Drawer
     "detail.title": "记忆详情",
@@ -328,6 +330,7 @@ const TRANSLATIONS = {
     "toolbar.select_all": "Select All",
     "toolbar.delete_selected": "Delete Selected",
     "toolbar.deleting": "Deleting...",
+    "toolbar.session_placeholder": "Enter session ID to filter (optional)",
 
     // Stats
     "stat.total": "Total Memories",
@@ -364,6 +367,7 @@ const TRANSLATIONS = {
     "page.filtering": "Filtering",
     "page.keyword": "Keyword",
     "page.status": "Status",
+    "page.session": "Session",
 
     // Detail Drawer
     "detail.title": "Memory Details",

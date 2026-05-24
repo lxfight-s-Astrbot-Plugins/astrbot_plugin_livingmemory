@@ -10,6 +10,7 @@
     filters: {
       status: "all",
       keyword: "",
+      session_id: "",
     },
     items: [],
     selected: new Set(),
@@ -93,6 +94,7 @@
       sessions: document.getElementById("stat-sessions"),
     },
     keywordInput: document.getElementById("keyword-input"),
+    sessionIdInput: document.getElementById("session-id-input"),
     statusFilter: document.getElementById("status-filter"),
     applyFilter: document.getElementById("apply-filter"),
     selectAll: document.getElementById("select-all"),
@@ -156,6 +158,30 @@
           clearTimeout(state.searchTimeout);
         }
         applyFilters();
+      }
+    });
+
+    // Session ID 输入 - 防抖搜索
+    dom.sessionIdInput.addEventListener("input", (event) => {
+      if (state.searchTimeout) {
+        clearTimeout(state.searchTimeout);
+      }
+      state.searchTimeout = setTimeout(() => {
+        state.filters.session_id = event.target.value.trim() || null;
+        state.page = 1;
+        fetchMemories();
+      }, 500);
+    });
+
+    dom.sessionIdInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (state.searchTimeout) {
+          clearTimeout(state.searchTimeout);
+        }
+        state.filters.session_id = dom.sessionIdInput.value.trim() || null;
+        state.page = 1;
+        fetchMemories();
       }
     });
 
@@ -387,7 +413,7 @@
     });
 
     // 显示搜索结果计数
-    if (state.filters.keyword || state.filters.status !== "all") {
+    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
       showToast(`搜索结果：找到 ${state.total} 条记忆，当前显示第 ${state.items.length} 条`);
     }
   }
@@ -451,6 +477,7 @@
   function applyFilters() {
     state.filters.status = dom.statusFilter.value;
     state.filters.keyword = dom.keywordInput.value.trim();
+    state.filters.session_id = dom.sessionIdInput.value.trim() || null;
     state.page = 1;
     
     // 服务端分页：重新请求数据
@@ -499,13 +526,16 @@
     }
 
     // 显示当前筛选状态
-    if (state.filters.keyword || state.filters.status !== "all") {
+    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
       let filterInfo = "筛选中:";
       if (state.filters.keyword) {
         filterInfo += ` 关键词="${state.filters.keyword}"`;
       }
       if (state.filters.status !== "all") {
         filterInfo += ` 状态="${state.filters.status}"`;
+      }
+      if (state.filters.session_id) {
+        filterInfo += ` 会话="${state.filters.session_id}"`;
       }
       dom.paginationInfo.textContent += ` | ${filterInfo}`;
     }
