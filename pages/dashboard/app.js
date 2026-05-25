@@ -19,9 +19,10 @@
       secondsLeft: 0,
       timer: null,
     },
-    currentTab: "memories",
+   currentTab: "memories",
     currentMemoryItem: null,
     searchTimeout: null, // 用于防抖搜索
+    isConfirmingDelete: false, // 用于确认是否点击“删除选中”
   };
 
   // 简单的日志记录器
@@ -511,25 +512,37 @@
     }
   }
 
-  async function deleteSelectedMemories() {
+async function deleteSelectedMemories() {
     if (state.selected.size === 0) {
       return;
     }
     const count = state.selected.size;
-    const originalText = dom.deleteSelected.textContent;
 
-    // 改进的确认对话框
-    const confirmed = window.confirm(
-      `️  确认删除？\n\n` +
-      `即将删除 ${count} 条记忆。\n` +
-      `此操作无法撤销！\n\n` +
-      `点击"确定"继续删除，点击"取消"保留。`
-    );
-
-    if (!confirmed) {
-      showToast("已取消删除操作");
-      return;
+    // 改进的确认对话框 
+    if (!state.isConfirmingDelete) {
+      dom.deleteSelected.dataset.originalText = dom.deleteSelected.textContent;
+      dom.deleteSelected.textContent = `确认删除 ${count} 条?`;
+      dom.deleteSelected.style.backgroundColor = "#ef4444"; 
+      dom.deleteSelected.style.color = "#ffffff";
+      state.isConfirmingDelete = true;
+      
+      // 3秒内未点击则恢复初始“删除选中”
+      setTimeout(() => {
+        if (state.isConfirmingDelete) {
+          state.isConfirmingDelete = false;
+          dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText;
+          dom.deleteSelected.style.backgroundColor = "";
+          dom.deleteSelected.style.color = "";
+        }
+      }, 3000);
+      return; 
     }
+
+    // 确认删除，重置按钮样式状态
+    state.isConfirmingDelete = false;
+    dom.deleteSelected.style.backgroundColor = "";
+    dom.deleteSelected.style.color = "";
+    const originalText = dom.deleteSelected.dataset.originalText || "删除选中项";
 
     const memoryIds = [];
     state.items.forEach((item) => {
@@ -553,7 +566,6 @@
       // 显示加载状态
       dom.deleteSelected.disabled = true;
       dom.deleteSelected.textContent = "删除中...";
-
       console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
 
       const response = await apiRequest("memories/batch-delete", {
