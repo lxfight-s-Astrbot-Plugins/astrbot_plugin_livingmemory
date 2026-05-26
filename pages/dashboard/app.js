@@ -257,7 +257,7 @@
 
   async function fetchMemories() {
     const params = new URLSearchParams();
-    
+
     // 根据loadAll状态决定请求参数
     if (state.loadAll) {
       // 加载全部模式：请求所有数据
@@ -268,7 +268,7 @@
       params.set("page", state.page.toString());
       params.set("page_size", state.pageSize.toString());
     }
-    
+
     // 添加会话筛选（可选）
     if (state.filters.session_id) {
       params.set("session_id", state.filters.session_id);
@@ -288,22 +288,22 @@
 
       const data = response.data || {};
       const rawItems = Array.isArray(data.items) ? data.items : [];
-      
+
       // 更新总数和分页状态
       state.total = data.total || 0;
-      
+
       // 在loadAll模式下，设置hasMore为false
       if (state.loadAll) {
         state.hasMore = false;
       } else {
         state.hasMore = data.has_more || false;
       }
-      
+
       // 转换API返回的数据格式以匹配前端期望
       state.items = rawItems.map((item) => {
         // 确保使用正确的ID字段
         const actualId = item.id !== undefined ? item.id : (item.doc_id || item.memory_id);
-        
+
         return {
           memory_id: actualId,  // 使用实际的整数ID
           doc_id: actualId,     // 使用实际的整数ID
@@ -320,7 +320,7 @@
           raw_json: JSON.stringify(item, null, 2),
         };
       });
-      
+
       state.selected.clear();
       dom.selectAll.checked = false;
       dom.deleteSelected.disabled = true;
@@ -354,8 +354,8 @@
           <tr data-key="${escapeHTML(key)}" class="${rowClass}">
             <td>
               <input type="checkbox" class="row-select" data-key="${escapeHTML(
-                key
-              )}" ${checked} />
+          key
+        )}" ${checked} />
             </td>
             <td class="mono">${escapeHTML(item.memory_id || item.doc_id || "-")}</td>
             <td class="summary-cell" title="${escapeHTML(item.summary || "")}">
@@ -369,8 +369,8 @@
             <td>
               <div class="table-actions">
                 <button class="ghost detail-btn" data-key="${escapeHTML(
-                  key
-                )}">详情</button>
+          key
+        )}">详情</button>
               </div>
             </td>
           </tr>
@@ -461,7 +461,7 @@
     state.filters.status = dom.statusFilter.value;
     state.filters.keyword = dom.keywordInput.value.trim();
     state.page = 1;
-    
+
     // 服务端分页：重新请求数据
     fetchMemories();
   }
@@ -469,7 +469,7 @@
   function onPageSizeChange() {
     state.pageSize = Number(dom.pageSize.value) || 20;
     state.page = 1;
-    
+
     // 服务端分页：重新请求数据
     fetchMemories();
   }
@@ -501,7 +501,7 @@
         ? Math.max(1, Math.ceil(state.total / state.pageSize))
         : 1;
       dom.paginationInfo.textContent = `第 ${state.page} / ${totalPages} 页 · 共 ${state.total} 条`;
-      
+
       // 正常分页模式：根据实际情况启用/禁用翻页按钮
       dom.prevPage.disabled = state.page <= 1;
       dom.nextPage.disabled = !state.hasMore;
@@ -530,10 +530,10 @@
     if (!state.isConfirmingDelete) {
       dom.deleteSelected.dataset.originalText = dom.deleteSelected.textContent;
       dom.deleteSelected.textContent = `确认删除 ${count} 条?`;
-      dom.deleteSelected.style.backgroundColor = "#ef4444"; 
+      dom.deleteSelected.style.backgroundColor = "#ef4444";
       dom.deleteSelected.style.color = "#ffffff";
       state.isConfirmingDelete = true;
-      
+
       // 3秒内未点击则恢复初始“删除选中”
       setTimeout(() => {
         if (state.isConfirmingDelete) {
@@ -543,7 +543,7 @@
           dom.deleteSelected.style.color = "";
         }
       }, 3000);
-      return; 
+      return;
     }
 
     // 确认删除，重置按钮样式状态
@@ -636,7 +636,7 @@
       dom.deleteSelected.textContent = originalText;
     }
   }
-  
+
   function onDocumentClick(event) {
     // 点击页面任意非“确认删除x条？”按钮区域，立即重置确认删除状态
     if (state.isConfirmingDelete && event.target !== dom.deleteSelected) {
@@ -753,13 +753,13 @@
       setTimeout(async () => {
         // 停止核爆倒计时
         stopNukeCountdown();
-        
+
         // 清空所有数据的视觉显示
         state.items = [];
         state.total = 0;
         state.page = 1;
         state.selected.clear();
-        
+
         // 更新表格显示
         renderEmptyTable(" 核爆完成！所有记忆已被抹除。点击「刷新」重新加载。");
         updatePagination();
@@ -770,11 +770,11 @@
         dom.stats.archived.textContent = "0";
         dom.stats.deleted.textContent = "0";
         dom.stats.sessions.textContent = "0";
-        
+
         // 重置选择状态
         dom.selectAll.checked = false;
         dom.deleteSelected.disabled = true;
-        
+
         showToast(" 核爆完成！所有记忆已从界面移除（仅视觉效果）");
       }, 4000); // 核爆动画时长
     }, 1000);
@@ -1301,7 +1301,7 @@
 
     const reason = document.getElementById("edit-reason").value.trim();
     const memoryId = state.currentMemoryItem.memory_id || state.currentMemoryItem.doc_id;
-    
+
     // 调试：输出将要使用的ID
     console.log('[编辑] 准备更新记忆:', {
       memory_id: memoryId,
@@ -1514,13 +1514,13 @@
   function applyTheme(theme) {
     // 添加过渡类以实现平滑切换
     document.documentElement.classList.add("theme-transitioning");
-    
+
     // 设置主题属性
     document.documentElement.setAttribute("data-theme", theme);
-    
+
     // 更新图标
     updateThemeIcons(theme);
-    
+
     // 移除过渡类
     setTimeout(() => {
       document.documentElement.classList.remove("theme-transitioning");
