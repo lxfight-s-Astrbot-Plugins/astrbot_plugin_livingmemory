@@ -9,6 +9,7 @@
     filters: {
       status: "all",
       keyword: "",
+      session_id: "",
     },
     items: [],
     selected: new Set(),
@@ -51,6 +52,7 @@
       sessions: document.getElementById("stat-sessions"),
     },
     keywordInput: document.getElementById("keyword-input"),
+    sessionIdInput: document.getElementById("session-id-input"),
     statusFilter: document.getElementById("status-filter"),
     applyFilter: document.getElementById("apply-filter"),
     selectAll: document.getElementById("select-all"),
@@ -124,6 +126,30 @@
           clearTimeout(state.searchTimeout);
         }
         applyFilters();
+      }
+    });
+
+    // Session ID 输入 - 防抖搜索
+    dom.sessionIdInput.addEventListener("input", (event) => {
+      if (state.searchTimeout) {
+        clearTimeout(state.searchTimeout);
+      }
+      state.searchTimeout = setTimeout(() => {
+        state.filters.session_id = event.target.value.trim() || null;
+        state.page = 1;
+        fetchMemories();
+      }, 500);
+    });
+
+    dom.sessionIdInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (state.searchTimeout) {
+          clearTimeout(state.searchTimeout);
+        }
+        state.filters.session_id = dom.sessionIdInput.value.trim() || null;
+        state.page = 1;
+        fetchMemories();
       }
     });
 
@@ -491,7 +517,7 @@
     });
 
     // 显示搜索结果计数
-    if (state.filters.keyword || state.filters.status !== "all") {
+    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
       showToast(i18n.t("toast.search_results", { total: state.total, shown: state.items.length }));
     }
   }
@@ -557,6 +583,7 @@
   function applyFilters() {
     state.filters.status = dom.statusFilter.value;
     state.filters.keyword = dom.keywordInput.value.trim();
+    state.filters.session_id = dom.sessionIdInput.value.trim() || null;
     state.page = 1;
     
     // 服务端分页：重新请求数据
@@ -605,13 +632,16 @@
     }
 
     // 显示当前筛选状态
-    if (state.filters.keyword || state.filters.status !== "all") {
+    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
       let filterInfo = i18n.t("page.filtering") + ":";
       if (state.filters.keyword) {
         filterInfo += ` ${i18n.t("page.keyword")}="${state.filters.keyword}"`;
       }
       if (state.filters.status !== "all") {
         filterInfo += ` ${i18n.t("page.status")}="${state.filters.status}"`;
+      }
+      if (state.filters.session_id) {
+        filterInfo += ` ${i18n.t("page.session")}="${state.filters.session_id}"`;
       }
       dom.paginationInfo.textContent += ` | ${filterInfo}`;
     }
