@@ -4,6 +4,7 @@ BM25检索器 - 基于SQLite FTS5的稀疏检索
 """
 
 import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +56,17 @@ class BM25Retriever:
         self.fts_table = "livingmemory_memories_fts"
         self.doc_table = "documents"
 
+    @asynccontextmanager
+    async def _connect(self):
+        """创建新的SQLite连接并启用WAL模式和busy_timeout。"""
+        db = await aiosqlite.connect(self.db_path)
+        try:
+            await db.execute("PRAGMA journal_mode = WAL")
+            await db.execute("PRAGMA busy_timeout = 10000")
+            yield db
+        finally:
+            await db.close()
+
     async def initialize(self):
         """
         初始化FTS5索引
@@ -62,7 +74,7 @@ class BM25Retriever:
         创建 livingmemory_memories_fts 虚拟表用于全文检索。
         使用unicode61分词器处理已预处理的文本。
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await self._warn_if_legacy_documents_fts_exists(db)
             # 创建FTS5虚拟表
             await db.execute(f"""
@@ -122,7 +134,7 @@ class BM25Retriever:
         tokens = self.text_processor.tokenize(content, remove_stopwords=True)
         processed_content = " ".join(tokens)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             # 插入到FTS表
             await db.execute(
                 f"INSERT INTO {self.fts_table}(doc_id, content) VALUES (?, ?)",
@@ -173,7 +185,7 @@ class BM25Retriever:
         has_filters = session_id is not None or persona_id is not None
         fetch_limit = limit * 10 if has_filters else limit * 2
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             # 执行FTS5 BM25搜索
             # 注意: SQLite FTS5 bm25() 分数越小越相关（常见为负数）
             cursor = await db.execute(
@@ -274,7 +286,7 @@ class BM25Retriever:
         from astrbot.api import logger
 
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._connect() as db:
                 await db.execute(
                     f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
                 )
@@ -306,7 +318,7 @@ class BM25Retriever:
             tokens = self.text_processor.tokenize(content, remove_stopwords=True)
             processed_content = " ".join(tokens)
 
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._connect() as db:
                 # 先删除旧索引
                 await db.execute(
                     f"DELETE FROM {self.fts_table} WHERE doc_id = ?", (doc_id,)
