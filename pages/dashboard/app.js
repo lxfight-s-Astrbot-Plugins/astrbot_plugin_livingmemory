@@ -19,7 +19,7 @@
       secondsLeft: 0,
       timer: null,
     },
-   currentTab: "memories",
+    currentTab: "memories",
     currentMemoryItem: null,
     searchTimeout: null, // 用于防抖搜索
     isConfirmingDelete: false, // 用于确认是否点击“删除选中”
@@ -132,6 +132,7 @@
     dom.deleteSelected.addEventListener("click", deleteSelectedMemories);
     dom.drawerClose.addEventListener("click", closeDetailDrawer);
     dom.nukeCancel.addEventListener("click", onNukeCancel);
+    document.addEventListener("click", onDocumentClick);
 
     // 关键字输入 - 防抖搜索
     dom.keywordInput.addEventListener("input", (event) => {
@@ -438,6 +439,13 @@
   }
 
   function updateSelectionState() {
+    if (state.isConfirmingDelete) {
+      state.isConfirmingDelete = false;
+      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || "删除选中项";
+      dom.deleteSelected.style.backgroundColor = "";
+      dom.deleteSelected.style.color = "";
+    }
+
     dom.deleteSelected.disabled = state.selected.size === 0;
     if (!state.items.length) {
       dom.selectAll.checked = false;
@@ -512,7 +520,7 @@
     }
   }
 
-async function deleteSelectedMemories() {
+  async function deleteSelectedMemories() {
     if (state.selected.size === 0) {
       return;
     }
@@ -626,6 +634,16 @@ async function deleteSelectedMemories() {
     } finally {
       dom.deleteSelected.disabled = false;
       dom.deleteSelected.textContent = originalText;
+    }
+  }
+  
+  function onDocumentClick(event) {
+    // 点击页面任意非“确认删除x条？”按钮区域，立即重置确认删除状态
+    if (state.isConfirmingDelete && event.target !== dom.deleteSelected) {
+      state.isConfirmingDelete = false;
+      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || "删除选中项";
+      dom.deleteSelected.style.backgroundColor = "";
+      dom.deleteSelected.style.color = "";
     }
   }
 
