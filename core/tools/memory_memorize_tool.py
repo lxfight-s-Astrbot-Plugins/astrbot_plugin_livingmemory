@@ -41,10 +41,8 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
 
     name: str = "memorize_long_term_memory"
     description: str = (
-        "Memorize durable long-term information only when the user explicitly asks you to remember it, "
-        "or when the conversation reveals stable facts, preferences, identity details, long-lived project context, "
-        "or agreements that will likely matter in future conversations. Do not memorize transient tasks, "
-        "one-off details, ordinary small talk, duplicate facts, or sensitive information unless the user clearly asks. "
+        "Memorize durable long-term memory when the user explicitly asks to remember something, "
+        "or when stable preferences, identity details, agreements, or project context appear. "
         "Write concise factual memory, not the full conversation."
     )
     parameters: dict[str, Any] = field(

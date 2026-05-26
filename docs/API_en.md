@@ -362,7 +362,7 @@ Returns JSON text containing the following fields:
 - `session_id`: Current session UMO
 - `persona_id`: Current persona ID
 
-The written metadata includes the same fields as automatic summaries, such as `canonical_summary`, `persona_summary`, `topics`, `key_facts`, `sentiment`, `interaction_type`, `summary_schema_version`, and `summary_quality`, plus `memory_origin=agent_memorize_tool`.
+The written metadata includes the same fields as automatic summaries, such as `canonical_summary`, `persona_summary`, `topics`, `key_facts`, `sentiment`, `interaction_type`, `summary_schema_version`, and `summary_quality`, plus `memory_origin=agent_memorize_tool` (currently used only for source tracking, may be used for source-based filtering in the future).
 
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 

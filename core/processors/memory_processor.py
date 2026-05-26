@@ -730,8 +730,10 @@ class MemoryProcessor:
         fallback_excerpt: str = "",
     ) -> tuple[str, dict[str, Any], float]:
         """复用自动总结流程，将结构化数据转换为标准记忆存储格式。"""
+        # 与自动总结路径保持一致：先校验质量，再规范化。
+        # 这样原始 importance 越界等异常仍会被判为 low quality。
+        quality = self._validate_summary_quality(structured_data)
         normalized = self._normalize_parsed_data(structured_data, is_group_chat)
-        quality = self._validate_summary_quality(normalized)
         normalized["_quality"] = quality
 
         content, metadata = self._build_storage_format(

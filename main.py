@@ -175,7 +175,7 @@ class LivingMemoryPlugin(Star):
                     memory_engine=self.initializer.memory_engine,
                 )
             )
-        if self.config_manager.get("agent_tools.enable_memorize_tool", True):
+        if self.config_manager.get("agent_tools.enable_memorize_tool", False):
             tools.append(
                 MemoryMemorizeTool(
                     context=self.context,
@@ -186,6 +186,8 @@ class LivingMemoryPlugin(Star):
 
         if tools:
             self.context.add_llm_tools(*tools)
+        # 标记注册流程完成，后续不再重复检查。
+        # 若用户中途修改 agent_tools 开关，需要重载插件才能生效。
         self._llm_tools_registered = True
 
     async def _ensure_plugin_ready(self) -> tuple[bool, str]:

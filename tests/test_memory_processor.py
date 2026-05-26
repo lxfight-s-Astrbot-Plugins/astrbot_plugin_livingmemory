@@ -329,6 +329,26 @@ def test_build_memory_from_structured_data_uses_standard_storage_format():
     assert importance == 0.8
 
 
+def test_build_memory_from_structured_data_flags_low_quality_for_out_of_range_importance():
+    """与自动总结路径一致：原始 importance 越界时应判为 low quality。"""
+    processor = MemoryProcessor(llm_provider=Mock(), context=None)
+
+    _, metadata, importance = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户希望主动记忆工具复用自动总结格式",
+            "topics": ["测试"],
+            "key_facts": ["importance 越界"],
+            "sentiment": "neutral",
+            "importance": 1.5,
+        },
+        is_group_chat=False,
+        fallback_excerpt="fallback",
+    )
+
+    assert metadata["summary_quality"] == "low"
+    assert importance == 1.0
+
+
 # ── 群聊路径测试 ──────────────────────────────────────────────────────────────
 
 

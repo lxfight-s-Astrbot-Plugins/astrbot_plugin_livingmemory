@@ -362,7 +362,7 @@ async for message in command_handler.handle_status(event):
 - `session_id`: 当前会话 UMO
 - `persona_id`: 当前人格 ID
 
-写入产生的 metadata 会包含自动总结同款字段，如 `canonical_summary`、`persona_summary`、`topics`、`key_facts`、`sentiment`、`interaction_type`、`summary_schema_version`、`summary_quality`，并额外标记 `memory_origin=agent_memorize_tool`。
+写入产生的 metadata 会包含自动总结同款字段，如 `canonical_summary`、`persona_summary`、`topics`、`key_facts`、`sentiment`、`interaction_type`、`summary_schema_version`、`summary_quality`，并额外标记 `memory_origin=agent_memorize_tool`（目前仅用于来源追踪，未来可能用于按来源过滤）。
 
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 

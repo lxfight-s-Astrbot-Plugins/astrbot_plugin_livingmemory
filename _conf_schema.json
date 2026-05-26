@@ -203,7 +203,7 @@
         "description": "启用主动记忆写入工具",
         "hint": "开启后注册 memorize_long_term_memory，允许 Agent 主动写入长期记忆。",
         "type": "bool",
-        "default": true
+        "default": false
       }
     }
   },

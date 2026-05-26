@@ -362,7 +362,7 @@ async for message in command_handler.handle_status(event):
 - `session_id`: Текущий UMO сессии
 - `persona_id`: Текущий ID персоны
 
-Записанная metadata содержит те же поля, что и автоматические суммаризации, например `canonical_summary`, `persona_summary`, `topics`, `key_facts`, `sentiment`, `interaction_type`, `summary_schema_version`, `summary_quality`, а также `memory_origin=agent_memorize_tool`.
+Записанная metadata содержит те же поля, что и автоматические суммаризации, например `canonical_summary`, `persona_summary`, `topics`, `key_facts`, `sentiment`, `interaction_type`, `summary_schema_version`, `summary_quality`, а также `memory_origin=agent_memorize_tool` (в настоящее время используется только для отслеживания источника; в будущем может использоваться для фильтрации по источнику).
 
 ##### `async handle_forget(event: AstrMessageEvent, doc_id: int)`
 
