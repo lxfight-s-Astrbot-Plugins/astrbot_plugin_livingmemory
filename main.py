@@ -19,6 +19,7 @@ from .core.base.config_manager import ConfigManager
 from .core.i18n_backend import init as i18n_init, t
 from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
+from .core.managers.backup_manager import BackupManager
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import MemorySearchTool
 
@@ -48,7 +49,7 @@ if _parse_version(_CURRENT_ASTRBOT_VERSION) < _parse_version(_MIN_ASTRBOT_VERSIO
     "LivingMemory",
     "lxfight",
     "An intelligent long-term memory plugin with a dynamic lifecycle for AstrBot.",
-    "2.2.11",
+    "2.2.12",
     "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):
@@ -60,6 +61,10 @@ class LivingMemoryPlugin(Star):
 
         # 获取插件数据目录
         data_dir = str(StarTools.get_data_dir())
+
+        # 版本变更时自动备份数据（在任何数据库操作之前）
+        self._backup_manager = BackupManager(data_dir)
+        self._backup_manager.backup_if_needed()
 
         # 初始化配置管理器
         self.config_manager = ConfigManager(config)

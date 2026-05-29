@@ -17,6 +17,8 @@ import aiosqlite
 from astrbot.api import logger
 from quart import request
 
+from .managers.backup_manager import BackupManager
+
 PLUGIN_NAME = "astrbot_plugin_livingmemory"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
@@ -71,6 +73,12 @@ class PluginPageApi:
             self.query_graph,
             ["POST"],
             "LivingMemory Page graph query",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/backups",
+            self.list_backups,
+            ["GET"],
+            "LivingMemory Page backup list",
         )
 
     async def get_stats(self):
@@ -869,3 +877,11 @@ class PluginPageApi:
                 "memories": memories,
             },
         }
+
+    async def list_backups(self):
+        """列出所有版本备份及其元数据。"""
+        data_dir = self.plugin.initializer.data_dir if self.plugin.initializer else ""
+        if not data_dir:
+            return {"backups": [], "total": 0}
+        backups = BackupManager.list_backups(data_dir)
+        return {"backups": backups, "total": len(backups)}
