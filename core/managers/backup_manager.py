@@ -6,6 +6,7 @@ storing each backup under a version-tagged directory for easy recovery.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import time
@@ -116,6 +117,10 @@ class BackupManager:
             f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}"
         )
         return str(backup_dir)
+
+    async def backup_if_needed_async(self) -> str | None:
+        """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""
+        return await asyncio.to_thread(self.backup_if_needed)
 
     # ------------------------------------------------------------------
     # Utilities

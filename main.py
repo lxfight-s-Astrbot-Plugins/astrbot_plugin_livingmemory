@@ -62,9 +62,8 @@ class LivingMemoryPlugin(Star):
         # 获取插件数据目录
         data_dir = str(StarTools.get_data_dir())
 
-        # 版本变更时自动备份数据（在任何数据库操作之前）
+        # 版本变更时自动备份数据（延迟到异步初始化阶段执行，避免 __init__ 中同步 I/O 阻塞）
         self._backup_manager = BackupManager(data_dir)
-        self._backup_manager.backup_if_needed()
 
         # 初始化配置管理器
         self.config_manager = ConfigManager(config)
@@ -125,6 +124,9 @@ class LivingMemoryPlugin(Star):
     async def _initialize_plugin(self):
         """初始化插件"""
         try:
+            # 版本变更时自动备份数据（在任何数据库操作之前，通过线程池避免阻塞事件循环）
+            await self._backup_manager.backup_if_needed_async()
+
             # 执行初始化
             success = await self.initializer.initialize()
 
