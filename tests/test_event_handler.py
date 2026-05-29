@@ -398,7 +398,7 @@ async def test_storage_task_writes_source_window(
     captured_metadata = {}
 
     async def _capture_add_memory(
-        content, session_id, persona_id, importance, metadata
+        content, session_id, persona_id, importance, metadata, atoms=None, **kwargs
     ):
         captured_metadata.update(metadata)
         return 1
