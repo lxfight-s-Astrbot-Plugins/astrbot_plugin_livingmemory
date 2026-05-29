@@ -303,6 +303,52 @@ def test_validate_summary_quality_directly():
     }) == "low"
 
 
+def test_build_memory_from_structured_data_uses_standard_storage_format():
+    processor = MemoryProcessor(llm_provider=Mock(), context=None)
+
+    content, metadata, importance = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户希望主动记忆工具复用自动总结格式",
+            "topics": ["LivingMemory", "主动记忆"],
+            "key_facts": ["主动记忆应复用 MemoryProcessor 格式化流程"],
+            "sentiment": "neutral",
+            "importance": 0.8,
+        },
+        is_group_chat=False,
+        fallback_excerpt="fallback",
+    )
+
+    assert content == metadata["canonical_summary"]
+    assert metadata["persona_summary"] == "用户希望主动记忆工具复用自动总结格式"
+    assert metadata["topics"] == ["LivingMemory", "主动记忆"]
+    assert metadata["key_facts"] == ["主动记忆应复用 MemoryProcessor 格式化流程"]
+    assert metadata["sentiment"] == "neutral"
+    assert metadata["interaction_type"] == "private_chat"
+    assert metadata["summary_schema_version"] == "v2"
+    assert metadata["summary_quality"] == "normal"
+    assert importance == 0.8
+
+
+def test_build_memory_from_structured_data_flags_low_quality_for_out_of_range_importance():
+    """与自动总结路径一致：原始 importance 越界时应判为 low quality。"""
+    processor = MemoryProcessor(llm_provider=Mock(), context=None)
+
+    _, metadata, importance = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户希望主动记忆工具复用自动总结格式",
+            "topics": ["测试"],
+            "key_facts": ["importance 越界"],
+            "sentiment": "neutral",
+            "importance": 1.5,
+        },
+        is_group_chat=False,
+        fallback_excerpt="fallback",
+    )
+
+    assert metadata["summary_quality"] == "low"
+    assert importance == 1.0
+
+
 # ── 群聊路径测试 ──────────────────────────────────────────────────────────────
 
 

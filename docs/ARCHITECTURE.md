@@ -76,7 +76,8 @@ astrbot_plugin_livingmemory/
 │   │
 │   ├── tools/                       # Agent 工具层
 │   │   ├── __init__.py
-│   │   └── memory_search_tool.py    # 主动长期记忆回忆工具
+│   │   ├── memory_search_tool.py    # 主动长期记忆回忆工具
+│   │   └── memory_memorize_tool.py  # 主动长期记忆写入工具
 │   │
 │   └── prompts/                     # 提示词模板
 │       ├── private_chat_prompt.txt
@@ -226,8 +227,9 @@ astrbot_plugin_livingmemory/
 
 **组件**:
 - `memory_search_tool.py`: 主动长期记忆回忆工具，复用现有记忆检索引擎和过滤配置
+- `memory_memorize_tool.py`: 主动长期记忆写入工具，复用 `MemoryProcessor` 标准格式化流程，并始终写入当前 UMO 与当前人格
 
-**依赖**: base/, managers/, utils/
+**依赖**: base/, managers/, processors/, utils/
 
 **被依赖**: main.py（注册到 AstrBot context）
 

@@ -21,7 +21,7 @@ from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
 from .core.managers.backup_manager import BackupManager
 from .core.plugin_initializer import PluginInitializer
-from .core.tools import MemorySearchTool
+from .core.tools import MemoryMemorizeTool, MemorySearchTool
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
 
@@ -179,24 +179,39 @@ class LivingMemoryPlugin(Star):
                     initialization_status_callback=self._get_initialization_status_message,
                 )
 
-            self._register_llm_tools_if_needed()
+            self._register_agent_tools_if_needed()
 
         return True
 
-    def _register_llm_tools_if_needed(self) -> None:
-        """在核心组件就绪后注册 LLM 工具。"""
+    def _register_agent_tools_if_needed(self) -> None:
+        """在核心组件就绪后注册 Agent 工具（回忆/写入）。"""
         if self._llm_tools_registered:
             return
-        if not self.initializer.memory_engine:
+        if not self.initializer.memory_engine or not self.initializer.memory_processor:
             return
 
-        self.context.add_llm_tools(
-            MemorySearchTool(
-                context=self.context,
-                config_manager=self.config_manager,
-                memory_engine=self.initializer.memory_engine,
-            ),
-        )
+        tools = []
+        if self.config_manager.get("agent_tools.enable_recall_tool", True):
+            tools.append(
+                MemorySearchTool(
+                    context=self.context,
+                    config_manager=self.config_manager,
+                    memory_engine=self.initializer.memory_engine,
+                )
+            )
+        if self.config_manager.get("agent_tools.enable_memorize_tool", False):
+            tools.append(
+                MemoryMemorizeTool(
+                    context=self.context,
+                    memory_engine=self.initializer.memory_engine,
+                    memory_processor=self.initializer.memory_processor,
+                )
+            )
+
+        if tools:
+            self.context.add_llm_tools(*tools)
+        # 标记注册流程完成，后续不再重复检查。
+        # 若用户中途修改 agent_tools 开关，需要重载插件才能生效。
         self._llm_tools_registered = True
 
     async def _ensure_plugin_ready(self) -> tuple[bool, str]:

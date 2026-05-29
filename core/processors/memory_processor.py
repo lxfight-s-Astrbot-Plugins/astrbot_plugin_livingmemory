@@ -767,6 +767,27 @@ class MemoryProcessor:
         except (ValueError, TypeError):
             return 0.5
 
+    def build_memory_from_structured_data(
+        self,
+        structured_data: dict[str, Any],
+        is_group_chat: bool = False,
+        fallback_excerpt: str = "",
+    ) -> tuple[str, dict[str, Any], float]:
+        """复用自动总结流程，将结构化数据转换为标准记忆存储格式。"""
+        # 与自动总结路径保持一致：先校验质量，再规范化。
+        # 这样原始 importance 越界等异常仍会被判为 low quality。
+        quality = self._validate_summary_quality(structured_data)
+        normalized = self._normalize_parsed_data(structured_data, is_group_chat)
+        normalized["_quality"] = quality
+
+        content, metadata = self._build_storage_format(
+            fallback_excerpt or normalized.get("summary", ""),
+            normalized,
+            is_group_chat,
+        )
+        metadata["summary_quality"] = quality
+        return content, metadata, self._validate_importance(normalized.get("importance"))
+
     def _get_default_value(self, field: str) -> Any:
         """获取字段的默认值"""
         defaults = {
