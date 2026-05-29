@@ -1029,11 +1029,13 @@ class EventHandler:
         fake_call_ids: set[str] = set()
 
         try:
-            # 第一轮扫描：找到所有伪造的 assistant 消息和对应的 call_id
+            # 单轮扫描：同时收集伪造 assistant(tool_calls) 和对应 tool(result) 消息
+            # OpenAI 格式保证 assistant 在 tool 之前，因此 tool 匹配时 call_id 已就绪
             for i, msg in enumerate(req.contexts):
                 if not isinstance(msg, dict):
                     continue
-                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                role = msg.get("role")
+                if role == "assistant" and msg.get("tool_calls"):
                     for tc in msg["tool_calls"]:
                         tc_id = (
                             tc.get("id", "")
@@ -1043,12 +1045,7 @@ class EventHandler:
                         if tc_id.startswith(FAKE_TOOL_CALL_ID_PREFIX):
                             fake_call_ids.add(tc_id)
                             indices_to_remove.add(i)
-
-            # 第二轮扫描：找到对应的 tool 消息
-            for i, msg in enumerate(req.contexts):
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("role") == "tool":
+                elif role == "tool":
                     tc_id = msg.get("tool_call_id", "")
                     if tc_id in fake_call_ids:
                         indices_to_remove.add(i)
