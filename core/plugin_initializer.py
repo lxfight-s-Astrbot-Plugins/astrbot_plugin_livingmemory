@@ -444,7 +444,7 @@ class PluginInitializer:
             # 导致的 "Cannot send a request, as the client has been closed" 错误。
             llm_id = self.config_manager.get("provider_settings.llm_provider_id")
             self.memory_processor = MemoryProcessor(
-                self.context, llm_provider_id=llm_id if llm_id else None
+                self.context, llm_provider=llm_id if llm_id else None
             )
             logger.info("MemoryProcessor 已初始化")
 

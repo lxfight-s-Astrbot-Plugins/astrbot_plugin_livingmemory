@@ -25,16 +25,18 @@ class MemoryProcessor:
     支持私聊和群聊两种场景的不同处理策略。
     """
 
-    def __init__(self, context=None, llm_provider_id: str | None = None):
+    def __init__(self, context=None, llm_provider: Any = None):
         """
         初始化记忆处理器
 
         Args:
             context: AstrBot上下文,用于获取人格管理器
-            llm_provider_id: 指定的LLM Provider ID,留空则使用AstrBot默认Provider
+            llm_provider: LLM Provider 实例或 Provider ID 字符串。
+                          传入实例时直接使用（测试用）；传入字符串时动态解析。
+                          留空则使用AstrBot默认Provider。
         """
         self.context = context
-        self.llm_provider_id = llm_provider_id
+        self._llm_provider = llm_provider
 
         # 加载提示词模板
         self._load_prompts()
@@ -48,12 +50,19 @@ class MemoryProcessor:
         因此每次调用前都从AstrBot上下文重新获取当前有效的Provider。
         """
         if not self.context:
+            # 无 context 时直接返回传入的 provider 实例（测试路径）
+            if self._llm_provider is not None and not isinstance(self._llm_provider, str):
+                return self._llm_provider
             return None
 
-        # 优先使用配置中指定的Provider ID
-        if self.llm_provider_id:
+        # 如果传入的是 provider 实例（非字符串），直接使用（测试路径）
+        if self._llm_provider is not None and not isinstance(self._llm_provider, str):
+            return self._llm_provider
+
+        # 优先使用配置中指定的Provider ID（字符串）
+        if isinstance(self._llm_provider, str) and self._llm_provider:
             try:
-                provider = self.context.get_provider_by_id(self.llm_provider_id)
+                provider = self.context.get_provider_by_id(self._llm_provider)
                 if provider:
                     return provider
             except Exception:

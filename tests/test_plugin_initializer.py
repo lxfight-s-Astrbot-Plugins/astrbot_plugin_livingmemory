@@ -155,9 +155,9 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
             self.kwargs = kwargs
 
     class FakeMemoryProcessor:
-        def __init__(self, provider, context):
-            self.provider = provider
+        def __init__(self, context=None, llm_provider=None, **kwargs):
             self.context = context
+            self.llm_provider = llm_provider
 
     class FakeIndexValidator:
         def __init__(self, db_path, db):
@@ -310,9 +310,9 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
             self.kwargs = kwargs
 
     class FakeMemoryProcessor:
-        def __init__(self, provider, context):
-            self.provider = provider
+        def __init__(self, context=None, llm_provider=None, **kwargs):
             self.context = context
+            self.llm_provider = llm_provider
 
     class FakeIndexValidator:
         def __init__(self, db_path, db):
