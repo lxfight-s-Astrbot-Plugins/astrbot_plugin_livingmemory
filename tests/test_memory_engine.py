@@ -761,3 +761,225 @@ async def test_cleanup_old_memories_uses_batch_delete(tmp_path: Path):
         assert mid not in faiss.docs
 
     await engine.close()
+
+
+# ==================== 更新回滚测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_update_memory_rollback_on_delete_failure(tmp_path: Path):
+    """delete_memory 失败时应回滚删除新创建的记忆并返回 False。"""
+    db_path = tmp_path / "update_rollback.db"
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=_FakeFaissDB(), config={})
+    await engine.initialize()
+
+    old_id = await engine.add_memory(
+        content="旧内容", session_id="s1", persona_id="p1",
+        importance=0.7, metadata={},
+    )
+
+    original_delete = engine.delete_memory
+    call_count = 0
+    deleted_ids = []
+
+    async def fake_delete(memory_id):
+        nonlocal call_count
+        call_count += 1
+        deleted_ids.append(memory_id)
+        if call_count == 1:
+            return False
+        return await original_delete(memory_id)
+
+    engine.delete_memory = fake_delete
+
+    success = await engine.update_memory(old_id, {"content": "新内容"})
+    assert success is False
+    assert call_count == 2
+    old_mem = await engine.get_memory(old_id)
+    assert old_mem is not None
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_update_memory_add_fails_returns_false(tmp_path: Path):
+    """add_memory 返回 None 时，update_memory 应返回 False 且不调用 delete。"""
+    db_path = tmp_path / "update_addfail.db"
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=_FakeFaissDB(), config={})
+    await engine.initialize()
+
+    old_id = await engine.add_memory(
+        content="旧内容", session_id="s1", persona_id="p1",
+        importance=0.7, metadata={},
+    )
+
+    delete_called = False
+
+    async def fake_add(*args, **kwargs):
+        return None
+
+    async def fake_delete(*args, **kwargs):
+        nonlocal delete_called
+        delete_called = True
+        return True
+
+    engine.add_memory = fake_add
+    engine.delete_memory = fake_delete
+
+    success = await engine.update_memory(old_id, {"content": "新内容"})
+    assert success is False
+    assert delete_called is False
+
+    await engine.close()
+
+
+# ==================== 分批加载测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_get_session_memories_batch_pagination(tmp_path: Path):
+    """超过 500 条记忆时应分批加载，metadata 应正确规范化。"""
+    db_path = tmp_path / "batch_session.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=faiss, config={})
+    await engine.initialize()
+
+    session_id = "test:private:batch-session"
+    for i in range(501):
+        mid = faiss._next_id
+        faiss._next_id += 1
+        create_time = 1000.0 + i
+        metadata = {
+            "importance": 0.5,
+            "session_id": session_id,
+            "create_time": create_time,
+        }
+        faiss.docs[mid] = {
+            "id": mid, "doc_id": f"uuid-{mid}",
+            "text": f"测试记忆内容 {i}", "metadata": dict(metadata),
+        }
+        if engine.db_connection is not None:
+            await engine.db_connection.execute(
+                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (mid, f"uuid-{mid}", f"测试记忆内容 {i}",
+                 json.dumps(metadata, ensure_ascii=False)),
+            )
+    if engine.db_connection is not None:
+        await engine.db_connection.commit()
+
+    memories = await engine.get_session_memories(session_id, limit=10)
+    assert len(memories) <= 10
+    if len(memories) >= 2:
+        for i in range(len(memories) - 1):
+            t1 = memories[i]["metadata"].get("create_time", 0)
+            t2 = memories[i + 1]["metadata"].get("create_time", 0)
+            assert t1 >= t2
+
+    for mem in memories:
+        assert isinstance(mem["metadata"], dict)
+
+    await engine.close()
+
+
+# ==================== 批量删除边界测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_clears_fts_index(tmp_path: Path):
+    """批量删除应同时清除 livingmemory_memories_fts 和 documents 表中的记录。"""
+    db_path = tmp_path / "batch_del_fts.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=faiss, config={})
+    await engine.initialize()
+
+    ids = []
+    for i in range(3):
+        mid = faiss._next_id
+        faiss._next_id += 1
+        faiss.docs[mid] = {
+            "id": mid, "doc_id": f"uuid-{mid}",
+            "text": f"test fts {i}",
+            "metadata": {"importance": 0.5, "session_id": "s1"},
+        }
+        ids.append(mid)
+
+    if engine.db_connection is not None:
+        for mid in ids:
+            doc = faiss.docs[mid]
+            await engine.db_connection.execute(
+                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (doc["id"], doc["doc_id"], doc["text"],
+                 json.dumps(doc["metadata"], ensure_ascii=False)),
+            )
+            await engine.db_connection.execute(
+                "INSERT INTO livingmemory_memories_fts(doc_id, content) VALUES (?, ?)",
+                (mid, doc["text"]),
+            )
+        await engine.db_connection.commit()
+
+    deleted = await engine.batch_delete_memories(ids)
+    assert deleted == 3
+
+    if engine.db_connection is not None:
+        for mid in ids:
+            cursor = await engine.db_connection.execute(
+                "SELECT COUNT(*) FROM livingmemory_memories_fts WHERE doc_id = ?", (mid,)
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_faiss_failure_continues(tmp_path: Path):
+    """FAISS delete 失败时不应阻断后续的 SQLite 删除。"""
+    db_path = tmp_path / "batch_del_faissfail.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=faiss, config={})
+    await engine.initialize()
+
+    ids = []
+    for i in range(3):
+        mid = faiss._next_id
+        faiss._next_id += 1
+        faiss.docs[mid] = {
+            "id": mid, "doc_id": f"uuid-{mid}",
+            "text": f"test {i}",
+            "metadata": {"importance": 0.5, "session_id": "s1"},
+        }
+        ids.append(mid)
+
+    if engine.db_connection is not None:
+        for mid in ids:
+            doc = faiss.docs[mid]
+            await engine.db_connection.execute(
+                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (doc["id"], doc["doc_id"], doc["text"],
+                 json.dumps(doc["metadata"], ensure_ascii=False)),
+            )
+            await engine.db_connection.execute(
+                "INSERT INTO livingmemory_memories_fts(doc_id, content) VALUES (?, ?)",
+                (mid, doc["text"]),
+            )
+        await engine.db_connection.commit()
+
+    async def failing_delete(uuid_doc_id):
+        raise Exception("FAISS unavailable")
+
+    faiss.delete = failing_delete
+
+    deleted = await engine.batch_delete_memories(ids)
+    assert deleted == 3
+
+    if engine.db_connection is not None:
+        cursor = await engine.db_connection.execute(
+            "SELECT COUNT(*) FROM documents WHERE id IN (?, ?, ?)", tuple(ids)
+        )
+        row = await cursor.fetchone()
+        assert row[0] == 0
+
+    await engine.close()
