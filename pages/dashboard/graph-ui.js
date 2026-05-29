@@ -19,10 +19,10 @@
   const dom = {};
 
   const NODE_TYPE_LABELS = {
-    topic: "主题",
-    person: "人物",
-    fact: "事实",
-    summary: "摘要",
+    get topic() { return window.t("graph.nodeTopic"); },
+    get person() { return window.t("graph.nodePerson"); },
+    get fact() { return window.t("graph.nodeFact"); },
+    get summary() { return window.t("graph.nodeSummary"); },
   };
 
   const NODE_TYPE_COLORS = {
@@ -53,16 +53,16 @@
   ];
 
   const MODE_LABELS = {
-    overview: "最近概览",
-    query: "检索视图",
-    memory_focus: "记忆聚焦",
+    get overview() { return window.t("graph.modeOverview"); },
+    get query() { return window.t("graph.modeQuery"); },
+    get memory_focus() { return window.t("graph.modeFocus"); },
   };
 
   const SCORE_LABELS = [
-    ["document_keyword_score", "文档关键词"],
-    ["document_vector_score", "文档向量"],
-    ["graph_keyword_score", "图关键词"],
-    ["graph_vector_score", "图向量"],
+    ["document_keyword_score", () => window.t("graph.scoreDocKW")],
+    ["document_vector_score", () => window.t("graph.scoreDocVec")],
+    ["graph_keyword_score", () => window.t("graph.scoreGraphKW")],
+    ["graph_vector_score", () => window.t("graph.scoreGraphVec")],
   ];
 
   function parseBridgeUrl(path) {
@@ -76,7 +76,7 @@
       Object.prototype.hasOwnProperty.call(response, "success")
     ) {
       if (!response.success) {
-        throw new Error(response.error || "图谱请求失败");
+        throw new Error(response.error || window.t("graph.queryFail"));
       }
       return response.data || {};
     }
@@ -146,8 +146,8 @@
     initResizeObserver();
     setCanvasMessage(
       typeof window.ForceGraph3D === "function"
-        ? "点击“最近概览”加载图谱，或直接输入检索词。"
-        : "3D 图谱组件未加载，请刷新页面并检查静态资源。",
+        ? window.t("graph.canvasDefault")
+        : window.t("graph.canvasNo3D"),
       false
     );
   }
@@ -173,7 +173,7 @@
   async function requestGraph(path, options = {}) {
     const bridge = window.AstrBotPluginPage;
     if (!bridge) {
-      throw new Error("当前页面必须运行在 AstrBot 官方插件 Page 内。");
+      throw new Error(window.t("graph.bridgeError"));
     }
 
     const url = parseBridgeUrl(path);
@@ -192,7 +192,7 @@
   }
 
   async function fetchOverview() {
-    setLoading(true, "正在加载最近图谱概览...");
+    setLoading(true, window.t("graph.loadingOverview"));
     try {
       const filters = getFilters();
       const params = new URLSearchParams();
@@ -209,7 +209,7 @@
       state.hasLoadedOverview = true;
       renderPayload(payload, { focusSelection: !state.sceneReady });
     } catch (error) {
-      renderError(error.message || "无法加载图谱概览");
+      renderError(error.message || window.t("graph.errorFetch"));
     } finally {
       setLoading(false);
     }
@@ -235,7 +235,7 @@
       });
       renderPayload(payload, { focusSelection: true });
     } catch (error) {
-      renderError(error.message || "图谱检索失败");
+      renderError(error.message || window.t("graph.queryFail"));
     } finally {
       setLoading(false);
     }
@@ -244,17 +244,17 @@
   async function focusMemory() {
     const memoryIdText = dom.memoryInput.value.trim();
     if (!memoryIdText) {
-      renderError("请输入要定位的记忆 ID。");
+      renderError(window.t("graph.focusEmpty"));
       return;
     }
 
     const memoryId = Number.parseInt(memoryIdText, 10);
     if (Number.isNaN(memoryId)) {
-      renderError("记忆 ID 必须是整数。");
+      renderError(window.t("graph.focusNotInt"));
       return;
     }
 
-    setLoading(true, `正在聚焦记忆 #${memoryId} 的关系图...`);
+    setLoading(true, window.t("graph.loadingFocus", memoryId));
     try {
       const filters = getFilters();
       const payload = await requestGraph("/graph/query", {
@@ -267,7 +267,7 @@
       });
       renderPayload(payload, { memoryId, focusSelection: true });
     } catch (error) {
-      renderError(error.message || "定位记忆失败");
+      renderError(error.message || window.t("graph.focusFail"));
     } finally {
       setLoading(false);
     }
@@ -279,7 +279,7 @@
     dom.focusButton.disabled = isLoading;
     dom.overviewButton.disabled = isLoading;
     if (isLoading) {
-      setCanvasMessage(message || "图谱载入中...", true);
+      setCanvasMessage(message || window.t("graph.loadingGeneric"), true);
     }
   }
   function renderPayload(payload, options = {}) {
@@ -352,57 +352,57 @@
 
   function renderDisabled() {
     state.sceneReady = false;
-    dom.modeBadge.textContent = "图记忆未启用";
-    dom.statusLine.textContent = "当前实例未启用图记忆功能，请先开启图记忆并完成索引。";
+    dom.modeBadge.textContent = window.t("graph.disabledBadge");
+    dom.statusLine.textContent = window.t("graph.disabledMsg");
     renderStats({ summary: {} });
-    dom.routeLabel.textContent = "未启用";
-    dom.legend.innerHTML = '<span class="graph-legend-chip muted">暂无图数据</span>';
+    dom.routeLabel.textContent = window.t("graph.disabledRoute");
+    dom.legend.innerHTML = '<span class="graph-legend-chip muted">' + window.t("graph.disabledLegend") + '</span>';
     dom.topNodes.innerHTML = emptyPanel("__PLACEHOLDER__");
-    dom.relatedMemories.innerHTML = emptyPanel("暂无可展示的图记忆");
-    dom.retrievalList.innerHTML = emptyPanel("点击“最近概览”加载图谱，或直接输入检索词。");
-    dom.inspector.innerHTML = emptyPanel("请选择节点或记忆查看详细信息。");
+    dom.relatedMemories.innerHTML = emptyPanel(window.t("graph.disabledMemories"));
+    dom.retrievalList.innerHTML = emptyPanel(window.t("graph.canvasDefault"));
+    dom.inspector.innerHTML = emptyPanel(window.t("graph.disabledInspector"));
     clearGraphScene();
-    setCanvasMessage("当前实例尚未启用图记忆。", false);
+    setCanvasMessage(window.t("graph.disabledCanvas"), false);
   }
 
   function renderError(message) {
     state.sceneReady = false;
-    dom.modeBadge.textContent = "图谱加载失败";
+    dom.modeBadge.textContent = window.t("graph.errorBadge");
     dom.statusLine.textContent = message;
-    dom.legend.innerHTML = '<span class="graph-legend-chip danger">请求失败</span>';
-    dom.topNodes.innerHTML = emptyPanel("暂无数据");
-    dom.relatedMemories.innerHTML = emptyPanel("暂无数据");
-    dom.retrievalList.innerHTML = emptyPanel("暂无数据");
+    dom.legend.innerHTML = '<span class="graph-legend-chip danger">' + window.t("graph.errorLegend") + '</span>';
+    dom.topNodes.innerHTML = emptyPanel(window.t("common.noData"));
+    dom.relatedMemories.innerHTML = emptyPanel(window.t("common.noData"));
+    dom.retrievalList.innerHTML = emptyPanel(window.t("common.noData"));
     dom.inspector.innerHTML = emptyPanel(message);
     clearGraphScene();
     setCanvasMessage(message, false);
   }
 
   function renderStatus(payload) {
-    const modeText = MODE_LABELS[payload.mode] || "图谱视图";
+    const modeText = MODE_LABELS[payload.mode] || window.t("graph.modeUnknown");
     dom.modeBadge.textContent = modeText;
 
     const filters = payload.filters || {};
     const filterParts = [];
     if (filters.session_id) {
-      filterParts.push(`会话 ${filters.session_id}`);
+      filterParts.push(window.t("graph.filterSession", filters.session_id));
     }
     if (filters.persona_id) {
-      filterParts.push(`人格 ${filters.persona_id}`);
+      filterParts.push(window.t("graph.filterPersona", filters.persona_id));
     }
 
-    let line = "展示图记忆中的核心连接。";
+    let line = window.t("graph.statusDefault");
     if (payload.mode === "query" && payload.query) {
       line = `当前展示 “${payload.query}” 的双路四模式召回对应子图。`;
     } else if (payload.mode === "memory_focus" && payload.memory_id !== null) {
-      line = `当前聚焦记忆 #${payload.memory_id} 的关系子图。`;
+      line = window.t("graph.statusFocus", payload.memory_id);
     }
     if (filterParts.length) {
-      line += ` 过滤条件：${filterParts.join(" · ")}`;
+      line += window.t("graph.filterPrefix", filterParts.join(" · "));
     }
     dom.statusLine.textContent = line;
     dom.routeLabel.textContent =
-      payload.mode === "query" ? "文档 + 图 · 关键词 + 向量" : "图谱浏览";
+      payload.mode === "query" ? window.t("graph.routeDual") : window.t("graph.routeBrowse");
   }
 
   function renderStats(payload) {
@@ -442,7 +442,7 @@
     const chips = [...nodeChips, ...relationChips];
     dom.legend.innerHTML = chips.length
       ? chips.join("")
-      : '<span class="graph-legend-chip muted">暂无图谱连接</span>';
+      : '<span class="graph-legend-chip muted">' + window.t("graph.legendEmpty") + '</span>';
   }
 
   function renderCanvas(payload, options = {}) {
@@ -450,13 +450,13 @@
     if (!nodes.length) {
       state.sceneReady = false;
       clearGraphScene();
-      setCanvasMessage("当前范围内暂无可视化图数据。", false);
+      setCanvasMessage(window.t("graph.canvasEmpty"), false);
       return;
     }
 
     if (!ensureGraphScene()) {
       state.sceneReady = false;
-      setCanvasMessage("当前页面未能加载 3D 图谱组件，请刷新页面后重试。", false);
+      setCanvasMessage(window.t("graph.canvasNoScene"), false);
       return;
     }
 
@@ -500,7 +500,7 @@
   function renderTopNodes(payload) {
     const topNodes = payload.top_nodes || [];
     if (!topNodes.length) {
-      dom.topNodes.innerHTML = emptyPanel("暂无核心节点");
+      dom.topNodes.innerHTML = emptyPanel(window.t("graph.noTopNodes"));
       return;
     }
 
@@ -511,7 +511,7 @@
             class="graph-chip ${state.selectedNodeId === Number(node.id) ? "is-active" : ""}"
             data-node-select="${node.id}"
           >
-            <span class="graph-chip-title">${escapeHTML(truncate(node.label || "未命名节点", 18))}</span>
+            <span class="graph-chip-title">${escapeHTML(truncate(node.label || window.t("graph.unnamedNode"), 18))}</span>
             <span class="graph-chip-meta">${escapeHTML(typeLabel(node.type))} · 度 ${Number(node.degree || 0)}</span>
           </button>
         `
@@ -522,7 +522,7 @@
   function renderRelatedMemories(payload) {
     const memories = payload.snapshot?.memories || [];
     if (!memories.length) {
-      dom.relatedMemories.innerHTML = emptyPanel("暂无关联记忆");
+      dom.relatedMemories.innerHTML = emptyPanel(window.t("graph.noRelatedMemories"));
       return;
     }
 
@@ -556,7 +556,7 @@
               <span class="graph-memory-id">#${memoryId}</span>
               ${scoreBadge}
             </div>
-            <h4 class="graph-memory-title">${escapeHTML(truncate(memory.summary || "无摘要", 46))}</h4>
+            <h4 class="graph-memory-title">${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 46))}</h4>
             <div class="graph-memory-metrics">
               <span>节点 ${memory.node_count || 0}</span>
               <span>条目 ${memory.entry_count || 0}</span>
@@ -572,9 +572,7 @@
   function renderRetrieval(payload) {
     const items = payload.retrieval?.items || [];
     if (!items.length) {
-      dom.retrievalList.innerHTML = emptyPanel(
-        "执行检索后，这里会展示文档 / 图 × 关键词 / 向量的召回细节。"
-      );
+      dom.retrievalList.innerHTML = emptyPanel(window.t("graph.noRetrieval"));
       return;
     }
 
@@ -610,7 +608,7 @@
   function renderInspector() {
     const selection = getSelectionContext();
     if (!selection.type) {
-      dom.inspector.innerHTML = emptyPanel("点击节点、记忆卡片或召回结果查看详细信息。");
+      dom.inspector.innerHTML = emptyPanel(window.t("graph.noInspector"));
       return;
     }
 
@@ -621,7 +619,7 @@
       dom.inspector.innerHTML = `
         <div class="graph-inspector-header">
           <span class="graph-detail-badge graph-node-${escapeHTML(node.type || "other")}">${escapeHTML(typeLabel(node.type))}</span>
-          <h3>${escapeHTML(node.label || "未命名节点")}</h3>
+          <h3>${escapeHTML(node.label || window.t("graph.unnamedNode"))}</h3>
           <p>${escapeHTML(node.canonical_value || node.label || "")}</p>
         </div>
         <div class="graph-detail-grid">
@@ -635,7 +633,7 @@
           ${relatedMemories.length ? relatedMemories.map((memory) => `
             <button class="graph-inline-item" data-memory-select="${memory.memory_id}">
               <span>#${memory.memory_id}</span>
-              <strong>${escapeHTML(truncate(memory.summary || "无摘要", 30))}</strong>
+              <strong>${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 30))}</strong>
             </button>
           `).join("") : '<p class="graph-muted-copy">暂无相关记忆</p>'}
         </div>
@@ -658,8 +656,8 @@
     dom.inspector.innerHTML = `
       <div class="graph-inspector-header">
         <span class="graph-detail-badge secondary">记忆 #${memory.memory_id}</span>
-        <h3>${escapeHTML(truncate(memory.summary || "无摘要", 56))}</h3>
-        <p>${escapeHTML(memory.session_id || "未设置会话")}</p>
+        <h3>${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 56))}</h3>
+        <p>${escapeHTML(memory.session_id || window.t("graph.noSession"))}</p>
       </div>
       <div class="graph-detail-grid">
         <div><span>节点</span><strong>${memory.node_count || 0}</strong></div>
@@ -675,7 +673,7 @@
             if (!node) {
               return "";
             }
-            return `<button class="graph-inline-chip" data-node-select="${nodeId}">${escapeHTML(truncate(node.label || "未命名节点", 18))}</button>`;
+            return `<button class="graph-inline-chip" data-node-select="${nodeId}">${escapeHTML(truncate(node.label || window.t("graph.unnamedNode"), 18))}</button>`;
           }).join("") : '<span class="graph-muted-copy">暂无节点</span>'}
         </div>
       </div>
@@ -1239,13 +1237,13 @@
 
   function buildNodeTooltip(node) {
     const typeKey = normalizeNodeType(node.type);
-    const detailText = node.canonical_value || node.label || "未命名节点";
+    const detailText = node.canonical_value || node.label || window.t("graph.unnamedNode");
     return `
       <div class="graph-tooltip">
         <span class="graph-tooltip-badge graph-node-${escapeHTML(typeKey)}">${escapeHTML(typeLabel(node.type))}</span>
-        <strong>${escapeHTML(node.label || "未命名节点")}</strong>
+        <strong>${escapeHTML(node.label || window.t("graph.unnamedNode"))}</strong>
         <span>${escapeHTML(truncate(detailText, 72))}</span>
-        <small>记忆 ${Number(node.memory_count || 0)} · 关系 ${Number(node.degree || 0)} · 条目 ${Number(node.entry_count || 0)}</small>
+        <small>${window.t("graph.tooltipMemory", Number(node.memory_count || 0), Number(node.degree || 0), Number(node.entry_count || 0))}</small>
       </div>
     `;
   }
@@ -1338,7 +1336,7 @@
   }
 
   function typeLabel(type) {
-    return NODE_TYPE_LABELS[type] || type || "节点";
+    return NODE_TYPE_LABELS[type] || type || window.t("graph.nodeUnknown");
   }
 
   function relationLabel(type) {

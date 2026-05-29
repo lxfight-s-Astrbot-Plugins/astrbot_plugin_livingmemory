@@ -2718,3 +2718,51 @@ body::before {
     width: 100%;
   }
 }
+
+/* ========================================
+   Language Switcher
+   ======================================== */
+.lang-switcher {
+  position: relative;
+}
+
+.lang-switcher .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.825rem;
+  cursor: pointer;
+}
+
+.lang-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 110px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  list-style: none;
+  padding: 4px 0;
+  z-index: 100;
+}
+
+.lang-option {
+  padding: 6px 14px;
+  font-size: 0.825rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.lang-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.lang-option.active {
+  color: var(--accent);
+  font-weight: 600;
+}

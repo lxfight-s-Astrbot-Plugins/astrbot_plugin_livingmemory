@@ -235,7 +235,7 @@
     }
     fetchAll().catch((error) => {
       logger.error("[初始化加载失败]", error);
-      showToast(error.message || "初始化加载失败", true);
+      showToast(error.message || window.t("misc.initFail"), true);
     });
   }
 
@@ -248,7 +248,7 @@
     try {
       const response = await apiRequest("stats");
       if (!response.success) {
-        throw new Error(response.error || "获取统计信息失败");
+        throw new Error(response.error || window.t("misc.statsFail"));
       }
 
       const stats = response.data || {};
@@ -275,7 +275,7 @@
       });
     } catch (error) {
       logger.error("[统计信息获取失败]", error.message);
-      showToast(error.message || "无法获取统计信息", true);
+      showToast(error.message || window.t("misc.statsUnavailable"), true);
     }
   }
 
@@ -307,7 +307,7 @@
     try {
       const response = await apiRequest(`memories?${params.toString()}`);
       if (!response.success) {
-        throw new Error(response.error || "获取记忆失败");
+        throw new Error(response.error || window.t("misc.fetchMemoriesFail"));
       }
 
       const data = response.data || {};
@@ -332,7 +332,7 @@
           memory_id: actualId,  // 使用实际的整数ID
           doc_id: actualId,     // 使用实际的整数ID
           uuid: item.doc_id,    // 保存UUID以供显示（如果存在）
-          summary: item.text || item.content || "（无内容）",
+          summary: item.text || item.content || window.t("table.noContent"),
           content: item.text || item.content,
           memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
           importance: item.metadata?.importance ?? 5.0,
@@ -351,14 +351,14 @@
       renderTable();
       updatePagination();
     } catch (error) {
-      renderEmptyTable(error.message || "加载失败");
-      showToast(error.message || "获取记忆失败", true);
+      renderEmptyTable(error.message || window.t("misc.loadFail"));
+      showToast(error.message || window.t("misc.fetchMemoriesFail"), true);
     }
   }
 
   function renderTable() {
     if (!state.items.length) {
-      renderEmptyTable("暂无数据");
+      renderEmptyTable(window.t("table.noData"));
       return;
     }
 
@@ -383,7 +383,7 @@
             </td>
             <td class="mono">${escapeHTML(item.memory_id || item.doc_id || "-")}</td>
             <td class="summary-cell" title="${escapeHTML(item.summary || "")}">
-              ${escapeHTML(item.summary || "（无摘要）")}
+              ${escapeHTML(item.summary || window.t("table.noSummary"))}
             </td>
             <td>${escapeHTML(item.memory_type || "--")}</td>
             <td>${importance}</td>
@@ -394,7 +394,7 @@
               <div class="table-actions">
                 <button class="ghost detail-btn" data-key="${escapeHTML(
                   key
-                )}">详情</button>
+                )}">${window.t("table.detail")}</button>
               </div>
             </td>
           </tr>
@@ -414,7 +414,7 @@
 
     // 显示搜索结果计数
     if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
-      showToast(`搜索结果：找到 ${state.total} 条记忆，当前显示第 ${state.items.length} 条`);
+      showToast(window.t("search.resultToast", state.total, state.items.length));
     }
   }
 
@@ -510,34 +510,30 @@
 
   function updatePagination() {
     if (state.loadAll) {
-      dom.paginationInfo.textContent = `共 ${state.items.length} 条记录（已加载全部）`;
-      // 加载全部模式：禁用翻页按钮
+      dom.paginationInfo.textContent = window.t("pagination.allLoaded", state.items.length);
       dom.prevPage.disabled = true;
       dom.nextPage.disabled = true;
     } else {
       const totalPages = state.total
         ? Math.max(1, Math.ceil(state.total / state.pageSize))
         : 1;
-      dom.paginationInfo.textContent = `第 ${state.page} / ${totalPages} 页 · 共 ${state.total} 条`;
-      
-      // 正常分页模式：根据实际情况启用/禁用翻页按钮
+      dom.paginationInfo.textContent = window.t("common.page", state.page, totalPages, state.total);
       dom.prevPage.disabled = state.page <= 1;
       dom.nextPage.disabled = !state.hasMore;
     }
 
-    // 显示当前筛选状态
     if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
-      let filterInfo = "筛选中:";
+      let filterInfo = window.t("pagination.filtering");
       if (state.filters.keyword) {
-        filterInfo += ` 关键词="${state.filters.keyword}"`;
+        filterInfo += " " + window.t("pagination.byKeyword", state.filters.keyword);
       }
       if (state.filters.status !== "all") {
-        filterInfo += ` 状态="${state.filters.status}"`;
+        filterInfo += " " + window.t("pagination.byStatus", state.filters.status);
       }
       if (state.filters.session_id) {
-        filterInfo += ` 会话="${state.filters.session_id}"`;
+        filterInfo += " " + window.t("pagination.bySession", state.filters.session_id);
       }
-      dom.paginationInfo.textContent += ` | ${filterInfo}`;
+      dom.paginationInfo.textContent += " | " + filterInfo;
     }
   }
 
@@ -550,14 +546,12 @@
 
     // 改进的确认对话框
     const confirmed = window.confirm(
-      `️  确认删除？\n\n` +
-      `即将删除 ${count} 条记忆。\n` +
-      `此操作无法撤销！\n\n` +
-      `点击"确定"继续删除，点击"取消"保留。`
+      window.t("delete.confirmTitle") + "\n\n" +
+      window.t("delete.confirmMsg", count)
     );
 
     if (!confirmed) {
-      showToast("已取消删除操作");
+      showToast(window.t("delete.cancelled"));
       return;
     }
 
@@ -582,7 +576,7 @@
     try {
       // 显示加载状态
       dom.deleteSelected.disabled = true;
-      dom.deleteSelected.textContent = "删除中...";
+      dom.deleteSelected.textContent = window.t("delete.deleting");
 
       console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
 
@@ -594,7 +588,7 @@
       });
 
       if (!response.success) {
-        throw new Error(response.error || "删除失败");
+        throw new Error(response.error || window.t("delete.error"));
       }
 
       const data = response.data || {};
@@ -611,26 +605,18 @@
       // 根据结果显示相应的提示
       if (deletedCount === 0 && failedCount > 0) {
         //  全部失败
-        showToast(
-          ` 删除失败：全部 ${failedCount} 条记忆无法删除\n` +
-          `失败ID: ${failedIds.join(", ")}\n` +
-          `请检查日志了解详情`,
-          true
-        );
+        showToast(window.t("delete.allFailed", failedCount, failedIds.join(", ")), true);
         logger.error("删除失败 - 所有记忆都无法删除", { failedIds });
       } else if (failedCount > 0) {
         // ️ 部分失败
-        showToast(
-          `️ 部分删除失败：成功 ${deletedCount} 条，失败 ${failedCount} 条\n` +
-          `失败ID: ${failedIds.join(", ")}`
-        );
+        showToast(window.t("delete.partialFailed", deletedCount, failedCount, failedIds.join(", ")));
         logger.warn("部分删除失败", { deletedCount, failedCount, failedIds });
       } else if (deletedCount > 0) {
         //  全部成功
-        showToast(` 已成功删除 ${deletedCount} 条记忆`);
+        showToast(window.t("delete.success", deletedCount));
       } else {
         // ️ 没有删除任何记忆
-        showToast("️ 没有删除任何记忆", true);
+        showToast(window.t("delete.none"), true);
       }
 
       // 清空选择并刷新数据
@@ -640,7 +626,7 @@
       await fetchStats();
     } catch (error) {
       logger.error("[删除异常]", error);
-      showToast(error.message || "删除失败，请稍后重试", true);
+      showToast(error.message || window.t("delete.error"), true);
     } finally {
       dom.deleteSelected.disabled = false;
       dom.deleteSelected.textContent = originalText;
@@ -652,7 +638,7 @@
     if (!key) return;
     const item = state.items.find((record) => getItemKey(record) === key);
     if (!item) {
-      showToast("未找到对应的记录", true);
+      showToast(window.t("detail.notFound"), true);
       return;
     }
     openDetailDrawer(item);
@@ -662,7 +648,7 @@
     state.currentMemoryItem = item; // 保存当前项
     dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
     dom.detail.source.textContent =
-      item.source === "storage" ? "自定义存储" : "向量存储";
+      item.source === "storage" ? window.t("detail.sourceCustom") : window.t("detail.sourceVector");
     dom.detail.status.textContent = item.status || "--";
     dom.detail.importance.textContent =
       item.importance !== undefined && item.importance !== null
@@ -702,10 +688,10 @@
         seconds_left: 10,  // 缩短到10秒，更刺激
         operation_id: "nuke_" + Date.now(),
       });
-      showToast("💥 核爆倒计时启动！");
+      showToast(window.t("nuke.startToast"));
     } catch (error) {
       dom.nukeButton.disabled = false;
-      showToast(error.message || "无法启动核爆模式", true);
+      showToast(error.message || window.t("nuke.cantStart"), true);
     }
   }
 
@@ -717,11 +703,11 @@
     try {
       // 取消核爆
       stopNukeCountdown();
-      showToast(" 核爆已取消！记忆保留");
+      showToast(window.t("nuke.cancelledToast"));
       dom.nukeButton.disabled = false;
     } catch (error) {
       dom.nukeCancel.disabled = false;
-      showToast(error.message || "取消失败，请稍后重试", true);
+      showToast(error.message || window.t("nuke.cancelFail"), true);
     }
   }
 
@@ -761,7 +747,7 @@
         state.selected.clear();
         
         // 更新表格显示
-        renderEmptyTable(" 核爆完成！所有记忆已被抹除。点击「刷新」重新加载。");
+        renderEmptyTable(window.t("nuke.doneTable"));
         updatePagination();
 
         // 清空统计信息显示
@@ -775,7 +761,7 @@
         dom.selectAll.checked = false;
         dom.deleteSelected.disabled = true;
         
-        showToast(" 核爆完成！所有记忆已从界面移除（仅视觉效果）");
+        showToast(window.t("nuke.doneToast"));
       }, 4000); // 核爆动画时长
     }, 1000);
   }
@@ -812,7 +798,7 @@
 
     const bridge = window.AstrBotPluginPage;
     if (!bridge) {
-      throw new Error("当前页面必须运行在 AstrBot 官方插件 Page 内");
+      throw new Error(window.t("bridge.error"));
     }
 
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -841,7 +827,7 @@
       }
     }
 
-    throw lastError || new Error("请求失败");
+    throw lastError || new Error(window.t("misc.requestFailed"));
   }
 
   function showToast(message, isError = false) {
@@ -869,13 +855,13 @@
 
   function formatStatus(status) {
     const value = (status || "active").toLowerCase();
-    let text = "活跃";
+    let text = window.t("status.active");
     let cls = "status-pill";
     if (value === "archived") {
-      text = "已归档";
+      text = window.t("status.archived");
       cls += " archived";
     } else if (value === "deleted") {
-      text = "已删除";
+      text = window.t("status.deleted");
       cls += " deleted";
     }
     return `<span class="${cls}">${text}</span>`;
@@ -1152,8 +1138,8 @@
     // 更新倒计时文本
     const message =
       seconds > 0
-        ? `所有记忆将在 ${seconds} 秒后被抹除。立即取消以中止核爆！`
-        : "正在抹除所有记忆... 请保持窗口打开。";
+        ? window.t("nuke.countdown", seconds)
+        : window.t("nuke.erasing");
     dom.nukeMessage.textContent = message;
 
     // 禁用/启用取消按钮
@@ -1230,7 +1216,7 @@
 
   function openEditModal() {
     if (!state.currentMemoryItem) {
-      showToast("未找到当前记忆信息", true);
+      showToast(window.t("edit.noItem"), true);
       return;
     }
 
@@ -1277,7 +1263,7 @@
 
   async function saveMemoryEdit() {
     if (!state.currentMemoryItem) {
-      showToast("未找到当前记忆信息", true);
+      showToast(window.t("edit.noItem"), true);
       return;
     }
 
@@ -1295,7 +1281,7 @@
     }
 
     if (!value) {
-      showToast("请输入新值", true);
+      showToast(window.t("edit.enterValue"), true);
       return;
     }
 
@@ -1318,15 +1304,15 @@
       });
 
       if (!result.success) {
-        throw new Error(result.error || result.message || "更新失败");
+        throw new Error(result.error || result.message || window.t("edit.updateFailed"));
       }
 
-      showToast(result.message || "更新成功");
+      showToast(result.message || window.t("edit.success"));
       closeEditModal();
       closeDetailDrawer();
       await fetchMemories(); // 刷新列表
     } catch (error) {
-      showToast(error.message || "更新失败", true);
+      showToast(error.message || window.t("edit.updateFailed"), true);
     } finally {
       document.getElementById("save-edit").disabled = false;
     }
@@ -1364,13 +1350,13 @@
     const session_id = document.getElementById("recall-session-id").value.trim() || null;
 
     if (!query) {
-      showToast("请输入查询内容", true);
+      showToast(window.t("recall.enterQuery"), true);
       return;
     }
 
     const recallSearchBtn = document.getElementById("recall-search-btn");
     recallSearchBtn.disabled = true;
-    recallSearchBtn.textContent = "执行中...";
+    recallSearchBtn.textContent = window.t("recall.searching");
 
     try {
       const payload = {
@@ -1389,18 +1375,18 @@
       });
 
       if (!response.success) {
-        throw new Error(response.error || "召回失败");
+        throw new Error(response.error || window.t("recall.fail"));
       }
 
       const data = response.data;
       displayRecallResults(data);
-      showToast(`成功召回 ${data.total} 条记忆`);
+      showToast(window.t("recall.successToast", data.total));
     } catch (error) {
       logger.error("[召回测试失败]", error.message);
-      showToast(error.message || "召回失败", true);
+      showToast(error.message || window.t("recall.fail"), true);
     } finally {
       recallSearchBtn.disabled = false;
-      recallSearchBtn.textContent = "执行召回";
+      recallSearchBtn.textContent = window.t("recall.searchBtn");
     }
   }
 
@@ -1422,7 +1408,7 @@
 
     if (data.total === 0) {
       resultsContainer.innerHTML =
-        '<div class="empty-state"><p>未找到匹配的记忆</p></div>';
+        '<div class="empty-state"><p>' + window.t("recall.noMatch") + '</p></div>';
       return;
     }
 
@@ -1447,27 +1433,27 @@
 
             <div class="result-metadata">
               <div class="meta-item">
-                <span class="meta-label">记忆 ID:</span>
+                <span class="meta-label">${window.t("recall.resultId")}</span>
                 <span class="meta-value mono">${result.memory_id}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">相似度得分:</span>
+                <span class="meta-label">${window.t("recall.resultScore")}</span>
                 <span class="meta-value">${result.similarity_score}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">会话 UUID:</span>
+                <span class="meta-label">${window.t("recall.resultSession")}</span>
                 <span class="meta-value mono">${result.metadata.session_id || "--"}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">重要性:</span>
+                <span class="meta-label">${window.t("recall.resultImportance")}</span>
                 <span class="meta-value">${(result.metadata.importance * 10).toFixed(1)}/10</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">类型:</span>
+                <span class="meta-label">${window.t("recall.resultType")}</span>
                 <span class="meta-value">${result.metadata.memory_type}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">状态:</span>
+                <span class="meta-label">${window.t("recall.resultStatus")}</span>
                 <span class="meta-value">${formatStatus(result.metadata.status)}</span>
               </div>
             </div>
@@ -1490,7 +1476,7 @@
     document.getElementById("recall-query").value = "";
     document.getElementById("recall-session-id").value = "";
     document.getElementById("recall-results").innerHTML =
-      '<div class="empty-state"><p>暂无召回结果 · 请输入查询内容并执行召回</p></div>';
+      '<div class="empty-state"><p>' + window.t("recall.empty") + '</p></div>';
     document.getElementById("recall-stats").classList.add("hidden");
   }
 
@@ -1508,7 +1494,7 @@
     const newTheme = currentTheme === "light" ? "dark" : "light";
     applyTheme(newTheme);
     writeThemePreference(newTheme);
-    showToast(newTheme === "dark" ? "🌙 已切换到深色模式" : "☀️ 已切换到浅色模式");
+    showToast(newTheme === "dark" ? window.t("theme.darkToast") : window.t("theme.lightToast"));
   }
 
   function applyTheme(theme) {
