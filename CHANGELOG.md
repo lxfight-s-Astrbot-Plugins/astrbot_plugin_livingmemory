@@ -7,6 +7,40 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-05-29
+
+### 新增
+- **记忆原子化系统**: 将 LLM 输出的 `key_facts` 提升为独立检索单元 (`MemoryAtom`)，每条原子拥有独立的存活时间 (TTL) 和衰减曲线
+  - 五种原子类型: `EPISODIC`(事件型, 7天)、`PLANNED`(计划型, 到期骤降)、`FACTUAL`(事实型, 180天)、`RELATIONAL`(关系型, 90天)、`PREFERENCE`(偏好型, 60天)
+  - 三种衰减函数: `EXPONENTIAL`(指数)、`LINEAR`(线性)、`STEP`(阶梯)
+  - TTL 动态修正: `ttl = base_ttl × (0.5+importance) × (1.0+0.1×reinforcement_count)`
+  - 规则基分类器，零新增 LLM 调用
+- **图谱时间感知增强**: 边置信度跨记忆动态更新 (EMA)、跨记忆语义边合并 (`semantic_edge_key`)、检索评分增加时间衰减乘子
+- **原子生命周期管理器**: 后台周期维护 (过期/遗忘/强化检测)，基于 Jaccard + CJK bigram 的跨记忆原子强化
+- **版本更新自动备份**: 插件启动时检测版本变更，自动将所有数据文件备份到 `backups/v{旧版本}/`，记录 `backup_info.json` 便于数据恢复
+- **备份列表 API**: `GET /page/backups` 端点，支持前端查看完整备份历史
+
+### 修复
+- 修复图路由权重归一化未生效时双路融合数值不稳定的问题
+- 修复 `page_api` 内容更新异常时新旧记忆并存的数据泄漏
+- 修复 `memory_engine` 中 fire-and-forget 后台任务未跟踪，`close()` 时可能静默取消
+- 修复 `event_handler` 记忆存储后元数据更新失败导致同一段消息被重复总结
+- 修复 `command_handler` 中硬编码中文 `"无"` 未走 i18n
+
+### 优化
+- 图谱边存储增加 `semantic_edge_key`，跨记忆合并相同语义关系，避免重复边膨胀
+- 边置信度采用 EMA 动态更新 (`new = old×0.7 + new×0.3`)，weight 累积证据计数
+- `graph_extractor` 支持原子级提取路径 (`_extract_from_atoms`)，原子置信度传播到图谱边
+- `atom_store` FTS5 搜索自动回退 LIKE 查询，兼容低版本 SQLite 的 CJK 分词缺陷
+
+### 文档
+- 更新 README（中/英/俄）: 补充记忆原子化、版本备份、架构模块说明
+
+### 测试
+- 新增 53 个原子系统测试: TTL 计算 (9)、衰减函数 (6)、分类器 (9)、AtomStore (9)、AtomLifecycleManager (3)、AtomRetriever (4)、图谱原子提取 (4)、边合并 (2)、向后兼容 (3)、其他 (4)
+- 新增 22 个备份管理器测试: 版本检测、通配符备份、OSError 容错、多版本排序、损坏 JSON 回退、metadata 版本一致性校验
+- 新增 1 个实际 `metadata.yaml` 版本号与 `PLUGIN_VERSION` 常量的一致性断言
+
 ## [2.2.12] - 2026-05-12
 
 ### 新增

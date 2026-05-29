@@ -24,8 +24,10 @@
 - **Session Isolation**: Supports persona-level and session-level memory isolation.
 - **Agent Proactive Recall**: Exposes `recall_long_term_memory` so agents can decide when to recall and which keywords to use.
 - **Auto-Forgetting**: Cleans up stale memories based on time and importance.
-- **Data Safety**: Includes automatic backup before migration, rollback on index rebuild failure, and transactional deletion.
-- **WebUI Management**: Supports both the AstrBot official plugin Pages dashboard and the legacy standalone WebUI compatibility entry.
+- **Memory Atomization**: Each key fact becomes an independent retrieval unit with its own TTL, decay curve, and lifecycle management.
+- **Time-Aware Graph**: Edge confidence updates dynamically via EMA as new evidence accumulates; cross-memory semantic edge merging; temporal decay in retrieval scoring.
+- **Data Safety**: Automatic backup on plugin version update, pre-migration backup, rollback on index rebuild failure, and transactional deletion.
+- **WebUI Management**: Supports the AstrBot official plugin Pages dashboard with trilingual (zh/en/ru) support and dark mode.
 
 ---
 

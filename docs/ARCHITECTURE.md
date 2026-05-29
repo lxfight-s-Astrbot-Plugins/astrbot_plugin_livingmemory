@@ -6,8 +6,8 @@
 
 # LivingMemory 架构文档
 
-**版本**: v2.2.11
-**更新日期**: 2026-05-06
+**版本**: v2.3.0
+**更新日期**: 2026-05-29
 
 ---
 
@@ -32,17 +32,24 @@ astrbot_plugin_livingmemory/
 │   │
 │   ├── models/                      # 数据模型层
 │   │   ├── __init__.py
-│   │   └── conversation_models.py   # 会话数据模型
+│   │   ├── conversation_models.py   # 会话数据模型
+│   │   ├── graph_models.py          # 图谱数据模型（GraphNode/Edge/Entry）
+│   │   └── memory_atom.py           # 记忆原子模型（MemoryAtom + TTL/衰减）
 │   │
 │   ├── managers/                    # 管理器层
 │   │   ├── __init__.py
 │   │   ├── conversation_manager.py  # 会话管理器
-│   │   └── memory_engine.py         # 记忆引擎
+│   │   ├── memory_engine.py         # 统一记忆引擎
+│   │   ├── graph_memory_manager.py  # 图谱记忆管理器
+│   │   ├── atom_lifecycle_manager.py # 原子生命周期管理器（过期/遗忘/强化）
+│   │   └── backup_manager.py        # 版本备份管理器
 │   │
 │   ├── processors/                  # 处理器层
 │   │   ├── __init__.py
 │   │   ├── memory_processor.py      # 记忆处理器
 │   │   ├── text_processor.py        # 文本处理器
+│   │   ├── graph_extractor.py       # 图谱提取器（规则+原子路径）
+│   │   ├── atom_classifier.py       # 原子分类器（规则基）
 │   │   ├── chatroom_parser.py       # 聊天室解析器
 │   │   └── message_utils.py         # 消息工具
 │   │
@@ -59,6 +66,7 @@ astrbot_plugin_livingmemory/
 │   │   ├── graph_keyword_retriever.py # 图路关键词检索
 │   │   ├── graph_vector_retriever.py  # 图路向量检索
 │   │   ├── graph_retriever.py       # 图路融合检索器
+│   │   ├── atom_retriever.py        # 原子路时间感知检索器
 │   │   └── rrf_fusion.py            # RRF融合器
 │   │
 │   ├── utils/                       # 工具层
@@ -77,8 +85,9 @@ astrbot_plugin_livingmemory/
 ├── storage/                         # 存储层
 │   ├── __init__.py
 │   ├── conversation_store.py        # 会话存储
-│   ├── db_migration.py              # 数据库迁移
-│   └── backup_manager.py            # 定时自动备份管理器
+│   ├── graph_store.py               # 图谱存储（节点/边/条目/FTS）
+│   ├── atom_store.py                # 原子存储（FTS + 生命周期）
+│   └── db_migration.py              # 数据库迁移
 │
 ├── webui/                           # Web管理界面
 │   ├── __init__.py

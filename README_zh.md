@@ -28,9 +28,12 @@
 - **定时自动备份**: 每日自动备份记忆数据库，支持保留策略和过期清理
 - **伪造工具调用注入**: 新的记忆注入策略，模拟 LLM 工具调用，兼容 Agent / Tool Loop 模式，使记忆上下文与真实召回不可区分
 - **图片转述记忆**: 自动将 AstrBot 图片转述结果存入长期记忆，支持视觉对话的召回
+- **记忆原子化系统**: 将每个关键事实提升为独立检索单元，拥有独立的存活时间 (TTL)、衰减曲线和生命周期管理
+- **时间感知图谱**: 边置信度随证据累积动态更新，跨记忆语义边合并，检索评分引入时间衰减
 - **3D 知识图谱 WebUI**: 交互式 3D 力导向图可视化记忆实体与关系，支持缩放、旋转和节点查看
 - **安全分批索引重建**: 以小批量原子方式重建大型索引，防止内存溢出和损坏；失败时自动回滚
-- **WebUI 管理**: 可视化记忆管理界面，支持双语（中/英）和深色模式
+- **版本备份**: 插件版本更新时自动备份所有数据文件到版本标记目录，便于数据恢复
+- **WebUI 管理**: 可视化记忆管理界面，支持三语（中/英/俄）和深色模式
 
 ---
 
@@ -88,14 +91,18 @@ astrbot_plugin_livingmemory/
 ├── main.py                          # 插件注册和生命周期管理
 ├── core/
 │   ├── base/                        # 基础组件（配置、常量、异常）
-│   ├── managers/                    # 核心管理器（MemoryEngine、ConversationManager）
-│   ├── retrieval/                   # 检索层（文档路、图路、RRF 融合）
+│   ├── managers/                    # 核心管理器（MemoryEngine、ConversationManager、
+│   │                                #   GraphMemoryManager、AtomLifecycleManager、BackupManager）
+│   ├── models/                      # 数据模型（GraphNode/Edge/Entry、MemoryAtom）
+│   ├── processors/                  # 处理器（MemoryProcessor、GraphExtractor、AtomClassifier）
+│   ├── retrieval/                   # 检索层（文档路、图路、原子路、RRF 融合、双路融合）
 │   ├── validators/                  # 验证器（IndexValidator）
+│   ├── i18n_backend.py              # 后端国际化
 │   ├── plugin_initializer.py        # 插件初始化器
 │   ├── event_handler.py             # 事件处理器
 │   └── command_handler.py           # 命令处理器
-├── storage/                         # 存储层（DBMigration、ConversationStore、AutoBackup）
-├── webui/                           # Web 管理界面（表格 + 3D 图谱视图）
+├── storage/                         # 存储层（GraphStore、AtomStore、ConversationStore、DBMigration）
+├── pages/dashboard/                 # 插件页面（表格管理 + 3D 图谱可视化）
 ├── tests/                           # 测试套件
 └── docs/                            # 文档
 ```
@@ -126,11 +133,19 @@ astrbot_plugin_livingmemory/
    - 兼容 Agent / Tool Loop 执行模式
    - 每轮由 `EventHandler` 自动清理
 
-6. **AutoBackup** (`storage/`): 定时后台备份
-   - 基于 cron 的每日备份与保留策略
-   - 自动清理过期备份文件
+6. **AtomClassifier** (`core/processors/`): 规则基原子分类器
+   - 将关键事实分类为 EPISODIC/FACTUAL/RELATIONAL/PREFERENCE/PLANNED 五种类型
+   - 零额外 LLM 调用
 
-7. **ConfigManager**: 配置管理
+7. **AtomLifecycleManager** (`core/managers/`): 原子生命周期管理
+   - 后台周期维护（过期 / 遗忘 / 强化检测）
+   - 基于 Jaccard + CJK bigram 的跨记忆原子强化
+
+8. **BackupManager** (`core/managers/`): 版本备份管理
+   - 插件启动时检测版本变更，自动备份所有数据文件到版本标记目录
+   - 支持备份历史查询与数据恢复
+
+9. **ConfigManager**: 配置管理
    - 集中配置加载
    - 配置验证
    - 嵌套键访问
