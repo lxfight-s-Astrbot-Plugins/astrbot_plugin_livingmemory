@@ -330,22 +330,16 @@ class PluginPageApi:
         failed_count = 0
         failed_ids: list[Any] = []
 
+        valid_ids: list[int] = []
         for raw_id in memory_ids:
             try:
-                memory_id = int(raw_id)
-                success = await memory_engine.delete_memory(memory_id)
-                if success:
-                    deleted_count += 1
-                else:
-                    failed_count += 1
-                    failed_ids.append(memory_id)
-            except Exception as exc:
+                valid_ids.append(int(raw_id))
+            except Exception:
                 failed_count += 1
                 failed_ids.append(raw_id)
-                logger.error(
-                    f"[PageAPI] 批量删除记忆失败 memory_id={raw_id}: {exc}",
-                    exc_info=True,
-                )
+
+        if valid_ids:
+            deleted_count = await memory_engine.batch_delete_memories(valid_ids)
 
         return self._ok(
             {

@@ -1071,48 +1071,28 @@ class WebUIServer:
                 )
 
             try:
-                deleted_count = 0
-                failed_count = 0
-                failed_ids = []  # 记录失败的 ID 用于诊断
-
                 logger.info(
                     f"[批量删除] 准备删除 {len(memory_ids)} 条记忆: {memory_ids}"
                 )
 
-                for memory_id in memory_ids:
+                valid_ids: list[int] = []
+                failed_ids: list[Any] = []
+                for raw_id in memory_ids:
                     try:
-                        # 转换为整数
-                        mid = int(memory_id)
-                        logger.debug(f"[批量删除] 尝试删除 memory_id={mid}")
+                        valid_ids.append(int(raw_id))
+                    except (ValueError, TypeError):
+                        failed_ids.append(raw_id)
 
-                        success = await self.memory_engine.delete_memory(mid)
-                        if success:
-                            deleted_count += 1
-                            logger.debug(f"[批量删除] 成功删除 memory_id={mid}")
-                        else:
-                            failed_count += 1
-                            failed_ids.append(mid)
-                            logger.warning(
-                                f"[批量删除]  删除失败 memory_id={mid} (引擎返回False)"
-                            )
-                    except ValueError as e:
-                        failed_count += 1
-                        failed_ids.append(memory_id)
-                        logger.error(
-                            f"[批量删除]  memory_id 格式错误 '{memory_id}': {e}",
-                            exc_info=True,
-                        )
-                    except Exception as e:
-                        failed_count += 1
-                        failed_ids.append(memory_id)
-                        logger.error(
-                            f"[批量删除]  删除异常 memory_id={memory_id}: {e}",
-                            exc_info=True,
-                        )
+                failed_count = len(failed_ids)
+                deleted_count = 0
+
+                if valid_ids:
+                    deleted_count = await self.memory_engine.batch_delete_memories(
+                        valid_ids
+                    )
 
                 logger.info(
-                    f"[批量删除] 完成 - 成功: {deleted_count}, 失败: {failed_count}, "
-                    f"失败ID: {failed_ids}"
+                    f"[批量删除] 完成 - 成功: {deleted_count}, 失败: {failed_count}"
                 )
 
                 return {
