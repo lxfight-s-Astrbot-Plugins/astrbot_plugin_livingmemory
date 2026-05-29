@@ -5,6 +5,7 @@
 
 import asyncio
 import hashlib
+import re
 import time
 from typing import Any
 
@@ -14,6 +15,11 @@ from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse, ProviderRequest
 
 from .base.config_manager import ConfigManager
+from .base.constants import (
+    FAKE_TOOL_CALL_ID_PREFIX,
+    MEMORY_INJECTION_FOOTER,
+    MEMORY_INJECTION_HEADER,
+)
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
@@ -25,6 +31,14 @@ from .utils import (
     get_persona_id,
 )
 from .utils.injection_adapter import InjectionAdapter
+
+# 预编译记忆注入清理正则（热路径优化：避免每次调用 re.compile）
+_INJECTION_CLEANUP_PATTERN = re.compile(
+    re.escape(MEMORY_INJECTION_HEADER)
+    + r".*?"
+    + re.escape(MEMORY_INJECTION_FOOTER),
+    flags=re.DOTALL,
+)
 
 
 class EventHandler:
@@ -817,19 +831,9 @@ class EventHandler:
         self, req: ProviderRequest, session_id: str
     ) -> int:
         """从对话历史、system_prompt和prompt中删除之前注入的记忆片段"""
-        import re
-
-        from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
         removed_count = 0
-
-        # 编译清理正则(使用DOTALL确保.匹配换行符)
-        pattern = re.compile(
-            re.escape(MEMORY_INJECTION_HEADER)
-            + r".*?"
-            + re.escape(MEMORY_INJECTION_FOOTER),
-            flags=re.DOTALL,
-        )
+        pattern = _INJECTION_CLEANUP_PATTERN
 
         try:
             # 清理 system_prompt（兼容旧版本注入残留）
@@ -1016,7 +1020,6 @@ class EventHandler:
         Returns:
             删除的消息数量。
         """
-        from .base.constants import FAKE_TOOL_CALL_ID_PREFIX
 
         if not hasattr(req, "contexts") or not req.contexts:
             return 0
@@ -1087,35 +1090,31 @@ class EventHandler:
         return f"fallback:{digest}"
 
     async def _is_duplicate_message(self, dedup_key: str | None) -> bool:
-        """检查消息是否已经处理过"""
+        """检查消息是否已经处理过（惰性过期 + 溢出时逐条淘汰）"""
         if not dedup_key:
             return False
 
-        current_time = time.time()
+        result = dedup_key in self._message_dedup_cache
+        if not result:
+            return False
 
-        # 批量清理：先清理过期项
-        expired_keys = [
-            key
-            for key, timestamp in self._message_dedup_cache.items()
-            if current_time - timestamp > self._dedup_cache_ttl
-        ]
-        for key in expired_keys:
-            del self._message_dedup_cache[key]
+        # 惰性过期检查：命中时若已过期则视为未命中
+        if time.time() - self._message_dedup_cache[dedup_key] > self._dedup_cache_ttl:
+            del self._message_dedup_cache[dedup_key]
+            return False
 
-        # 如果仍然超过上限的80%，批量删除最旧的50%
-        if len(self._message_dedup_cache) > self._dedup_cache_max_size * 0.8:
-            sorted_items = sorted(self._message_dedup_cache.items(), key=lambda x: x[1])
-            to_remove = len(sorted_items) // 2
-            for key, _ in sorted_items[:to_remove]:
-                del self._message_dedup_cache[key]
-
-        return dedup_key in self._message_dedup_cache
+        return True
 
     async def _mark_message_processed(self, dedup_key: str | None):
-        """标记消息已处理"""
+        """标记消息已处理（超限时淘汰最早插入的条目）"""
         if not dedup_key:
             return
-        self._message_dedup_cache[dedup_key] = time.time()
+        cache = self._message_dedup_cache
+        if len(cache) >= self._dedup_cache_max_size:
+            # 淘汰最早插入的条目（O(n) 但仅超限时触发，n≤1000）
+            oldest_key = min(cache.items(), key=lambda x: x[1])[0]
+            del cache[oldest_key]
+        cache[dedup_key] = time.time()
 
     async def _extract_message_content(
         self, event: AstrMessageEvent, req: ProviderRequest | None = None
