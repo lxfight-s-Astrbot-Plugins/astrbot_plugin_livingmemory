@@ -891,23 +891,6 @@ class MemoryEngine:
         # 使用数据库层面的排序和分页，避免加载所有数据
         try:
 
-            def _normalize_metadata_and_get_time(doc: dict[str, Any]) -> float:
-                metadata = doc.get("metadata", {})
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except (json.JSONDecodeError, TypeError):
-                        metadata = {}
-                elif not isinstance(metadata, dict):
-                    metadata = {}
-
-                doc["metadata"] = metadata
-                create_time = metadata.get("create_time", 0)
-                try:
-                    return float(create_time)
-                except (TypeError, ValueError):
-                    return 0.0
-
             # 先获取总数判断是否需要分批
             total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={"session_id": session_id}
@@ -923,16 +906,18 @@ class MemoryEngine:
                     limit=limit,
                     offset=0,
                 )
-
-                # 按创建时间排序
+                # 通过线程池批量规范化 metadata（避免大量 json.loads 阻塞事件循环）
+                all_docs = await asyncio.to_thread(
+                    self._normalize_batch_metadata, all_docs
+                )
                 sorted_docs = sorted(
                     all_docs,
-                    key=_normalize_metadata_and_get_time,
+                    key=lambda d: float(
+                        d.get("metadata", {}).get("create_time", 0)
+                    ),
                     reverse=True,
                 )
             else:
-                # 总数大于limit，需要分批加载所有数据进行排序（无法避免）
-                # 但使用合理的批次大小来控制内存
                 all_docs = []
                 batch_size = 500
                 offset = 0
@@ -947,13 +932,17 @@ class MemoryEngine:
                     if not batch:
                         break
 
+                    batch = await asyncio.to_thread(
+                        self._normalize_batch_metadata, batch
+                    )
                     all_docs.extend(batch)
                     offset += batch_size
 
-                # 按创建时间排序并限制数量
                 sorted_docs = sorted(
                     all_docs,
-                    key=_normalize_metadata_and_get_time,
+                    key=lambda d: float(
+                        d.get("metadata", {}).get("create_time", 0)
+                    ),
                     reverse=True,
                 )[:limit]
 
@@ -1093,18 +1082,12 @@ class MemoryEngine:
                 if not batch_docs:
                     break
 
+                batch_docs = await asyncio.to_thread(
+                    self._normalize_batch_metadata, batch_docs
+                )
+
                 for doc in batch_docs:
                     metadata = doc["metadata"]
-                    # 处理 metadata（可能是JSON字符串或字典）
-                    if isinstance(metadata, str):
-                        try:
-                            import json
-
-                            metadata = json.loads(metadata)
-                        except (json.JSONDecodeError, TypeError):
-                            metadata = {}
-                    elif not isinstance(metadata, dict):
-                        metadata = {}
 
                     create_time = metadata.get("create_time", time.time())
                     doc_importance = metadata.get("importance", 0.5)
@@ -1307,19 +1290,13 @@ class MemoryEngine:
                 if not batch_docs:
                     break
 
-                # 处理这批文档
-                for doc in batch_docs:
-                    # 处理 metadata（可能是JSON字符串或字典）
-                    metadata = doc["metadata"]
-                    if isinstance(metadata, str):
-                        try:
-                            import json
+                # 通过线程池批量规范化 metadata（避免大量 json.loads 阻塞事件循环）
+                batch_docs = await asyncio.to_thread(
+                    self._normalize_batch_metadata, batch_docs
+                )
 
-                            metadata = json.loads(metadata)
-                        except (json.JSONDecodeError, TypeError):
-                            metadata = {}
-                    elif not isinstance(metadata, dict):
-                        metadata = {}
+                for doc in batch_docs:
+                    metadata = doc["metadata"]
 
                     # 统计会话（直接使用session_id分组）
                     session_id = metadata.get("session_id")
@@ -1386,3 +1363,21 @@ class MemoryEngine:
                 "newest_memory": None,
                 "graph_memory_enabled": bool(self.graph_store is not None),
             }
+
+    @staticmethod
+    def _normalize_batch_metadata(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Normalize metadata from JSON strings to dicts for a batch of documents.
+
+        Offloaded to thread pool in batch processing paths to avoid blocking
+        the event loop with hundreds of json.loads calls.
+        """
+        for doc in docs:
+            metadata = doc.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    doc["metadata"] = json.loads(metadata)
+                except (json.JSONDecodeError, TypeError):
+                    doc["metadata"] = {}
+            elif not isinstance(metadata, dict):
+                doc["metadata"] = {}
+        return docs
