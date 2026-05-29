@@ -10,6 +10,11 @@ from typing import Any
 class InjectionAdapter:
     """根据 Provider/模型自动选择记忆注入策略的适配层。"""
 
+    # 已废弃的注入方式 → 自动回退到的推荐方式
+    _DEPRECATED_MODES: dict[str, str] = {
+        "system_prompt": "extra_user_content",
+    }
+
     # 降级规则表：按 provider_type / model_name 匹配，执行注入方式降级
     _RULES: list[dict[str, Any]] = [
         {
@@ -32,6 +37,15 @@ class InjectionAdapter:
             - resolved_mode: 实际使用的注入方式
             - fallback_reason: 降级原因描述；未降级时为 None
         """
+        # 检查是否为已废弃的注入方式
+        if configured_mode in self._DEPRECATED_MODES:
+            fallback = self._DEPRECATED_MODES[configured_mode]
+            reason = (
+                f"{configured_mode} 已废弃（严重破坏 LLM 前缀缓存），"
+                f"自动回退至 {fallback}"
+            )
+            return fallback, reason
+
         if configured_mode != "fake_tool_call":
             return configured_mode, None
 

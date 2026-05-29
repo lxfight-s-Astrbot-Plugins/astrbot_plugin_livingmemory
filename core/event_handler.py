@@ -286,7 +286,7 @@ class EventHandler:
 
                     # 根据配置选择注入方式（含 Provider 兼容降级）
                     configured_method = self.config_manager.get(
-                        "recall_engine.injection_method", "system_prompt"
+                        "recall_engine.injection_method", "extra_user_content"
                     )
                     provider = None
                     if configured_method == "fake_tool_call":
@@ -345,12 +345,15 @@ class EventHandler:
                                 f"{len(recalled_memories)} 条记忆"
                             )
                     else:
-                        # system_prompt 注入：记忆追加到末尾，确保人格提示词在前
-                        req.system_prompt = (
-                            (req.system_prompt or "") + "\n" + memory_str
+                        # extra_user_content（推荐）：追加到用户消息末尾，
+                        # 不影响前缀缓存且 mark_as_temp 后不污染对话历史
+                        from astrbot.core.agent.message import TextPart
+                        req.extra_user_content_parts.append(
+                            TextPart(text=memory_str).mark_as_temp()
                         )
                         logger.info(
-                            f"[{session_id}] 成功向 System Prompt 注入 {len(recalled_memories)} 条记忆"
+                            f"[{session_id}] 成功以临时消息方式向用户消息末尾注入 "
+                            f"{len(recalled_memories)} 条记忆"
                         )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
@@ -829,7 +832,7 @@ class EventHandler:
         )
 
         try:
-            # 清理 system_prompt
+            # 清理 system_prompt（兼容旧版本注入残留）
             if hasattr(req, "system_prompt") and req.system_prompt:
                 if isinstance(req.system_prompt, str):
                     original_prompt = req.system_prompt
@@ -849,6 +852,23 @@ class EventHandler:
                                 f"[{session_id}] 从system_prompt中清理记忆片段 "
                                 f"(原长度={len(original_prompt)}, 新长度={len(cleaned_prompt)})"
                             )
+
+            # 清理 extra_user_content_parts（处理 extra_user_content 注入方式）
+            if hasattr(req, "extra_user_content_parts") and req.extra_user_content_parts:
+                kept_parts = []
+                for part in req.extra_user_content_parts:
+                    text = getattr(part, "text", "")
+                    if isinstance(text, str) and (
+                        MEMORY_INJECTION_HEADER in text
+                        and MEMORY_INJECTION_FOOTER in text
+                    ):
+                        removed_count += 1
+                        logger.debug(
+                            f"[{session_id}] 从extra_user_content_parts中清理记忆片段"
+                        )
+                        continue
+                    kept_parts.append(part)
+                req.extra_user_content_parts = kept_parts
 
             # 清理 prompt（处理 user_message_before/after 注入方式）
             if hasattr(req, "prompt") and req.prompt:
