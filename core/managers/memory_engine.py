@@ -104,6 +104,9 @@ class MemoryEngine:
         # 确保数据库目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # 后台任务跟踪
+        self._pending_tasks: set[asyncio.Task] = set()
+
         # 初始化组件(在initialize中完成)
         self.text_processor = None
         self.bm25_retriever = None
@@ -190,10 +193,22 @@ class MemoryEngine:
 
     async def close(self):
         """关闭数据库连接和清理资源"""
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+            self._pending_tasks.clear()
         if self.db_connection:
             await self.db_connection.close()
         if self.graph_vector_db is not None:
             await self.graph_vector_db.close()
+
+    def _create_tracked_task(self, coro) -> None:
+        """Create and track a background task, auto-discarding on completion."""
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     async def _create_tables(self):
         """创建数据库表
@@ -417,7 +432,7 @@ class MemoryEngine:
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
         if session_id and ":" in session_id:
             # 异步触发迁移，不阻塞查询
-            asyncio.create_task(self._migrate_session_data_if_needed(session_id))
+            self._create_tracked_task(self._migrate_session_data_if_needed(session_id))
 
         # 【关键修改】不再提取UUID，直接使用完整的unified_msg_origin进行匹配
         # 因为现在数据库中存储的就是完整格式
@@ -440,7 +455,7 @@ class MemoryEngine:
 
         # 异步更新访问时间(不阻塞返回)
         for result in results:
-            asyncio.create_task(self._update_access_time_internal(result.doc_id))
+            self._create_tracked_task(self._update_access_time_internal(result.doc_id))
 
         return results
 
