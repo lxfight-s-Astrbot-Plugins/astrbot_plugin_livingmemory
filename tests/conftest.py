@@ -401,6 +401,14 @@ except Exception:
     _install_astrbot_stubs()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _init_i18n() -> None:
+    """确保测试运行前 i18n 翻译已加载。"""
+    from astrbot_plugin_livingmemory.core.i18n_backend import init as i18n_init
+
+    i18n_init("zh")
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator:
     """创建事件循环"""
