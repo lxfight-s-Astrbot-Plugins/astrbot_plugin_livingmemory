@@ -189,13 +189,19 @@ class GraphStore:
         edge: GraphEdge,
         node_key_to_id: dict[str, int],
     ) -> int:
-        """Insert or update one graph edge and return its identifier."""
+        """Insert or update one graph edge and return its identifier.
+
+        Uses semantic_edge_key for cross-memory merging:
+        when the same semantic edge already exists (from a different memory),
+        confidence is updated via EMA and weight accumulates evidence.
+        """
         source_node_id = node_key_to_id[edge.source_key]
         target_node_id = node_key_to_id[edge.target_key]
         now = self._now_iso()
         async with self._connect() as db:
+            # Exact key match first (same memory, same edge)
             cursor = await db.execute(
-                "SELECT id FROM graph_edges WHERE edge_key = ?",
+                "SELECT id, confidence, weight FROM graph_edges WHERE edge_key = ?",
                 (edge.edge_key,),
             )
             row = await cursor.fetchone()
@@ -217,6 +223,36 @@ class GraphStore:
                 )
                 await db.commit()
                 return int(row[0])
+
+            # Cross-memory semantic merge: find same relation between same nodes
+            semantic_cursor = await db.execute(
+                """
+                SELECT id, confidence, weight FROM graph_edges
+                WHERE source_node_id = ? AND target_node_id = ?
+                  AND relation_type = ?
+                ORDER BY id ASC LIMIT 1
+                """,
+                (source_node_id, target_node_id, edge.relation_type),
+            )
+            semantic_row = await semantic_cursor.fetchone()
+
+            if semantic_row:
+                existing_id = int(semantic_row[0])
+                old_conf = float(semantic_row[1] or 0.8)
+                old_weight = float(semantic_row[2] or 1.0)
+                # EMA: new confidence contributes 30%
+                merged_confidence = old_conf * 0.7 + edge.confidence * 0.3
+                merged_weight = old_weight + 0.15
+                await db.execute(
+                    """
+                    UPDATE graph_edges
+                    SET confidence = ?, weight = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (merged_confidence, merged_weight, now, existing_id),
+                )
+                await db.commit()
+                return existing_id
 
             cursor = await db.execute(
                 """

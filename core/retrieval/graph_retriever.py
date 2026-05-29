@@ -120,12 +120,31 @@ class GraphRetriever:
             )
             rrf_normalized = item.rrf_score / max_rrf
 
+            # Temporal decay: use atom-level TTL when available
+            atom_ttl = float(metadata.get("ttl_days", 0) or 0)
+            temporal_factor = 1.0
+            decay_type = str(metadata.get("decay_type", ""))
+            if atom_ttl > 0:
+                days_since_access = max(
+                    0.0, (current_time - last_access_time) / 86400.0
+                )
+                effective_ttl = max(1.0, atom_ttl)
+                if decay_type == "linear":
+                    temporal_factor = max(0.0, 1.0 - days_since_access / effective_ttl)
+                elif decay_type == "step":
+                    temporal_factor = 1.0 if days_since_access <= effective_ttl else 0.05
+                else:  # exponential
+                    half_life = effective_ttl / 2.0
+                    temporal_factor = math.exp(
+                        -math.log(2) * days_since_access / max(0.5, half_life)
+                    )
+
             final_score = (
                 self.score_alpha * rrf_normalized
                 + self.score_beta * importance
                 + self.score_gamma * recency_weight
                 + self.score_delta * graph_confidence
-            )
+            ) * temporal_factor
 
             results.append(
                 GraphResult(
@@ -141,6 +160,7 @@ class GraphRetriever:
                         "graph_importance": round(importance, 4),
                         "graph_recency_weight": round(recency_weight, 4),
                         "graph_confidence": round(graph_confidence, 4),
+                        "graph_temporal_factor": round(temporal_factor, 4),
                         "graph_final_score": round(final_score, 4),
                     },
                 )

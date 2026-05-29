@@ -27,11 +27,16 @@ class GraphMemoryManager:
         source_memory_id: int,
         content: str,
         metadata: dict[str, Any] | None,
+        atoms: list | None = None,
     ) -> None:
-        """Rebuild graph artifacts for one source memory."""
+        """Rebuild graph artifacts for one source memory.
+
+        When atoms are provided, each atom independently contributes
+        nodes/edges/entries with per-atom confidence scores.
+        """
         await self.delete_memory(source_memory_id)
 
-        extracted = self.graph_extractor.extract(source_memory_id, content, metadata)
+        extracted = self.graph_extractor.extract(source_memory_id, content, metadata, atoms)
         if not extracted.entries:
             return
 

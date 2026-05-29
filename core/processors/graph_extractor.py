@@ -23,8 +23,24 @@ class GraphExtractor:
         source_memory_id: int,
         content: str,
         metadata: dict[str, Any] | None,
+        atoms: list | None = None,
     ) -> ExtractedGraph:
-        """Build a graph snapshot from one memory document."""
+        """Build a graph snapshot from one memory document.
+
+        When atoms are provided, each atom independently contributes nodes
+        and edges with per-atom confidence scores instead of hardcoded values.
+        """
+        if atoms:
+            return self._extract_from_atoms(source_memory_id, atoms)
+        return self._extract_legacy(source_memory_id, content, metadata)
+
+    def _extract_legacy(
+        self,
+        source_memory_id: int,
+        content: str,
+        metadata: dict[str, Any] | None,
+    ) -> ExtractedGraph:
+        """Original graph extraction from metadata (backward-compatible path)."""
         metadata = metadata or {}
         graph = ExtractedGraph()
 
@@ -47,7 +63,7 @@ class GraphExtractor:
 
         node_map: dict[str, GraphNode] = {}
 
-        def add_node(
+        def _add_node(
             node_type: str, value: str, extra: dict[str, Any] | None = None
         ) -> str:
             canonical_value = EntityResolver.canonicalize(value)
@@ -62,11 +78,11 @@ class GraphExtractor:
             node_map[node.node_key] = node
             return node.node_key
 
-        topic_keys = [add_node("topic", topic) for topic in topics]
+        topic_keys = [_add_node("topic", topic) for topic in topics]
         participant_keys = [
-            add_node("person", participant) for participant in participants
+            _add_node("person", participant) for participant in participants
         ]
-        fact_keys = [add_node("fact", fact, {"summary": summary}) for fact in key_facts]
+        fact_keys = [_add_node("fact", fact, {"summary": summary}) for fact in key_facts]
 
         topic_keys = [item for item in topic_keys if item]
         participant_keys = [item for item in participant_keys if item]
@@ -74,7 +90,7 @@ class GraphExtractor:
 
         graph.nodes.extend(node_map.values())
 
-        def add_entry(
+        def _add_entry(
             entry_type: str,
             content_text: str,
             node_keys: list[str],
@@ -114,7 +130,7 @@ class GraphExtractor:
 
         for fact_key in fact_keys:
             fact_value = node_map[fact_key].value
-            add_entry(
+            _add_entry(
                 "fact",
                 f"Fact: {fact_value}. Summary: {summary}",
                 [fact_key],
@@ -124,7 +140,7 @@ class GraphExtractor:
 
         for topic_key in topic_keys:
             topic_value = node_map[topic_key].value
-            add_entry(
+            _add_entry(
                 "topic",
                 f"Topic: {topic_value}. Summary: {summary}",
                 [topic_key],
@@ -134,7 +150,7 @@ class GraphExtractor:
 
         for person_key in participant_keys:
             person_value = node_map[person_key].value
-            add_entry(
+            _add_entry(
                 "participant",
                 f"Participant: {person_value}. Summary: {summary}",
                 [person_key],
@@ -154,7 +170,7 @@ class GraphExtractor:
                         metadata={"summary": summary},
                     )
                 )
-                add_entry(
+                _add_entry(
                     "edge",
                     (
                         f"Topic {node_map[topic_key].value} describes "
@@ -177,7 +193,7 @@ class GraphExtractor:
                         metadata={"summary": summary},
                     )
                 )
-                add_entry(
+                _add_entry(
                     "edge",
                     (
                         f"Participant {node_map[person_key].value} is linked to "
@@ -200,7 +216,7 @@ class GraphExtractor:
                         metadata={"summary": summary},
                     )
                 )
-                add_entry(
+                _add_entry(
                     "edge",
                     (
                         f"Participant {node_map[first_key].value} co-occurs with "
@@ -212,16 +228,146 @@ class GraphExtractor:
                 )
 
         if not graph.entries and summary:
-            summary_key = add_node("summary", summary)
+            summary_key = _add_node("summary", summary)
             if summary_key:
                 graph.nodes = list(node_map.values())
-                add_entry(
+                _add_entry(
                     "summary",
                     f"Summary: {summary}",
                     [summary_key],
                     relation_type="summary",
                     confidence=0.6,
                 )
+
+        return graph
+
+    def _extract_from_atoms(
+        self,
+        source_memory_id: int,
+        atoms: list,
+    ) -> ExtractedGraph:
+        """Build graph from individual memory atoms with per-atom confidence."""
+        graph = ExtractedGraph()
+        node_map: dict[str, GraphNode] = {}
+
+        def _add_node(
+            node_type: str, value: str, extra: dict[str, Any] | None = None
+        ) -> str:
+            canonical_value = EntityResolver.canonicalize(value)
+            if not canonical_value:
+                return ""
+            node = GraphNode(
+                node_type=node_type,
+                value=value.strip(),
+                canonical_value=canonical_value,
+                metadata=extra or {},
+            )
+            node_map[node.node_key] = node
+            return node.node_key
+
+        for atom in atoms:
+            atom_confidence = float(getattr(atom, "confidence", 0.7))
+            session_id = getattr(atom, "session_id", None)
+            persona_id = getattr(atom, "persona_id", None)
+            entities = getattr(atom, "entities", []) or []
+
+            # Create entity nodes from atom.entities
+            entity_keys: list[str] = []
+            for entity in entities:
+                entity_key = _add_node("topic", entity)
+                if entity_key:
+                    entity_keys.append(entity_key)
+
+            # Create a fact node for the atom content
+            atom_type_str = str(getattr(atom, "atom_type", "unknown"))
+            if hasattr(getattr(atom, "atom_type", None), "value"):
+                atom_type_str = getattr(atom.atom_type, "value") if hasattr(atom, "atom_type") else atom_type_str
+            fact_key = _add_node("fact", atom.content, {"atom_type": atom_type_str})
+            if not fact_key:
+                continue
+
+            # Fact entry with atom's own confidence
+            payload = (
+                f"fact|{source_memory_id}||{fact_key}|{atom.content}"
+            )
+            entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+            entry_metadata = {
+                "source_memory_id": source_memory_id,
+                "session_id": session_id,
+                "persona_id": persona_id,
+                "importance": float(getattr(atom, "importance", 0.5)),
+                "graph_confidence": atom_confidence,
+                "atom_type": str(getattr(atom, "atom_type", "unknown")),
+                "ttl_days": float(getattr(atom, "ttl_days", 30.0)),
+            }
+            graph.entries.append(
+                GraphEntry(
+                    entry_key=entry_key,
+                    source_memory_id=source_memory_id,
+                    session_id=session_id,
+                    persona_id=persona_id,
+                    entry_type="fact",
+                    content=f"Atom: {atom.content}",
+                    metadata=entry_metadata,
+                    node_keys=[fact_key],
+                    relation_type="fact",
+                )
+            )
+
+            # Link entities to the fact with atom confidence
+            for entity_key in entity_keys:
+                edge_confidence = atom_confidence * 0.9
+                graph.edges.append(
+                    GraphEdge(
+                        source_key=entity_key,
+                        target_key=fact_key,
+                        relation_type="describes",
+                        source_memory_id=source_memory_id,
+                        confidence=edge_confidence,
+                        metadata={"atom_content": atom.content},
+                    )
+                )
+                edge_payload = (
+                    f"edge|{source_memory_id}|describes|{entity_key}|{fact_key}|{atom.content}"
+                )
+                edge_entry_key = hashlib.sha1(edge_payload.encode("utf-8")).hexdigest()
+                graph.entries.append(
+                    GraphEntry(
+                        entry_key=edge_entry_key,
+                        source_memory_id=source_memory_id,
+                        session_id=session_id,
+                        persona_id=persona_id,
+                        entry_type="edge",
+                        content=f"Topic {entity_key} relates to fact: {atom.content}",
+                        metadata={**entry_metadata, "graph_confidence": edge_confidence},
+                        node_keys=[entity_key, fact_key],
+                        relation_type="describes",
+                    )
+                )
+
+        graph.nodes = list(node_map.values())
+
+        # Fallback: if atoms produced no entries, create a summary entry
+        if not graph.entries:
+            for atom in atoms:
+                summary_key = _add_node("summary", atom.content)
+                if summary_key:
+                    graph.nodes = list(node_map.values())
+                    payload = f"summary|{source_memory_id}||{summary_key}|{atom.content}"
+                    s_entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+                    graph.entries.append(
+                        GraphEntry(
+                            entry_key=s_entry_key,
+                            source_memory_id=source_memory_id,
+                            session_id=getattr(atom, "session_id", None),
+                            persona_id=getattr(atom, "persona_id", None),
+                            entry_type="summary",
+                            content=f"Atom: {atom.content}",
+                            metadata={"graph_confidence": float(getattr(atom, "confidence", 0.6))},
+                            node_keys=[summary_key],
+                            relation_type="summary",
+                        )
+                    )
 
         return graph
 
