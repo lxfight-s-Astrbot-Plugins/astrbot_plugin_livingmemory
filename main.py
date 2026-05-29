@@ -155,11 +155,11 @@ class LivingMemoryPlugin(Star):
             if self.command_handler:
                 self.command_handler.webui_server = self.webui_server
 
-            self._register_llm_tools_if_needed()
+            self._register_agent_tools_if_needed()
 
         return True
 
-    def _register_llm_tools_if_needed(self) -> None:
+    def _register_agent_tools_if_needed(self) -> None:
         """在核心组件就绪后注册 LLM 工具。"""
         if self._llm_tools_registered:
             return

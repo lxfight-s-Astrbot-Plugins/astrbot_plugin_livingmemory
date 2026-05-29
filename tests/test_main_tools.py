@@ -18,8 +18,8 @@ def test_register_llm_tools_is_idempotent():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_called_once()
     tools = plugin.context.add_llm_tools.call_args.args
@@ -42,7 +42,7 @@ def test_register_llm_tools_defaults_only_recall():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_called_once()
     tools = plugin.context.add_llm_tools.call_args.args
@@ -60,7 +60,7 @@ def test_register_llm_tools_no_memory_engine():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_not_called()
     assert plugin._llm_tools_registered is False
@@ -75,7 +75,7 @@ def test_register_llm_tools_no_memory_processor():
     plugin.initializer.memory_processor = None
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_not_called()
     assert plugin._llm_tools_registered is False
@@ -92,7 +92,7 @@ def test_register_llm_tools_respects_recall_tool_disabled():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_called_once()
     tools = plugin.context.add_llm_tools.call_args.args
@@ -112,7 +112,7 @@ def test_register_llm_tools_respects_memorize_tool_disabled():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_called_once()
     tools = plugin.context.add_llm_tools.call_args.args
@@ -132,7 +132,7 @@ def test_register_llm_tools_respects_all_tools_disabled():
     plugin.initializer.memory_processor = Mock()
     plugin._llm_tools_registered = False
 
-    plugin._register_llm_tools_if_needed()
+    plugin._register_agent_tools_if_needed()
 
     plugin.context.add_llm_tools.assert_not_called()
     assert plugin._llm_tools_registered is True
