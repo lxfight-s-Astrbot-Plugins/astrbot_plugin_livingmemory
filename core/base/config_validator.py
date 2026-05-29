@@ -51,8 +51,16 @@ class RecallEngineConfig(BaseModel):
     )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
     injection_method: str = Field(
-        default="user_message_before",
-        description="记忆注入方式: system_prompt(系统提示), user_message_before(用户消息前), user_message_after(用户消息后), fake_tool_call(伪造工具调用), fake_tool_call_deepseek_v4(DeepSeek V4兼容伪工具转录)",
+        default="extra_user_content",
+        description=(
+            "记忆注入方式: "
+            "extra_user_content(推荐，临时消息追加到用户消息末尾，不影响前缀缓存且不污染对话历史), "
+            "user_message_before(用户消息前), "
+            "user_message_after(用户消息后), "
+            "fake_tool_call(伪造工具调用), "
+            "fake_tool_call_deepseek_v4(DeepSeek V4兼容伪工具转录), "
+            "system_prompt(已废弃，自动回退至extra_user_content)"
+        ),
     )
     auto_remove_injected: bool = Field(
         default=True, description="是否自动删除对话历史中已注入的记忆片段"

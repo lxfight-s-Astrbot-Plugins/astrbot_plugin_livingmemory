@@ -94,15 +94,16 @@
       },
       "injection_method": {
         "description": "记忆注入位置",
-        "hint": "记忆注入到 LLM 请求的位置。user_message_before：作为用户消息前缀；system_prompt：追加到系统提示词；user_message_after：作为用户消息后缀；fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。Gemini 下若选择 fake_tool_call 会自动降级为 user_message_before；DeepSeek V4 thinking 模式请手动选择 fake_tool_call_deepseek_v4。",
+        "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾，不影响前缀缓存，且标记为临时消息不保存到对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：DeepSeek V4 thinking 模式专用伪工具转录。Gemini 下若选择 fake_tool_call 会自动降级为 user_message_before。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
         "type": "string",
-        "default": "user_message_before",
+        "default": "extra_user_content",
         "options": [
+          "extra_user_content",
           "user_message_before",
-          "system_prompt",
           "user_message_after",
           "fake_tool_call",
-          "fake_tool_call_deepseek_v4"
+          "fake_tool_call_deepseek_v4",
+          "system_prompt"
         ]
       },
       "auto_remove_injected": {
