@@ -24,35 +24,29 @@ astrbot_plugin_livingmemory/
 │   ├── tools/                      # Инструменты Agent/LLM
 │   │
 │   ├── base/                        # Базовый компонентный слой
-│   │   ├── __init__.py
-│   │   ├── exceptions.py            # Определения исключений
+│   │   │   ├── exceptions.py            # Определения исключений
 │   │   ├── constants.py             # Определения констант
 │   │   ├── config_manager.py        # Менеджер конфигурации
 │   │   └── config_validator.py      # Валидатор конфигурации
 │   │
 │   ├── models/                      # Слой моделей данных
-│   │   ├── __init__.py
-│   │   └── conversation_models.py   # Модели данных разговоров
+│   │   │   └── conversation_models.py   # Модели данных разговоров
 │   │
 │   ├── managers/                    # Слой менеджеров
-│   │   ├── __init__.py
-│   │   ├── conversation_manager.py  # Менеджер разговоров
+│   │   │   ├── conversation_manager.py  # Менеджер разговоров
 │   │   └── memory_engine.py         # Движок памяти
 │   │
 │   ├── processors/                  # Слой обработчиков
-│   │   ├── __init__.py
-│   │   ├── memory_processor.py      # Обработчик памяти
+│   │   │   ├── memory_processor.py      # Обработчик памяти
 │   │   ├── text_processor.py        # Обработчик текста
 │   │   ├── chatroom_parser.py       # Парсер чат-комнаты
 │   │   └── message_utils.py         # Утилиты сообщений
 │   │
 │   ├── validators/                  # Слой валидаторов
-│   │   ├── __init__.py
-│   │   └── index_validator.py       # Валидатор индексов
+│   │   │   └── index_validator.py       # Валидатор индексов
 │   │
 │   ├── retrieval/                   # Слой системы поиска
-│   │   ├── __init__.py
-│   │   ├── dual_route_retriever.py  # Двухпутевая фьюжн-дорога документов/графов
+│   │   │   ├── dual_route_retriever.py  # Двухпутевая фьюжн-дорога документов/графов
 │   │   ├── hybrid_retriever.py      # Гибридный поиск по документному пути
 │   │   ├── bm25_retriever.py        # BM25-поиск
 │   │   ├── vector_retriever.py      # Векторный поиск
@@ -62,27 +56,22 @@ astrbot_plugin_livingmemory/
 │   │   └── rrf_fusion.py            # Алгоритм слияния RRF
 │   │
 │   ├── utils/                       # Слой утилит
-│   │   ├── __init__.py
-│   │   ├── stopwords_manager.py     # Менеджер стоп-слов
+│   │   │   ├── stopwords_manager.py     # Менеджер стоп-слов
 │   │   └── (FakeToolCallFormatter)   # Форматировщик поддельных вызовов инструментов
 │   │
 │   ├── tools/                       # Слой инструментов Agent
-│   │   ├── __init__.py
-│   │   └── memory_search_tool.py    # Инструмент проактивного поиска долгосрочной памяти
+│   │   │   └── memory_search_tool.py    # Инструмент проактивного поиска долгосрочной памяти
 │   │
 │   └── prompts/                     # Шаблоны промптов
 │       ├── private_chat_prompt.txt
 │       └── group_chat_prompt.txt
 │
 ├── storage/                         # Слой хранения
-│   ├── __init__.py
 │   ├── conversation_store.py       # Хранилище разговоров
 │   ├── db_migration.py             # Миграция базы данных
 │   └── backup_manager.py           # Менеджер регулярного автобэкапа
 │
 ├── webui/                           # Веб-интерфейс управления
-│   ├── __init__.py
-│   ├── server.py                    # FastAPI-сервер
 │   └── README.md
 │
 ├── static/                          # Статические ресурсы

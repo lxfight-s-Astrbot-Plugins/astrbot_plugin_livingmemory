@@ -49,34 +49,14 @@ Configure the plugin from the AstrBot plugin configuration page.
 - `fake_tool_call` automatically falls back to `user_message_before` for Gemini providers to avoid tool-message protocol incompatibility.
 - For DeepSeek V4 `thinking` mode, select `fake_tool_call_deepseek_v4` manually if you need fake-tool-call semantics.
 
-**WebUI settings**:
-```json
-{
-  "webui_settings": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 8080,
-    "access_password": "your_password"
-  }
-}
-```
-
 ### AstrBot Version Requirement
 
 - The **AstrBot official plugin Pages dashboard** requires **AstrBot >= 4.24.2**.
-- The legacy standalone WebUI compatibility entry does not depend on plugin Pages and can still be opened through `/lmem webui`.
 
 ### Management Entry
 
-Recommended entry:
-
 1. Open the AstrBot official WebUI.
 2. Go to `Plugins -> LivingMemory -> Pages -> dashboard`.
-
-Compatibility entry:
-
-- Run `/lmem webui`.
-- If the legacy standalone WebUI is enabled, open the returned URL.
 
 ---
 
@@ -113,8 +93,7 @@ astrbot_plugin_livingmemory/
 │   ├── event_handler.py             # Event handler
 │   └── command_handler.py           # Command handler
 ├── storage/                         # Storage layer
-├── pages/                           # AstrBot official plugin Pages assets
-├── webui/                           # Legacy standalone WebUI compatibility entry
+├── pages/dashboard/                 # AstrBot official plugin Pages assets
 ├── tests/                           # Test suite
 └── docs/                            # Documentation
 ```

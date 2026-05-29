@@ -82,9 +82,7 @@ astrbot_plugin_livingmemory/
 │   ├── conversation_store.py       # Хранилище разговоров
 │   ├── db_migration.py             # Миграция базы данных
 │   └── backup_manager.py           # Менеджер регулярного автобэкапа
-├── webui/                          # Веб-интерфейс управления
-│   └── server.py                   # FastAPI-сервер
-├── static/                         # Статические ресурсы
+├── pages/dashboard/                # Официальная страница плагина AstrBot
 │   ├── index.html
 │   ├── styles.css
 │   ├── app.js
@@ -541,7 +539,7 @@ Closes #123
 ### В: Как добавить новый язык в WebUI?
 
 О:
-1. Добавить новый языковой словарь в объект `TRANSLATIONS` в `static/i18n.js`
+1. Добавить новый языковой словарь в объект `TRANSLATIONS` в `pages/dashboard/i18n.js`
 2. Убедиться, что все ключи `data-i18n` имеют соответствующие переводы
 3. Добавить новый пункт в `<select>` в HTML
 4. Протестировать логику автоматического определения (`navigator.language`) и ручного переключения

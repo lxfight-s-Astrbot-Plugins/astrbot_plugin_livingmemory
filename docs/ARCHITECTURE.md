@@ -89,12 +89,7 @@ astrbot_plugin_livingmemory/
 │   ├── atom_store.py                # 原子存储（FTS + 生命周期）
 │   └── db_migration.py              # 数据库迁移
 │
-├── webui/                           # Web管理界面
-│   ├── __init__.py
-│   ├── server.py                    # FastAPI服务器
-│   └── README.md
-│
-├── static/                          # 静态资源
+├── pages/dashboard/                 # AstrBot 官方插件页面
 │   ├── index.html
 │   ├── styles.css
 │   ├── app.js
@@ -470,7 +465,6 @@ from ..processors import TextProcessor
 ### v2.2.11
 
 - **AstrBot 官方插件 Pages**: 支持从 AstrBot 官方 WebUI 插件页直接进入 `dashboard`
-- **旧版 WebUI 兼容**: 保留旧版独立 WebUI 兼容入口，并恢复兼容提示与访问地址文案
 - **top_k=0 召回安全性**: 修复关闭召回时私聊消息的存储优先级
 - **记忆注入格式兼容**: 同时兼容英文提示模板与既有中文记忆条目标识
 

@@ -84,9 +84,7 @@ astrbot_plugin_livingmemory/
 │   └── backup_manager.py           # 定时自动备份管理器
 ├── pages/                           # AstrBot 官方插件 Pages 资源
 │   └── dashboard/                   # 官方插件页 dashboard
-├── webui/                           # 旧版独立 WebUI（兼容入口）
-│   └── server.py                    # FastAPI服务器
-├── static/                          # 旧版独立 WebUI 静态资源
+├── pages/dashboard/                 # AstrBot 官方插件页面
 │   ├── index.html
 │   ├── styles.css
 │   ├── app.js
@@ -122,7 +120,6 @@ astrbot_plugin_livingmemory/
 - 不要假设 `window.location.origin` 可用；sandbox iframe 可能返回 opaque origin
 - 不要裸用 `localStorage` / `sessionStorage`；必须容错处理 `SecurityError`
 - 后端路由通过 `context.register_web_api()` 注册，路由必须带插件名前缀
-- 旧版独立 WebUI 资源仍保留在 `webui/` 与 `static/`，用于兼容历史访问方式
 
 ---
 
@@ -553,7 +550,7 @@ A:
 ### Q: 如何为 WebUI 添加新的语言？
 
 A:
-1. 在 `static/i18n.js` 的 `TRANSLATIONS` 对象中添加新语言字典
+1. 在 `pages/dashboard/i18n.js` 的 `TRANSLATIONS` 对象中添加新语言字典
 2. 确保所有 `data-i18n` 键都有对应翻译
 3. 在 HTML 的 `<select>` 中添加新选项
 4. 测试自动检测逻辑（`navigator.language`）和手动切换

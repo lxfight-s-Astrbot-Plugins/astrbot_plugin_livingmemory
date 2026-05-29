@@ -82,9 +82,7 @@ astrbot_plugin_livingmemory/
 │   ├── conversation_store.py       # Conversation storage
 │   ├── db_migration.py             # Database migration
 │   └── backup_manager.py           # Scheduled auto-backup manager
-├── webui/                          # Web management interface
-│   └── server.py                   # FastAPI server
-├── static/                         # Static resources
+├── pages/dashboard/                # AstrBot official plugin Pages
 │   ├── index.html
 │   ├── styles.css
 │   ├── app.js
@@ -541,7 +539,7 @@ A:
 ### Q: How to add a new language to the WebUI?
 
 A:
-1. Add a new language dictionary to the `TRANSLATIONS` object in `static/i18n.js`
+1. Add a new language dictionary to the `TRANSLATIONS` object in `pages/dashboard/i18n.js`
 2. Ensure all `data-i18n` keys have corresponding translations
 3. Add a new option to the `<select>` in HTML
 4. Test auto-detection logic (`navigator.language`) and manual switching

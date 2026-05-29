@@ -51,17 +51,7 @@
 - `embedding_provider_id`: 向量嵌入模型 ID（留空使用默认）
 - `llm_provider_id`: 大语言模型 ID（留空使用默认）
 
-**WebUI 配置**:
-```json
-{
-  "webui_settings": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 8080,
-    "access_password": "your_password"
-  }
-}
-```
+管理界面通过 AstrBot 官方插件页面（插件 → LivingMemory → Pages → dashboard）访问，无需额外配置。
 
 ---
 

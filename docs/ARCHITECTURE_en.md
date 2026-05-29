@@ -80,12 +80,7 @@ astrbot_plugin_livingmemory/
 │   ├── db_migration.py             # Database migration
 │   └── backup_manager.py           # Scheduled auto-backup manager
 │
-├── webui/                           # Web management interface
-│   ├── __init__.py
-│   ├── server.py                    # FastAPI server
-│   └── README.md
-│
-├── static/                          # Static resources
+├── pages/dashboard/                 # AstrBot official plugin Pages
 │   ├── index.html
 │   ├── styles.css
 │   ├── app.js
@@ -461,7 +456,6 @@ from ..processors import TextProcessor
 ### v2.2.11
 
 - **AstrBot Official Plugin Pages**: Added support for opening `dashboard` directly from the AstrBot official WebUI plugin page.
-- **Legacy WebUI Compatibility**: Kept the legacy standalone WebUI entry and restored compatibility messaging and access URL hints.
 - **top_k=0 Recall Safety**: Fixed private-chat message storage priority when recall is disabled.
 - **Injection Format Compatibility**: Kept the memory injection format compatible with both the English prompt template and legacy Chinese entry labels.
 

@@ -120,7 +120,6 @@ llm_id = config.get("provider_settings.llm_provider_id", "default_llm")
 #### 属性
 
 - `provider_settings: dict` - Provider设置
-- `webui_settings: dict` - WebUI设置
 - `session_manager: dict` - 会话管理器配置
 - `recall_engine: dict` - 召回引擎配置
 - `reflection_engine: dict` - 反思引擎配置
@@ -481,13 +480,6 @@ except DatabaseError as e:
   "provider_settings": {
     "embedding_provider_id": "openai_embedding",
     "llm_provider_id": "openai_gpt4"
-  },
-  "webui_settings": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 8080,
-    "access_password": "your_password",
-    "session_timeout": 3600
   },
   "session_manager": {
     "max_sessions": 100,

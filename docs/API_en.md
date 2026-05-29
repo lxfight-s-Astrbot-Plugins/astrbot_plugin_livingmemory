@@ -120,7 +120,6 @@ Get all configuration.
 #### Properties
 
 - `provider_settings: dict` - Provider settings
-- `webui_settings: dict` - WebUI settings
 - `session_manager: dict` - Session manager configuration
 - `recall_engine: dict` - Recall engine configuration
 - `reflection_engine: dict` - Reflection engine configuration
@@ -481,13 +480,6 @@ except DatabaseError as e:
   "provider_settings": {
     "embedding_provider_id": "openai_embedding",
     "llm_provider_id": "openai_gpt4"
-  },
-  "webui_settings": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 8080,
-    "access_password": "your_password",
-    "session_timeout": 3600
   },
   "session_manager": {
     "max_sessions": 100,

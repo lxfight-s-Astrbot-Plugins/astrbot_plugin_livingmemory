@@ -120,7 +120,6 @@ llm_id = config.get("provider_settings.llm_provider_id", "default_llm")
 #### Свойства
 
 - `provider_settings: dict` — Настройки провайдера
-- `webui_settings: dict` — Настройки WebUI
 - `session_manager: dict` — Конфигурация менеджера сессий
 - `recall_engine: dict` — Конфигурация движка восстановления памяти
 - `reflection_engine: dict` — Конфигурация движка рефлексии
@@ -481,13 +480,6 @@ except DatabaseError as e:
   "provider_settings": {
     "embedding_provider_id": "openai_embedding",
     "llm_provider_id": "openai_gpt4"
-  },
-  "webui_settings": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 8080,
-    "access_password": "your_password",
-    "session_timeout": 3600
   },
   "session_manager": {
     "max_sessions": 100,
