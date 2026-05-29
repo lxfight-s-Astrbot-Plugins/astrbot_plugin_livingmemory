@@ -242,13 +242,17 @@ class HybridRetriever:
         if not fused_results:
             return []
 
-        # 4. 应用加权
+        # 4. 应用加权（通过线程池卸载 CPU 密集型 json.loads + 循环）
         current_time = time.time()
-        weighted_results = self._apply_weighting(fused_results, current_time)
+        weighted_results = await asyncio.to_thread(
+            self._apply_weighting, fused_results, current_time
+        )
 
-        # 5. MMR 去重：在保证相关性的同时提升结果多样性
+        # 5. MMR 去重（通过线程池卸载 O(k*n) Jaccard 集合运算）
         if len(weighted_results) > 1:
-            weighted_results = self._apply_mmr(weighted_results, k)
+            weighted_results = await asyncio.to_thread(
+                self._apply_mmr, weighted_results, k
+            )
 
         return weighted_results
 
