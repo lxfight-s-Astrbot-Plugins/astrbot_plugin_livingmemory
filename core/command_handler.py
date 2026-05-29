@@ -411,6 +411,13 @@ class CommandHandler:
                 persona_id=persona_id,
             )
 
+            atoms = self._memory_processor.classify_atoms_from_metadata(
+                metadata=metadata,
+                parent_importance=importance,
+                session_id=session_id,
+                persona_id=persona_id,
+            )
+
             metadata["source_window"] = {
                 "session_id": session_id,
                 "start_index": last_summarized_index,
@@ -425,6 +432,7 @@ class CommandHandler:
                 persona_id=persona_id,
                 importance=importance,
                 metadata=metadata,
+                atoms=atoms,
             )
 
             await self.conversation_manager.update_session_metadata(

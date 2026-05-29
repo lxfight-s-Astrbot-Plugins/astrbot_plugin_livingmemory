@@ -688,6 +688,13 @@ class EventHandler:
                         persona_id=persona_id,
                     )
 
+                    atoms = self.memory_processor.classify_atoms_from_metadata(
+                        metadata=metadata,
+                        parent_importance=importance,
+                        session_id=session_id,
+                        persona_id=persona_id,
+                    )
+
                     # 补充 source_window 元数据，记录本次总结的消息范围
                     metadata["source_window"] = {
                         "session_id": session_id,
@@ -721,6 +728,7 @@ class EventHandler:
                         persona_id=persona_id,
                         importance=importance,
                         metadata=metadata,
+                        atoms=atoms,
                     )
 
                     logger.info(

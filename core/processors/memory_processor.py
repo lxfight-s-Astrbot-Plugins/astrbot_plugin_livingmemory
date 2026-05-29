@@ -13,6 +13,8 @@ from typing import Any
 from astrbot.api import logger
 
 from ..models.conversation_models import Message
+from ..models.memory_atom import MemoryAtom
+from .atom_classifier import classify_atoms
 
 
 class MemoryProcessor:
@@ -819,3 +821,31 @@ class MemoryProcessor:
             return "low"
 
         return "normal"
+
+    def classify_atoms_from_metadata(
+        self,
+        metadata: dict[str, Any],
+        parent_importance: float = 0.5,
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[MemoryAtom]:
+        """Generate time-aware memory atoms from key_facts in metadata.
+
+        This is a post-processing step after process_conversation().
+        It does NOT make additional LLM calls — classification is rule-based.
+        """
+        if not self.config.get("atom_enabled", True):
+            return []
+        key_facts: list[str] = metadata.get("key_facts", [])
+        if not key_facts:
+            return []
+        topics = metadata.get("topics", [])
+        participants = metadata.get("participants", [])
+        return classify_atoms(
+            key_facts=key_facts,
+            topics=topics,
+            participants=participants,
+            parent_importance=parent_importance,
+            session_id=session_id,
+            persona_id=persona_id,
+        )
