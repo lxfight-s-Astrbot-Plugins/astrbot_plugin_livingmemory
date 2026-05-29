@@ -49,7 +49,7 @@ if _parse_version(_CURRENT_ASTRBOT_VERSION) < _parse_version(_MIN_ASTRBOT_VERSIO
     "LivingMemory",
     "lxfight",
     "An intelligent long-term memory plugin with a dynamic lifecycle for AstrBot.",
-    "2.3.0",
+    "2.3.1",
     "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
 )
 class LivingMemoryPlugin(Star):

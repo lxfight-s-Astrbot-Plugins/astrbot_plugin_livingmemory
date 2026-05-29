@@ -6,7 +6,7 @@
 
 # LivingMemory Developer Guide
 
-**Version**: v2.2.11
+**Version**: v2.3.1
 **Last Updated**: 2026-05-06
 
 ---
@@ -563,5 +563,5 @@ A:
 
 ---
 
-**Document Version**: v2.2.11
+**Document Version**: v2.3.1
 **Last Updated**: 2026-05-06

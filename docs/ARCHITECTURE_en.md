@@ -6,7 +6,7 @@
 
 # LivingMemory Architecture Documentation
 
-**Version**: v2.3.0
+**Version**: v2.3.1
 **Last Updated**: 2026-05-29
 
 ---

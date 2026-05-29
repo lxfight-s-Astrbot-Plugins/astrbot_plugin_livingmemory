@@ -7,6 +7,40 @@
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-05-30
+
+### 新增
+- **记忆注入方式 `extra_user_content`**: 将记忆追加到用户消息末尾（`mark_as_temp` 不污染对话历史），不影响前缀缓存，推荐作为默认方式
+- **system_prompt 注入方式废弃**: 配置为 `system_prompt` 时自动回退至 `extra_user_content`（`InjectionAdapter` 废弃模式降级），保留配置项但标注 ⚠️已废弃
+- **Agent 主动记忆写入工具** (`memorize_long_term_memory`): Agent 可主动调用写入长期记忆，通过 `agent_tools.enable_memorize_tool` 配置开关控制（默认关闭）
+- **Agent 工具配置组** (`agent_tools`): 新增 `enable_recall_tool` 和 `enable_memorize_tool` 两个独立开关
+- **两步确认删除**: dashboard 删除选中记忆改为两步确认（点击→按钮变为「确认删除 X 条?」→再次点击执行），替代被 AstrBot 插件页面拦截的 `window.confirm`
+
+### 修复
+- 修复 `MemoryProcessor.__init__` 参数名 `llm_provider_id` → `llm_provider`，兼容传入 provider 实例和 ID 字符串两种调用方式
+- 修复 `test_tokenize_removes_common_stopwords` 在 jieba 未安装时的不稳定行为
+
+### 优化
+- **7 项异步性能优化**:
+  - 记忆注入清理正则提到模块级常量（避免每次调用 `re.compile`）
+  - 去重缓存改为惰性过期 + 超限逐条淘汰（消除 `sorted()` 排序开销）
+  - 版本备份延迟到异步初始化阶段（通过 `asyncio.to_thread` 避免 `__init__` 中同步 I/O 阻塞）
+  - jieba 分词通过 `tokenize_async()` 卸载到线程池
+  - `hybrid_retriever` MMR 和 weighting 卸载到线程池
+  - `memory_engine` 批处理 `json.loads` 通过 `_normalize_batch_metadata` + 线程池批量规范化
+  - `_remove_fake_tool_call_from_context` 两轮扫描合并为单轮
+- `InjectionAdapter` 新增 `_DEPRECATED_MODES` 映射，废弃模式统一降级
+
+### 文档
+- 更新 CHANGELOG v2.3.1 条目
+- 更新所有文档版本号为 v2.3.1（API、ARCHITECTURE、DEVELOPMENT 中/英/俄）
+
+### 测试
+- 新增 17 个测试: hybrid_retriever 元数据多样性 + 删除回滚 (6)、memory_engine 更新回滚 + 分批 + 批量删除 (5)、event_handler 上下文扩展 + 重试逻辑 (4)、text_processor add_custom_words (3)
+- 测试总数: 298 → 332，覆盖率: 69% → 70%
+- 注入方式相关测试: 新增 `extra_user_content` 和 `system_prompt` 自动回退测试
+- 修复 24 个因参数签名不匹配导致的测试失败
+
 ## [2.3.0] - 2026-05-29
 
 ### 新增
