@@ -434,7 +434,7 @@ class CommandHandler:
                 session_id, "pending_summary", None
             )
 
-            topics = ", ".join(metadata.get("topics", [])) or "无"
+            topics = ", ".join(metadata.get("topics", [])) or t("common.none")
             yield event.plain_result(
                 t(
                     "summarize.success",

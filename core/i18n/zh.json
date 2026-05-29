@@ -2,6 +2,7 @@
   "common": {
     "yes": "是",
     "no": "否",
+    "none": "无",
     "never": "从未",
     "unknown_error": "未知错误"
   },

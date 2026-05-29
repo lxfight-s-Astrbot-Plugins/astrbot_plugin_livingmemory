@@ -2,6 +2,7 @@
   "common": {
     "yes": "Yes",
     "no": "No",
+    "none": "None",
     "never": "Never",
     "unknown_error": "Unknown error"
   },
