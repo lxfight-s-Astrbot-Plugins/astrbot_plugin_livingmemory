@@ -729,15 +729,37 @@ class EventHandler:
 
                 # 成功：更新已总结的位置，清除待处理记录
                 if self.conversation_manager:
-                    await self.conversation_manager.update_session_metadata(
-                        session_id, "last_summarized_index", end_index
-                    )
-                    await self.conversation_manager.update_session_metadata(
-                        session_id, "pending_summary", None
-                    )
-                    logger.info(
-                        f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
-                    )
+                    try:
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "last_summarized_index", end_index
+                        )
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "pending_summary", None
+                        )
+                        logger.info(
+                            f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
+                        )
+                    except Exception as meta_err:
+                        logger.error(
+                            f"[{session_id}] 记忆已存储但元数据更新失败: {meta_err}。"
+                            "下次触发时将跳过本段消息，避免重复总结。",
+                            exc_info=True,
+                        )
+                        # Advance the index anyway to prevent re-processing the
+                        # same message range (memory is already stored durably).
+                        try:
+                            await self.conversation_manager.update_session_metadata(
+                                session_id, "last_summarized_index", end_index
+                            )
+                            await self.conversation_manager.update_session_metadata(
+                                session_id, "pending_summary", None
+                            )
+                        except Exception:
+                            logger.error(
+                                f"[{session_id}] 重试元数据更新仍然失败，"
+                                "可能出现重复总结。",
+                                exc_info=True,
+                            )
 
             except Exception as e:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
@@ -1159,15 +1181,6 @@ class EventHandler:
             return ""
 
         return raw_message.strip()
-
-    async def _update_message_metadata(self, message):
-        """更新消息的metadata到数据库"""
-        if not self.conversation_manager or not self.conversation_manager.store:
-            return
-
-        await self.conversation_manager.store.update_message_metadata(
-            message.id, message.metadata
-        )
 
     async def _enforce_message_limit(self, session_id: str):
         """执行消息数量上限控制，只删除已被总结的消息"""
