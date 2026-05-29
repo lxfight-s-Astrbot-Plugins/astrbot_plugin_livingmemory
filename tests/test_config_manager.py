@@ -63,12 +63,12 @@ def test_config_manager_graph_memory_property() -> None:
         {
             "graph_memory": {
                 "enabled": False,
-                "graph_route_weight": 0.45,
+                "graph_route_weight": 0.35,
             }
         }
     )
 
     assert isinstance(manager.graph_memory, dict)
     assert manager.graph_memory["enabled"] is False
-    assert manager.get("graph_memory.graph_route_weight") == 0.45
+    assert manager.get("graph_memory.graph_route_weight") == 0.35
     assert manager.get("graph_memory.document_route_weight") == 0.65

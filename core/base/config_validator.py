@@ -170,11 +170,14 @@ class GraphMemoryConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_route_weights(self):
-        """Keep route weights numerically stable."""
+        """Normalize route weights to sum to 1.0 for numerically stable fusion."""
         total = self.document_route_weight + self.graph_route_weight
         if total <= 0:
             self.document_route_weight = 0.65
             self.graph_route_weight = 0.35
+        elif total != 1.0:
+            self.document_route_weight = self.document_route_weight / total
+            self.graph_route_weight = self.graph_route_weight / total
         return self
 
 
