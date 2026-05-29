@@ -687,3 +687,268 @@ async def test_hybrid_retriever_fallback_disabled_raises_on_both_fail():
     # 但两路都失败后 bm25_results=None, vector_results=None → 返回 []
     results = await retriever.search("query", k=2)
     assert results == []
+
+
+# ==================== 元数据格式多样性测试 ====================
+
+
+def test_weighting_metadata_json_string():
+    """_apply_weighting 应正确解析 JSON 字符串格式的 metadata。"""
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
+
+    now = time.time()
+    fused = [
+        FusedResult(
+            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
+            content="test", metadata='{"importance":0.8}',
+        ),
+    ]
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01, "importance_weight": 1.0, "fallback_enabled": True},
+    )
+    results = retriever._apply_weighting(fused, now)
+    assert len(results) == 1
+    assert results[0].metadata == {"importance": 0.8}
+
+
+def test_weighting_metadata_none():
+    """_apply_weighting 应对 None metadata 回退到空字典。"""
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
+
+    now = time.time()
+    fused = [
+        FusedResult(
+            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
+            content="test", metadata=None,
+        ),
+    ]
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01, "importance_weight": 1.0, "fallback_enabled": True},
+    )
+    results = retriever._apply_weighting(fused, now)
+    assert len(results) == 1
+    assert results[0].metadata == {}
+    # 默认 importance 应为 0.5
+    breakdown = results[0].score_breakdown
+    assert breakdown["importance"] == 0.5
+
+
+def test_weighting_metadata_corrupted():
+    """_apply_weighting 应对损坏/非 dict 的 metadata 回退到空字典。"""
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
+
+    now = time.time()
+    fused = [
+        FusedResult(
+            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
+            content="test", metadata="not-valid-json",
+        ),
+    ]
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01, "importance_weight": 1.0, "fallback_enabled": True},
+    )
+    results = retriever._apply_weighting(fused, now)
+    assert len(results) == 1
+    assert results[0].metadata == {}
+
+
+# ==================== 删除回滚测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_vector_fails_triggers_rollback():
+    """向量删除返回 False 时应触发 BM25 回滚恢复。"""
+    from unittest.mock import AsyncMock, Mock
+
+    class _BM25WithDelete:
+        def __init__(self):
+            self.delete_document = AsyncMock(return_value=True)
+            self.update_document = AsyncMock(return_value=True)
+            self._connect_mock = Mock()
+            self._connect_mock.__aenter__ = AsyncMock(return_value=Mock())
+            self._connect_mock.__aexit__ = AsyncMock(return_value=None)
+            self._connect = lambda: self._connect_mock
+
+    class _VectorFails:
+        async def search(self, *args, **kwargs):
+            return []
+        async def delete_document(self, doc_id):
+            return False
+        async def update_metadata(self, doc_id, metadata):
+            return True
+
+    bm25 = _BM25WithDelete()
+    vector = _VectorFails()
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, bm25),
+        vector_retriever=cast(VectorRetriever, vector),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+
+    # 在 documents 表中准备一条记录供备份查询
+    async with aiosqlite.connect(":memory:") as db:
+        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
+        await db.commit()
+        bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
+        bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
+
+        result = await retriever.delete_memory(1)
+
+    assert result is False
+    # BM25 回滚应被调用
+    bm25.update_document.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_vector_raises_triggers_rollback():
+    """向量删除抛出异常时应触发 BM25 回滚恢复。"""
+    from unittest.mock import AsyncMock, Mock
+
+    class _BM25WithDelete:
+        def __init__(self):
+            self.delete_document = AsyncMock(return_value=True)
+            self.update_document = AsyncMock(return_value=True)
+            self._connect_mock = Mock()
+            self._connect_mock.__aenter__ = AsyncMock(return_value=Mock())
+            self._connect_mock.__aexit__ = AsyncMock(return_value=None)
+            self._connect = lambda: self._connect_mock
+
+    class _VectorRaises:
+        async def search(self, *args, **kwargs):
+            return []
+        async def delete_document(self, doc_id):
+            raise RuntimeError("vector store unavailable")
+        async def update_metadata(self, doc_id, metadata):
+            return True
+
+    bm25 = _BM25WithDelete()
+    vector = _VectorRaises()
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, bm25),
+        vector_retriever=cast(VectorRetriever, vector),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+
+    async with aiosqlite.connect(":memory:") as db:
+        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
+        await db.commit()
+        bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
+        bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
+
+        result = await retriever.delete_memory(1)
+
+    assert result is False
+    bm25.update_document.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_bm25_fails_no_rollback_needed():
+    """BM25 删除失败时无需回滚（尚未删除任何东西），直接返回 False。"""
+    from unittest.mock import AsyncMock, Mock
+
+    class _BM25Fails:
+        def __init__(self):
+            self.delete_document = AsyncMock(return_value=False)
+            self.update_document = AsyncMock(return_value=True)
+            self._connect_mock = Mock()
+            self._connect_mock.__aenter__ = AsyncMock(return_value=Mock())
+            self._connect_mock.__aexit__ = AsyncMock(return_value=None)
+            self._connect = lambda: self._connect_mock
+
+    class _VectorOK:
+        async def search(self, *args, **kwargs):
+            return []
+        async def delete_document(self, doc_id):
+            return True
+        async def update_metadata(self, doc_id, metadata):
+            return True
+
+    bm25 = _BM25Fails()
+    vector = _VectorOK()
+
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, bm25),
+        vector_retriever=cast(VectorRetriever, vector),
+        rrf_fusion=RRFFusion(k=60),
+        config={"fallback_enabled": True},
+    )
+
+    async with aiosqlite.connect(":memory:") as db:
+        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
+        await db.commit()
+        bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
+        bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
+
+        result = await retriever.delete_memory(1)
+
+    assert result is False
+    # 回滚不应被调用（BM25 失败时没什么可回滚）
+    bm25.update_document.assert_not_awaited()
+
+
+# ==================== add_custom_words 测试 ====================
+
+
+def test_add_custom_words_normal():
+    """正常路径：jieba 可用时，custom_words 应包含添加的词。"""
+    from astrbot_plugin_livingmemory.core.processors.text_processor import (
+        JIEBA_AVAILABLE,
+        JIEBA_RUNTIME_DISABLED,
+        TextProcessor,
+    )
+    processor = TextProcessor()
+    processor.add_custom_words(["AstrBot", "LivingMemory"])
+
+    assert "AstrBot" in processor.custom_words
+    assert "LivingMemory" in processor.custom_words
+    if JIEBA_AVAILABLE:
+        assert JIEBA_RUNTIME_DISABLED is False
+
+
+def test_add_custom_words_jieba_unavailable():
+    """jieba 不可用时，add_custom_words 应发出警告并提前返回。"""
+    import warnings
+    from astrbot_plugin_livingmemory.core.processors import text_processor
+
+    original = text_processor.JIEBA_AVAILABLE
+    text_processor.JIEBA_AVAILABLE = False
+    try:
+        processor = text_processor.TextProcessor()
+        with pytest.warns(UserWarning, match="jieba 未安装"):
+            processor.add_custom_words(["test"])
+        # custom_words 不应更新
+        assert "test" not in processor.custom_words
+    finally:
+        text_processor.JIEBA_AVAILABLE = original
+
+
+def test_add_custom_words_jieba_add_word_fails():
+    """jieba.add_word 抛异常时，应禁用 jieba 运行时并发出警告。"""
+    from unittest.mock import patch
+    from astrbot_plugin_livingmemory.core.processors import text_processor
+
+    processor = text_processor.TextProcessor()
+    with patch("jieba.add_word", side_effect=Exception("jieba init failed")):
+        with pytest.warns(UserWarning, match="jieba 初始化失败"):
+            processor.add_custom_words(["word1", "word2"])
+
+    assert text_processor.JIEBA_RUNTIME_DISABLED is True
