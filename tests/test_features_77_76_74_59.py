@@ -159,7 +159,6 @@ def _make_command_handler(memory_processor=None, conversation_manager=None, memo
         conversation_manager=conversation_manager,
         index_validator=None,
         memory_processor=memory_processor,
-        webui_server=None,
     )
 
 
@@ -243,7 +242,6 @@ async def test_summarize_calls_processor_and_stores_memory():
         conversation_manager=conv_mgr,
         index_validator=None,
         memory_processor=memory_processor,
-        webui_server=None,
     )
 
     with patch(
@@ -292,7 +290,6 @@ async def test_summarize_updates_last_summarized_index():
         conversation_manager=conv_mgr,
         index_validator=None,
         memory_processor=memory_processor,
-        webui_server=None,
     )
 
     with patch(

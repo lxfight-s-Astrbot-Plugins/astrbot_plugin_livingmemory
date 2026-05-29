@@ -4,7 +4,9 @@ main.py - LivingMemory 插件主文件
 """
 
 import asyncio
+import re
 from collections.abc import AsyncGenerator
+from importlib.metadata import version as pkg_version
 from typing import Any
 
 from astrbot.api import logger
@@ -19,7 +21,27 @@ from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import MemorySearchTool
-from .webui import WebUIServer
+
+_MIN_ASTRBOT_VERSION = "4.24.2"
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    m = re.match(r"(\d+(?:\.\d+)*)", v)
+    if not m:
+        return ()
+    return tuple(int(x) for x in m.group(1).split("."))
+
+
+try:
+    _CURRENT_ASTRBOT_VERSION = pkg_version("astrbot")
+except Exception:
+    _CURRENT_ASTRBOT_VERSION = "0.0.0"
+
+if _parse_version(_CURRENT_ASTRBOT_VERSION) < _parse_version(_MIN_ASTRBOT_VERSION):
+    logger.warning(
+        f"AstrBot 版本 {_CURRENT_ASTRBOT_VERSION} 低于推荐版本 {_MIN_ASTRBOT_VERSION}。"
+        f"插件 Pages / WebUI 功能可能不可用。建议升级 AstrBot 以获得完整体验。"
+    )
 
 
 @register(
@@ -52,13 +74,9 @@ class LivingMemoryPlugin(Star):
         self.event_handler: EventHandler | None = None
         self.command_handler: CommandHandler | None = None
 
-        # WebUI 服务句柄
-        self.webui_server: WebUIServer | None = None
-
         # 后台任务跟踪集合
         self._background_tasks: set[asyncio.Task] = set()
         self._component_init_lock = asyncio.Lock()
-        self._webui_lifecycle_lock = asyncio.Lock()
         self._llm_tools_registered = False
         self._terminating = False
 
@@ -151,14 +169,8 @@ class LivingMemoryPlugin(Star):
                     conversation_manager=self.initializer.conversation_manager,
                     index_validator=self.initializer.index_validator,
                     memory_processor=self.initializer.memory_processor,
-                    webui_server=self.webui_server,
                     initialization_status_callback=self._get_initialization_status_message,
                 )
-
-            # 启动 WebUI（幂等）
-            await self._start_webui()
-            if self.command_handler:
-                self.command_handler.webui_server = self.webui_server
 
             self._register_llm_tools_if_needed()
 
@@ -192,62 +204,6 @@ class LivingMemoryPlugin(Star):
             )
 
         return True, ""
-
-    async def _start_webui(self):
-        """根据配置启动 WebUI 控制台"""
-        async with self._webui_lifecycle_lock:
-            if self._terminating:
-                return
-            webui_config = self.config_manager.webui_settings
-            if not webui_config.get("enabled"):
-                return
-            if self.webui_server:
-                return
-
-            server: WebUIServer | None = None
-            try:
-                server = WebUIServer(
-                    memory_engine=self.initializer.memory_engine,
-                    config=webui_config,
-                    conversation_manager=self.initializer.conversation_manager,
-                    index_validator=self.initializer.index_validator,
-                )
-                self.webui_server = server
-
-                await server.start()
-                if self.command_handler:
-                    self.command_handler.webui_server = server
-
-                logger.info(
-                    f"WebUI started at: http://{webui_config.get('host', '127.0.0.1')}:{webui_config.get('port', 8080)}"
-                )
-            except Exception as e:
-                logger.error(f"启动 WebUI 控制台失败: {e}", exc_info=True)
-                if server:
-                    try:
-                        await server.stop()
-                    except Exception as stop_error:
-                        logger.warning(
-                            f"回滚 WebUI 启动失败状态时出现异常: {stop_error}",
-                            exc_info=True,
-                        )
-                self.webui_server = None
-                if self.command_handler:
-                    self.command_handler.webui_server = None
-
-    async def _stop_webui(self):
-        """停止 WebUI 控制台"""
-        async with self._webui_lifecycle_lock:
-            if not self.webui_server:
-                return
-            try:
-                await self.webui_server.stop()
-            except Exception as e:
-                logger.warning(f"停止 WebUI 控制台时出现异常: {e}", exc_info=True)
-            finally:
-                self.webui_server = None
-                if self.command_handler:
-                    self.command_handler.webui_server = None
 
     def _get_initialization_status_message(self) -> str:
         """获取初始化状态的用户友好消息"""
@@ -530,9 +486,6 @@ class LivingMemoryPlugin(Star):
         """Cleanup logic when plugin stops"""
         logger.info("LivingMemory 插件正在停止...")
         self._terminating = True
-
-        # 先释放 WebUI 端口，避免插件热重载时新旧实例抢占同一监听地址。
-        await self._stop_webui()
 
         # 取消所有后台任务
         if self._background_tasks:

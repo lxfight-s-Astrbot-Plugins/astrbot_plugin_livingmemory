@@ -26,7 +26,7 @@
   },
   "status": {
     "action_name": "Status fetch",
-    "report": "LivingMemory Status Report\n\nTotal memories: {total}\nSessions: {session_count}\nLast update: {last_update}\nDatabase size: {db_size:.2f} MB\n\nAvailable operations:\n- /lmem search <keyword>\n- /lmem webui"
+    "report": "LivingMemory Status Report\n\nTotal memories: {total}\nSessions: {session_count}\nLast update: {last_update}\nDatabase size: {db_size:.2f} MB\n\nAvailable operations:\n- /lmem search <keyword>"
   },
   "search": {
     "action_name": "Search",
@@ -60,8 +60,7 @@
     "success": "Graph memory rebuild complete.\n\n• Rebuilt: {rebuilt} items\n• Skipped: {skipped} items"
   },
   "webui": {
-    "disabled": "LivingMemory Management Interface\n\nWebUI feature is currently disabled (legacy standalone WebUI).\n\nRecommended entry:\n• Open AstrBot official WebUI\n• Go to Plugins -> LivingMemory -> Pages -> dashboard\n\nCompatibility notes:\n• Official plugin page reuses AstrBot login state\n• Legacy standalone WebUI is currently disabled\n• Possible reasons:\n  1. webui.enabled=false in config\n  2. Legacy WebUI service failed to start (check logs)\n\nCommands still available:\n• /lmem status - View system status\n• /lmem search - Search memories\n• /lmem forget - Delete memory",
-    "enabled": "LivingMemory Management Interface\n\nRecommended entry:\n• Open AstrBot official WebUI\n• Go to Plugins -> LivingMemory -> Pages -> dashboard\n\nCompatibility entry:\n• Legacy standalone WebUI: {url}\n• Access address: {url}\n\nNotes:\n• Official plugin page reuses AstrBot login state, no need to login again\n• Legacy standalone WebUI is only kept for historical compatibility\n\nAvailable in interface:\n• Memory editing and management\n• Visual statistics and analysis\n• Graph browsing and recall debugging\n• Data migration and index maintenance"
+    "guide": "LivingMemory Management Interface\n\nPlease access via AstrBot official WebUI:\n• Open AstrBot Dashboard\n• Go to Plugins -> LivingMemory -> Pages -> dashboard\n\nTips:\n• Plugin page reuses AstrBot login state, no extra login needed\n• Requires AstrBot >= 4.24.2\n\nAvailable in interface:\n• Memory editing and management\n• Visual statistics and analysis\n• Graph browsing and recall debugging\n• Data migration and index maintenance"
   },
   "summarize": {
     "action_name": "Memory summarization",
@@ -88,7 +87,7 @@
     "notice_exec": "AstrBot conversation history has been updated, memory injection fragments have been cleaned."
   },
   "help": {
-    "text": "LivingMemory User Guide\n\nCore commands:\n/lmem status              View system status\n/lmem search <keyword> [count]  Search memories (default 5)\n/lmem forget <ID>          Delete specified memory\n/lmem rebuild-index       Rebuild index (fix inconsistency)\n/lmem rebuild-graph       Rebuild graph memory index (backfill old data)\n/lmem webui               Open WebUI management interface\n/lmem summarize           Immediately trigger memory summarization for current session\n/lmem reset               Reset current session memory context\n/lmem cleanup [preview|exec] Clean up memory injection fragments in historical messages (default preview)\n/lmem help                Show this help\n\nUsage tips:\n• Use search command for daily queries\n• Use WebUI interface for complex management\n• Memories are automatically saved from conversations\n• Use forget to delete sensitive information\n• Execute rebuild-index when index is inconsistent\n• After enabling graph memory, execute rebuild-graph to backfill old data\n• After plugin update, execute cleanup to clean old data\n\ncleanup command examples:\n  /lmem cleanup          # Preview mode, shows statistics only\n  /lmem cleanup preview  # Same as above\n  /lmem cleanup exec     # Perform actual cleanup\n\nMore info: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory User Guide\n\nCore commands:\n/lmem status              View system status\n/lmem search <keyword> [count]  Search memories (default 5)\n/lmem forget <ID>          Delete specified memory\n/lmem rebuild-index       Rebuild index (fix inconsistency)\n/lmem rebuild-graph       Rebuild graph memory index (backfill old data)\n/lmem webui               Show WebUI management interface entry\n/lmem summarize           Immediately trigger memory summarization for current session\n/lmem reset               Reset current session memory context\n/lmem cleanup [preview|exec] Clean up memory injection fragments in historical messages (default preview)\n/lmem help                Show this help\n\nUsage tips:\n• Use search command for daily queries\n• For complex management, go to Plugins -> LivingMemory -> Pages -> dashboard in AstrBot Dashboard\n• Memories are automatically saved from conversations\n• Use forget to delete sensitive information\n• Execute rebuild-index when index is inconsistent\n• After enabling graph memory, execute rebuild-graph to backfill old data\n• After plugin update, execute cleanup to clean old data\n\ncleanup command examples:\n  /lmem cleanup          # Preview mode, shows statistics only\n  /lmem cleanup preview  # Same as above\n  /lmem cleanup exec     # Perform actual cleanup\n\nMore info: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "Plugin is ready. Use /lmem help to view available commands.",

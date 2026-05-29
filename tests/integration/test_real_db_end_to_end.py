@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import aiosqlite
-import httpx
 import pytest
 import pytest_asyncio
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
@@ -20,7 +19,6 @@ from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 from astrbot_plugin_livingmemory.storage.conversation_store import ConversationStore
-from astrbot_plugin_livingmemory.webui.server import WebUIServer
 
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse
@@ -240,24 +238,12 @@ async def real_db_stack(tmp_path: Path):
         conversation_manager=conversation_manager,
         index_validator=None,
     )
-    webui_server = WebUIServer(
-        memory_engine=memory_engine,
-        conversation_manager=conversation_manager,
-        index_validator=None,
-        config={
-            "host": "127.0.0.1",
-            "port": 6186,
-            "access_password": "test-password",
-            "session_timeout": 3600,
-        },
-    )
 
     yield {
         "memory_engine": memory_engine,
         "conversation_manager": conversation_manager,
         "event_handler": event_handler,
         "command_handler": command_handler,
-        "webui_server": webui_server,
         "memory_db_path": str(memory_db_path),
     }
 
@@ -387,139 +373,6 @@ async def test_recall_injection_with_real_database(real_db_stack):
 
 
 @pytest.mark.asyncio
-async def test_webui_api_with_real_database(real_db_stack):
-    memory_engine = real_db_stack["memory_engine"]
-    memory_db_path = real_db_stack["memory_db_path"]
-    webui_server = real_db_stack["webui_server"]
-
-    session_id = "test:private:webui-session"
-    memory_id = await memory_engine.add_memory(
-        content="I plan to visit Tokyo in spring.",
-        session_id=session_id,
-        persona_id="persona-real",
-        importance=0.85,
-        metadata={"memory_type": "PLAN"},
-    )
-
-    transport = httpx.ASGITransport(app=webui_server._app)
-    async with httpx.AsyncClient(
-        transport=transport,
-        base_url="http://testserver",
-    ) as client:
-        login_resp = await client.post(
-            "/api/login",
-            json={"password": "test-password"},
-        )
-        assert login_resp.status_code == 200
-        token = login_resp.json()["token"]
-        headers = {"Authorization": f"Bearer {token}"}
-
-        index_resp = await client.get("/")
-        assert index_resp.status_code == 200
-        assert "/static/vendor/3d-force-graph.min.js" in index_resp.text
-        assert '<div id="graph-canvas" class="graph-canvas"></div>' in index_resp.text
-
-        vendor_resp = await client.get("/static/vendor/3d-force-graph.min.js")
-        assert vendor_resp.status_code == 200
-        assert "3d-force-graph" in vendor_resp.text[:200]
-
-        stats_resp = await client.get("/api/stats", headers=headers)
-        assert stats_resp.status_code == 200
-        assert stats_resp.json()["success"] is True
-        assert stats_resp.json()["data"]["total_memories"] >= 1
-
-        list_resp = await client.get(
-            "/api/memories?page=1&page_size=20",
-            headers=headers,
-        )
-        assert list_resp.status_code == 200
-        assert list_resp.json()["success"] is True
-        ids = [item["id"] for item in list_resp.json()["data"]["items"]]
-        assert memory_id in ids
-
-        search_resp = await client.post(
-            "/api/memories/search",
-            headers=headers,
-            json={"query": "Tokyo", "k": 5, "session_id": session_id},
-        )
-        assert search_resp.status_code == 200
-        assert search_resp.json()["success"] is True
-        assert any(item["id"] == memory_id for item in search_resp.json()["data"])
-
-        recall_resp = await client.post(
-            "/api/recall/test",
-            headers=headers,
-            json={"query": "visit Tokyo", "k": 5, "session_id": session_id},
-        )
-        assert recall_resp.status_code == 200
-        assert recall_resp.json()["success"] is True
-        assert recall_resp.json()["data"]["total"] >= 1
-        assert any(
-            item["memory_id"] == memory_id
-            for item in recall_resp.json()["data"]["results"]
-        )
-
-        graph_overview_resp = await client.get(
-            "/api/graph/overview",
-            headers=headers,
-        )
-        assert graph_overview_resp.status_code == 200
-        graph_overview_data = graph_overview_resp.json()
-        assert graph_overview_data["success"] is True
-        assert graph_overview_data["data"]["enabled"] is True
-        assert graph_overview_data["data"]["summary"]["visible_memory_count"] >= 1
-        assert any(
-            item["memory_id"] == memory_id
-            for item in graph_overview_data["data"]["snapshot"]["memories"]
-        )
-
-        graph_query_resp = await client.post(
-            "/api/graph/query",
-            headers=headers,
-            json={"query": "Tokyo", "session_id": session_id},
-        )
-        assert graph_query_resp.status_code == 200
-        graph_query_data = graph_query_resp.json()
-        assert graph_query_data["success"] is True
-        assert graph_query_data["data"]["mode"] == "query"
-        assert any(
-            item["memory_id"] == memory_id
-            for item in graph_query_data["data"]["retrieval"]["items"]
-        )
-        assert any(
-            item["memory_id"] == memory_id
-            for item in graph_query_data["data"]["snapshot"]["memories"]
-        )
-
-        graph_focus_resp = await client.post(
-            "/api/graph/query",
-            headers=headers,
-            json={"memory_id": memory_id},
-        )
-        assert graph_focus_resp.status_code == 200
-        graph_focus_data = graph_focus_resp.json()
-        assert graph_focus_data["success"] is True
-        assert graph_focus_data["data"]["mode"] == "memory_focus"
-        assert graph_focus_data["data"]["memory_id"] == memory_id
-        assert any(
-            item["memory_id"] == memory_id
-            for item in graph_focus_data["data"]["snapshot"]["memories"]
-        )
-
-        delete_resp = await client.delete(f"/api/memories/{memory_id}", headers=headers)
-        assert delete_resp.status_code == 200
-        assert delete_resp.json()["success"] is True
-
-    async with aiosqlite.connect(memory_db_path) as db:
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM documents WHERE id = ?",
-            (memory_id,),
-        )
-        row = await cursor.fetchone()
-    assert row is not None
-    assert row[0] == 0
-
-
 @pytest.mark.asyncio
 async def test_command_validation_messages_with_real_database(real_db_stack):
     command_handler = real_db_stack["command_handler"]
@@ -570,36 +423,6 @@ async def test_rebuild_index_without_validator_returns_actionable_message(
 
 
 @pytest.mark.asyncio
-async def test_webui_messages_for_disabled_and_enabled_paths(real_db_stack):
-    command_handler = real_db_stack["command_handler"]
-    webui_server = real_db_stack["webui_server"]
-    event = _TestEvent("test:private:webui-msg", "webui")
-
-    disabled_output = [msg async for msg in command_handler.handle_webui(event)]
-    assert len(disabled_output) == 1
-    assert "WebUI 功能当前未启用" in disabled_output[0]
-    assert "AstrBot 官方 WebUI" in disabled_output[0]
-    assert "Pages -> dashboard" in disabled_output[0]
-    assert "webui.enabled=false" in disabled_output[0]
-
-    command_handler.config_manager = ConfigManager(
-        {
-            "webui_settings": {
-                "enabled": True,
-                "host": "0.0.0.0",
-                "port": 6186,
-                "access_password": "test-password",
-            }
-        }
-    )
-    command_handler.webui_server = webui_server
-
-    enabled_output = [msg async for msg in command_handler.handle_webui(event)]
-    assert len(enabled_output) == 1
-    assert "访问地址: http://127.0.0.1:6186" in enabled_output[0]
-    assert "记忆编辑与管理" in enabled_output[0]
-
-
 @pytest.mark.asyncio
 async def test_cleanup_preview_and_exec_paths(real_db_stack):
     from astrbot_plugin_livingmemory.core.base.constants import (

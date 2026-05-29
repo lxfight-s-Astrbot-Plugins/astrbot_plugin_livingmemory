@@ -137,7 +137,6 @@ async def test_smoke_rebuild_graph_command_reports_success(tmp_path: Path):
             memory_engine=engine,
             conversation_manager=None,
             index_validator=None,
-            webui_server=None,
         )
         messages = [
             message

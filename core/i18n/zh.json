@@ -26,7 +26,7 @@
   },
   "status": {
     "action_name": "获取状态",
-    "report": "LivingMemory 状态报告\n\n总记忆数: {total}\n会话数: {session_count}\n最后更新: {last_update}\n数据库大小: {db_size:.2f} MB\n\n可用操作:\n- /lmem search <关键词>\n- /lmem webui"
+    "report": "LivingMemory 状态报告\n\n总记忆数: {total}\n会话数: {session_count}\n最后更新: {last_update}\n数据库大小: {db_size:.2f} MB\n\n可用操作:\n- /lmem search <关键词>"
   },
   "search": {
     "action_name": "搜索",
@@ -60,8 +60,7 @@
     "success": "图记忆重建完成。\n\n• 重建: {rebuilt} 条\n• 跳过: {skipped} 条"
   },
   "webui": {
-    "disabled": "LivingMemory 管理界面\n\nWebUI 功能当前未启用（旧版独立 WebUI）。\n\n推荐入口:\n• 打开 AstrBot 官方 WebUI\n• 进入 插件 -> LivingMemory -> Pages -> dashboard\n\n兼容说明:\n• 官方插件页可直接复用 AstrBot 登录态\n• 旧版独立 WebUI 当前未启用\n• 可能原因:\n  1. 配置中 webui.enabled=false\n  2. 旧 WebUI 服务启动失败（请查看日志）\n\n当前仍可使用命令:\n• /lmem status - 查看系统状态\n• /lmem search - 搜索记忆\n• /lmem forget - 删除记忆",
-    "enabled": "LivingMemory 管理界面\n\n推荐入口:\n• 打开 AstrBot 官方 WebUI\n• 进入 插件 -> LivingMemory -> Pages -> dashboard\n\n兼容入口:\n• 旧版独立 WebUI: {url}\n• 访问地址: {url}\n\n说明:\n• 官方插件页复用 AstrBot 登录态，无需再次登录\n• 旧版独立 WebUI 仅为兼容历史使用方式保留\n\n可在界面中执行:\n• 记忆编辑与管理\n• 可视化统计分析\n• 图谱浏览与召回调试\n• 数据迁移与索引维护"
+    "guide": "LivingMemory 管理界面\n\n请通过 AstrBot 官方 WebUI 访问:\n• 打开 AstrBot 仪表盘\n• 进入 插件 -> LivingMemory -> Pages -> dashboard\n\n提示:\n• 插件页面复用 AstrBot 登录态，无需额外登录\n• 需要 AstrBot >= 4.24.2 版本支持\n\n可在界面中执行:\n• 记忆编辑与管理\n• 可视化统计分析\n• 图谱浏览与召回调试\n• 数据迁移与索引维护"
   },
   "summarize": {
     "action_name": "记忆总结",
@@ -88,7 +87,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem webui               打开WebUI管理界面\n/lmem summarize           立即触发当前会话的记忆总结\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理使用 WebUI 界面\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize           立即触发当前会话的记忆总结\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",

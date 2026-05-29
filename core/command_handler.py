@@ -28,7 +28,6 @@ class CommandHandler:
         conversation_manager: ConversationManager | None,
         index_validator: IndexValidator | None,
         memory_processor=None,
-        webui_server=None,
         initialization_status_callback=None,
     ):
         """
@@ -41,7 +40,6 @@ class CommandHandler:
             conversation_manager: 会话管理器
             index_validator: 索引验证器
             memory_processor: 记忆处理器（用于手动总结）
-            webui_server: WebUI服务器
             initialization_status_callback: 初始化状态回调函数
         """
         self.context = context
@@ -50,7 +48,6 @@ class CommandHandler:
         self.conversation_manager = conversation_manager
         self.index_validator = index_validator
         self._memory_processor = memory_processor
-        self.webui_server = webui_server
         self.get_initialization_status = initialization_status_callback
 
     @staticmethod
@@ -323,14 +320,7 @@ class CommandHandler:
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem webui 命令"""
-        webui_url = self._get_webui_url()
-
-        if not webui_url:
-            message = t("webui.disabled")
-        else:
-            message = t("webui.enabled", url=webui_url)
-
-        yield event.plain_result(message)
+        yield event.plain_result(t("webui.guide"))
 
     async def handle_summarize(
         self, event: AstrMessageEvent
@@ -638,16 +628,3 @@ class CommandHandler:
         message = t("help.text")
         yield event.plain_result(message)
 
-    def _get_webui_url(self) -> str | None:
-        """获取 WebUI 访问地址"""
-        webui_config = self.config_manager.webui_settings
-        if not webui_config.get("enabled") or not self.webui_server:
-            return None
-
-        host = webui_config.get("host", "127.0.0.1")
-        port = webui_config.get("port", 8080)
-
-        if host in ["0.0.0.0", ""]:
-            return f"http://127.0.0.1:{port}"
-        else:
-            return f"http://{host}:{port}"

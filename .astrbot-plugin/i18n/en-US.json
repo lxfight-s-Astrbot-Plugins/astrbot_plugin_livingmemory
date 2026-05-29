@@ -26,30 +26,6 @@
         "hint": "The large language model ID used for summarizing conversations and evaluating memory importance. Leave blank to use AstrBot default. A model with strong reasoning capabilities is recommended."
       }
     },
-    "webui_settings": {
-      "description": "WebUI Admin Panel",
-      "hint": "Enable browser-based visual management of memories and sessions",
-      "enabled": {
-        "description": "Enable WebUI",
-        "hint": "Once enabled, the memory management panel can be accessed via browser."
-      },
-      "host": {
-        "description": "Listen Address",
-        "hint": "127.0.0.1 for local access only; 0.0.0.0 to allow LAN access."
-      },
-      "port": {
-        "description": "Listen Port",
-        "hint": "WebUI service port. Make sure it does not conflict with the AstrBot main port (default 6185)."
-      },
-      "access_password": {
-        "description": "Access Password",
-        "hint": "Password required to log in to the WebUI. If left blank, the system will auto-generate a random password and display it in the logs. Manual setup is recommended."
-      },
-      "session_timeout": {
-        "description": "Session Timeout (seconds)",
-        "hint": "How long a login session remains valid before requiring re-authentication. Default is 3600 (1 hour)."
-      }
-    },
     "session_manager": {
       "description": "Session Management",
       "hint": "Manage user session states and conversation history caching behavior",

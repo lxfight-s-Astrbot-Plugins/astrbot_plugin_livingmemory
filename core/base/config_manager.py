@@ -90,11 +90,6 @@ class ConfigManager:
         return self.get_section("provider_settings")
 
     @property
-    def webui_settings(self) -> dict[str, Any]:
-        """WebUI设置"""
-        return self.get_section("webui_settings")
-
-    @property
     def session_manager(self) -> dict[str, Any]:
         """会话管理器配置"""
         return self.get_section("session_manager")

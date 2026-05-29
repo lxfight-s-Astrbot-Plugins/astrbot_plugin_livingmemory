@@ -142,25 +142,6 @@ class IndexRebuildSettings(BaseModel):
     )
 
 
-class WebUISettings(BaseModel):
-    """WebUI 设置"""
-
-    enabled: bool = Field(default=False, description="是否启用 WebUI 控制台")
-    host: str = Field(default="127.0.0.1", description="WebUI 监听地址")
-    port: int = Field(default=8080, ge=1, le=65535, description="WebUI 监听端口")
-    access_password: str = Field(default="", description="WebUI 入口密码")
-    session_timeout: int = Field(
-        default=3600, ge=60, le=86400, description="WebUI 会话有效期（秒）"
-    )
-
-    @model_validator(mode="after")
-    def validate_password(self):
-        """启用时必须设置密码"""
-        if self.enabled and not self.access_password:
-            logger.info("WebUI 未设置访问密码，将在运行时自动生成随机密码。")
-        return self
-
-
 class GraphMemoryConfig(BaseModel):
     """Graph-memory retrieval configuration."""
 
@@ -210,7 +191,6 @@ class LivingMemoryConfig(BaseModel):
     )
     filtering_settings: FilteringConfig = Field(default_factory=FilteringConfig)
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
-    webui_settings: WebUISettings = Field(default_factory=WebUISettings)
     migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)
     index_rebuild_settings: IndexRebuildSettings = Field(
         default_factory=IndexRebuildSettings

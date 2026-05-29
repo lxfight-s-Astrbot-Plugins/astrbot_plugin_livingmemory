@@ -26,44 +26,6 @@
       }
     }
   },
-  "webui_settings": {
-    "description": "WebUI 管理面板",
-    "hint": "启用后可通过浏览器可视化管理记忆和会话",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用 WebUI",
-        "hint": "开启后可通过浏览器访问记忆管理面板。",
-        "type": "bool",
-        "default": false
-      },
-      "host": {
-        "description": "监听地址",
-        "hint": "127.0.0.1 仅本机访问；0.0.0.0 允许局域网访问。",
-        "type": "string",
-        "default": "127.0.0.1"
-      },
-      "port": {
-        "description": "监听端口",
-        "hint": "WebUI 服务端口，确保不与 AstrBot 主端口（默认 6185）冲突。",
-        "type": "int",
-        "default": 8888
-      },
-      "access_password": {
-        "description": "访问密码",
-        "hint": "登录 WebUI 所需密码。留空时系统自动生成随机密码并在日志中提示。建议手动设置。",
-        "type": "string",
-        "obvious_hint": true,
-        "default": ""
-      },
-      "session_timeout": {
-        "description": "登录会话超时（秒）",
-        "hint": "登录后的有效时长，超时需重新登录。默认 3600（1 小时）。",
-        "type": "int",
-        "default": 3600
-      }
-    }
-  },
   "session_manager": {
     "description": "会话管理",
     "hint": "管理用户会话状态和对话历史的缓存行为",

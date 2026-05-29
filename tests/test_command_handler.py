@@ -66,7 +66,6 @@ def handler(config_manager, memory_engine, conversation_manager, index_validator
         memory_engine=memory_engine,
         conversation_manager=conversation_manager,
         index_validator=index_validator,
-        webui_server=None,
         initialization_status_callback=lambda: "ready",
     )
 
@@ -203,13 +202,12 @@ async def test_handle_reset_and_help(handler, mock_event, conversation_manager):
 
 
 @pytest.mark.asyncio
-async def test_handle_webui_when_disabled_returns_reason(handler, mock_event):
+async def test_handle_webui_shows_guide(handler, mock_event):
     messages = [msg async for msg in handler.handle_webui(mock_event)]
     assert len(messages) == 1
-    assert "WebUI 功能当前未启用" in messages[0]
-    assert "AstrBot 官方 WebUI" in messages[0]
+    assert "AstrBot" in messages[0]
+    assert "Plugins" in messages[0] or "插件" in messages[0]
     assert "Pages -> dashboard" in messages[0]
-    assert "webui.enabled=false" in messages[0]
 
 
 @pytest.mark.asyncio
@@ -237,38 +235,6 @@ async def test_handle_cleanup_invalid_history_json_returns_clear_error(
     messages = [msg async for msg in handler.handle_cleanup(mock_event, dry_run=True)]
     assert any("解析对话历史失败" in msg for msg in messages)
     assert any("有效 JSON" in msg for msg in messages)
-
-
-def test_get_webui_url_logic(config_manager):
-    handler = CommandHandler(
-        context=Mock(),
-        config_manager=config_manager,
-        memory_engine=None,
-        conversation_manager=None,
-        index_validator=None,
-        webui_server=None,
-    )
-    assert handler._get_webui_url() is None
-
-    config = ConfigManager(
-        {
-            "webui_settings": {
-                "enabled": True,
-                "host": "0.0.0.0",
-                "port": 8090,
-                "access_password": "x",
-            }
-        }
-    )
-    handler2 = CommandHandler(
-        context=Mock(),
-        config_manager=config,
-        memory_engine=None,
-        conversation_manager=None,
-        index_validator=None,
-        webui_server=Mock(),
-    )
-    assert handler2._get_webui_url() == "http://127.0.0.1:8090"
 
 
 @pytest.mark.asyncio

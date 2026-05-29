@@ -34,7 +34,6 @@ def test_config_manager_sections_and_properties() -> None:
 
     assert manager.get_section("provider_settings")["llm_provider_id"] == "x"
     assert isinstance(manager.provider_settings, dict)
-    assert isinstance(manager.webui_settings, dict)
     assert isinstance(manager.session_manager, dict)
     assert isinstance(manager.recall_engine, dict)
     assert isinstance(manager.reflection_engine, dict)
