@@ -241,6 +241,7 @@ class PluginPageApi:
             current_metadata["updated_at"] = time.time()
             current_metadata["previous_content"] = str(memory.get("text", ""))[:100]
 
+            new_memory_id = None
             try:
                 new_memory_id = await memory_engine.add_memory(
                     content=new_content,
@@ -254,6 +255,14 @@ class PluginPageApi:
                     await memory_engine.delete_memory(new_memory_id)
                     return self._error("旧记忆删除失败，已回滚本次内容更新")
             except Exception as exc:
+                if new_memory_id is not None:
+                    try:
+                        await memory_engine.delete_memory(new_memory_id)
+                    except Exception:
+                        logger.error(
+                            f"[PageAPI] 回滚新记忆失败 (new_memory_id={new_memory_id})",
+                            exc_info=True,
+                        )
                 logger.error(f"[PageAPI] 更新记忆内容失败: {exc}", exc_info=True)
                 return self._error(str(exc))
 
