@@ -598,3 +598,166 @@ async def test_memory_engine_get_statistics_returns_expected_keys(tmp_path: Path
     assert "total_memories" in stats
 
     await engine.close()
+
+
+# ── MemoryEngine.batch_delete_memories 测试 ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
+    """batch_delete_memories 应批量删除多条记忆（从 FAISS 和 SQLite documents 表）。"""
+    db_path = tmp_path / "batch_del.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=faiss,
+        config={},
+    )
+    await engine.initialize()
+
+    # 直接在 FAISS 和 SQLite 中构造数据，避免 add_memory 锁竞争
+    ids = []
+    for i in range(5):
+        mid = faiss._next_id
+        faiss._next_id += 1
+        faiss.docs[mid] = {
+            "id": mid,
+            "doc_id": f"uuid-{mid}",
+            "text": f"批量删除测试记忆{i}",
+            "metadata": {"importance": 0.5, "session_id": "s1", "persona_id": "p1"},
+        }
+        ids.append(mid)
+
+    # 批量写入 SQLite documents 表
+    if engine.db_connection is not None:
+        for mid in ids:
+            doc = faiss.docs[mid]
+            await engine.db_connection.execute(
+                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (
+                    doc["id"],
+                    doc["doc_id"],
+                    doc["text"],
+                    json.dumps(doc["metadata"], ensure_ascii=False),
+                ),
+            )
+        await engine.db_connection.commit()
+
+    deleted = await engine.batch_delete_memories(ids)
+    assert deleted == 5
+
+    # FAISS 中的记录应被清除
+    for mid in ids:
+        assert mid not in faiss.docs
+        assert await engine.get_memory(mid) is None
+
+    # SQLite documents 表也应被清空
+    cursor = await engine.db_connection.execute(
+        f"SELECT COUNT(*) FROM documents WHERE id IN ({','.join('?' * len(ids))})",
+        ids,
+    )
+    row = await cursor.fetchone()
+    assert row[0] == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_memories_empty_list_returns_zero(tmp_path: Path):
+    """空列表传入 batch_delete_memories 应返回 0。"""
+    db_path = tmp_path / "batch_del_empty.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+    assert await engine.batch_delete_memories([]) == 0
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_memories_nonexistent_ids_are_noop(tmp_path: Path):
+    """batch_delete_memories 传入不存在的 ID 不应报错，正常删除存在的部分。"""
+    db_path = tmp_path / "batch_del_partial.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=faiss,
+        config={},
+    )
+    await engine.initialize()
+
+    mid = 1
+    faiss._next_id = 2
+    faiss.docs[mid] = {
+        "id": mid,
+        "doc_id": f"uuid-{mid}",
+        "text": "存在的记忆",
+        "metadata": {"importance": 0.5},
+    }
+
+    if engine.db_connection is not None:
+        await engine.db_connection.execute(
+            "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (mid, f"uuid-{mid}", "存在的记忆", json.dumps({"importance": 0.5})),
+        )
+        await engine.db_connection.commit()
+
+    deleted = await engine.batch_delete_memories([mid, 99999, 99998])
+    assert deleted >= 1
+    assert mid not in faiss.docs
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_memories_uses_batch_delete(tmp_path: Path):
+    """cleanup_old_memories 应通过 batch_delete_memories 高效清理多条候选记忆。"""
+    db_path = tmp_path / "cleanup_batch.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=faiss,
+        config={"cleanup_days_threshold": 0, "cleanup_importance_threshold": 0.3},
+    )
+    await engine.initialize()
+
+    old_time = time.time() - 86400 * 10
+    ids = []
+    for i in range(10):
+        mid = faiss._next_id
+        faiss._next_id += 1
+        faiss.docs[mid] = {
+            "id": mid,
+            "doc_id": f"uuid-{mid}",
+            "text": f"待清理记忆{i}",
+            "metadata": {"importance": 0.1, "create_time": old_time, "session_id": "s1"},
+        }
+        ids.append(mid)
+
+    if engine.db_connection is not None:
+        for mid in ids:
+            doc = faiss.docs[mid]
+            await engine.db_connection.execute(
+                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (
+                    doc["id"],
+                    doc["doc_id"],
+                    doc["text"],
+                    json.dumps(doc["metadata"], ensure_ascii=False),
+                ),
+            )
+        await engine.db_connection.commit()
+
+    deleted = await engine.cleanup_old_memories(
+        days_threshold=1, importance_threshold=0.3
+    )
+    assert deleted == 10
+    for mid in ids:
+        assert mid not in faiss.docs
+
+    await engine.close()

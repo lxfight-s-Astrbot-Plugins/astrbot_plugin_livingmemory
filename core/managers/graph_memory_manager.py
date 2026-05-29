@@ -71,5 +71,16 @@ class GraphMemoryManager:
         for vector_doc_id in vector_doc_ids:
             await self.graph_vector_retriever.delete_entry(vector_doc_id)
 
+    async def batch_delete_memories(self, source_memory_ids: list[int]) -> None:
+        """Batch delete graph artifacts for multiple source memories."""
+        if not source_memory_ids:
+            return
+        memory_vec_map = await self.graph_store.batch_delete_memories(
+            source_memory_ids
+        )
+        for vector_doc_ids in memory_vec_map.values():
+            for vector_doc_id in vector_doc_ids:
+                await self.graph_vector_retriever.delete_entry(vector_doc_id)
+
 
 __all__ = ["GraphMemoryManager"]

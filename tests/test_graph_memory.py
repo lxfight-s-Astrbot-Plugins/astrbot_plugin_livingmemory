@@ -335,3 +335,40 @@ async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
     stats = await engine.get_statistics()
     assert stats.get("graph_entries", 0) >= 1
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_store_batch_delete_memories(tmp_path: Path):
+    """GraphStore.batch_delete_memories 应一次删除多条 source_memory 的图数据。"""
+    doc_db_path = tmp_path / "graph_batch_del.db"
+    engine = MemoryEngine(
+        db_path=str(doc_db_path),
+        faiss_db=_FakeFaissDB(),
+        graph_vector_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "graph_memory_enabled": True},
+    )
+    await engine.initialize()
+
+    ids = []
+    for i in range(3):
+        mid = await engine.add_memory(
+            content=f"批量图删除测试{i}：讨论项目进度",
+            session_id="test:private:s1",
+            persona_id="persona_1",
+            importance=0.8,
+            metadata={
+                "topics": ["项目"],
+                "canonical_summary": f"批量图删除测试{i}",
+            },
+        )
+        ids.append(mid)
+
+    stats_before = await engine.graph_store.get_memory_entry_stats()
+
+    assert engine.graph_memory_manager is not None
+    await engine.graph_memory_manager.batch_delete_memories(ids)
+
+    stats_after = await engine.graph_store.get_memory_entry_stats()
+    assert stats_after["graph_entries"] < stats_before["graph_entries"]
+
+    await engine.close()

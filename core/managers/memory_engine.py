@@ -921,6 +921,62 @@ class MemoryEngine:
         except Exception:
             return []
 
+    async def batch_delete_memories(self, memory_ids: list[int]) -> int:
+        """Batch delete multiple memories using bulk SQL operations."""
+        if not memory_ids:
+            return 0
+
+        if self.db_connection is None:
+            logger.error("[批量删除] 数据库连接未初始化")
+            return 0
+
+        total_deleted = 0
+        sql_batch_size = 200
+
+        for i in range(0, len(memory_ids), sql_batch_size):
+            batch = memory_ids[i : i + sql_batch_size]
+            placeholders = ",".join("?" * len(batch))
+
+            # 1. Batch delete from BM25 FTS
+            await self.db_connection.execute(
+                f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+                batch,
+            )
+
+            # 2. Look up UUIDs and delete from FAISS vector DB
+            cursor = await self.db_connection.execute(
+                f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
+                batch,
+            )
+            uuid_rows = await cursor.fetchall()
+            for row in uuid_rows:
+                uuid_doc_id = row["doc_id"]
+                if uuid_doc_id:
+                    try:
+                        await self.faiss_db.delete(uuid_doc_id)
+                    except Exception:
+                        logger.debug(
+                            f"[批量删除] FAISS 删除失败 (id={row['id']})",
+                            exc_info=True,
+                        )
+
+            # 3. Batch delete from documents table
+            await self.db_connection.execute(
+                f"DELETE FROM documents WHERE id IN ({placeholders})",
+                batch,
+            )
+            await self.db_connection.commit()
+
+            # 4. Batch delete graph artifacts
+            if self.graph_memory_manager is not None:
+                await self.graph_memory_manager.batch_delete_memories(batch)
+
+            total_deleted += len(batch)
+
+        if total_deleted:
+            logger.info(f"[批量删除] 共删除 {total_deleted} 条记忆")
+        return total_deleted
+
     async def cleanup_old_memories(
         self,
         days_threshold: int | None = None,
@@ -1017,11 +1073,14 @@ class MemoryEngine:
                 if len(batch_docs) < batch_size:
                     break
 
-            deleted_count = 0
-            for memory_id in to_delete_ids:
-                success = await self.delete_memory(memory_id)
-                if success:
-                    deleted_count += 1
+            if not to_delete_ids:
+                return 0
+
+            logger.info(
+                f"[清理] 发现 {len(to_delete_ids)} 条候选记忆，开始批量删除"
+            )
+            deleted_count = await self.batch_delete_memories(to_delete_ids)
+            logger.info(f"[清理] 完成，已删除 {deleted_count} 条旧记忆")
 
             return deleted_count
         except Exception:

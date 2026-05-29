@@ -382,6 +382,65 @@ class GraphStore:
             await db.commit()
         return vector_doc_ids
 
+    async def batch_delete_memories(
+        self, source_memory_ids: list[int]
+    ) -> dict[int, list[int]]:
+        """Batch delete graph artifacts for multiple source memories."""
+        result: dict[int, list[int]] = {}
+        if not source_memory_ids:
+            return result
+
+        async with aiosqlite.connect(self.db_path) as db:
+            memory_placeholders = ",".join("?" * len(source_memory_ids))
+
+            cursor = await db.execute(
+                f"SELECT id, source_memory_id, vector_doc_id FROM graph_entries WHERE source_memory_id IN ({memory_placeholders})",
+                source_memory_ids,
+            )
+            rows = await cursor.fetchall()
+            entry_ids: list[int] = []
+            for row in rows:
+                entry_id = int(row[0])
+                memory_id = int(row[1])
+                vector_doc_id = row[2]
+                entry_ids.append(entry_id)
+                if vector_doc_id is not None:
+                    result.setdefault(memory_id, []).append(int(vector_doc_id))
+
+            if entry_ids:
+                entry_placeholders = ",".join("?" * len(entry_ids))
+                await db.execute(
+                    f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
+                    entry_ids,
+                )
+                await db.execute(
+                    f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
+                    entry_ids,
+                )
+                await db.execute(
+                    f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
+                    entry_ids,
+                )
+
+            await db.execute(
+                f"DELETE FROM graph_edges WHERE source_memory_id IN ({memory_placeholders})",
+                source_memory_ids,
+            )
+            await db.execute(
+                """
+                DELETE FROM graph_nodes
+                WHERE id NOT IN (
+                    SELECT source_node_id FROM graph_edges
+                    UNION
+                    SELECT target_node_id FROM graph_edges
+                    UNION
+                    SELECT node_id FROM graph_entry_nodes
+                )
+                """
+            )
+            await db.commit()
+        return result
+
     async def search_entries_by_bm25(
         self,
         fts_query: str,
