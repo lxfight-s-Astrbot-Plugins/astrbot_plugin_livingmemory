@@ -218,7 +218,7 @@ async def real_db_stack(tmp_path: Path):
 
     config_manager = ConfigManager(
         {
-            "recall_engine": {"top_k": 5, "injection_method": "system_prompt"},
+            "recall_engine": {"top_k": 5, "injection_method": "extra_user_content"},
             "reflection_engine": {"summary_trigger_rounds": 1},
             "session_manager": {"max_messages_per_session": 100},
         }
@@ -365,11 +365,13 @@ async def test_recall_injection_with_real_database(real_db_stack):
         prompt="What headphones should I buy?",
         system_prompt="",
         contexts=[],
+        extra_user_content_parts=[],
     )
 
     await event_handler.handle_memory_recall(event, req)
-    assert "<RAG-Faiss-Memory>" in req.system_prompt
-    assert "headphones" in req.system_prompt.lower()
+    assert len(req.extra_user_content_parts) == 1
+    assert "<RAG-Faiss-Memory>" in req.extra_user_content_parts[0].text
+    assert "headphones" in req.extra_user_content_parts[0].text.lower()
 
 
 @pytest.mark.asyncio

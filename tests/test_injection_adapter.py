@@ -15,9 +15,19 @@ def adapter():
 
 
 def test_resolve_non_fake_mode_unchanged(adapter):
-    """非 fake_tool_call 模式应原样返回。"""
-    assert adapter.resolve(None, "system_prompt") == ("system_prompt", None)
+    """非 fake_tool_call 且非废弃模式应原样返回。"""
     assert adapter.resolve(None, "user_message_before") == ("user_message_before", None)
+    assert adapter.resolve(None, "extra_user_content") == ("extra_user_content", None)
+
+
+def test_resolve_system_prompt_falls_back(adapter):
+    """system_prompt 已废弃，应自动回退到 extra_user_content。"""
+    mode, reason = adapter.resolve(None, "system_prompt")
+
+    assert mode == "extra_user_content"
+    assert reason is not None
+    assert "system_prompt" in reason
+    assert "extra_user_content" in reason
 
 
 def test_resolve_gemini_by_provider_type(adapter):

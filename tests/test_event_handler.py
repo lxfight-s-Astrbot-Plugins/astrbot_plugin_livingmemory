@@ -62,7 +62,7 @@ def handler(memory_engine, memory_processor, conversation_manager):
         context=Mock(),
         config_manager=ConfigManager(
             {
-                "recall_engine": {"top_k": 3, "injection_method": "system_prompt"},
+                "recall_engine": {"top_k": 3, "injection_method": "extra_user_content"},
                 "reflection_engine": {"summary_trigger_rounds": 1},
                 "session_manager": {"max_messages_per_session": 100},
             }
@@ -115,7 +115,8 @@ async def test_message_dedup_cache_works(handler):
 
 
 @pytest.mark.asyncio
-async def test_handle_memory_recall_injects_system_prompt(handler, memory_engine):
+async def test_handle_memory_recall_injects_extra_user_content(handler, memory_engine):
+    """extra_user_content 注入方式：记忆应追加到 extra_user_content_parts 并标记为临时消息。"""
     event = _make_event(group=False)
     req = _make_req("query text")
     recalled = Mock(content="mem1", final_score=0.7, metadata={"importance": 0.9})
@@ -129,7 +130,12 @@ async def test_handle_memory_recall_injects_system_prompt(handler, memory_engine
         await handler.handle_memory_recall(event, req)
 
     memory_engine.search_memories.assert_awaited_once()
-    assert "<RAG-Faiss-Memory>" in req.system_prompt
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
+    # system_prompt 不应被修改
+    assert req.system_prompt == ""
 
 
 @pytest.mark.asyncio
@@ -191,7 +197,7 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
         context=Mock(),
         config_manager=ConfigManager(
             {
-                "recall_engine": {"top_k": 3, "injection_method": "system_prompt"},
+                "recall_engine": {"top_k": 3, "injection_method": "extra_user_content"},
                 "reflection_engine": {"summary_trigger_rounds": 1},
                 "session_manager": {
                     "max_messages_per_session": 100,
@@ -1248,3 +1254,52 @@ async def test_top_k_0_does_not_store_group_message(
 
     conversation_manager.add_message_from_event.assert_not_awaited()
     memory_engine.search_memories.assert_not_awaited()
+
+
+# ==================== system_prompt 自动回退测试 ====================
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_auto_falls_back_to_extra_user_content(
+    memory_engine, memory_processor, conversation_manager
+):
+    """配置 system_prompt 时应自动回退到 extra_user_content 方式。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "system_prompt",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=Mock(),
+    )
+    h.conversation_manager.add_message_from_event = AsyncMock()
+
+    recalled = Mock(content="mem_fallback", final_score=0.8, metadata={"importance": 0.9})
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    req = _make_req("query text")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await h.handle_memory_recall(event, req)
+
+    # 应注入到 extra_user_content_parts 而非 system_prompt
+    assert req.system_prompt == ""
+    assert len(req.extra_user_content_parts) == 1
+    assert "mem_fallback" in req.extra_user_content_parts[0].text
+    assert getattr(req.extra_user_content_parts[0], "_no_save", False) is True
