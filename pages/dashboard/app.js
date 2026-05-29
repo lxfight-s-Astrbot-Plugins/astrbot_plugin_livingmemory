@@ -23,6 +23,7 @@
     currentTab: "memories",
     currentMemoryItem: null,
     searchTimeout: null, // 用于防抖搜索
+    isConfirmingDelete: false, // 两步确认删除状态
   };
 
   // 简单的日志记录器
@@ -131,6 +132,7 @@
     dom.applyFilter.addEventListener("click", applyFilters);
     dom.selectAll.addEventListener("change", toggleSelectAll);
     dom.deleteSelected.addEventListener("click", deleteSelectedMemories);
+    document.addEventListener("click", onDocumentClick);
     dom.drawerClose.addEventListener("click", closeDetailDrawer);
     dom.nukeCancel.addEventListener("click", onNukeCancel);
 
@@ -463,6 +465,12 @@
   }
 
   function updateSelectionState() {
+    if (state.isConfirmingDelete) {
+      state.isConfirmingDelete = false;
+      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
+      dom.deleteSelected.style.backgroundColor = "";
+      dom.deleteSelected.style.color = "";
+    }
     dom.deleteSelected.disabled = state.selected.size === 0;
     if (!state.items.length) {
       dom.selectAll.checked = false;
@@ -542,18 +550,31 @@
       return;
     }
     const count = state.selected.size;
-    const originalText = dom.deleteSelected.textContent;
 
-    // 改进的确认对话框
-    const confirmed = window.confirm(
-      window.t("delete.confirmTitle") + "\n\n" +
-      window.t("delete.confirmMsg", count)
-    );
+    // 两步确认：首次点击 → 按钮变为"确认删除 X 条?"，再次点击 → 执行删除
+    if (!state.isConfirmingDelete) {
+      dom.deleteSelected.dataset.originalText = dom.deleteSelected.textContent;
+      dom.deleteSelected.textContent = `确认删除 ${count} 条?`;
+      dom.deleteSelected.style.backgroundColor = "#ef4444";
+      dom.deleteSelected.style.color = "#ffffff";
+      state.isConfirmingDelete = true;
 
-    if (!confirmed) {
-      showToast(window.t("delete.cancelled"));
+      setTimeout(() => {
+        if (state.isConfirmingDelete) {
+          state.isConfirmingDelete = false;
+          dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText;
+          dom.deleteSelected.style.backgroundColor = "";
+          dom.deleteSelected.style.color = "";
+        }
+      }, 3000);
       return;
     }
+
+    // 确认删除，重置按钮样式
+    state.isConfirmingDelete = false;
+    dom.deleteSelected.style.backgroundColor = "";
+    dom.deleteSelected.style.color = "";
+    const originalText = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
 
     const memoryIds = [];
     state.items.forEach((item) => {
@@ -630,6 +651,15 @@
     } finally {
       dom.deleteSelected.disabled = false;
       dom.deleteSelected.textContent = originalText;
+    }
+  }
+
+  function onDocumentClick(event) {
+    if (state.isConfirmingDelete && event.target !== dom.deleteSelected) {
+      state.isConfirmingDelete = false;
+      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
+      dom.deleteSelected.style.backgroundColor = "";
+      dom.deleteSelected.style.color = "";
     }
   }
 
