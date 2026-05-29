@@ -228,6 +228,24 @@
         "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。",
         "type": "int",
         "default": 8
+      },
+      "atom_enabled": {
+        "description": "启用记忆原子化",
+        "hint": "开启后每条 key_fact 独立为一个记忆原子，拥有自己的存活时间和衰减曲线。关闭则完全回退到原来的粗粒度行为。",
+        "type": "bool",
+        "default": true
+      },
+      "atom_maintenance_interval_hours": {
+        "description": "原子维护间隔(小时)",
+        "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。",
+        "type": "float",
+        "default": 24.0
+      },
+      "atom_forget_delay_days": {
+        "description": "原子遗忘延迟(天)",
+        "hint": "过期原子在多少天后从检索索引中彻底移除。",
+        "type": "float",
+        "default": 7.0
       }
     }
   },

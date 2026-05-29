@@ -14,7 +14,10 @@ import aiosqlite
 from astrbot.api import logger
 
 from ...storage.graph_store import GraphStore
+from ...storage.atom_store import AtomStore
 from ..managers.graph_memory_manager import GraphMemoryManager
+from ..managers.atom_lifecycle_manager import AtomLifecycleManager
+from ..retrieval.atom_retriever import AtomRetriever
 from ..processors.graph_extractor import GraphExtractor
 from ..processors.text_processor import TextProcessor
 from ..retrieval.bm25_retriever import BM25Retriever
@@ -100,6 +103,10 @@ class MemoryEngine:
         self.llm_provider = llm_provider
         self.config = config or {}
         self.graph_enabled = bool(self.config.get("graph_memory_enabled", False))
+        self.atom_enabled = bool(
+            self.config.get("graph_memory_atom_enabled", True)
+            or self.config.get("atom_enabled", False)
+        )
 
         # 确保数据库目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +127,9 @@ class MemoryEngine:
         self.graph_retriever = None
         self.graph_memory_manager = None
         self.dual_route_retriever = None
+        self.atom_store = None
+        self.atom_lifecycle_manager = None
+        self.atom_retriever = None
         self.db_connection = None
 
     async def initialize(self):
@@ -163,6 +173,16 @@ class MemoryEngine:
             self.graph_store = GraphStore(self.db_path)
             await self.graph_store.initialize()
 
+            self.atom_store = AtomStore(self.db_path)
+            await self.atom_store.initialize()
+
+            if self.atom_enabled:
+                self.atom_lifecycle_manager = AtomLifecycleManager(
+                    self.atom_store, self.config
+                )
+                self.atom_retriever = AtomRetriever(self.atom_store, self.config)
+                await self.atom_lifecycle_manager.start()
+
             self.graph_extractor = GraphExtractor(self.config)
             self.graph_keyword_retriever = GraphKeywordRetriever(
                 self.graph_store,
@@ -193,6 +213,8 @@ class MemoryEngine:
 
     async def close(self):
         """关闭数据库连接和清理资源"""
+        if self.atom_lifecycle_manager is not None:
+            await self.atom_lifecycle_manager.stop()
         if self._pending_tasks:
             for task in self._pending_tasks:
                 if not task.done():
@@ -360,6 +382,7 @@ class MemoryEngine:
         persona_id: str | None = None,
         importance: float = 0.5,
         metadata: dict[str, Any] | None = None,
+        atoms: list | None = None,
     ) -> int:
         """
         添加新记忆
@@ -402,8 +425,20 @@ class MemoryEngine:
             raise RuntimeError("混合检索器未初始化")
         doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
 
+        # 写入记忆原子
+        if atoms and self.atom_store is not None and self.atom_enabled:
+            for atom in atoms:
+                atom.parent_memory_id = doc_id
+                try:
+                    await self.atom_store.insert(atom)
+                except Exception:
+                    logger.error(
+                        f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
+                        exc_info=True,
+                    )
+
         if self.graph_memory_manager is not None:
-            await self.graph_memory_manager.index_memory(doc_id, content, full_metadata)
+            await self.graph_memory_manager.index_memory(doc_id, content, full_metadata, atoms)
 
         return doc_id
 

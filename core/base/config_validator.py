@@ -167,6 +167,16 @@ class GraphMemoryConfig(BaseModel):
     max_facts_per_memory: int = Field(
         default=8, ge=1, le=30, description="单条记忆最多索引事实数"
     )
+    # Atom-level memory configuration
+    atom_enabled: bool = Field(
+        default=True, description="是否启用记忆原子化（细化粒度+时间衰减）"
+    )
+    atom_maintenance_interval_hours: float = Field(
+        default=24.0, ge=1.0, le=168.0, description="原子生命周期维护间隔(小时)"
+    )
+    atom_forget_delay_days: float = Field(
+        default=7.0, ge=1.0, le=90.0, description="过期原子延迟遗忘天数"
+    )
 
     @model_validator(mode="after")
     def validate_route_weights(self):
