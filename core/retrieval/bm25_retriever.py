@@ -130,8 +130,8 @@ class BM25Retriever:
             content: 文档内容(原始文本)
             metadata: 文档元数据(可选,用于过滤但不索引)
         """
-        # 使用TextProcessor预处理文本
-        tokens = self.text_processor.tokenize(content, remove_stopwords=True)
+        # 使用TextProcessor预处理文本（异步卸载 jieba 分词到线程池）
+        tokens = await self.text_processor.tokenize_async(content, remove_stopwords=True)
         processed_content = " ".join(tokens)
 
         async with self._connect() as db:
@@ -164,8 +164,8 @@ class BM25Retriever:
         if not query or not query.strip():
             return []
 
-        # 预处理查询
-        tokens = self.text_processor.tokenize(query, remove_stopwords=True)
+        # 预处理查询（异步卸载 jieba 分词到线程池）
+        tokens = await self.text_processor.tokenize_async(query, remove_stopwords=True)
         if not tokens:
             return []
 
@@ -314,8 +314,8 @@ class BM25Retriever:
         from astrbot.api import logger
 
         try:
-            # 重新处理内容
-            tokens = self.text_processor.tokenize(content, remove_stopwords=True)
+            # 重新处理内容（异步卸载 jieba 分词到线程池）
+            tokens = await self.text_processor.tokenize_async(content, remove_stopwords=True)
             processed_content = " ".join(tokens)
 
             async with self._connect() as db:

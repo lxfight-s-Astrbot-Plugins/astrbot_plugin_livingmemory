@@ -394,6 +394,13 @@ class TextProcessor:
         """
         return [self.tokenize(text, remove_stopwords) for text in texts]
 
+    async def tokenize_async(
+        self, text: str, remove_stopwords: bool = True
+    ) -> list[str]:
+        """异步分词：将 CPU 密集型 jieba 分词卸载到线程池，避免阻塞事件循环。"""
+        import asyncio
+        return await asyncio.to_thread(self.tokenize, text, remove_stopwords)
+
     async def load_stopwords(self, stopwords_path: str) -> set[str]:
         """
         加载停用词表

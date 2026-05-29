@@ -44,7 +44,7 @@ class GraphKeywordRetriever:
         if not query or not query.strip():
             return []
 
-        tokens = self.text_processor.tokenize(query, remove_stopwords=True)
+        tokens = await self.text_processor.tokenize_async(query, remove_stopwords=True)
         if not tokens:
             return []
 
