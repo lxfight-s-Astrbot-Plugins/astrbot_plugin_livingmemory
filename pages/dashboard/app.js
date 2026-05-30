@@ -1,6 +1,4 @@
 (() => {
-  const BRIDGE_URL_BASE = "https://astrbot-plugin-page.local/";
-  const PAGE_ENDPOINT_PREFIX = "page";
   const state = {
     page: 1,
     pageSize: 20,
@@ -35,40 +33,49 @@
   };
   let themePreference = "light";
 
-  function parseBridgeUrl(path) {
-    return new URL(path, BRIDGE_URL_BASE);
-  }
-
-  function normalizeBridgeResponse(response) {
-    if (
-      response &&
-      typeof response === "object" &&
-      Object.prototype.hasOwnProperty.call(response, "success")
-    ) {
-      return response;
-    }
-
-    if (response && typeof response === "object" && !Array.isArray(response)) {
-      return {
-        ...response,
-        success: true,
-        data: response,
-      };
-    }
-
-    return {
-      success: true,
-      data: response,
-    };
+  function buildEndpoint(path) {
+    const cleanPath = String(path).replace(/^\/+/, "");
+    return `page/${cleanPath}`.replace(/\/+/g, "/");
   }
 
   function readThemePreference() {
+    // 1. Bridge context (sync with AstrBot dashboard)
     try {
-      return localStorage.getItem("lmem_theme") || themePreference;
-    } catch (error) {
-      logger.warn("[主题存储不可用，回退内存主题]", error);
-      return themePreference;
-    }
+      const bridge = window.AstrBotPluginPage;
+      if (bridge) {
+        const ctx = bridge.getContext();
+        if (ctx && typeof ctx.isDark === "boolean") {
+          return ctx.isDark ? "dark" : "light";
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    // 2. localStorage user override
+    try {
+      const stored = localStorage.getItem("lmem_theme");
+      if (stored) return stored;
+    } catch (_) { /* ignore */ }
+
+    // 3. HTML data-theme (set by AstrBot HTML rewrite)
+    const htmlTheme = document.documentElement.getAttribute("data-theme");
+    if (htmlTheme) return htmlTheme;
+
+    return "light";
+  }
+
+  function listenBridgeTheme() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (!bridge || typeof bridge.onContext !== "function") return;
+      bridge.onContext(function (ctx) {
+        if (!ctx || typeof ctx.isDark !== "boolean") return;
+        var newTheme = ctx.isDark ? "dark" : "light";
+        var current = document.documentElement.getAttribute("data-theme") || "light";
+        if (newTheme !== current) {
+          applyTheme(newTheme);
+        }
+      });
+    } catch (_) { /* ignore */ }
   }
 
   function writeThemePreference(theme) {
@@ -120,9 +127,18 @@
     },
   };
 
-  function init() {
-    // 初始化主题
+  async function init() {
+    // 初始化主题（从 bridge 上下文或已有 data-theme 读取）
     initTheme();
+    listenBridgeTheme();
+
+    // 等待桥接就绪后再发起请求
+    var bridge = window.AstrBotPluginPage;
+    if (bridge && typeof bridge.ready === "function") {
+      try {
+        await bridge.ready();
+      } catch (_) { /* 即使超时也继续 */ }
+    }
 
     dom.refreshButton.addEventListener("click", fetchAll);
     dom.nukeButton.addEventListener("click", onNukeClick);
@@ -248,12 +264,7 @@
 
   async function fetchStats() {
     try {
-      const response = await apiRequest("stats");
-      if (!response.success) {
-        throw new Error(response.error || window.t("misc.statsFail"));
-      }
-
-      const stats = response.data || {};
+      const stats = await apiRequest("stats") || {};
 
       // 总记忆数
       dom.stats.total.textContent = stats.total_memories ?? stats.total_count ?? "0";
@@ -307,12 +318,7 @@
     }
 
     try {
-      const response = await apiRequest(`memories?${params.toString()}`);
-      if (!response.success) {
-        throw new Error(response.error || window.t("misc.fetchMemoriesFail"));
-      }
-
-      const data = response.data || {};
+      const data = await apiRequest(`memories?${params.toString()}`) || {};
       const rawItems = Array.isArray(data.items) ? data.items : [];
       
       // 更新总数和分页状态
@@ -601,18 +607,12 @@
 
       console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
 
-      const response = await apiRequest("memories/batch-delete", {
+      const data = await apiRequest("memories/batch-delete", {
         method: "POST",
         body: {
           memory_ids: memoryIds,
         },
-      });
-
-      if (!response.success) {
-        throw new Error(response.error || window.t("delete.error"));
-      }
-
-      const data = response.data || {};
+      }) || {};
       const deletedCount = data.deleted_count || 0;
       const failedCount = data.failed_count || 0;
       const failedIds = data.failed_ids || [];
@@ -824,39 +824,34 @@
 
   async function apiRequest(path, options = {}) {
     const { method = "GET", body, retries = 2 } = options;
-    let lastError;
-
     const bridge = window.AstrBotPluginPage;
     if (!bridge) {
       throw new Error(window.t("bridge.error"));
     }
 
+    let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const urlObj = parseBridgeUrl(path);
-        const relativePath = urlObj.pathname.replace(/^\/+/, "");
-        const endpoint = `${PAGE_ENDPOINT_PREFIX}/${relativePath}`.replace(/\/+/g, "/");
-
         if (method === "GET") {
-          const params = Object.fromEntries(urlObj.searchParams.entries());
-          const response = await bridge.apiGet(endpoint, params);
-          return normalizeBridgeResponse(response);
+          const questionIdx = path.indexOf("?");
+          if (questionIdx !== -1) {
+            const basePath = path.substring(0, questionIdx);
+            const queryString = path.substring(questionIdx + 1);
+            const params = Object.fromEntries(new URLSearchParams(queryString));
+            return await bridge.apiGet(buildEndpoint(basePath), params);
+          }
+          return await bridge.apiGet(buildEndpoint(path), {});
         }
-
-        const response = await bridge.apiPost(endpoint, body || {});
-        return normalizeBridgeResponse(response);
+        return await bridge.apiPost(buildEndpoint(path), body || {});
       } catch (error) {
         lastError = error;
-
         if (attempt === retries) {
           throw error;
         }
-
         const waitTime = Math.min(1000 * Math.pow(2, attempt), 5000);
         await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
-
     throw lastError || new Error(window.t("misc.requestFailed"));
   }
 
@@ -1333,11 +1328,7 @@
         body: { memory_id: memoryId, field, value, reason },
       });
 
-      if (!result.success) {
-        throw new Error(result.error || result.message || window.t("edit.updateFailed"));
-      }
-
-      showToast(result.message || window.t("edit.success"));
+      showToast((result && result.message) || window.t("edit.success"));
       closeEditModal();
       closeDetailDrawer();
       await fetchMemories(); // 刷新列表

@@ -275,9 +275,9 @@ class PluginPageApi:
                 return self._error(str(exc))
 
             return {
-                "success": True,
-                "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
+                "status": "ok",
                 "data": {
+                    "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
                     "old_memory_id": memory_id,
                     "new_memory_id": new_memory_id,
                     "field": field,
@@ -324,9 +324,9 @@ class PluginPageApi:
             return self._error("更新失败")
 
         return {
-            "success": True,
-            "message": f"记忆 {memory_id} 的 {field} 已更新",
+            "status": "ok",
             "data": {
+                "message": f"记忆 {memory_id} 的 {field} 已更新",
                 "memory_id": memory_id,
                 "field": field,
             },
@@ -728,11 +728,11 @@ class PluginPageApi:
 
     @staticmethod
     def _ok(data: Any = None) -> dict[str, Any]:
-        return {"success": True, "data": data}
+        return {"status": "ok", "data": data}
 
     @staticmethod
     def _error(message: str) -> dict[str, Any]:
-        return {"success": False, "error": str(message)}
+        return {"status": "error", "message": str(message)}
 
     @staticmethod
     def _get_graph_store(memory_engine):
@@ -882,6 +882,6 @@ class PluginPageApi:
         """列出所有版本备份及其元数据。"""
         data_dir = self.plugin.initializer.data_dir if self.plugin.initializer else ""
         if not data_dir:
-            return {"backups": [], "total": 0}
+            return self._ok({"backups": [], "total": 0})
         backups = BackupManager.list_backups(data_dir)
-        return {"backups": backups, "total": len(backups)}
+        return self._ok({"backups": backups, "total": len(backups)})

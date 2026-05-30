@@ -1,6 +1,4 @@
 ﻿(() => {
-  const BRIDGE_URL_BASE = "https://astrbot-plugin-page.local/";
-  const PAGE_ENDPOINT_PREFIX = "page";
   const state = {
     payload: null,
     graphIndex: null,
@@ -65,23 +63,9 @@
     ["graph_vector_score", () => window.t("graph.scoreGraphVec")],
   ];
 
-  function parseBridgeUrl(path) {
-    return new URL(path, BRIDGE_URL_BASE);
-  }
-
-  function unwrapBridgeResponse(response) {
-    if (
-      response &&
-      typeof response === "object" &&
-      Object.prototype.hasOwnProperty.call(response, "success")
-    ) {
-      if (!response.success) {
-        throw new Error(response.error || window.t("graph.queryFail"));
-      }
-      return response.data || {};
-    }
-
-    return response || {};
+  function buildEndpoint(path) {
+    var cleanPath = String(path).replace(/^\/+/, "");
+    return ("page/" + cleanPath).replace(/\/+/g, "/");
   }
 
   function init() {
@@ -176,19 +160,18 @@
       throw new Error(window.t("graph.bridgeError"));
     }
 
-    const url = parseBridgeUrl(path);
-    const relativePath = url.pathname.replace(/^\/+/, "");
-    const endpoint = `${PAGE_ENDPOINT_PREFIX}/${relativePath}`.replace(/\/+/g, "/");
-
-    let response;
-    if ((options.method || "GET").toUpperCase() === "GET") {
-      const params = Object.fromEntries(url.searchParams.entries());
-      response = await bridge.apiGet(endpoint, params);
-    } else {
-      response = await bridge.apiPost(endpoint, options.body || {});
+    var method = (options.method || "GET").toUpperCase();
+    if (method === "GET") {
+      var questionIdx = path.indexOf("?");
+      if (questionIdx !== -1) {
+        var basePath = path.substring(0, questionIdx);
+        var queryString = path.substring(questionIdx + 1);
+        var params = Object.fromEntries(new URLSearchParams(queryString));
+        return await bridge.apiGet(buildEndpoint(basePath), params);
+      }
+      return await bridge.apiGet(buildEndpoint(path), {});
     }
-
-    return unwrapBridgeResponse(response);
+    return await bridge.apiPost(buildEndpoint(path), options.body || {});
   }
 
   async function fetchOverview() {

@@ -322,28 +322,60 @@
   /* ---- Engine ---- */
   let currentLang = "zh";
 
+  function getBridgeLocale() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (bridge) {
+        const ctx = bridge.getContext();
+        if (ctx && ctx.locale) {
+          const lang = String(ctx.locale).split("-")[0];
+          if (SUPPORTED.includes(lang)) return lang;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    return null;
+  }
+
   function detectLanguage() {
-    // 1. URL param
+    // 1. Bridge context (AstrBot dashboard locale — highest priority)
+    const bridgeLocale = getBridgeLocale();
+    if (bridgeLocale) return bridgeLocale;
+
+    // 2. URL param (override)
     try {
       const params = new URLSearchParams(window.location.search);
       const langParam = params.get("lang");
       if (langParam && SUPPORTED.includes(langParam)) return langParam;
     } catch (_) { /* ignore */ }
 
-    // 2. localStorage
+    // 3. localStorage
     try {
       const stored = localStorage.getItem(LANG_KEY);
       if (stored && SUPPORTED.includes(stored)) return stored;
     } catch (_) { /* ignore */ }
 
-    // 3. navigator
+    // 4. navigator
     try {
       const nav = (navigator.language || "").split("-")[0];
       if (SUPPORTED.includes(nav)) return nav;
     } catch (_) { /* ignore */ }
 
-    // 4. default
+    // 5. default
     return "zh";
+  }
+
+  function listenBridgeLocale() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (!bridge || typeof bridge.onContext !== "function") return;
+      bridge.onContext(function (ctx) {
+        if (!ctx || !ctx.locale) return;
+        const lang = String(ctx.locale).split("-")[0];
+        if (SUPPORTED.includes(lang) && lang !== currentLang) {
+          window.setLanguage(lang);
+        }
+      });
+    } catch (_) { /* ignore */ }
   }
 
   /**
@@ -396,5 +428,6 @@
   document.documentElement.setAttribute("lang", currentLang === "zh" ? "zh-CN" : currentLang === "ru" ? "ru" : "en");
   document.addEventListener("DOMContentLoaded", () => {
     applyI18n();
+    listenBridgeLocale();
   });
 })();
