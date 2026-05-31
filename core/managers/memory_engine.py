@@ -104,8 +104,10 @@ class MemoryEngine:
         self.config = config or {}
         self.graph_enabled = bool(self.config.get("graph_memory_enabled", False))
         self.atom_enabled = bool(
-            self.config.get("graph_memory_atom_enabled", True)
-            or self.config.get("atom_enabled", False)
+            self.config.get(
+                "atom_enabled",
+                self.config.get("graph_memory_atom_enabled", True),
+            )
         )
 
         # 确保数据库目录存在

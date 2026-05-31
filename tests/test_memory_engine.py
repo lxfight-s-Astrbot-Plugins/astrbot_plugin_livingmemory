@@ -99,6 +99,16 @@ class _FakeFaissDB:
             self.docs.pop(target, None)
 
 
+def test_memory_engine_atom_enabled_honors_explicit_false(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"atom_enabled": False},
+    )
+
+    assert engine.atom_enabled is False
+
+
 @pytest.mark.asyncio
 async def test_initialize_drops_legacy_documents_fts_triggers(tmp_path: Path):
     db_path = tmp_path / "legacy_trigger.db"

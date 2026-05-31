@@ -727,12 +727,20 @@ def test_graph_extractor_atoms_no_entities_fallback() -> None:
 # ---------- Backward compatibility ----------
 
 
+def test_classify_atoms_from_metadata_default_config() -> None:
+    """MemoryProcessor initializes atom config for direct construction."""
+    from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+
+    processor = MemoryProcessor()
+    atoms = processor.classify_atoms_from_metadata(metadata={"key_facts": []})
+    assert atoms == []
+
+
 def test_classify_atoms_from_metadata_atom_disabled() -> None:
     """When atom_enabled is False, classify_atoms_from_metadata returns empty list."""
     from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 
-    processor = MemoryProcessor.__new__(MemoryProcessor)
-    processor.config = {"atom_enabled": False}
+    processor = MemoryProcessor(config={"atom_enabled": False})
     atoms = processor.classify_atoms_from_metadata(
         metadata={"key_facts": ["测试1", "测试2"]},
     )
@@ -743,8 +751,7 @@ def test_classify_atoms_from_metadata_no_key_facts() -> None:
     """When key_facts is empty, classify_atoms_from_metadata returns empty list."""
     from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 
-    processor = MemoryProcessor.__new__(MemoryProcessor)
-    processor.config = {"atom_enabled": True}
+    processor = MemoryProcessor(config={"atom_enabled": True})
     atoms = processor.classify_atoms_from_metadata(
         metadata={"key_facts": [], "topics": ["会议"]},
     )

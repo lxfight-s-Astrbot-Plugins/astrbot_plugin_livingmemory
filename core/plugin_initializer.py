@@ -384,6 +384,15 @@ class PluginInitializer:
                 "graph_max_facts": self.config_manager.get(
                     "graph_memory.max_facts_per_memory", 8
                 ),
+                "atom_enabled": self.config_manager.get(
+                    "graph_memory.atom_enabled", True
+                ),
+                "atom_maintenance_interval_hours": self.config_manager.get(
+                    "graph_memory.atom_maintenance_interval_hours", 24.0
+                ),
+                "atom_forget_delay_days": self.config_manager.get(
+                    "graph_memory.atom_forget_delay_days", 7.0
+                ),
                 "index_rebuild_batch_size": self.config_manager.get(
                     "index_rebuild_settings.batch_size", 50
                 ),
@@ -444,7 +453,9 @@ class PluginInitializer:
             # 导致的 "Cannot send a request, as the client has been closed" 错误。
             llm_id = self.config_manager.get("provider_settings.llm_provider_id")
             self.memory_processor = MemoryProcessor(
-                self.context, llm_provider=llm_id if llm_id else None
+                self.context,
+                llm_provider=llm_id if llm_id else None,
+                config=memory_engine_config,
             )
             logger.info("MemoryProcessor 已初始化")
 
