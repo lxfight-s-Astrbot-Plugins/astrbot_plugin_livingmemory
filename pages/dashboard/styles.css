@@ -521,16 +521,24 @@ body {
   box-shadow: var(--shadow-xs);
 }
 
+.table-scroll {
+  overflow-y: auto;
+  overflow-x: auto;
+  max-height: calc(100vh - 260px);
+  min-height: 200px;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 .data-table thead {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 .data-table th {
@@ -575,14 +583,16 @@ body {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.data-table .cell-id { width: 56px; }
+.data-table .cell-type { width: 100px; }
+.data-table .cell-importance { width: 120px; }
+.data-table .cell-status { width: 90px; }
+.data-table .cell-created { width: 140px; }
+
 .data-table .cell-mono {
   font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   font-size: 12px;
   color: var(--text-secondary);
-}
-
-.data-table .cell-importance {
-  width: 100px;
 }
 
 /* Importance bar */
@@ -1044,24 +1054,20 @@ body {
 .peek-node-badge.fact    { background: rgba(252,196,25,0.15); color: #946500; }
 .peek-node-badge.summary { background: rgba(240,101,149,0.12); color: var(--node-summary); }
 
-/* Peek mini subgraph placeholder */
+/* Peek mini subgraph canvas */
 .peek-mini-graph {
   width: 100%;
-  height: 120px;
+  height: 140px;
   background: var(--bg-hover);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: 12px;
+  display: block;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: opacity var(--transition-fast);
 }
 
 .peek-mini-graph:hover {
-  background: var(--bg-active);
+  opacity: 0.85;
 }
 
 /* Peek key facts */

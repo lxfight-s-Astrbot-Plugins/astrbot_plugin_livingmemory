@@ -124,21 +124,23 @@
               </select>
             </div>
             <div class="table-container">
+              <div class="table-scroll" id="memories-scroll">
               <table class="data-table" id="memories-table">
                 <thead>
                   <tr>
-                    <th style="width:50px" data-i18n="table.id">ID</th>
+                    <th class="cell-id" data-i18n="table.id">ID</th>
                     <th data-i18n="table.summary">Summary</th>
-                    <th data-i18n="table.type">Type</th>
-                    <th data-i18n="table.importance">Importance</th>
-                    <th data-i18n="table.status">Status</th>
-                    <th data-i18n="table.created">Created</th>
+                    <th class="cell-type" data-i18n="table.type">Type</th>
+                    <th class="cell-importance" data-i18n="table.importance">Importance</th>
+                    <th class="cell-status" data-i18n="table.status">Status</th>
+                    <th class="cell-created" data-i18n="table.created">Created</th>
                   </tr>
                 </thead>
                 <tbody id="memories-body">
                   <tr><td colspan="6" class="table-empty" data-i18n="table.noData">No data</td></tr>
                 </tbody>
               </table>
+              </div>
               <div class="pagination">
                 <div class="pagination-controls">
                   <button class="btn btn-sm btn-ghost" id="mem-prev" disabled data-i18n="pagination.prev">Previous</button>

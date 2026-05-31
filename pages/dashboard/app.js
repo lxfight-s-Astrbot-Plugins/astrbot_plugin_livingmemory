@@ -183,7 +183,6 @@
     var importance = memory.importance != null ? Number(memory.importance).toFixed(1) : "--";
     var content = memory.summary || memory.content || memory.text || "";
     var created = memory.created_at || "--";
-    var lastAccess = memory.last_access || "--";
     var sessionId = (memory.raw && memory.raw.metadata && memory.raw.metadata.session_id) || "--";
     var keyFacts = [];
     var topics = [];
@@ -195,6 +194,11 @@
 
     var html = "";
     if (type) { html += '<div class="peek-section"><span class="type-tag">' + esc(type) + '</span></div>'; }
+
+    /* Mini graph preview */
+    html += '<div class="peek-section"><div class="peek-section-title">Knowledge Graph</div>';
+    html += '<canvas id="peek-mini-graph" class="peek-mini-graph" width="360" height="140" data-memory-id="' + (memory.memory_id || memory.id) + '"></canvas></div>';
+
     html += '<div class="peek-section"><p style="font-size:14px;line-height:1.6">' + esc(content) + '</p></div>';
     html += '<div class="peek-section"><div class="peek-section-title">Details</div>';
     html += '<div class="peek-meta-grid">';
@@ -231,7 +235,47 @@
         deleteSingleMemory(parseInt(state.selectedMemory.memory_id || state.selectedMemory.id));
       }
     });
+
+    /* Load mini-graph */
+    setTimeout(function() { loadPeekMiniGraph(memory.memory_id || memory.id); }, 50);
+
     openPeek();
+  }
+
+  function loadPeekMiniGraph(memoryId) {
+    var canvas = document.getElementById("peek-mini-graph");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+
+    /* Placeholder while loading */
+    ctx.fillStyle = "var(--text-tertiary)";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Loading graph...", W / 2, H / 2);
+
+    apiRequest("graph/query", {
+      method: "POST",
+      body: { memory_id: parseInt(memoryId), limit_nodes: 20, limit_edges: 30 },
+    }).then(function(payload) {
+      if (!payload || !payload.snapshot) { drawMiniEmpty(ctx, W, H); return; }
+      var nodes = payload.snapshot.nodes || [];
+      var edges = payload.snapshot.edges || [];
+      if (!nodes.length) { drawMiniEmpty(ctx, W, H); return; }
+      drawMiniGraph(ctx, W, H, nodes, edges);
+    }).catch(function() {
+      drawMiniEmpty(ctx, W, H);
+    });
+
+    /* Click to navigate to graph page */
+    canvas.style.cursor = "pointer";
+    canvas.onclick = function() {
+      document.querySelector('.nav-item[data-page="graph"]').click();
+      setTimeout(function() {
+        var mi = document.getElementById("graph-memory-id");
+        if (mi) { mi.value = memoryId; mi.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); }
+      }, 300);
+    };
   }
 
   function renderPeekNode(nodeData) {
@@ -270,9 +314,69 @@
       .replace(/"/g, "&quot;");
   }
 
+  /* Mini Graph Canvas Renderer */
+  var MINI_NODE_COLORS = {
+    topic: "#7950f2", person: "#20c997", fact: "#fcc419", summary: "#f06595", other: "#909296",
+  };
+
+  function drawMiniEmpty(ctx, W, H) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "var(--text-tertiary)";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("No graph data", W / 2, H / 2);
+  }
+
+  function drawMiniGraph(ctx, W, H, nodes, edges) {
+    ctx.clearRect(0, 0, W, H);
+    var pad = 24;
+    var cx = W / 2, cy = H / 2;
+    var radius = Math.min(W, H) / 2 - pad;
+
+    /* Layout nodes in a circle */
+    var n = nodes.length;
+    var nodePositions = [];
+    nodes.forEach(function(node, i) {
+      var angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      var x = cx + Math.cos(angle) * radius * 0.8;
+      var y = cy + Math.sin(angle) * radius * 0.7;
+      nodePositions.push({ id: node.id, x: x, y: y, type: node.type });
+    });
+
+    /* Draw edges */
+    var nodeLookup = {};
+    nodePositions.forEach(function(np) { nodeLookup[np.id] = np; });
+    ctx.strokeStyle = "rgba(148,163,184,0.3)";
+    ctx.lineWidth = 0.8;
+    edges.forEach(function(edge) {
+      var src = nodeLookup[edge.source];
+      var tgt = nodeLookup[edge.target];
+      if (!src || !tgt) return;
+      ctx.beginPath();
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+      ctx.stroke();
+    });
+
+    /* Draw nodes */
+    nodePositions.forEach(function(np) {
+      var color = MINI_NODE_COLORS[np.type] || MINI_NODE_COLORS.other;
+      ctx.beginPath();
+      ctx.arc(np.x, np.y, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+  }
+
   /* ================================================================
-     Memory Page
+     Memory Page — Virtual Scrolling
      ================================================================ */
+  var ROW_HEIGHT = 40;
+  var SCROLL_BUFFER = 15;
+
   async function fetchMemories() {
     var params = new URLSearchParams();
     params.set("page", String(state.memory.page));
@@ -306,7 +410,7 @@
         };
       });
 
-      renderMemoriesTable();
+      renderMemoriesVirtual();
       updateMemoryPagination();
       updateBatchBar();
     } catch (e) {
@@ -315,44 +419,77 @@
     }
   }
 
-  function renderMemoriesTable() {
+  function renderMemoriesVirtual() {
     var tbody = document.getElementById("memories-body");
-    if (!state.memory.items.length) {
-      renderEmptyTable();
-      return;
-    }
+    var scrollEl = document.getElementById("memories-scroll");
+    if (!state.memory.items.length) { renderEmptyTable(); return; }
 
-    tbody.innerHTML = state.memory.items.map(function(item) {
-      var key = "m:" + item.memory_id;
-      var sel = state.memory.selected.has(key) ? " selected" : "";
-      var imp = item.importance != null ? Number(item.importance).toFixed(1) : "5.0";
-      var impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
-      var impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
-      return '<tr data-key="' + key + '" class="' + sel + '">' +
-        '<td class="cell-mono">' + item.memory_id + '</td>' +
-        '<td>' + esc((item.summary || "").substring(0, 120)) + '</td>' +
-        '<td><span class="type-tag">' + esc(item.memory_type || "GENERAL") + '</span></td>' +
-        '<td><div class="importance-bar"><div class="importance-bar-track">' +
-        '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>' +
-        '<span style="font-size:12px;color:var(--text-secondary)">' + imp + '</span></div></td>' +
-        '<td>' + statusPill(item.status) + '</td>' +
-        '<td class="text-secondary" style="font-size:12px">' + esc(item.created_at) + '</td>' +
-        '</tr>';
-    }).join("");
+    var totalHeight = state.memory.items.length * ROW_HEIGHT;
 
-    tbody.querySelectorAll("tr").forEach(function(row) {
-      row.addEventListener("click", function(e) { onMemoryRowClick(row, e); });
-      row.addEventListener("dblclick", function() {
-        var k = row.dataset.key;
+    function renderSlice() {
+      var scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+      var viewHeight = scrollEl ? scrollEl.clientHeight : 600;
+      var start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - SCROLL_BUFFER);
+      var end = Math.min(state.memory.items.length, Math.ceil((scrollTop + viewHeight) / ROW_HEIGHT) + SCROLL_BUFFER);
+      var padTop = start * ROW_HEIGHT;
+      var padBottom = totalHeight - end * ROW_HEIGHT;
+
+      var html = "";
+      for (var i = start; i < end; i++) {
+        var item = state.memory.items[i];
+        var key = "m:" + item.memory_id;
+        var sel = state.memory.selected.has(key) ? " selected" : "";
+        var imp = item.importance != null ? Number(item.importance).toFixed(1) : "5.0";
+        var impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
+        var impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
+        html += '<tr data-key="' + key + '" class="' + sel + '" style="height:' + ROW_HEIGHT + 'px">' +
+          '<td class="cell-mono cell-id">' + item.memory_id + '</td>' +
+          '<td>' + esc((item.summary || "").substring(0, 120)) + '</td>' +
+          '<td class="cell-type"><span class="type-tag">' + esc(item.memory_type || "GENERAL") + '</span></td>' +
+          '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">' +
+          '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>' +
+          '<span style="font-size:12px;color:var(--text-secondary)">' + imp + '</span></div></td>' +
+          '<td class="cell-status">' + statusPill(item.status) + '</td>' +
+          '<td class="cell-created text-secondary" style="font-size:12px">' + esc(item.created_at) + '</td>' +
+          '</tr>';
+      }
+
+      tbody.innerHTML = html;
+      tbody.style.paddingTop = padTop + "px";
+      tbody.style.paddingBottom = padBottom + "px";
+
+      /* Event delegation on tbody */
+      tbody.onclick = function(e) {
+        var tr = e.target.closest("tr");
+        if (!tr || !tr.dataset.key) return;
+        onMemoryRowClick(tr, e);
+      };
+      tbody.ondblclick = function(e) {
+        var tr = e.target.closest("tr");
+        if (!tr || !tr.dataset.key) return;
+        var k = tr.dataset.key;
         var item = state.memory.items.find(function(i) { return ("m:" + i.memory_id) === k; });
         if (item) renderPeekMemory(item);
-      });
-    });
+      };
+    }
+
+    /* Attach scroll listener (once) */
+    if (scrollEl && !scrollEl._virtualScrollBound) {
+      scrollEl._virtualScrollBound = true;
+      scrollEl.addEventListener("scroll", function() {
+        window.requestAnimationFrame(renderSlice);
+      }, { passive: true });
+    }
+
+    renderSlice();
+    if (scrollEl) scrollEl.scrollTop = 0;
   }
 
   function renderEmptyTable() {
-    document.getElementById("memories-body").innerHTML =
-      '<tr><td colspan="6" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+    var tbody = document.getElementById("memories-body");
+    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+    tbody.style.paddingTop = "0";
+    tbody.style.paddingBottom = "0";
   }
 
   function onMemoryRowClick(row, event) {
@@ -374,7 +511,7 @@
       }
     }
     state._lastClickedKey = key;
-    renderMemoriesTable();
+    renderMemoriesVirtual();
     updateBatchBar();
   }
 
@@ -477,7 +614,7 @@
     document.getElementById("batch-archive").addEventListener("click", batchArchive);
     document.getElementById("batch-clear").addEventListener("click", function() {
       state.memory.selected.clear();
-      renderMemoriesTable();
+      renderMemoriesVirtual();
       updateBatchBar();
     });
   }
@@ -762,7 +899,7 @@
         closePeek();
         closeEditModal();
         state.memory.selected.clear();
-        renderMemoriesTable();
+        renderMemoriesVirtual();
         updateBatchBar();
       }
     });
