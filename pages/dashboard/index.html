@@ -3,495 +3,301 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title data-i18n="page.title">LivingMemory 控制台</title>
+    <title data-i18n="page.title">LivingMemory</title>
     <link rel="stylesheet" href="./styles.css" />
-    <!-- Lucide Icons (本地) -->
-    <script src="./lucide.min.js"></script>
-    <!-- i18n -->
     <script src="./i18n.js"></script>
   </head>
   <body>
     <div id="app">
-      <main id="dashboard-view" class="view active">
-        <header class="dashboard-header">
-          <div class="header-brand">
-            <h1 class="header-title" data-i18n="header.title">LivingMemory 管理面板</h1>
-            <p class="header-subtitle" data-i18n="header.subtitle">长期记忆与会话管理 · 基于混合检索的智能记忆系统</p>
-          </div>
-          <div class="header-actions">
-            <div class="lang-switcher">
-              <button id="lang-toggle" class="btn btn-ghost" title="语言" data-i18n-title="header.lang">
-                <span id="lang-current">中文</span>
-              </button>
-              <ul id="lang-dropdown" class="lang-dropdown hidden">
-                <li data-lang="zh" class="lang-option active">中文</li>
-                <li data-lang="en" class="lang-option">English</li>
-                <li data-lang="ru" class="lang-option">Русский</li>
-              </ul>
-            </div>
-            <button id="theme-toggle" class="btn btn-ghost" data-i18n-title="header.theme">
-              <i data-lucide="moon" id="theme-icon"></i>
-            </button>
-          </div>
-        </header>
-
-        <!-- 导航标签 -->
-        <nav class="tab-navigation">
-          <button class="tab-btn active" data-tab="memories" data-i18n="nav.memory">记忆管理</button>
-          <button class="tab-btn" data-tab="graph-view" data-i18n="nav.graph">知识图谱</button>
-          <button class="tab-btn" data-tab="recall-test" data-i18n="nav.recallTest">召回测试</button>
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-brand">LivingMemory</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-page="graph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="5" cy="5" r="2"/>
+              <line x1="8.5" y1="9.5" x2="17" y2="6"/><line x1="8.5" y1="14.5" x2="17" y2="18"/><line x1="15" y1="7" x2="6.5" y2="11.5"/>
+            </svg>
+            <span data-i18n="nav.graph">Knowledge Graph</span>
+          </button>
+          <button class="nav-item" data-page="memory">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              <rect x="8" y="2" width="8" height="4" rx="1"/>
+            </svg>
+            <span data-i18n="nav.memory">Memories</span>
+          </button>
+          <button class="nav-item" data-page="recall">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <span data-i18n="nav.recall">Recall Test</span>
+          </button>
+          <button class="nav-item" data-page="system">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+            <span data-i18n="nav.system">System</span>
+          </button>
         </nav>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-footer">
+          <button class="nav-item" id="theme-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="theme-icon-dark">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="theme-icon-light" class="hidden">
+              <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2m-6.93-15.07 1.41 1.41m11.04 11.04 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+            <span data-i18n="header.theme">Theme</span>
+          </button>
+          <button class="nav-item" id="lang-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            <span id="lang-label" data-i18n="header.lang">Language</span>
+          </button>
+        </div>
+      </aside>
 
-        <!-- 核爆警告横幅 -->
-        <div id="nuke-banner" class="nuke-banner hidden" role="alert">
-          <div class="nuke-content">
-            <span id="nuke-message"></span>
-            <button id="nuke-cancel" class="btn btn-outline-danger" data-i18n="nuke.cancel">取消核爆</button>
+      <!-- Main Content -->
+      <main class="main-content">
+
+        <!-- Page: Graph -->
+        <section class="page active" id="page-graph">
+          <header class="page-header">
+            <span class="page-title" data-i18n="nav.graph">Knowledge Graph</span>
+            <div class="page-actions">
+              <input type="text" id="graph-session-filter" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
+              <button class="btn btn-secondary btn-sm" id="graph-overview-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                <span data-i18n="graph.overviewBtn">Overview</span>
+              </button>
+            </div>
+          </header>
+          <div class="page-body" style="display:flex;flex-direction:column;padding:var(--space-5)">
+            <div class="stat-pills" id="graph-stat-pills">
+              <div class="stat-pill"><div class="stat-pill-value" id="gs-total">--</div><div class="stat-pill-label" data-i18n="stats.total">memories</div></div>
+              <div class="stat-pill"><div class="stat-pill-value" id="gs-nodes">--</div><div class="stat-pill-label" data-i18n="graph.nodes">nodes</div></div>
+              <div class="stat-pill"><div class="stat-pill-value" id="gs-edges">--</div><div class="stat-pill-label" data-i18n="graph.edges">relations</div></div>
+              <div class="stat-pill"><div class="stat-pill-value" id="gs-sessions">--</div><div class="stat-pill-label" data-i18n="stats.sessions">sessions</div></div>
+            </div>
+            <div class="graph-canvas-container" style="flex:1">
+              <div class="graph-canvas-state" id="graph-canvas-state" data-i18n="graph.canvasDefault">Loading graph overview...</div>
+              <div id="graph-canvas" class="graph-canvas"></div>
+            </div>
+            <div class="graph-legend" id="graph-legend"></div>
+            <div class="graph-toolbar">
+              <input type="text" id="graph-query-input" class="input" data-i18n-placeholder="graph.queryPh" placeholder="Search entities, topics, or memories..." />
+              <input type="text" id="graph-memory-id" class="input input-sm" data-i18n-placeholder="graph.memoryIdPh" placeholder="Memory ID" style="width:120px" />
+              <button class="btn btn-primary btn-sm" id="graph-search-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span data-i18n="graph.searchBtn">Search</span>
+              </button>
+              <button class="btn btn-secondary btn-sm" id="graph-focus-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4m-6.93-15.07 2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg>
+                <span data-i18n="graph.focusBtn">Focus</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div class="dashboard-content">
-          <!-- 记忆管理标签页 -->
-          <section class="tab-content active" data-tab="memories">
-            <div class="content-toolbar">
-              <div class="toolbar-group">
-                <button id="refresh-button" class="btn btn-ghost">
-                  <i data-lucide="refresh-cw"></i> <span data-i18n="common.refresh">刷新</span>
-                </button>
-                <button id="nuke-button" class="btn btn-danger">
-                  <i data-lucide="alert-triangle"></i> <span data-i18n="nuke.button">核爆清除</span>
-                </button>
+        <!-- Page: Memory -->
+        <section class="page" id="page-memory">
+          <header class="page-header">
+            <span class="page-title" data-i18n="nav.memory">Memories</span>
+          </header>
+          <div class="page-body">
+            <div class="filter-bar">
+              <input type="text" id="mem-keyword" class="input" data-i18n-placeholder="filter.keyword" placeholder="Search by keyword or memory ID..." />
+              <input type="text" id="mem-session" class="input" data-i18n-placeholder="filter.sessionId" placeholder="Session ID" style="max-width:200px" />
+              <select id="mem-status" class="select input">
+                <option value="all" data-i18n="filter.statusAll">All Status</option>
+                <option value="active" data-i18n="filter.statusActive">Active</option>
+                <option value="archived" data-i18n="filter.statusArchived">Archived</option>
+                <option value="deleted" data-i18n="filter.statusDeleted">Deleted</option>
+              </select>
+              <select id="mem-page-size" class="select input" style="width:auto">
+                <option value="20">20 per page</option>
+                <option value="50">50 per page</option>
+                <option value="100">100 per page</option>
+              </select>
+            </div>
+            <div class="table-container">
+              <table class="data-table" id="memories-table">
+                <thead>
+                  <tr>
+                    <th style="width:50px" data-i18n="table.id">ID</th>
+                    <th data-i18n="table.summary">Summary</th>
+                    <th data-i18n="table.type">Type</th>
+                    <th data-i18n="table.importance">Importance</th>
+                    <th data-i18n="table.status">Status</th>
+                    <th data-i18n="table.created">Created</th>
+                  </tr>
+                </thead>
+                <tbody id="memories-body">
+                  <tr><td colspan="6" class="table-empty" data-i18n="table.noData">No data</td></tr>
+                </tbody>
+              </table>
+              <div class="pagination">
+                <div class="pagination-controls">
+                  <button class="btn btn-sm btn-ghost" id="mem-prev" disabled data-i18n="pagination.prev">Previous</button>
+                  <span class="pagination-info" id="mem-pagination-info" data-i18n="common.page">Page 1/1 · 0 total</span>
+                  <button class="btn btn-sm btn-ghost" id="mem-next" disabled data-i18n="pagination.next">Next</button>
+                </div>
               </div>
             </div>
-
-            <!-- 统计卡片 -->
-            <section class="stats-grid">
-              <div class="stat-card">
-                <div class="stat-icon"><i data-lucide="database"></i></div>
-                <div class="stat-content">
-                  <span class="stat-label" data-i18n="stats.total">总记忆</span>
-                  <span class="stat-value" id="stat-total">--</span>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i data-lucide="check-circle"></i></div>
-                <div class="stat-content">
-                  <span class="stat-label" data-i18n="stats.active">活跃</span>
-                  <span class="stat-value" id="stat-active">--</span>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i data-lucide="archive"></i></div>
-                <div class="stat-content">
-                  <span class="stat-label" data-i18n="stats.archived">已归档</span>
-                  <span class="stat-value" id="stat-archived">--</span>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i data-lucide="trash-2"></i></div>
-                <div class="stat-content">
-                  <span class="stat-label" data-i18n="stats.deleted">已删除</span>
-                  <span class="stat-value" id="stat-deleted">--</span>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i data-lucide="message-circle"></i></div>
-                <div class="stat-content">
-                  <span class="stat-label" data-i18n="stats.sessions">活跃会话</span>
-                  <span class="stat-value" id="stat-sessions">--</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- 控制面板 -->
-            <section class="control-panel">
-              <div class="filter-section">
-                <div class="input-group">
-                  <input type="text" id="keyword-input" class="form-input"
-                    data-i18n-placeholder="filter.keyword" placeholder="关键字（支持 memory_id / 内容搜索）" />
-                  <input type="text" id="session-id-input" class="form-input"
-                    data-i18n-placeholder="filter.sessionId" placeholder="会话 ID（可选）" />
-                  <select id="status-filter" class="form-select">
-                    <option value="all" data-i18n="filter.statusAll">全部状态</option>
-                    <option value="active" data-i18n="filter.statusActive">活跃</option>
-                    <option value="archived" data-i18n="filter.statusArchived">已归档</option>
-                    <option value="deleted" data-i18n="filter.statusDeleted">已删除</option>
-                  </select>
-                  <button id="apply-filter" class="btn btn-ghost" data-i18n="filter.apply">筛选</button>
-                </div>
-              </div>
-              <div class="selection-section">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="select-all" class="checkbox-input" />
-                  <span class="checkbox-text" data-i18n="filter.selectAll">全选</span>
-                </label>
-                <button id="delete-selected" class="btn btn-danger" disabled data-i18n="filter.deleteSelected">删除选中</button>
-              </div>
-            </section>
-
-            <!-- 数据表格 -->
-            <section class="table-container">
-              <div class="table-wrapper">
-                <table id="memories-table" class="data-table">
-                  <thead>
-                    <tr>
-                      <th class="table-header-checkbox"><input type="checkbox" class="table-select-all" disabled /></th>
-                      <th data-i18n="table.id">记忆 ID</th>
-                      <th data-i18n="table.summary">摘要</th>
-                      <th data-i18n="table.type">类型</th>
-                      <th data-i18n="table.importance">重要性</th>
-                      <th data-i18n="table.status">状态</th>
-                      <th data-i18n="table.created">创建时间</th>
-                      <th data-i18n="table.lastAccess">最后访问</th>
-                      <th data-i18n="table.actions">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody id="memories-body">
-                    <tr><td colspan="9" class="table-empty" data-i18n="table.noData">暂无数据</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <!-- 分页控制 -->
-            <section class="pagination-container">
-              <div class="pagination-controls">
-                <button id="prev-page" class="btn btn-ghost" disabled data-i18n="pagination.prev">上一页</button>
-                <span id="pagination-info" class="pagination-info" data-i18n="common.page">第 1 / 1 页 · 共 0 条</span>
-                <button id="next-page" class="btn btn-ghost" disabled data-i18n="pagination.next">下一页</button>
-              </div>
-              <div class="page-size-control">
-                <label for="page-size" class="page-size-label" data-i18n="common.perPage">每页</label>
-                <select id="page-size" class="form-select page-size-select">
-                  <option value="10">10</option>
-                  <option value="20" selected>20</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-            </section>
-          </section>
-
-          <!-- 知识图谱标签页 -->
-          <section class="tab-content" data-tab="graph-view">
-            <section class="graph-hero">
-              <div>
-                <span class="graph-kicker" data-i18n="graph.kicker">Graph Memory Explorer</span>
-                <h2 class="graph-title" data-i18n="graph.title">知识图谱视图</h2>
-                <p class="graph-subtitle" data-i18n="graph.subtitle">从双路四模式召回结果中观察人物、主题、事实与记忆之间的连接。</p>
-              </div>
-              <div class="graph-hero-actions">
-                <span id="graph-mode-badge" class="graph-mode-badge" data-i18n="graph.modeOverview">最近概览</span>
-                <span id="graph-status-line" class="graph-status-line" data-i18n="graph.statusDefault">展示最近活跃的图记忆子图</span>
-              </div>
-            </section>
-
-            <section class="graph-toolbar-card">
-              <div class="graph-toolbar-grid">
-                <div class="graph-field graph-field-wide">
-                  <label for="graph-query-input" class="form-label" data-i18n="graph.queryLabel">图谱查询</label>
-                  <input id="graph-query-input" type="text" class="form-input" data-i18n-placeholder="graph.queryPh" placeholder="输入人物、主题、事实或整句，查看召回到的图谱子图" />
-                </div>
-                <div class="graph-field">
-                  <label for="graph-session-filter" class="form-label" data-i18n="graph.sessionLabel">会话过滤</label>
-                  <input id="graph-session-filter" type="text" class="form-input" data-i18n-placeholder="graph.sessionPh" placeholder="可选：限定 session_id" />
-                </div>
-                <div class="graph-field">
-                  <label for="graph-persona-filter" class="form-label" data-i18n="graph.personaLabel">人格过滤</label>
-                  <input id="graph-persona-filter" type="text" class="form-input" data-i18n-placeholder="graph.personaPh" placeholder="可选：限定 persona_id" />
-                </div>
-                <div class="graph-field">
-                  <label for="graph-memory-id" class="form-label" data-i18n="graph.memoryIdLabel">记忆 ID</label>
-                  <input id="graph-memory-id" type="number" class="form-input" data-i18n-placeholder="graph.memoryIdPh" placeholder="输入记忆 ID 定位局部子图" />
-                </div>
-                <div class="graph-toolbar-actions">
-                  <button id="graph-search-btn" class="btn btn-primary" data-i18n="graph.searchBtn">检索图谱</button>
-                  <button id="graph-focus-btn" class="btn btn-ghost" data-i18n="graph.focusBtn">定位记忆</button>
-                  <button id="graph-overview-btn" class="btn btn-ghost" data-i18n="graph.overviewBtn">最近概览</button>
-                </div>
-              </div>
-            </section>
-
-            <section class="graph-stats-grid">
-              <div class="graph-stat-card">
-                <span class="graph-stat-label" data-i18n="graph.visibleNodes">可视节点</span>
-                <strong class="graph-stat-value" id="graph-visible-node-count">0</strong>
-              </div>
-              <div class="graph-stat-card">
-                <span class="graph-stat-label" data-i18n="graph.visibleEdges">关系边</span>
-                <strong class="graph-stat-value" id="graph-visible-edge-count">0</strong>
-              </div>
-              <div class="graph-stat-card">
-                <span class="graph-stat-label" data-i18n="graph.visibleEntries">图谱条目</span>
-                <strong class="graph-stat-value" id="graph-visible-entry-count">0</strong>
-              </div>
-              <div class="graph-stat-card accent">
-                <span class="graph-stat-label" data-i18n="graph.routeLabel">检索视角</span>
-                <strong class="graph-stat-value graph-stat-value-text" id="graph-route-label" data-i18n="graph.routeBrowse">图谱浏览</strong>
-              </div>
-              <div class="graph-stat-card">
-                <span class="graph-stat-label" data-i18n="graph.visibleMemories">关联记忆</span>
-                <strong class="graph-stat-value" id="graph-visible-memory-count">0</strong>
-              </div>
-            </section>
-
-            <section class="graph-layout">
-              <div class="graph-canvas-card">
-                <header class="graph-panel-header">
-                  <div>
-                    <h3 class="panel-title" data-i18n="graph.canvasTitle">图谱画布</h3>
-                    <p class="panel-subtitle" data-i18n="graph.canvasSubtitle">点击节点、记忆卡片或召回结果即可切换焦点。</p>
-                  </div>
-                  <div id="graph-legend" class="graph-legend"></div>
-                </header>
-                <div class="graph-canvas-shell">
-                  <div id="graph-canvas-state" class="graph-canvas-state"></div>
-                  <div id="graph-canvas" class="graph-canvas"></div>
-                </div>
-              </div>
-
-              <div class="graph-side-column">
-                <section class="graph-panel">
-                  <header class="graph-panel-header compact">
-                    <h3 class="panel-title" data-i18n="graph.focusDetail">焦点详情</h3>
-                  </header>
-                  <div id="graph-inspector" class="graph-inspector"></div>
-                </section>
-                <section class="graph-panel">
-                  <header class="graph-panel-header compact">
-                    <h3 class="panel-title" data-i18n="graph.topNodes">核心节点</h3>
-                  </header>
-                  <div id="graph-top-nodes" class="graph-chip-list"></div>
-                </section>
-                <section class="graph-panel">
-                  <header class="graph-panel-header compact">
-                    <h3 class="panel-title" data-i18n="graph.relatedMemories">相关记忆</h3>
-                  </header>
-                  <div id="graph-related-memories" class="graph-memory-list"></div>
-                </section>
-                <section class="graph-panel">
-                  <header class="graph-panel-header compact">
-                    <h3 class="panel-title" data-i18n="graph.retrievalPath">召回路径</h3>
-                  </header>
-                  <div id="graph-retrieval-list" class="graph-retrieval-list"></div>
-                </section>
-              </div>
-            </section>
-          </section>
-
-          <section class="tab-content" data-tab="recall-test">
-            <div class="content-toolbar">
-              <button id="recall-clear-btn" class="btn btn-ghost" data-i18n="recall.clearBtn">清空结果</button>
+          </div>
+          <!-- Batch Action Bar -->
+          <div class="batch-bar" id="batch-bar">
+            <span class="batch-bar-count" id="batch-count">0 selected</span>
+            <div class="batch-bar-actions">
+              <button class="btn btn-sm btn-secondary" id="batch-archive" data-i18n="edit.statusArchived">Archive</button>
+              <button class="btn btn-sm btn-danger" id="batch-delete" data-i18n="filter.deleteSelected">Delete</button>
             </div>
+            <button class="btn btn-sm btn-ghost" id="batch-clear">Clear</button>
+          </div>
+        </section>
 
-            <section class="recall-test-panel">
-              <header class="panel-header">
-                <h3 class="panel-title" data-i18n="recall.title">记忆召回功能测试</h3>
-                <p class="panel-subtitle" data-i18n="recall.subtitle">输入查询语句，测试混合检索引擎的召回能力</p>
-              </header>
-
-              <div class="recall-form">
-                <div class="form-field">
-                  <label for="recall-query" class="form-label" data-i18n="recall.queryLabel">查询内容</label>
-                  <textarea id="recall-query" rows="3" class="form-textarea"
-                    data-i18n-placeholder="recall.queryPh"
-                    placeholder="输入你的查询语句，系统将使用混合检索（BM25+向量相似度）进行召回"></textarea>
-                </div>
-                <div class="form-row">
-                  <div class="form-field">
-                    <label for="recall-k" class="form-label" data-i18n="recall.countLabel">返回数量</label>
-                    <input type="number" id="recall-k" min="1" max="50" value="5" class="form-input"
-                      data-i18n-placeholder="recall.countPh" placeholder="返回的记忆数量" />
-                  </div>
-                  <div class="form-field">
-                    <label for="recall-session-id" class="form-label" data-i18n="recall.sessionLabel">会话 ID (可选)</label>
-                    <input type="text" id="recall-session-id" class="form-input"
-                      data-i18n-placeholder="recall.sessionPh" placeholder="输入会话 ID 以过滤特定会话的记忆（支持多种格式）" />
+        <!-- Page: Recall Test -->
+        <section class="page" id="page-recall">
+          <header class="page-header">
+            <span class="page-title" data-i18n="nav.recall">Recall Test</span>
+          </header>
+          <div class="page-body">
+            <div class="recall-form-section">
+              <textarea id="recall-query" class="input textarea" rows="3" data-i18n-placeholder="recall.queryPh" placeholder="Enter a query to test the dual-route four-mode hybrid retrieval engine..."></textarea>
+              <div class="recall-form-row">
+                <div class="recall-form-field" style="max-width:200px">
+                  <label class="recall-form-label">Results (k)</label>
+                  <div class="slider-group">
+                    <input type="range" id="recall-k" min="1" max="50" value="5" />
+                    <span class="slider-value" id="recall-k-value">5</span>
                   </div>
                 </div>
-                <button id="recall-search-btn" class="btn btn-primary" data-i18n="recall.searchBtn">执行召回</button>
+                <div class="recall-form-field" style="max-width:280px">
+                  <label class="recall-form-label" data-i18n="recall.sessionLabel">Session ID (optional)</label>
+                  <input type="text" id="recall-session" class="input input-sm" data-i18n-placeholder="recall.sessionPh" placeholder="Filter by session..." />
+                </div>
+                <button class="btn btn-primary" id="recall-search-btn" data-i18n="recall.searchBtn">Run Recall</button>
               </div>
-            </section>
+            </div>
+            <div class="recall-results-header hidden" id="recall-stats">
+              <span id="recall-count-text">0 results</span>
+              <span class="text-tertiary" id="recall-time-text"></span>
+            </div>
+            <div id="recall-results"></div>
+          </div>
+        </section>
 
-            <section class="recall-results-panel">
-              <header class="panel-header">
-                <h3 class="panel-title" data-i18n="recall.resultTitle">召回结果</h3>
-              </header>
-              <div id="recall-stats" class="recall-stats hidden">
-                <div class="stat-item">
-                  <span class="stat-label" data-i18n="recall.resultCount">召回数量</span>
-                  <span class="stat-value" id="recall-count">0</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label" data-i18n="recall.time">查询耗时</span>
-                  <span class="stat-value" id="recall-time">--</span>
-                </div>
+        <!-- Page: System -->
+        <section class="page" id="page-system">
+          <header class="page-header">
+            <span class="page-title" data-i18n="nav.system">System Overview</span>
+          </header>
+          <div class="page-body">
+            <div class="stat-cards" id="system-stat-cards">
+              <div class="stat-card"><div class="stat-card-value" id="ss-total">--</div><div class="stat-card-label" data-i18n="stats.total">Total Memories</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-active">--</div><div class="stat-card-label" data-i18n="stats.active">Active</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-archived">--</div><div class="stat-card-label" data-i18n="stats.archived">Archived</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-deleted">--</div><div class="stat-card-label" data-i18n="stats.deleted">Deleted</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-nodes">--</div><div class="stat-card-label">Graph Nodes</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-atoms">--</div><div class="stat-card-label">Atoms</div></div>
+            </div>
+            <div class="system-grid">
+              <div class="system-panel">
+                <div class="system-panel-title">Importance Distribution</div>
+                <div class="bar-chart" id="importance-chart"></div>
               </div>
-              <div id="recall-results" class="recall-results">
-                <div class="empty-state">
-                  <p data-i18n="recall.empty">暂无召回结果 · 请输入查询内容并执行召回</p>
-                </div>
+              <div class="system-panel">
+                <div class="system-panel-title">Atom Types</div>
+                <div class="bar-chart" id="atom-chart"></div>
               </div>
-            </section>
-          </section>
-        </div>
+            </div>
+            <div class="system-panel mb-6" style="margin-top:0">
+              <div class="system-panel-title">Active Sessions</div>
+              <div class="session-list" id="session-list"></div>
+            </div>
+            <div class="system-panel">
+              <div class="system-panel-title">Version Backups</div>
+              <div class="backup-list" id="backup-list"></div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
-    <!-- 详情抽屉 -->
-    <aside id="detail-drawer" class="drawer hidden">
-      <div class="drawer-content">
-        <button id="drawer-close" class="drawer-close" data-i18n-aria="detail.close" aria-label="关闭详情">×</button>
-        <header class="drawer-header">
-          <h2 class="drawer-title" data-i18n="detail.title">记忆详情</h2>
-          <div class="drawer-actions">
-            <button id="edit-memory-btn" class="btn btn-primary" data-i18n="detail.edit">编辑记忆</button>
-          </div>
-        </header>
-        <div class="drawer-body">
-          <div class="detail-meta">
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.memoryId">记忆 ID</span>
-              <span class="meta-value" id="detail-memory-id">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.source">来源</span>
-              <span class="meta-value" id="detail-source">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.status">状态</span>
-              <span class="meta-value" id="detail-status">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.importance">重要性</span>
-              <span class="meta-value" id="detail-importance">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.type">类型</span>
-              <span class="meta-value" id="detail-type">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.created">创建时间</span>
-              <span class="meta-value" id="detail-created">--</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label" data-i18n="detail.lastAccess">最后访问</span>
-              <span class="meta-value" id="detail-access">--</span>
-            </div>
-          </div>
-          <div class="detail-json">
-            <pre id="detail-json"></pre>
-          </div>
+    <!-- Peek Panel -->
+    <div class="peek-overlay" id="peek-overlay"></div>
+    <aside class="peek-panel" id="peek-panel">
+      <div class="peek-header">
+        <div>
+          <div id="peek-badge"></div>
+          <div class="peek-title" id="peek-title">--</div>
         </div>
+        <button class="peek-close" id="peek-close">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
+      <div class="peek-body" id="peek-body"></div>
     </aside>
 
-    <!-- 编辑记忆对话框 -->
-    <div id="edit-modal" class="modal hidden">
-      <div class="modal-content">
-        <header class="modal-header">
-          <h2 class="modal-title" data-i18n="edit.title">编辑记忆</h2>
-          <button id="modal-close" class="modal-close" data-i18n-aria="common.close" aria-label="关闭">×</button>
-        </header>
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="edit.title">Edit Memory</div>
+          <button class="modal-close" id="modal-close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
         <div class="modal-body">
-          <div class="edit-form-section">
-            <div class="form-field">
-              <label for="edit-field" class="form-label" data-i18n="edit.field">编辑字段</label>
-              <select id="edit-field" class="form-select">
-                <option value="content" data-i18n="edit.fieldContent">内容</option>
-                <option value="importance" data-i18n="edit.fieldImportance">重要性</option>
-                <option value="type" data-i18n="edit.fieldType">类型</option>
-                <option value="status" data-i18n="edit.fieldStatus">状态</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="edit.field">Field</label>
+            <select id="edit-field" class="select input">
+              <option value="content" data-i18n="edit.fieldContent">Content</option>
+              <option value="importance" data-i18n="edit.fieldImportance">Importance</option>
+              <option value="type" data-i18n="edit.fieldType">Type</option>
+              <option value="status" data-i18n="edit.fieldStatus">Status</option>
+            </select>
           </div>
-          <div class="edit-form-section">
-            <div class="form-group" id="edit-content-group">
-              <label for="edit-value-content" class="form-label" data-i18n="edit.newContent">新内容</label>
-              <textarea id="edit-value-content" rows="6" class="form-textarea" data-i18n-placeholder="edit.newContentPh" placeholder="输入新的记忆内容"></textarea>
-            </div>
-            <div class="form-group hidden" id="edit-importance-group">
-              <label for="edit-value-importance" class="form-label" data-i18n="edit.newImportance">新重要性 (0-10)</label>
-              <input type="number" id="edit-value-importance" min="0" max="10" step="0.1" class="form-input" placeholder="5.0" />
-              <p class="form-hint" data-i18n="edit.importanceHint">重要性越高，记忆被召回的优先级越高</p>
-            </div>
-            <div class="form-group hidden" id="edit-type-group">
-              <label for="edit-value-type" class="form-label" data-i18n="edit.newType">新类型</label>
-              <input type="text" id="edit-value-type" class="form-input" data-i18n-placeholder="edit.typePh" placeholder="如: FACT, EVENT, PREFERENCE" />
-              <p class="form-hint" data-i18n="edit.typeHint">记忆类型用于分类管理</p>
-            </div>
-            <div class="form-group hidden" id="edit-status-group">
-              <label for="edit-value-status" class="form-label" data-i18n="edit.newStatus">新状态</label>
-              <select id="edit-value-status" class="form-select">
-                <option value="active" data-i18n="edit.statusPh">活跃</option>
-                <option value="archived" data-i18n="edit.statusArchived">已归档</option>
-                <option value="deleted" data-i18n="edit.statusDeleted">已删除</option>
-              </select>
-              <p class="form-hint" data-i18n="edit.statusHint">已删除的记忆不会被召回</p>
-            </div>
+          <div class="form-group" id="edit-group-content">
+            <label class="form-label" data-i18n="edit.newContent">New Content</label>
+            <textarea id="edit-value-content" class="input textarea" rows="5" data-i18n-placeholder="edit.newContentPh" placeholder="Enter new memory content"></textarea>
           </div>
-          <div class="edit-form-section">
-            <div class="form-field">
-              <label for="edit-reason" class="form-label" data-i18n="edit.reason">更新原因 (可选)</label>
-              <input type="text" id="edit-reason" class="form-input" data-i18n-placeholder="edit.reasonPh" placeholder="说明本次更新的原因" />
-            </div>
+          <div class="form-group hidden" id="edit-group-importance">
+            <label class="form-label" data-i18n="edit.newImportance">Importance (0-10)</label>
+            <input type="number" id="edit-value-importance" class="input" min="0" max="10" step="0.1" value="5" />
+          </div>
+          <div class="form-group hidden" id="edit-group-type">
+            <label class="form-label" data-i18n="edit.newType">New Type</label>
+            <input type="text" id="edit-value-type" class="input" data-i18n-placeholder="edit.typePh" placeholder="e.g. FACT, PREFERENCE, EVENT" />
+          </div>
+          <div class="form-group hidden" id="edit-group-status">
+            <label class="form-label" data-i18n="edit.newStatus">New Status</label>
+            <select id="edit-value-status" class="select input">
+              <option value="active" data-i18n="edit.statusPh">Active</option>
+              <option value="archived" data-i18n="edit.statusArchived">Archived</option>
+              <option value="deleted" data-i18n="edit.statusDeleted">Deleted</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="edit.reason">Update Reason (optional)</label>
+            <input type="text" id="edit-reason" class="input" data-i18n-placeholder="edit.reasonPh" placeholder="Reason for this update" />
           </div>
         </div>
-        <footer class="modal-footer">
-          <button id="cancel-edit" class="btn btn-ghost" data-i18n="common.cancel">取消</button>
-          <button id="save-edit" class="btn btn-primary" data-i18n="common.save">保存</button>
-        </footer>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancel-edit" data-i18n="common.cancel">Cancel</button>
+          <button class="btn btn-primary" id="save-edit" data-i18n="common.save">Save</button>
+        </div>
       </div>
     </div>
 
-    <!-- Toast 通知 -->
-    <div id="toast" class="toast hidden"></div>
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
-    <!-- 核爆视觉效果容器 -->
-    <div id="nuke-overlay" class="nuke-overlay">
-      <div class="nuke-flash"></div>
-      <div id="nuke-particles-container" class="nuke-particles-container"></div>
-      <div class="nuke-smoke"></div>
-    </div>
-
-    <script src="./app.js"></script>
     <script src="./vendor/3d-force-graph.min.js"></script>
     <script src="./graph-ui.js"></script>
-    <script>
-      lucide.createIcons();
-      // language switcher
-      (function() {
-        var langNames = { zh: '中文', en: 'English', ru: 'Русский' };
-        var toggle = document.getElementById('lang-toggle');
-        var dropdown = document.getElementById('lang-dropdown');
-        var currentEl = document.getElementById('lang-current');
-        function updateUI(lang) {
-          currentEl.textContent = langNames[lang] || lang;
-          dropdown.querySelectorAll('.lang-option').forEach(function(opt) {
-            opt.classList.toggle('active', opt.dataset.lang === lang);
-          });
-        }
-        updateUI(window.getLanguage());
-        toggle.addEventListener('click', function() {
-          dropdown.classList.toggle('hidden');
-        });
-        dropdown.querySelectorAll('.lang-option').forEach(function(opt) {
-          opt.addEventListener('click', function(e) {
-            e.stopPropagation();
-            window.setLanguage(opt.dataset.lang);
-            updateUI(opt.dataset.lang);
-            dropdown.classList.add('hidden');
-          });
-        });
-        document.addEventListener('click', function(e) {
-          if (!toggle.contains(e.target) && !dropdown.contains(e.target)) {
-            dropdown.classList.add('hidden');
-          }
-        });
-        window.addEventListener('languagechange', function(e) {
-          updateUI(e.detail.lang);
-        });
-      })();
-    </script>
+    <script src="./app.js"></script>
   </body>
 </html>

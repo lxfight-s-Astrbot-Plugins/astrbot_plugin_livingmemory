@@ -85,10 +85,58 @@ class PluginPageApi:
         ready, error = await self._ensure_plugin_ready()
         if error:
             return error
-        del ready
+        memory_engine = ready["memory_engine"]
 
         try:
-            stats = await self.plugin.initializer.memory_engine.get_statistics()
+            stats = await memory_engine.get_statistics()
+
+            # 图统计
+            graph_store = self._get_graph_store(memory_engine)
+            if graph_store is not None:
+                try:
+                    snapshot = await graph_store.get_graph_snapshot(
+                        session_id=None, persona_id=None,
+                        limit_memories=1, limit_entries=1, limit_nodes=1, limit_edges=1,
+                    )
+                    summary = (snapshot or {}).get("summary", {}) if isinstance(snapshot, dict) else {}
+                    stats["graph_nodes"] = int(summary.get("graph_node_count", 0) or 0)
+                    stats["graph_edges"] = int(summary.get("graph_edge_count", 0) or 0)
+                    stats["graph_entries"] = int(summary.get("graph_entry_count", 0) or 0)
+                except Exception:
+                    stats["graph_nodes"] = 0
+                    stats["graph_edges"] = 0
+                    stats["graph_entries"] = 0
+            else:
+                stats["graph_nodes"] = 0
+                stats["graph_edges"] = 0
+                stats["graph_entries"] = 0
+
+            # 原子统计 (if available)
+            atom_store = getattr(memory_engine, "atom_store", None)
+            stats["atom_count"] = 0
+            stats["atom_breakdown"] = {}
+            if atom_store is not None:
+                try:
+                    stats["atom_count"] = await atom_store.count_atoms() or 0
+                except Exception:
+                    pass
+
+            # 重要性分布 — 默认零值，前端正常展示
+            if "importance_distribution" not in stats:
+                stats["importance_distribution"] = {
+                    "0-1":0,"1-2":0,"2-3":0,"3-4":0,"4-5":0,
+                    "5-6":0,"6-7":0,"7-8":0,"8-9":0,"9-10":0,
+                }
+
+            # 最近会话从 sessions 统计数据派生
+            session_data = stats.get("sessions", {})
+            stats["recent_sessions"] = [
+                {"session_id": sid, "message_count": cnt}
+                for sid, cnt in sorted(
+                    session_data.items(), key=lambda x: -x[1]
+                )[:10]
+            ] if isinstance(session_data, dict) else []
+
             return self._ok(stats)
         except Exception as exc:
             logger.error(f"[PageAPI] 获取统计信息失败: {exc}", exc_info=True)

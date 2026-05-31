@@ -1,1557 +1,788 @@
 (() => {
+  "use strict";
+
+  /* ================================================================
+     State
+     ================================================================ */
   const state = {
-    page: 1,
-    pageSize: 20,
-    total: 0,
-    hasMore: false,
-    loadAll: false,
-    filters: {
-      status: "all",
+    page: "graph",
+    memory: {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      selected: new Set(),
       keyword: "",
-      session_id: "",
+      session: "",
+      status: "all",
     },
-    items: [],
-    selected: new Set(),
-    nuke: {
-      active: false,
-      operationId: null,
-      secondsLeft: 0,
-      timer: null,
-    },
-    currentTab: "memories",
-    currentMemoryItem: null,
-    searchTimeout: null, // 用于防抖搜索
-    isConfirmingDelete: false, // 两步确认删除状态
+    selectedMemory: null,
+    pendingSearch: null,
   };
 
-  // 简单的日志记录器
-  const logger = {
-    error: (...args) => console.error(...args),
-    warn: (...args) => console.warn(...args),
-    info: (...args) => console.info(...args),
-    debug: (...args) => console.debug(...args),
-  };
-  let themePreference = "light";
-
+  /* ================================================================
+     Bridge Helpers
+     ================================================================ */
   function buildEndpoint(path) {
-    const cleanPath = String(path).replace(/^\/+/, "");
-    return `page/${cleanPath}`.replace(/\/+/g, "/");
+    var cleanPath = String(path).replace(/^\/+/, "");
+    return "page/" + cleanPath.replace(/\/+/g, "/");
   }
 
-  function readThemePreference() {
-    // 1. Bridge context (sync with AstrBot dashboard)
-    try {
-      const bridge = window.AstrBotPluginPage;
-      if (bridge) {
-        const ctx = bridge.getContext();
-        if (ctx && typeof ctx.isDark === "boolean") {
-          return ctx.isDark ? "dark" : "light";
-        }
-      }
-    } catch (_) { /* ignore */ }
-
-    // 2. localStorage user override
-    try {
-      const stored = localStorage.getItem("lmem_theme");
-      if (stored) return stored;
-    } catch (_) { /* ignore */ }
-
-    // 3. HTML data-theme (set by AstrBot HTML rewrite)
-    const htmlTheme = document.documentElement.getAttribute("data-theme");
-    if (htmlTheme) return htmlTheme;
-
-    return "light";
-  }
-
-  function listenBridgeTheme() {
-    try {
-      const bridge = window.AstrBotPluginPage;
-      if (!bridge || typeof bridge.onContext !== "function") return;
-      bridge.onContext(function (ctx) {
-        if (!ctx || typeof ctx.isDark !== "boolean") return;
-        var newTheme = ctx.isDark ? "dark" : "light";
-        var current = document.documentElement.getAttribute("data-theme") || "light";
-        if (newTheme !== current) {
-          applyTheme(newTheme);
-        }
-      });
-    } catch (_) { /* ignore */ }
-  }
-
-  function writeThemePreference(theme) {
-    themePreference = theme;
-    try {
-      localStorage.setItem("lmem_theme", theme);
-    } catch (error) {
-      logger.warn("[主题存储不可用，已仅在当前会话生效]", error);
-    }
-  }
-
-  const dom = {
-    dashboardView: document.getElementById("dashboard-view"),
-    refreshButton: document.getElementById("refresh-button"),
-    nukeButton: document.getElementById("nuke-button"),
-    nukeBanner: document.getElementById("nuke-banner"),
-    nukeMessage: document.getElementById("nuke-message"),
-    nukeCancel: document.getElementById("nuke-cancel"),
-    stats: {
-      total: document.getElementById("stat-total"),
-      active: document.getElementById("stat-active"),
-      archived: document.getElementById("stat-archived"),
-      deleted: document.getElementById("stat-deleted"),
-      sessions: document.getElementById("stat-sessions"),
-    },
-    keywordInput: document.getElementById("keyword-input"),
-    sessionIdInput: document.getElementById("session-id-input"),
-    statusFilter: document.getElementById("status-filter"),
-    applyFilter: document.getElementById("apply-filter"),
-    selectAll: document.getElementById("select-all"),
-    deleteSelected: document.getElementById("delete-selected"),
-    tableBody: document.getElementById("memories-body"),
-    paginationInfo: document.getElementById("pagination-info"),
-    prevPage: document.getElementById("prev-page"),
-    nextPage: document.getElementById("next-page"),
-    pageSize: document.getElementById("page-size"),
-    toast: document.getElementById("toast"),
-    drawer: document.getElementById("detail-drawer"),
-    drawerClose: document.getElementById("drawer-close"),
-    detail: {
-      memoryId: document.getElementById("detail-memory-id"),
-      source: document.getElementById("detail-source"),
-      status: document.getElementById("detail-status"),
-      importance: document.getElementById("detail-importance"),
-      type: document.getElementById("detail-type"),
-      created: document.getElementById("detail-created"),
-      access: document.getElementById("detail-access"),
-      json: document.getElementById("detail-json"),
-    },
-  };
-
-  async function init() {
-    // 初始化主题（从 bridge 上下文或已有 data-theme 读取）
-    initTheme();
-    listenBridgeTheme();
-
-    // 等待桥接就绪后再发起请求
+  async function apiRequest(path, options) {
+    options = options || {};
+    var method = options.method || "GET";
+    var body = options.body;
+    var retries = options.retries || 2;
     var bridge = window.AstrBotPluginPage;
-    if (bridge && typeof bridge.ready === "function") {
-      try {
-        await bridge.ready();
-      } catch (_) { /* 即使超时也继续 */ }
-    }
+    if (!bridge) throw new Error(window.t("bridge.error"));
 
-    dom.refreshButton.addEventListener("click", fetchAll);
-    dom.nukeButton.addEventListener("click", onNukeClick);
-    dom.prevPage.addEventListener("click", goPrevPage);
-    dom.nextPage.addEventListener("click", goNextPage);
-    dom.pageSize.addEventListener("change", onPageSizeChange);
-    dom.applyFilter.addEventListener("click", applyFilters);
-    dom.selectAll.addEventListener("change", toggleSelectAll);
-    dom.deleteSelected.addEventListener("click", deleteSelectedMemories);
-    document.addEventListener("click", onDocumentClick);
-    dom.drawerClose.addEventListener("click", closeDetailDrawer);
-    dom.nukeCancel.addEventListener("click", onNukeCancel);
-
-    // 关键字输入 - 防抖搜索
-    dom.keywordInput.addEventListener("input", (event) => {
-      // 清除之前的搜索计时器
-      if (state.searchTimeout) {
-        clearTimeout(state.searchTimeout);
-      }
-
-      // 设置新的搜索计时器（500ms 防抖延迟）
-      state.searchTimeout = setTimeout(() => {
-        state.filters.keyword = event.target.value.trim();
-        state.page = 1;
-        fetchMemories();
-      }, 500);
-    });
-
-    // 保留 Enter 键快速搜索
-    dom.keywordInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        // 立即搜索，不等待防抖
-        if (state.searchTimeout) {
-          clearTimeout(state.searchTimeout);
-        }
-        applyFilters();
-      }
-    });
-
-    // Session ID 输入 - 防抖搜索
-    dom.sessionIdInput.addEventListener("input", (event) => {
-      if (state.searchTimeout) {
-        clearTimeout(state.searchTimeout);
-      }
-      state.searchTimeout = setTimeout(() => {
-        state.filters.session_id = event.target.value.trim() || null;
-        state.page = 1;
-        fetchMemories();
-      }, 500);
-    });
-
-    dom.sessionIdInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        if (state.searchTimeout) {
-          clearTimeout(state.searchTimeout);
-        }
-        state.filters.session_id = dom.sessionIdInput.value.trim() || null;
-        state.page = 1;
-        fetchMemories();
-      }
-    });
-
-    // 记忆编辑功能
-    const editBtn = document.getElementById("edit-memory-btn");
-    if (editBtn) {
-      editBtn.addEventListener("click", openEditModal);
-    }
-
-    // 编辑字段变更事件
-    const editFieldSelect = document.getElementById("edit-field");
-    if (editFieldSelect) {
-      editFieldSelect.addEventListener("change", onEditFieldChange);
-    }
-
-    // 编辑模态框按钮
-    const modalCloseBtn = document.getElementById("modal-close");
-    const cancelEditBtn = document.getElementById("cancel-edit");
-    const saveEditBtn = document.getElementById("save-edit");
-
-    if (modalCloseBtn) {
-      modalCloseBtn.addEventListener("click", closeEditModal);
-    }
-    if (cancelEditBtn) {
-      cancelEditBtn.addEventListener("click", closeEditModal);
-    }
-    if (saveEditBtn) {
-      saveEditBtn.addEventListener("click", saveMemoryEdit);
-    }
-
-    // 标签页切换
-    const tabButtons = document.querySelectorAll(".tab-btn");
-    tabButtons.forEach((btn) => {
-      btn.addEventListener("click", onTabClick);
-    });
-
-    // 召回测试功能
-    const recallSearchBtn = document.getElementById("recall-search-btn");
-    const recallClearBtn = document.getElementById("recall-clear-btn");
-    if (recallSearchBtn) {
-      recallSearchBtn.addEventListener("click", performRecallTest);
-    }
-    if (recallClearBtn) {
-      recallClearBtn.addEventListener("click", clearRecallResults);
-    }
-
-    // 主题切换按钮
-    const themeToggle = document.getElementById("theme-toggle");
-    if (themeToggle) {
-      themeToggle.addEventListener("click", toggleTheme);
-    }
-    fetchAll().catch((error) => {
-      logger.error("[初始化加载失败]", error);
-      showToast(error.message || window.t("misc.initFail"), true);
-    });
-  }
-
-  async function fetchAll() {
-    await Promise.all([fetchStats(), fetchMemories()]);
-    // 移除 initNukeStatus，该功能暂未实现
-  }
-
-  async function fetchStats() {
-    try {
-      const stats = await apiRequest("stats") || {};
-
-      // 总记忆数
-      dom.stats.total.textContent = stats.total_memories ?? stats.total_count ?? "0";
-
-      // 处理状态分布（支持两种格式）
-      const statusBreakdown = stats.status_breakdown || {};
-      dom.stats.active.textContent = statusBreakdown.active ?? 0;
-      dom.stats.archived.textContent = statusBreakdown.archived ?? 0;
-      dom.stats.deleted.textContent = statusBreakdown.deleted ?? 0;
-
-      // 处理会话信息
-      const sessions = stats.sessions || {};
-      const sessionCount = Object.keys(sessions).length;
-      dom.stats.sessions.textContent = sessionCount || "0";
-
-      // 调试日志
-      console.log("[统计信息]", {
-        total: stats.total_memories,
-        status: statusBreakdown,
-        sessions: sessionCount,
-      });
-    } catch (error) {
-      logger.error("[统计信息获取失败]", error.message);
-      showToast(error.message || window.t("misc.statsUnavailable"), true);
-    }
-  }
-
-  async function fetchMemories() {
-    const params = new URLSearchParams();
-    
-    // 根据loadAll状态决定请求参数
-    if (state.loadAll) {
-      // 加载全部模式：请求所有数据
-      params.set("page", "1");
-      params.set("page_size", "999999"); // 大数值以获取所有数据
-    } else {
-      // 正常分页模式：只加载当前页数据
-      params.set("page", state.page.toString());
-      params.set("page_size", state.pageSize.toString());
-    }
-    
-    // 添加会话筛选（可选）
-    if (state.filters.session_id) {
-      params.set("session_id", state.filters.session_id);
-    }
-    if (state.filters.keyword) {
-      params.set("keyword", state.filters.keyword);
-    }
-    if (state.filters.status && state.filters.status !== "all") {
-      params.set("status", state.filters.status);
-    }
-
-    try {
-      const data = await apiRequest(`memories?${params.toString()}`) || {};
-      const rawItems = Array.isArray(data.items) ? data.items : [];
-      
-      // 更新总数和分页状态
-      state.total = data.total || 0;
-      
-      // 在loadAll模式下，设置hasMore为false
-      if (state.loadAll) {
-        state.hasMore = false;
-      } else {
-        state.hasMore = data.has_more || false;
-      }
-      
-      // 转换API返回的数据格式以匹配前端期望
-      state.items = rawItems.map((item) => {
-        // 确保使用正确的ID字段
-        const actualId = item.id !== undefined ? item.id : (item.doc_id || item.memory_id);
-        
-        return {
-          memory_id: actualId,  // 使用实际的整数ID
-          doc_id: actualId,     // 使用实际的整数ID
-          uuid: item.doc_id,    // 保存UUID以供显示（如果存在）
-          summary: item.text || item.content || window.t("table.noContent"),
-          content: item.text || item.content,
-          memory_type: item.metadata?.memory_type || item.metadata?.type || "GENERAL",
-          importance: item.metadata?.importance ?? 5.0,
-          status: item.metadata?.status || "active",
-          created_at: item.metadata?.create_time ? new Date(item.metadata.create_time * 1000).toLocaleString() : "--",
-          last_access: item.metadata?.last_access_time ? new Date(item.metadata.last_access_time * 1000).toLocaleString() : "--",
-          source: "storage",
-          raw: item,
-          raw_json: JSON.stringify(item, null, 2),
-        };
-      });
-      
-      state.selected.clear();
-      dom.selectAll.checked = false;
-      dom.deleteSelected.disabled = true;
-      renderTable();
-      updatePagination();
-    } catch (error) {
-      renderEmptyTable(error.message || window.t("misc.loadFail"));
-      showToast(error.message || window.t("misc.fetchMemoriesFail"), true);
-    }
-  }
-
-  function renderTable() {
-    if (!state.items.length) {
-      renderEmptyTable(window.t("table.noData"));
-      return;
-    }
-
-    // 构建表格行
-    const rows = state.items
-      .map((item) => {
-        const key = getItemKey(item);
-        const checked = state.selected.has(key) ? "checked" : "";
-        const rowClass = state.selected.has(key) ? "selected" : "";
-        const importance =
-          item.importance !== undefined && item.importance !== null
-            ? Number(item.importance).toFixed(2)
-            : "--";
-        const statusPill = formatStatus(item.status);
-
-        return `
-          <tr data-key="${escapeHTML(key)}" class="${rowClass}">
-            <td>
-              <input type="checkbox" class="row-select" data-key="${escapeHTML(
-                key
-              )}" ${checked} />
-            </td>
-            <td class="mono">${escapeHTML(item.memory_id || item.doc_id || "-")}</td>
-            <td class="summary-cell" title="${escapeHTML(item.summary || "")}">
-              ${escapeHTML(item.summary || window.t("table.noSummary"))}
-            </td>
-            <td>${escapeHTML(item.memory_type || "--")}</td>
-            <td>${importance}</td>
-            <td>${statusPill}</td>
-            <td>${escapeHTML(item.created_at || "--")}</td>
-            <td>${escapeHTML(item.last_access || "--")}</td>
-            <td>
-              <div class="table-actions">
-                <button class="ghost detail-btn" data-key="${escapeHTML(
-                  key
-                )}">${window.t("table.detail")}</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      })
-      .join("");
-
-    dom.tableBody.innerHTML = rows;
-
-    // 绑定事件
-    dom.tableBody.querySelectorAll(".row-select").forEach((checkbox) => {
-      checkbox.addEventListener("change", onRowSelect);
-    });
-    dom.tableBody.querySelectorAll(".detail-btn").forEach((btn) => {
-      btn.addEventListener("click", onDetailClick);
-    });
-
-    // 显示搜索结果计数
-    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
-      showToast(window.t("search.resultToast", state.total, state.items.length));
-    }
-  }
-
-  function renderEmptyTable(message) {
-    dom.tableBody.innerHTML = `
-      <tr>
-        <td colspan="9" class="empty">${escapeHTML(message)}</td>
-      </tr>
-    `;
-  }
-
-  function onRowSelect(event) {
-    const checkbox = event.target;
-    const key = checkbox.dataset.key;
-    if (!key) return;
-
-    if (checkbox.checked) {
-      state.selected.add(key);
-    } else {
-      state.selected.delete(key);
-    }
-
-    const row = checkbox.closest("tr");
-    if (row) {
-      row.classList.toggle("selected", checkbox.checked);
-    }
-    updateSelectionState();
-  }
-
-  function toggleSelectAll(event) {
-    const checked = event.target.checked;
-    if (!state.items.length) {
-      event.target.checked = false;
-      return;
-    }
-    state.items.forEach((item) => {
-      const key = getItemKey(item);
-      if (checked) {
-        state.selected.add(key);
-      } else {
-        state.selected.delete(key);
-      }
-    });
-    renderTable();
-    updateSelectionState();
-  }
-
-  function updateSelectionState() {
-    if (state.isConfirmingDelete) {
-      state.isConfirmingDelete = false;
-      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
-      dom.deleteSelected.style.backgroundColor = "";
-      dom.deleteSelected.style.color = "";
-    }
-    dom.deleteSelected.disabled = state.selected.size === 0;
-    if (!state.items.length) {
-      dom.selectAll.checked = false;
-      return;
-    }
-    const allSelected = state.items.every((item) =>
-      state.selected.has(getItemKey(item))
-    );
-    dom.selectAll.checked = allSelected;
-  }
-
-  function applyFilters() {
-    state.filters.status = dom.statusFilter.value;
-    state.filters.keyword = dom.keywordInput.value.trim();
-    state.filters.session_id = dom.sessionIdInput.value.trim() || null;
-    state.page = 1;
-    
-    // 服务端分页：重新请求数据
-    fetchMemories();
-  }
-
-  function onPageSizeChange() {
-    state.pageSize = Number(dom.pageSize.value) || 20;
-    state.page = 1;
-    
-    // 服务端分页：重新请求数据
-    fetchMemories();
-  }
-
-  function goPrevPage() {
-    if (state.page > 1) {
-      state.page -= 1;
-      // 服务端分页：重新请求数据
-      fetchMemories();
-    }
-  }
-
-  function goNextPage() {
-    if (state.hasMore) {
-      state.page += 1;
-      // 服务端分页：重新请求数据
-      fetchMemories();
-    }
-  }
-
-  function updatePagination() {
-    if (state.loadAll) {
-      dom.paginationInfo.textContent = window.t("pagination.allLoaded", state.items.length);
-      dom.prevPage.disabled = true;
-      dom.nextPage.disabled = true;
-    } else {
-      const totalPages = state.total
-        ? Math.max(1, Math.ceil(state.total / state.pageSize))
-        : 1;
-      dom.paginationInfo.textContent = window.t("common.page", state.page, totalPages, state.total);
-      dom.prevPage.disabled = state.page <= 1;
-      dom.nextPage.disabled = !state.hasMore;
-    }
-
-    if (state.filters.keyword || state.filters.status !== "all" || state.filters.session_id) {
-      let filterInfo = window.t("pagination.filtering");
-      if (state.filters.keyword) {
-        filterInfo += " " + window.t("pagination.byKeyword", state.filters.keyword);
-      }
-      if (state.filters.status !== "all") {
-        filterInfo += " " + window.t("pagination.byStatus", state.filters.status);
-      }
-      if (state.filters.session_id) {
-        filterInfo += " " + window.t("pagination.bySession", state.filters.session_id);
-      }
-      dom.paginationInfo.textContent += " | " + filterInfo;
-    }
-  }
-
-  async function deleteSelectedMemories() {
-    if (state.selected.size === 0) {
-      return;
-    }
-    const count = state.selected.size;
-
-    // 两步确认：首次点击 → 按钮变为"确认删除 X 条?"，再次点击 → 执行删除
-    if (!state.isConfirmingDelete) {
-      dom.deleteSelected.dataset.originalText = dom.deleteSelected.textContent;
-      dom.deleteSelected.textContent = `确认删除 ${count} 条?`;
-      dom.deleteSelected.style.backgroundColor = "#ef4444";
-      dom.deleteSelected.style.color = "#ffffff";
-      state.isConfirmingDelete = true;
-
-      setTimeout(() => {
-        if (state.isConfirmingDelete) {
-          state.isConfirmingDelete = false;
-          dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText;
-          dom.deleteSelected.style.backgroundColor = "";
-          dom.deleteSelected.style.color = "";
-        }
-      }, 3000);
-      return;
-    }
-
-    // 确认删除，重置按钮样式
-    state.isConfirmingDelete = false;
-    dom.deleteSelected.style.backgroundColor = "";
-    dom.deleteSelected.style.color = "";
-    const originalText = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
-
-    const memoryIds = [];
-    state.items.forEach((item) => {
-      const key = getItemKey(item);
-      if (state.selected.has(key)) {
-        // 使用整数ID（而非UUID）
-        const id = item.memory_id || item.doc_id;
-        if (id !== null && id !== undefined) {
-          // 确保是整数
-          const intId = parseInt(id, 10);
-          if (!isNaN(intId)) {
-            memoryIds.push(intId);
-          } else {
-            console.error(`[删除] 无效的memory_id: ${id}, item:`, item);
-          }
-        }
-      }
-    });
-
-    try {
-      // 显示加载状态
-      dom.deleteSelected.disabled = true;
-      dom.deleteSelected.textContent = window.t("delete.deleting");
-
-      console.log("[删除] 准备删除记忆", { count: memoryIds.length, ids: memoryIds });
-
-      const data = await apiRequest("memories/batch-delete", {
-        method: "POST",
-        body: {
-          memory_ids: memoryIds,
-        },
-      }) || {};
-      const deletedCount = data.deleted_count || 0;
-      const failedCount = data.failed_count || 0;
-      const failedIds = data.failed_ids || [];
-
-      console.log("[删除结果]", {
-        deleted: deletedCount,
-        failed: failedCount,
-        failedIds: failedIds,
-      });
-
-      // 根据结果显示相应的提示
-      if (deletedCount === 0 && failedCount > 0) {
-        //  全部失败
-        showToast(window.t("delete.allFailed", failedCount, failedIds.join(", ")), true);
-        logger.error("删除失败 - 所有记忆都无法删除", { failedIds });
-      } else if (failedCount > 0) {
-        // ️ 部分失败
-        showToast(window.t("delete.partialFailed", deletedCount, failedCount, failedIds.join(", ")));
-        logger.warn("部分删除失败", { deletedCount, failedCount, failedIds });
-      } else if (deletedCount > 0) {
-        //  全部成功
-        showToast(window.t("delete.success", deletedCount));
-      } else {
-        // ️ 没有删除任何记忆
-        showToast(window.t("delete.none"), true);
-      }
-
-      // 清空选择并刷新数据
-      state.selected.clear();
-      dom.selectAll.checked = false;
-      await fetchMemories();
-      await fetchStats();
-    } catch (error) {
-      logger.error("[删除异常]", error);
-      showToast(error.message || window.t("delete.error"), true);
-    } finally {
-      dom.deleteSelected.disabled = false;
-      dom.deleteSelected.textContent = originalText;
-    }
-  }
-
-  function onDocumentClick(event) {
-    if (state.isConfirmingDelete && event.target !== dom.deleteSelected) {
-      state.isConfirmingDelete = false;
-      dom.deleteSelected.textContent = dom.deleteSelected.dataset.originalText || window.t("delete.selected");
-      dom.deleteSelected.style.backgroundColor = "";
-      dom.deleteSelected.style.color = "";
-    }
-  }
-
-  function onDetailClick(event) {
-    const key = event.target.dataset.key;
-    if (!key) return;
-    const item = state.items.find((record) => getItemKey(record) === key);
-    if (!item) {
-      showToast(window.t("detail.notFound"), true);
-      return;
-    }
-    openDetailDrawer(item);
-  }
-
-  function openDetailDrawer(item) {
-    state.currentMemoryItem = item; // 保存当前项
-    dom.detail.memoryId.textContent = item.memory_id || item.doc_id || "--";
-    dom.detail.source.textContent =
-      item.source === "storage" ? window.t("detail.sourceCustom") : window.t("detail.sourceVector");
-    dom.detail.status.textContent = item.status || "--";
-    dom.detail.importance.textContent =
-      item.importance !== undefined && item.importance !== null
-        ? Number(item.importance).toFixed(2)
-        : "--";
-    dom.detail.type.textContent = item.memory_type || "--";
-    dom.detail.created.textContent = item.created_at || "--";
-    dom.detail.access.textContent = item.last_access || "--";
-    dom.detail.json.textContent = item.raw_json || JSON.stringify(item.raw, null, 2);
-    dom.drawer.classList.remove("hidden");
-  }
-
-  function closeDetailDrawer() {
-    dom.drawer.classList.add("hidden");
-  }
-
-  async function initNukeStatus() {
-    try {
-      const status = await apiRequest("memories/nuke");
-      if (status && status.pending) {
-        startNukeCountdown(status);
-      } else {
-      }
-    } catch (_error) {
-    }
-  }
-
-  async function onNukeClick() {
-    if (state.nuke.active) {
-      return;
-    }
-
-    dom.nukeButton.disabled = true;
-    try {
-      // 直接触发核爆倒计时，不需要确认
-      startNukeCountdown({
-        seconds_left: 10,  // 缩短到10秒，更刺激
-        operation_id: "nuke_" + Date.now(),
-      });
-      showToast(window.t("nuke.startToast"));
-    } catch (error) {
-      dom.nukeButton.disabled = false;
-      showToast(error.message || window.t("nuke.cantStart"), true);
-    }
-  }
-
-  async function onNukeCancel() {
-    if (!state.nuke.active || !state.nuke.operationId) {
-      return;
-    }
-    dom.nukeCancel.disabled = true;
-    try {
-      // 取消核爆
-      stopNukeCountdown();
-      showToast(window.t("nuke.cancelledToast"));
-      dom.nukeButton.disabled = false;
-    } catch (error) {
-      dom.nukeCancel.disabled = false;
-      showToast(error.message || window.t("nuke.cancelFail"), true);
-    }
-  }
-
-  function startNukeCountdown(info) {
-    const seconds = Number.isFinite(Number(info.seconds_left))
-      ? Number(info.seconds_left)
-      : 30;
-
-    state.nuke.active = true;
-    state.nuke.operationId = info.operation_id || null;
-    state.nuke.secondsLeft = seconds;
-
-    updateNukeBannerWithEffects();
-    dom.nukeButton.disabled = true;
-
-    state.nuke.timer = setInterval(() => {
-      if (state.nuke.secondsLeft > 0) {
-        state.nuke.secondsLeft -= 1;
-        updateNukeBannerWithEffects();
-        return;
-      }
-
-      clearInterval(state.nuke.timer);
-      state.nuke.timer = null;
-      updateNukeBannerWithEffects();
-      dom.nukeCancel.disabled = true;
-
-      // 核爆动画完成后，清空视觉效果
-      setTimeout(async () => {
-        // 停止核爆倒计时
-        stopNukeCountdown();
-        
-        // 清空所有数据的视觉显示
-        state.items = [];
-        state.total = 0;
-        state.page = 1;
-        state.selected.clear();
-        
-        // 更新表格显示
-        renderEmptyTable(window.t("nuke.doneTable"));
-        updatePagination();
-
-        // 清空统计信息显示
-        dom.stats.total.textContent = "0";
-        dom.stats.active.textContent = "0";
-        dom.stats.archived.textContent = "0";
-        dom.stats.deleted.textContent = "0";
-        dom.stats.sessions.textContent = "0";
-        
-        // 重置选择状态
-        dom.selectAll.checked = false;
-        dom.deleteSelected.disabled = true;
-        
-        showToast(window.t("nuke.doneToast"));
-      }, 4000); // 核爆动画时长
-    }, 1000);
-  }
-
-  function stopNukeCountdown() {
-    if (state.nuke.timer) {
-      clearInterval(state.nuke.timer);
-      state.nuke.timer = null;
-    }
-    state.nuke.active = false;
-    state.nuke.operationId = null;
-    state.nuke.secondsLeft = 0;
-
-    // 清除所有视觉效果
-    clearNukeVisualEffects();
-
-    if (dom.nukeBanner) {
-      dom.nukeBanner.classList.add("hidden");
-    }
-    if (dom.nukeMessage) {
-      dom.nukeMessage.textContent = "";
-    }
-    if (dom.nukeCancel) {
-      dom.nukeCancel.disabled = false;
-    }
-    if (dom.nukeButton) {
-      dom.nukeButton.disabled = false;
-    }
-  }
-
-  async function apiRequest(path, options = {}) {
-    const { method = "GET", body, retries = 2 } = options;
-    const bridge = window.AstrBotPluginPage;
-    if (!bridge) {
-      throw new Error(window.t("bridge.error"));
-    }
-
-    let lastError;
-    for (let attempt = 0; attempt <= retries; attempt++) {
+    var lastError;
+    for (var attempt = 0; attempt <= retries; attempt++) {
       try {
         if (method === "GET") {
-          const questionIdx = path.indexOf("?");
-          if (questionIdx !== -1) {
-            const basePath = path.substring(0, questionIdx);
-            const queryString = path.substring(questionIdx + 1);
-            const params = Object.fromEntries(new URLSearchParams(queryString));
-            return await bridge.apiGet(buildEndpoint(basePath), params);
+          var qi = path.indexOf("?");
+          if (qi !== -1) {
+            var base = path.substring(0, qi);
+            var qs = path.substring(qi + 1);
+            var params = {};
+            new URLSearchParams(qs).forEach(function(v, k) { params[k] = v; });
+            return await bridge.apiGet(buildEndpoint(base), params);
           }
           return await bridge.apiGet(buildEndpoint(path), {});
         }
         return await bridge.apiPost(buildEndpoint(path), body || {});
-      } catch (error) {
-        lastError = error;
-        if (attempt === retries) {
-          throw error;
-        }
-        const waitTime = Math.min(1000 * Math.pow(2, attempt), 5000);
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+      } catch (e) {
+        lastError = e;
+        if (attempt === retries) throw e;
+        await new Promise(function(r) { setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 5000)); });
       }
     }
     throw lastError || new Error(window.t("misc.requestFailed"));
   }
 
-  function showToast(message, isError = false) {
-    dom.toast.textContent = message;
-    dom.toast.classList.remove("hidden", "error");
-    if (isError) {
-      dom.toast.classList.add("error");
-    }
-    dom.toast.classList.add("visible");
-    clearTimeout(showToast._timer);
-    showToast._timer = setTimeout(() => {
-      dom.toast.classList.remove("visible");
-    }, 3000);
+  /* ================================================================
+     Theme
+     ================================================================ */
+  function readTheme() {
+    try {
+      var bridge = window.AstrBotPluginPage;
+      if (bridge) {
+        var ctx = bridge.getContext();
+        if (ctx && typeof ctx.isDark === "boolean") return ctx.isDark ? "dark" : "light";
+      }
+    } catch (_) {}
+    try {
+      var stored = localStorage.getItem("lmem_theme");
+      if (stored) return stored;
+    } catch (_) {}
+    var html = document.documentElement.getAttribute("data-theme");
+    if (html) return html;
+    return "light";
   }
 
-  function getItemKey(item) {
-    if (item.doc_id !== null && item.doc_id !== undefined) {
-      return `doc:${item.doc_id}`;
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    var darkIcon = document.getElementById("theme-icon-dark");
+    var lightIcon = document.getElementById("theme-icon-light");
+    if (darkIcon && lightIcon) {
+      darkIcon.classList.toggle("hidden", theme === "light");
+      lightIcon.classList.toggle("hidden", theme === "dark");
     }
-    if (item.memory_id) {
-      return `mem:${item.memory_id}`;
-    }
-    return `row:${state.items.indexOf(item)}`;
   }
 
-  function formatStatus(status) {
-    const value = (status || "active").toLowerCase();
-    let text = window.t("status.active");
-    let cls = "status-pill";
-    if (value === "archived") {
-      text = window.t("status.archived");
-      cls += " archived";
-    } else if (value === "deleted") {
-      text = window.t("status.deleted");
-      cls += " deleted";
-    }
-    return `<span class="${cls}">${text}</span>`;
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute("data-theme") || "light";
+    var next = current === "light" ? "dark" : "light";
+    applyTheme(next);
+    try { localStorage.setItem("lmem_theme", next); } catch (_) {}
+    showToast(next === "dark" ? "Dark mode" : "Light mode");
   }
 
-  function escapeHTML(text) {
-    return String(text ?? "")
+  function listenBridgeTheme() {
+    try {
+      var bridge = window.AstrBotPluginPage;
+      if (!bridge || typeof bridge.onContext !== "function") return;
+      bridge.onContext(function(ctx) {
+        if (!ctx || typeof ctx.isDark !== "boolean") return;
+        var t = ctx.isDark ? "dark" : "light";
+        if (t !== (document.documentElement.getAttribute("data-theme") || "light")) {
+          applyTheme(t);
+        }
+      });
+    } catch (_) {}
+  }
+
+  /* ================================================================
+     Toast
+     ================================================================ */
+  var toastTimer;
+  function showToast(msg, isError) {
+    var el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.remove("visible", "error");
+    if (isError) el.classList.add("error");
+    void el.offsetWidth;
+    el.classList.add("visible");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function() { el.classList.remove("visible"); }, 2500);
+  }
+
+  /* ================================================================
+     Sidebar / Routing
+     ================================================================ */
+  function switchPage(name) {
+    state.page = name;
+    document.querySelectorAll(".nav-item[data-page]").forEach(function(item) {
+      item.classList.toggle("active", item.dataset.page === name);
+    });
+    document.querySelectorAll(".page").forEach(function(p) {
+      p.classList.toggle("active", p.id === "page-" + name);
+    });
+    if (name === "graph") { fetchGraphStats(); if (window.ensureGraphScene) window.ensureGraphScene(); }
+    if (name === "memory") { fetchMemories(); }
+    if (name === "system") { fetchSystemOverview(); }
+  }
+
+  function initSidebar() {
+    document.querySelectorAll(".nav-item[data-page]").forEach(function(item) {
+      item.addEventListener("click", function() { switchPage(item.dataset.page); });
+    });
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("lang-toggle").addEventListener("click", function() {
+      var langs = ["zh", "en", "ru"];
+      var cur = window.getLanguage();
+      var idx = langs.indexOf(cur);
+      var next = langs[(idx + 1) % langs.length];
+      window.setLanguage(next);
+      document.getElementById("lang-label").textContent = next.toUpperCase();
+      showToast("Language: " + next.toUpperCase());
+    });
+  }
+
+  /* ================================================================
+     Peek Panel
+     ================================================================ */
+  function openPeek() {
+    document.getElementById("peek-panel").classList.add("visible");
+    document.getElementById("peek-overlay").classList.add("visible");
+  }
+
+  function closePeek() {
+    document.getElementById("peek-panel").classList.remove("visible");
+    document.getElementById("peek-overlay").classList.remove("visible");
+    state.selectedMemory = null;
+  }
+
+  function renderPeekMemory(memory) {
+    state.selectedMemory = memory;
+    document.getElementById("peek-badge").innerHTML = "";
+    document.getElementById("peek-title").textContent = "#" + (memory.memory_id || memory.id || "-");
+    var type = (memory.memory_type || "").toLowerCase();
+    var status = memory.status || "active";
+    var importance = memory.importance != null ? Number(memory.importance).toFixed(1) : "--";
+    var content = memory.summary || memory.content || memory.text || "";
+    var created = memory.created_at || "--";
+    var lastAccess = memory.last_access || "--";
+    var sessionId = (memory.raw && memory.raw.metadata && memory.raw.metadata.session_id) || "--";
+    var keyFacts = [];
+    var topics = [];
+    if (memory.raw && memory.raw.metadata) {
+      var m = memory.raw.metadata;
+      if (Array.isArray(m.key_facts)) keyFacts = m.key_facts;
+      if (Array.isArray(m.topics)) topics = m.topics;
+    }
+
+    var html = "";
+    if (type) { html += '<div class="peek-section"><span class="type-tag">' + esc(type) + '</span></div>'; }
+    html += '<div class="peek-section"><p style="font-size:14px;line-height:1.6">' + esc(content) + '</p></div>';
+    html += '<div class="peek-section"><div class="peek-section-title">Details</div>';
+    html += '<div class="peek-meta-grid">';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Importance</span><span class="peek-meta-value">' + importance + ' / 10</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Status</span><span class="peek-meta-value">' + statusPill(status) + '</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Session</span><span class="peek-meta-value text-mono" style="font-size:11px">' + esc(String(sessionId)) + '</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Created</span><span class="peek-meta-value">' + esc(created) + '</span></div>';
+    html += '</div></div>';
+
+    if (keyFacts.length) {
+      html += '<div class="peek-section"><div class="peek-section-title">Key Facts</div><div class="peek-fact-list">';
+      keyFacts.forEach(function(f) { html += '<div class="peek-fact-item">' + esc(String(f)) + '</div>'; });
+      html += '</div></div>';
+    }
+
+    if (topics.length) {
+      html += '<div class="peek-section"><div class="peek-section-title">Topics</div>';
+      html += topics.map(function(t) { return '<span class="type-tag" style="margin-right:4px">' + esc(String(t)) + '</span>'; }).join("");
+      html += '</div>';
+    }
+
+    html += '<div class="peek-section" style="display:flex;gap:var(--space-2)">';
+    html += '<button class="btn btn-sm btn-secondary" id="peek-edit-btn">Edit</button>';
+    html += '<button class="btn btn-sm btn-danger" id="peek-delete-btn">Delete</button>';
+    html += '</div>';
+
+    document.getElementById("peek-body").innerHTML = html;
+
+    var editBtn = document.getElementById("peek-edit-btn");
+    var delBtn = document.getElementById("peek-delete-btn");
+    if (editBtn) editBtn.addEventListener("click", openEditModal);
+    if (delBtn) delBtn.addEventListener("click", function() {
+      if (state.selectedMemory) {
+        deleteSingleMemory(parseInt(state.selectedMemory.memory_id || state.selectedMemory.id));
+      }
+    });
+    openPeek();
+  }
+
+  function renderPeekNode(nodeData) {
+    document.getElementById("peek-badge").innerHTML = nodeBadge(nodeData.type);
+    document.getElementById("peek-title").textContent = nodeData.label || "Unnamed Node";
+
+    var html = '<div class="peek-section">';
+    html += '<div class="peek-meta-grid">';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Memories</span><span class="peek-meta-value">' + (nodeData.memory_count || 0) + '</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Degree</span><span class="peek-meta-value">' + (nodeData.degree || 0) + '</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Entries</span><span class="peek-meta-value">' + (nodeData.entry_count || 0) + '</span></div>';
+    html += '<div class="peek-meta-item"><span class="peek-meta-label">Weight</span><span class="peek-meta-value">' + Number(nodeData.weight || 0).toFixed(2) + '</span></div>';
+    html += '</div></div>';
+
+    document.getElementById("peek-body").innerHTML = html;
+    openPeek();
+  }
+
+  function nodeBadge(type) {
+    var t = String(type || "other").toLowerCase();
+    var labels = { topic: "Topic", person: "Person", fact: "Fact", summary: "Summary" };
+    var label = labels[t] || t;
+    return '<div class="peek-node-badge ' + t + '">' + label + '</div>';
+  }
+
+  function statusPill(status) {
+    var s = String(status || "active").toLowerCase();
+    return '<span class="status-pill ' + s + '">' + s.charAt(0).toUpperCase() + s.slice(1) + '</span>';
+  }
+
+  function esc(text) {
+    return String(text || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+      .replace(/"/g, "&quot;");
   }
 
-  // ============================================
-  // 核爆视觉效果函数
-  // ============================================
+  /* ================================================================
+     Memory Page
+     ================================================================ */
+  async function fetchMemories() {
+    var params = new URLSearchParams();
+    params.set("page", String(state.memory.page));
+    params.set("page_size", String(state.memory.pageSize));
+    if (state.memory.session) params.set("session_id", state.memory.session);
+    if (state.memory.keyword) params.set("keyword", state.memory.keyword);
+    if (state.memory.status && state.memory.status !== "all") params.set("status", state.memory.status);
 
-  /**
-   * 触发完整的核爆视觉效果序列 - 粒子系统
-   */
-  function triggerNukeVisualEffects() {
-    const overlay = document.getElementById("nuke-overlay");
-    const app = document.getElementById("app");
-    const tableBody = document.getElementById("memories-body");
+    try {
+      var data = await apiRequest("memories?" + params.toString()) || {};
+      state.memory.total = data.total || 0;
+      state.memory.hasMore = data.has_more || false;
+      state.memory.selected.clear();
 
-    if (!overlay || !app) return;
-
-    // 1. 激活核爆遮罩层
-    overlay.classList.add("active");
-
-    // 2. 添加屏幕震动效果
-    app.classList.add("screen-shake");
-
-    // 3. 创建核心爆炸粒子
-    setTimeout(() => {
-      createExplosionParticles();
-    }, 100);
-
-    // 4. 创建火焰粒子
-    setTimeout(() => {
-      createFireParticles();
-    }, 200);
-
-    // 5. 创建冲击波粒子
-    setTimeout(() => {
-      createShockwaveParticles();
-    }, 400);
-
-    // 6. 数据表格粒子化消失
-    if (tableBody) {
-      const rows = tableBody.querySelectorAll("tr");
-      rows.forEach((row, index) => {
-        setTimeout(() => {
-          row.classList.add("particle-fade");
-        }, index * 50);
+      state.memory.items = (Array.isArray(data.items) ? data.items : []).map(function(item) {
+        return {
+          memory_id: item.id,
+          doc_id: item.doc_id,
+          summary: item.text || item.content || "",
+          content: item.text || item.content,
+          memory_type: (item.metadata && item.metadata.memory_type) || "GENERAL",
+          importance: (item.metadata && item.metadata.importance) || 5,
+          status: (item.metadata && item.metadata.status) || "active",
+          created_at: (item.metadata && item.metadata.create_time)
+            ? new Date(item.metadata.create_time * 1000).toLocaleString()
+            : "--",
+          last_access: (item.metadata && item.metadata.last_access_time)
+            ? new Date(item.metadata.last_access_time * 1000).toLocaleString()
+            : "--",
+          raw: item,
+        };
       });
-    }
 
-    // 7. 添加数据撕裂效果到所有卡片
-    const cards = document.querySelectorAll(".card");
-    setTimeout(() => {
-      cards.forEach((card) => {
-        card.classList.add("data-glitch");
-      });
-    }, 800);
-
-    // 8. 生成灰烬飘落粒子
-    setTimeout(() => {
-      createAshParticles();
-    }, 1500);
-
-    // 9. 停止所有动画效果
-    setTimeout(() => {
-      app.classList.remove("screen-shake");
-      cards.forEach((card) => {
-        card.classList.remove("data-glitch");
-      });
-    }, 3000);
-
-    // 10. 移除核爆遮罩层，添加界面恢复动画
-    setTimeout(() => {
-      overlay.classList.remove("active");
-      app.classList.add("fade-in-recovery");
-
-      // 清理粒子容器
-      const container = document.getElementById("nuke-particles-container");
-      if (container) {
-        container.innerHTML = "";
-      }
-
-      // 移除恢复动画类
-      setTimeout(() => {
-        app.classList.remove("fade-in-recovery");
-      }, 1500);
-    }, 3500);
-  }
-
-  /**
-   * 创建核心爆炸粒子 - 快速向外扩散的白色粒子
-   */
-  function createExplosionParticles() {
-    const container = document.getElementById("nuke-particles-container");
-    if (!container) return;
-
-    const particleCount = 200; // 爆炸粒子数量
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-
-    for (let i = 0; i < particleCount; i++) {
-      const particle = document.createElement("div");
-      particle.className = "explosion-particle";
-
-      // 随机角度和速度
-      const angle = (Math.PI * 2 * i) / particleCount;
-      const speed = 100 + Math.random() * 400; // 100-500px
-      const size = 2 + Math.random() * 6; // 2-8px
-
-      const endX = Math.cos(angle) * speed;
-      const endY = Math.sin(angle) * speed;
-
-      particle.style.left = `${centerX}px`;
-      particle.style.top = `${centerY}px`;
-      particle.style.width = `${size}px`;
-      particle.style.height = `${size}px`;
-      particle.style.setProperty("--end-x", `${endX}px`);
-      particle.style.setProperty("--end-y", `${endY}px`);
-
-      // 随机延迟
-      particle.style.animationDelay = `${Math.random() * 0.1}s`;
-
-      container.appendChild(particle);
-
-      // 动画结束后移除
-      setTimeout(() => {
-        particle.remove();
-      }, 1500);
+      renderMemoriesTable();
+      updateMemoryPagination();
+      updateBatchBar();
+    } catch (e) {
+      showToast(e.message || window.t("misc.fetchMemoriesFail"), true);
+      renderEmptyTable();
     }
   }
 
-  /**
-   * 创建火焰粒子 - 橙红色向外扩散
-   */
-  function createFireParticles() {
-    const container = document.getElementById("nuke-particles-container");
-    if (!container) return;
-
-    const particleCount = 150;
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-
-    for (let i = 0; i < particleCount; i++) {
-      const particle = document.createElement("div");
-      particle.className = "fire-particle";
-
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 80 + Math.random() * 300;
-      const size = 3 + Math.random() * 8;
-
-      const endX = Math.cos(angle) * speed;
-      const endY = Math.sin(angle) * speed;
-
-      particle.style.left = `${centerX}px`;
-      particle.style.top = `${centerY}px`;
-      particle.style.width = `${size}px`;
-      particle.style.height = `${size}px`;
-      particle.style.setProperty("--end-x", `${endX}px`);
-      particle.style.setProperty("--end-y", `${endY}px`);
-      particle.style.animationDelay = `${Math.random() * 0.2}s`;
-
-      container.appendChild(particle);
-
-      setTimeout(() => {
-        particle.remove();
-      }, 2000);
-    }
-  }
-
-  /**
-   * 创建冲击波粒子 - 环形扩散的小粒子
-   */
-  function createShockwaveParticles() {
-    const container = document.getElementById("nuke-particles-container");
-    if (!container) return;
-
-    const waves = 5; // 5层冲击波
-    const particlesPerWave = 80;
-
-    for (let wave = 0; wave < waves; wave++) {
-      setTimeout(() => {
-        const centerX = window.innerWidth / 2;
-        const centerY = window.innerHeight / 2;
-
-        for (let i = 0; i < particlesPerWave; i++) {
-          const particle = document.createElement("div");
-          particle.className = "shockwave-particle";
-
-          const angle = (Math.PI * 2 * i) / particlesPerWave;
-          const speed = 200 + wave * 100 + Math.random() * 100;
-          const size = 2 + Math.random() * 4;
-
-          const endX = Math.cos(angle) * speed;
-          const endY = Math.sin(angle) * speed;
-
-          particle.style.left = `${centerX}px`;
-          particle.style.top = `${centerY}px`;
-          particle.style.width = `${size}px`;
-          particle.style.height = `${size}px`;
-          particle.style.setProperty("--end-x", `${endX}px`);
-          particle.style.setProperty("--end-y", `${endY}px`);
-
-          container.appendChild(particle);
-
-          setTimeout(() => {
-            particle.remove();
-          }, 1500);
-        }
-      }, wave * 150);
-    }
-  }
-
-  /**
-   * 创建灰烬飘落粒子效果
-   */
-  function createAshParticles() {
-    const overlay = document.getElementById("nuke-overlay");
-    if (!overlay) return;
-
-    const particleCount = 50; // 粒子数量
-
-    for (let i = 0; i < particleCount; i++) {
-      const particle = document.createElement("div");
-      particle.className = "ash-particle";
-
-      // 随机位置
-      particle.style.left = `${Math.random() * 100}%`;
-      particle.style.top = `${Math.random() * 20}%`;
-
-      // 随机飘移距离
-      const drift = (Math.random() - 0.5) * 200; // -100px 到 100px
-      particle.style.setProperty("--drift", `${drift}px`);
-
-      // 随机动画时长
-      const duration = 2 + Math.random() * 3; // 2-5秒
-      particle.style.animationDuration = `${duration}s`;
-
-      // 随机延迟
-      const delay = Math.random() * 0.5; // 0-0.5秒
-      particle.style.animationDelay = `${delay}s`;
-
-      overlay.appendChild(particle);
-
-      // 动画结束后移除粒子
-      setTimeout(() => {
-        particle.remove();
-      }, (duration + delay) * 1000);
-    }
-  }
-
-  /**
-   * 更新倒计时横幅 - 添加视觉警告效果
-   */
-  function updateNukeBannerWithEffects() {
-    if (!state.nuke.active || !dom.nukeBanner) {
+  function renderMemoriesTable() {
+    var tbody = document.getElementById("memories-body");
+    if (!state.memory.items.length) {
+      renderEmptyTable();
       return;
     }
 
-    const overlay = document.getElementById("nuke-overlay");
-    const seconds = Math.max(0, state.nuke.secondsLeft);
+    tbody.innerHTML = state.memory.items.map(function(item) {
+      var key = "m:" + item.memory_id;
+      var sel = state.memory.selected.has(key) ? " selected" : "";
+      var imp = item.importance != null ? Number(item.importance).toFixed(1) : "5.0";
+      var impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
+      var impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
+      return '<tr data-key="' + key + '" class="' + sel + '">' +
+        '<td class="cell-mono">' + item.memory_id + '</td>' +
+        '<td>' + esc((item.summary || "").substring(0, 120)) + '</td>' +
+        '<td><span class="type-tag">' + esc(item.memory_type || "GENERAL") + '</span></td>' +
+        '<td><div class="importance-bar"><div class="importance-bar-track">' +
+        '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>' +
+        '<span style="font-size:12px;color:var(--text-secondary)">' + imp + '</span></div></td>' +
+        '<td>' + statusPill(item.status) + '</td>' +
+        '<td class="text-secondary" style="font-size:12px">' + esc(item.created_at) + '</td>' +
+        '</tr>';
+    }).join("");
 
-    // 显示横幅
-    dom.nukeBanner.classList.remove("hidden");
+    tbody.querySelectorAll("tr").forEach(function(row) {
+      row.addEventListener("click", function(e) { onMemoryRowClick(row, e); });
+      row.addEventListener("dblclick", function() {
+        var k = row.dataset.key;
+        var item = state.memory.items.find(function(i) { return ("m:" + i.memory_id) === k; });
+        if (item) renderPeekMemory(item);
+      });
+    });
+  }
 
-    // 更新倒计时文本
-    const message =
-      seconds > 0
-        ? window.t("nuke.countdown", seconds)
-        : window.t("nuke.erasing");
-    dom.nukeMessage.textContent = message;
+  function renderEmptyTable() {
+    document.getElementById("memories-body").innerHTML =
+      '<tr><td colspan="6" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+  }
 
-    // 禁用/启用取消按钮
-    if (dom.nukeCancel) {
-      dom.nukeCancel.disabled = seconds === 0;
-    }
-
-    // 添加视觉警告效果
-    if (seconds > 0 && seconds <= 30) {
-      // 倒计时阶段 - 红色闪烁警告
-      if (!overlay.classList.contains("nuke-warning")) {
-        overlay.classList.add("nuke-warning");
+  function onMemoryRowClick(row, event) {
+    var key = row.dataset.key;
+    if (event.shiftKey && state._lastClickedKey) {
+      var keys = state.memory.items.map(function(i) { return "m:" + i.memory_id; });
+      var a = keys.indexOf(state._lastClickedKey);
+      var b = keys.indexOf(key);
+      if (a !== -1 && b !== -1) {
+        var lo = Math.min(a, b);
+        var hi = Math.max(a, b);
+        for (var i = lo; i <= hi; i++) state.memory.selected.add(keys[i]);
       }
-
-      // 最后10秒 - 加强警告
-      if (seconds <= 10) {
-        dom.nukeBanner.classList.add("critical");
-
-        // 最后5秒 - 震动效果
-        if (seconds <= 5) {
-          const app = document.getElementById("app");
-          if (app && !app.classList.contains("screen-shake")) {
-            app.classList.add("screen-shake");
-          }
-        }
+    } else {
+      if (state.memory.selected.has(key)) {
+        state.memory.selected.delete(key);
+      } else {
+        state.memory.selected.add(key);
       }
     }
+    state._lastClickedKey = key;
+    renderMemoriesTable();
+    updateBatchBar();
+  }
 
-    // 倒计时结束 - 触发核爆效果
-    if (seconds === 0) {
-      // 移除警告效果
-      overlay.classList.remove("nuke-warning");
-      dom.nukeBanner.classList.remove("critical");
+  function updateBatchBar() {
+    var bar = document.getElementById("batch-bar");
+    var count = state.memory.selected.size;
+    document.getElementById("batch-count").textContent = count + " selected";
+    bar.classList.toggle("visible", count > 0);
+  }
 
-      // 触发完整核爆视觉效果
-      triggerNukeVisualEffects();
+  function updateMemoryPagination() {
+    var p = state.memory.page;
+    var ps = state.memory.pageSize;
+    var t = state.memory.total;
+    var tp = Math.max(1, Math.ceil(t / ps));
+    document.getElementById("mem-pagination-info").textContent = "Page " + p + " / " + tp + " · " + t + " total";
+    document.getElementById("mem-prev").disabled = p <= 1;
+    document.getElementById("mem-next").disabled = !state.memory.hasMore;
+  }
+
+  async function deleteSingleMemory(id) {
+    if (!id) return;
+    try {
+      await apiRequest("memories/batch-delete", { method: "POST", body: { memory_ids: [id] } });
+      showToast("Deleted #" + id);
+      closePeek();
+      await fetchMemories();
+    } catch (e) {
+      showToast(e.message || "Delete failed", true);
     }
   }
 
-  /**
-   * 清除所有核爆视觉效果
-   */
-  function clearNukeVisualEffects() {
-    const overlay = document.getElementById("nuke-overlay");
-    const app = document.getElementById("app");
-    const cards = document.querySelectorAll(".card");
-
-    if (overlay) {
-      overlay.classList.remove("active", "nuke-warning");
+  async function batchDelete() {
+    if (!state.memory.selected.size) return;
+    var ids = [];
+    state.memory.selected.forEach(function(k) {
+      var id = parseInt(k.replace("m:", ""));
+      if (!isNaN(id)) ids.push(id);
+    });
+    try {
+      await apiRequest("memories/batch-delete", { method: "POST", body: { memory_ids: ids } });
+      showToast("Deleted " + ids.length + " memories");
+      state.memory.selected.clear();
+      await fetchMemories();
+    } catch (e) {
+      showToast(e.message || "Delete failed", true);
     }
+  }
 
-    if (app) {
-      app.classList.remove("screen-shake", "fade-in-recovery");
+  async function batchArchive() {
+    if (!state.memory.selected.size) return;
+    var keys = Array.from(state.memory.selected);
+    var first = state.memory.items.find(function(i) { return ("m:" + i.memory_id) === keys[0]; });
+    var id = first ? first.memory_id : parseInt(keys[0].replace("m:", ""));
+    try {
+      await apiRequest("memories/update", {
+        method: "POST",
+        body: { memory_id: id, field: "status", value: "archived" },
+      });
+      showToast("Archived memory #" + id);
+      state.memory.selected.clear();
+      await fetchMemories();
+    } catch (e) {
+      showToast(e.message || "Archive failed", true);
     }
+  }
 
-    cards.forEach((card) => {
-      card.classList.remove("data-glitch");
+  function initMemoryPage() {
+    document.getElementById("mem-keyword").addEventListener("input", debounce(function() {
+      state.memory.keyword = this.value.trim();
+      state.memory.page = 1;
+      fetchMemories();
+    }, 300));
+
+    document.getElementById("mem-session").addEventListener("input", debounce(function() {
+      state.memory.session = this.value.trim();
+      state.memory.page = 1;
+      fetchMemories();
+    }, 300));
+
+    document.getElementById("mem-status").addEventListener("change", function() {
+      state.memory.status = this.value;
+      state.memory.page = 1;
+      fetchMemories();
     });
 
-    if (dom.nukeBanner) {
-      dom.nukeBanner.classList.remove("critical");
-    }
+    document.getElementById("mem-page-size").addEventListener("change", function() {
+      state.memory.pageSize = parseInt(this.value) || 20;
+      state.memory.page = 1;
+      fetchMemories();
+    });
+
+    document.getElementById("mem-prev").addEventListener("click", function() {
+      if (state.memory.page > 1) { state.memory.page--; fetchMemories(); }
+    });
+    document.getElementById("mem-next").addEventListener("click", function() {
+      if (state.memory.hasMore) { state.memory.page++; fetchMemories(); }
+    });
+    document.getElementById("batch-delete").addEventListener("click", batchDelete);
+    document.getElementById("batch-archive").addEventListener("click", batchArchive);
+    document.getElementById("batch-clear").addEventListener("click", function() {
+      state.memory.selected.clear();
+      renderMemoriesTable();
+      updateBatchBar();
+    });
   }
 
-  // ============================================
-  // 标签页切换功能（已移除，仅保留单一标签页）
-  // ============================================
+  function debounce(fn, ms) {
+    var timer;
+    return function() {
+      var self = this, args = arguments;
+      clearTimeout(timer);
+      timer = setTimeout(function() { fn.apply(self, args); }, ms || 300);
+    };
+  }
 
-  // switchTab 函数已移除，不再需要
-
-  // ============================================
-  // 记忆编辑功能
-  // ============================================
-
+  /* ================================================================
+     Edit Modal
+     ================================================================ */
   function openEditModal() {
-    if (!state.currentMemoryItem) {
-      showToast(window.t("edit.noItem"), true);
-      return;
-    }
+    var mem = state.selectedMemory;
+    if (!mem) return showToast("No memory selected", true);
 
-    const modal = document.getElementById("edit-modal");
-    modal.classList.remove("hidden");
-
-    // 设置默认值
-    const item = state.currentMemoryItem;
-    document.getElementById("edit-value-content").value = item.summary || "";
-    document.getElementById("edit-value-importance").value = item.importance || 5;
-    document.getElementById("edit-value-type").value = item.memory_type || "";
-    document.getElementById("edit-value-status").value = item.status || "active";
+    document.getElementById("edit-value-content").value = mem.summary || "";
+    document.getElementById("edit-value-importance").value = mem.importance || 5;
+    document.getElementById("edit-value-type").value = mem.memory_type || "";
+    document.getElementById("edit-value-status").value = mem.status || "active";
     document.getElementById("edit-reason").value = "";
-
-    // 显示内容字段
+    document.getElementById("edit-field").value = "content";
     onEditFieldChange();
+    document.getElementById("modal-overlay").classList.add("visible");
+    document.getElementById("edit-value-content").focus();
   }
 
   function closeEditModal() {
-    const modal = document.getElementById("edit-modal");
-    modal.classList.add("hidden");
+    document.getElementById("modal-overlay").classList.remove("visible");
   }
 
   function onEditFieldChange() {
-    const field = document.getElementById("edit-field").value;
-
-    // 隐藏所有字段组
-    document.getElementById("edit-content-group").classList.add("hidden");
-    document.getElementById("edit-importance-group").classList.add("hidden");
-    document.getElementById("edit-type-group").classList.add("hidden");
-    document.getElementById("edit-status-group").classList.add("hidden");
-
-    // 显示选中的字段组
-    if (field === "content") {
-      document.getElementById("edit-content-group").classList.remove("hidden");
-    } else if (field === "importance") {
-      document.getElementById("edit-importance-group").classList.remove("hidden");
-    } else if (field === "type") {
-      document.getElementById("edit-type-group").classList.remove("hidden");
-    } else if (field === "status") {
-      document.getElementById("edit-status-group").classList.remove("hidden");
-    }
+    var field = document.getElementById("edit-field").value;
+    ["content", "importance", "type", "status"].forEach(function(f) {
+      var el = document.getElementById("edit-group-" + f);
+      if (el) el.classList.toggle("hidden", field !== f);
+    });
   }
 
-  async function saveMemoryEdit() {
-    if (!state.currentMemoryItem) {
-      showToast(window.t("edit.noItem"), true);
-      return;
-    }
+  async function saveEdit() {
+    var mem = state.selectedMemory;
+    if (!mem) return;
+    var field = document.getElementById("edit-field").value;
+    var value;
+    if (field === "content") value = document.getElementById("edit-value-content").value.trim();
+    else if (field === "importance") value = document.getElementById("edit-value-importance").value;
+    else if (field === "type") value = document.getElementById("edit-value-type").value.trim();
+    else if (field === "status") value = document.getElementById("edit-value-status").value;
 
-    const field = document.getElementById("edit-field").value;
-    let value;
-
-    if (field === "content") {
-      value = document.getElementById("edit-value-content").value.trim();
-    } else if (field === "importance") {
-      value = document.getElementById("edit-value-importance").value;
-    } else if (field === "type") {
-      value = document.getElementById("edit-value-type").value.trim();
-    } else if (field === "status") {
-      value = document.getElementById("edit-value-status").value;
-    }
-
-    if (!value) {
-      showToast(window.t("edit.enterValue"), true);
-      return;
-    }
-
-    const reason = document.getElementById("edit-reason").value.trim();
-    const memoryId = state.currentMemoryItem.memory_id || state.currentMemoryItem.doc_id;
-    
-    // 调试：输出将要使用的ID
-    console.log('[编辑] 准备更新记忆:', {
-      memory_id: memoryId,
-      field: field,
-      value: value,
-      currentItem: state.currentMemoryItem
-    });
+    if (!value) return showToast("Please enter a value", true);
+    var reason = document.getElementById("edit-reason").value.trim();
+    var id = mem.memory_id || mem.id;
 
     try {
       document.getElementById("save-edit").disabled = true;
-      const result = await apiRequest("memories/update", {
+      var result = await apiRequest("memories/update", {
         method: "POST",
-        body: { memory_id: memoryId, field, value, reason },
+        body: { memory_id: id, field: field, value: value, reason: reason },
       });
-
-      showToast((result && result.message) || window.t("edit.success"));
+      showToast((result && result.message) || "Updated");
       closeEditModal();
-      closeDetailDrawer();
-      await fetchMemories(); // 刷新列表
-    } catch (error) {
-      showToast(error.message || window.t("edit.updateFailed"), true);
+      closePeek();
+      await fetchMemories();
+    } catch (e) {
+      showToast(e.message || "Update failed", true);
     } finally {
       document.getElementById("save-edit").disabled = false;
     }
   }
 
-  // ============================================
-  // 标签页切换功能
-  // ============================================
-
-  function onTabClick(event) {
-    const tabName = event.target.dataset.tab;
-    if (!tabName) return;
-
-    // 更新状态
-    state.currentTab = tabName;
-
-    // 更新标签页按钮状态
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.tab === tabName);
-    });
-
-    // 更新内容显示
-    document.querySelectorAll(".tab-content").forEach((content) => {
-      content.classList.toggle("active", content.dataset.tab === tabName);
+  function initEditModal() {
+    document.getElementById("edit-field").addEventListener("change", onEditFieldChange);
+    document.getElementById("modal-close").addEventListener("click", closeEditModal);
+    document.getElementById("cancel-edit").addEventListener("click", closeEditModal);
+    document.getElementById("save-edit").addEventListener("click", saveEdit);
+    document.getElementById("modal-overlay").addEventListener("click", function(e) {
+      if (e.target === this) closeEditModal();
     });
   }
 
-  // ============================================
-  // 召回测试功能
-  // ============================================
-
-  async function performRecallTest() {
-    const query = document.getElementById("recall-query").value.trim();
-    const k = parseInt(document.getElementById("recall-k").value) || 5;
-    const session_id = document.getElementById("recall-session-id").value.trim() || null;
-
-    if (!query) {
-      showToast(window.t("recall.enterQuery"), true);
-      return;
-    }
-
-    const recallSearchBtn = document.getElementById("recall-search-btn");
-    recallSearchBtn.disabled = true;
-    recallSearchBtn.textContent = window.t("recall.searching");
+  /* ================================================================
+     Recall Page
+     ================================================================ */
+  async function runRecall() {
+    var query = document.getElementById("recall-query").value.trim();
+    if (!query) return showToast("Enter a query", true);
+    var k = parseInt(document.getElementById("recall-k").value) || 5;
+    var session = document.getElementById("recall-session").value.trim() || null;
+    var btn = document.getElementById("recall-search-btn");
+    btn.disabled = true;
 
     try {
-      const payload = {
-        query,
-        k,
-      };
-
-      if (session_id) {
-        payload.session_id = session_id;
-      }
-
-      const startTime = performance.now();
-      const response = await apiRequest("recall/test", {
+      var data = await apiRequest("recall/test", {
         method: "POST",
-        body: payload,
-      });
-
-      if (!response.success) {
-        throw new Error(response.error || window.t("recall.fail"));
-      }
-
-      const data = response.data;
-      displayRecallResults(data);
-      showToast(window.t("recall.successToast", data.total));
-    } catch (error) {
-      logger.error("[召回测试失败]", error.message);
-      showToast(error.message || window.t("recall.fail"), true);
+        body: { query: query, k: k, session_id: session },
+      }) || {};
+      renderRecallResults(data);
+    } catch (e) {
+      showToast(e.message || "Recall failed", true);
     } finally {
-      recallSearchBtn.disabled = false;
-      recallSearchBtn.textContent = window.t("recall.searchBtn");
+      btn.disabled = false;
     }
   }
 
-  function displayRecallResults(data) {
-    const resultsContainer = document.getElementById("recall-results");
-    const statsContainer = document.getElementById("recall-stats");
+  function renderRecallResults(data) {
+    var stats = document.getElementById("recall-stats");
+    var container = document.getElementById("recall-results");
+    var total = data.total || 0;
+    var time = data.elapsed_time_ms != null ? data.elapsed_time_ms.toFixed(1) + "ms" : "";
 
-    // 更新统计信息
-    if (data.total > 0) {
-      document.getElementById("recall-count").textContent = data.total;
-      document.getElementById("recall-time").textContent = `${data.elapsed_time_ms.toFixed(2)}ms`;
-      statsContainer.classList.remove("hidden");
+    if (total) {
+      stats.classList.remove("hidden");
+      document.getElementById("recall-count-text").textContent = total + " results";
+      document.getElementById("recall-time-text").textContent = time;
     } else {
-      statsContainer.classList.add("hidden");
+      stats.classList.add("hidden");
     }
 
-    // 清空结果容器
-    resultsContainer.innerHTML = "";
-
-    if (data.total === 0) {
-      resultsContainer.innerHTML =
-        '<div class="empty-state"><p>' + window.t("recall.noMatch") + '</p></div>';
+    if (!total) {
+      container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary)">No matching memories found</div>';
       return;
     }
 
-    // 构建结果卡片
-    const resultsHTML = data.results
-      .map((result, index) => {
-        const scorePercentage = result.score_percentage;
-        const scoreColor = getScoreColor(scorePercentage);
+    container.innerHTML = (data.results || []).map(function(r, i) {
+      var pct = r.score_percentage || 0;
+      var badgeCls = pct >= 70 ? "high" : pct >= 45 ? "medium" : "low";
+      var scores = [
+        { label: "Doc-KW", val: r.metadata && r.metadata.document_keyword_score, cls: "doc-kw" },
+        { label: "Doc-Vec", val: r.metadata && r.metadata.document_vector_score, cls: "doc-vec" },
+        { label: "Graph-KW", val: r.metadata && r.metadata.graph_keyword_score, cls: "graph-kw" },
+        { label: "Graph-Vec", val: r.metadata && r.metadata.graph_vector_score, cls: "graph-vec" },
+      ];
+      return '<div class="result-card" data-memory-id="' + r.memory_id + '">' +
+        '<div class="result-card-header">' +
+          '<span class="result-rank">#' + (i + 1) + '</span>' +
+          '<span class="result-score-badge ' + badgeCls + '">' + pct.toFixed(1) + '%</span>' +
+        '</div>' +
+        '<div class="result-content">' + esc(r.content || "") + '</div>' +
+        '<div class="result-scores">' + scores.map(function(s) {
+          var v = s.val != null ? Math.min(1, Math.max(0, parseFloat(s.val) || 0)) : 0;
+          var w = (v * 100).toFixed(0);
+          return '<div class="result-score-row">' +
+            '<span class="result-score-row-label">' + s.label + '</span>' +
+            '<div class="result-score-row-track"><div class="result-score-row-fill ' + s.cls + '" style="width:' + w + '%"></div></div>' +
+            '<span class="result-score-row-value">' + v.toFixed(2) + '</span>' +
+          '</div>';
+        }).join("") + '</div>' +
+      '</div>';
+    });
 
-        return `
-          <div class="recall-result-card">
-            <div class="result-header">
-              <h4>结果 #${index + 1}</h4>
-              <span class="score-badge ${scoreColor}">
-                ${scorePercentage.toFixed(1)}%
-              </span>
-            </div>
-
-            <div class="result-content">
-              <p class="content-text">${escapeHTML(result.content)}</p>
-            </div>
-
-            <div class="result-metadata">
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultId")}</span>
-                <span class="meta-value mono">${result.memory_id}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultScore")}</span>
-                <span class="meta-value">${result.similarity_score}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultSession")}</span>
-                <span class="meta-value mono">${result.metadata.session_id || "--"}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultImportance")}</span>
-                <span class="meta-value">${(result.metadata.importance * 10).toFixed(1)}/10</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultType")}</span>
-                <span class="meta-value">${result.metadata.memory_type}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">${window.t("recall.resultStatus")}</span>
-                <span class="meta-value">${formatStatus(result.metadata.status)}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join("");
-
-    resultsContainer.innerHTML = resultsHTML;
+    container.querySelectorAll(".result-card").forEach(function(card) {
+      card.addEventListener("click", function() {
+        var mid = parseInt(card.dataset.memoryId);
+        var item = state.memory.items.find(function(i) { return i.memory_id === mid; });
+        if (item) renderPeekMemory(item);
+      });
+    });
   }
 
-  function getScoreColor(percentage) {
-    if (percentage >= 80) return "score-high";
-    if (percentage >= 60) return "score-medium";
-    if (percentage >= 40) return "score-low";
-    return "score-very-low";
+  function initRecallPage() {
+    document.getElementById("recall-search-btn").addEventListener("click", runRecall);
+    document.getElementById("recall-query").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runRecall();
+    });
+    document.getElementById("recall-k").addEventListener("input", function() {
+      document.getElementById("recall-k-value").textContent = this.value;
+    });
   }
 
-  function clearRecallResults() {
-    document.getElementById("recall-query").value = "";
-    document.getElementById("recall-session-id").value = "";
-    document.getElementById("recall-results").innerHTML =
-      '<div class="empty-state"><p>' + window.t("recall.empty") + '</p></div>';
-    document.getElementById("recall-stats").classList.add("hidden");
+  /* ================================================================
+     System Page
+     ================================================================ */
+  async function fetchSystemOverview() {
+    try {
+      var data = await apiRequest("stats") || {};
+      document.getElementById("ss-total").textContent = data.total_memories || data.total_count || "0";
+      var sb = data.status_breakdown || {};
+      document.getElementById("ss-active").textContent = sb.active || 0;
+      document.getElementById("ss-archived").textContent = sb.archived || 0;
+      document.getElementById("ss-deleted").textContent = sb.deleted || 0;
+      document.getElementById("ss-nodes").textContent = data.graph_nodes || 0;
+      document.getElementById("ss-atoms").textContent = data.atom_count || 0;
+
+      /* Importance chart */
+      var dist = data.importance_distribution || {};
+      var bins = ["0-1","1-2","2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10"];
+      var maxV = 1;
+      bins.forEach(function(b) { maxV = Math.max(maxV, dist[b] || 0); });
+      document.getElementById("importance-chart").innerHTML = bins.map(function(b) {
+        var v = dist[b] || 0;
+        var w = maxV ? (v / maxV * 100).toFixed(0) : 0;
+        return '<div class="bar-row"><span class="bar-row-label">' + b + '</span>' +
+          '<div class="bar-row-track"><div class="bar-row-fill" style="width:' + w + '%"></div></div>' +
+          '<span class="bar-row-value">' + v + '</span></div>';
+      }).join("");
+
+      /* Atom chart */
+      var atoms = data.atom_breakdown || {};
+      var atomTypes = ["factual","episodic","preference","relational","planned"];
+      var maxA = 1;
+      atomTypes.forEach(function(t) { maxA = Math.max(maxA, atoms[t] || 0); });
+      document.getElementById("atom-chart").innerHTML = atomTypes.map(function(t) {
+        var v = atoms[t] || 0;
+        var w = maxA ? (v / maxA * 100).toFixed(0) : 0;
+        return '<div class="bar-row"><span class="bar-row-label" style="width:80px">' + t.charAt(0).toUpperCase() + t.slice(1) + '</span>' +
+          '<div class="bar-row-track"><div class="bar-row-fill" style="width:' + w + '%"></div></div>' +
+          '<span class="bar-row-value">' + v + '</span></div>';
+      }).join("");
+
+      /* Sessions */
+      var sessions = data.recent_sessions || [];
+      if (!sessions.length && data.sessions) {
+        sessions = Object.keys(data.sessions).map(function(k) {
+          return { session_id: k, message_count: data.sessions[k] };
+        }).sort(function(a, b) { return b.message_count - a.message_count; }).slice(0, 10);
+      }
+      document.getElementById("session-list").innerHTML = sessions.length
+        ? sessions.map(function(s) {
+          return '<div class="session-item"><span class="session-id">' + esc(s.session_id || s) + '</span>' +
+            '<span class="session-meta">' + (s.message_count || "") + (s.last_active ? ' · ' + s.last_active : '') + '</span></div>';
+        }).join("")
+        : '<div style="color:var(--text-tertiary);text-align:center;padding:20px">No active sessions</div>';
+
+      /* Backups */
+      try {
+        var backups = await apiRequest("backups") || {};
+        var list = backups.backups || [];
+        document.getElementById("backup-list").innerHTML = list.length
+          ? list.map(function(b) {
+            return '<div class="backup-item"><span class="backup-version">' + esc(b.name || b.directory || "") + '</span>' +
+              '<span class="backup-date">' + esc(b.backup_timestamp || "") + '</span>' +
+              '<span class="backup-files">' + (b.file_count || b.files_copied || 0) + ' files</span></div>';
+          }).join("")
+          : '<div style="color:var(--text-tertiary);text-align:center;padding:20px">No backups</div>';
+      } catch (_) {
+        document.getElementById("backup-list").innerHTML = '<div style="color:var(--text-tertiary);text-align:center;padding:20px">Unavailable</div>';
+      }
+    } catch (e) {
+      showToast("Failed to load system overview", true);
+    }
   }
 
-  // ============================================
-  // 主题切换功能
-  // ============================================
-
-  function initTheme() {
-    const savedTheme = readThemePreference();
-    applyTheme(savedTheme);
+  /* ================================================================
+     Graph Page (stat pills + delegation to graph-ui.js)
+     ================================================================ */
+  async function fetchGraphStats() {
+    try {
+      var data = await apiRequest("stats") || {};
+      document.getElementById("gs-total").textContent = data.total_memories || data.total_count || "0";
+      document.getElementById("gs-nodes").textContent = data.graph_nodes || "0";
+      document.getElementById("gs-edges").textContent = data.graph_edges || "0";
+      var sessions = data.sessions || {};
+      document.getElementById("gs-sessions").textContent = Object.keys(sessions).length || "0";
+    } catch (_) {}
   }
 
-  function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
-    const newTheme = currentTheme === "light" ? "dark" : "light";
-    applyTheme(newTheme);
-    writeThemePreference(newTheme);
-    showToast(newTheme === "dark" ? window.t("theme.darkToast") : window.t("theme.lightToast"));
-  }
+  /* ================================================================
+     Init
+     ================================================================ */
+  async function init() {
+    applyTheme(readTheme());
+    listenBridgeTheme();
 
-  function applyTheme(theme) {
-    // 添加过渡类以实现平滑切换
-    document.documentElement.classList.add("theme-transitioning");
-    
-    // 设置主题属性
-    document.documentElement.setAttribute("data-theme", theme);
-    
-    // 更新图标
-    updateThemeIcons(theme);
-    
-    // 移除过渡类
-    setTimeout(() => {
-      document.documentElement.classList.remove("theme-transitioning");
-    }, 300);
-  }
-
-  function updateThemeIcons(theme) {
-    const themeIcon = document.getElementById("theme-icon");
-    if (themeIcon) {
-      themeIcon.setAttribute("data-lucide", theme === "dark" ? "sun" : "moon");
+    var bridge = window.AstrBotPluginPage;
+    if (bridge && typeof bridge.ready === "function") {
+      try { await bridge.ready(); } catch (_) {}
     }
 
-    // 重新初始化图标
-    if (typeof lucide !== "undefined" && lucide.createIcons) {
-      lucide.createIcons();
-    }
+    initSidebar();
+    initMemoryPage();
+    initRecallPage();
+    initEditModal();
+
+    document.getElementById("peek-close").addEventListener("click", closePeek);
+    document.getElementById("peek-overlay").addEventListener("click", closePeek);
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        closePeek();
+        closeEditModal();
+        state.memory.selected.clear();
+        renderMemoriesTable();
+        updateBatchBar();
+      }
+    });
+
+    /* Initial data */
+    fetchGraphStats();
+    switchPage("graph"); /* trigger graph lazy-load */
   }
 
-  // ============================================
-  // 调试工具功能（已移除，暂不实现）
-  // ============================================
-
-  // 相关函数已删除：triggerForgettingAgent, rebuildSparseIndex, loadSessionsInfo
-  // runSearchTestFunc, runFusionCompareFunc, runMemoryAnalysisFunc
+  /* Expose to graph-ui */
+  window.lmState = state;
+  window.lmShowToast = showToast;
+  window.lmApiRequest = apiRequest;
+  window.lmOpenPeekNode = renderPeekNode;
+  window.lmOpenPeekMemory = renderPeekMemory;
+  window.lmClosePeek = closePeek;
+  window.lmFetchGraphStats = fetchGraphStats;
+  window.lmEsc = esc;
+  window.lmStatusPill = statusPill;
+  window.lmNodeBadge = nodeBadge;
 
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -1,4 +1,9 @@
-﻿(() => {
+(() => {
+  "use strict";
+
+  /* ================================================================
+     State
+     ================================================================ */
   const state = {
     payload: null,
     graphIndex: null,
@@ -16,6 +21,7 @@
 
   const dom = {};
 
+  /* Node type config */
   const NODE_TYPE_LABELS = {
     get topic() { return window.t("graph.nodeTopic"); },
     get person() { return window.t("graph.nodePerson"); },
@@ -24,11 +30,8 @@
   };
 
   const NODE_TYPE_COLORS = {
-    topic: "#818cf8",
-    person: "#34d399",
-    fact: "#fbbf24",
-    summary: "#f472b6",
-    other: "#94a3b8",
+    topic: "#7950f2", person: "#20c997", fact: "#fcc419",
+    summary: "#f06595", other: "#909296",
   };
 
   const TYPE_ORBITS = {
@@ -40,92 +43,62 @@
   };
 
   const RELATION_PALETTE = [
-    "#38bdf8",
-    "#818cf8",
-    "#f59e0b",
-    "#10b981",
-    "#f472b6",
-    "#22d3ee",
-    "#fb7185",
-    "#a78bfa",
+    "#38bdf8","#818cf8","#f59e0b","#10b981","#f472b6","#22d3ee","#fb7185","#a78bfa",
   ];
 
-  const MODE_LABELS = {
-    get overview() { return window.t("graph.modeOverview"); },
-    get query() { return window.t("graph.modeQuery"); },
-    get memory_focus() { return window.t("graph.modeFocus"); },
-  };
-
-  const SCORE_LABELS = [
-    ["document_keyword_score", () => window.t("graph.scoreDocKW")],
-    ["document_vector_score", () => window.t("graph.scoreDocVec")],
-    ["graph_keyword_score", () => window.t("graph.scoreGraphKW")],
-    ["graph_vector_score", () => window.t("graph.scoreGraphVec")],
-  ];
-
+  /* ================================================================
+     Bridge helpers
+     ================================================================ */
   function buildEndpoint(path) {
-    var cleanPath = String(path).replace(/^\/+/, "");
-    return ("page/" + cleanPath).replace(/\/+/g, "/");
+    return ("page/" + String(path).replace(/^\/+/, "")).replace(/\/+/g, "/");
   }
 
-  function init() {
-    dom.tabButton = document.querySelector('.tab-btn[data-tab="graph-view"]');
-    dom.tabContent = document.querySelector('.tab-content[data-tab="graph-view"]');
-    if (!dom.tabButton || !dom.tabContent) {
-      return;
-    }
+  async function requestGraph(path, options) {
+    options = options || {};
+    var bridge = window.AstrBotPluginPage;
+    if (!bridge) throw new Error(window.t("graph.bridgeError"));
 
+    var method = (options.method || "GET").toUpperCase();
+    if (method === "GET") {
+      var qi = path.indexOf("?");
+      if (qi !== -1) {
+        var base = path.substring(0, qi);
+        var qs = path.substring(qi + 1);
+        var params = {};
+        new URLSearchParams(qs).forEach(function(v, k) { params[k] = v; });
+        return await bridge.apiGet(buildEndpoint(base), params);
+      }
+      return await bridge.apiGet(buildEndpoint(path), {});
+    }
+    return await bridge.apiPost(buildEndpoint(path), options.body || {});
+  }
+
+  /* ================================================================
+     Init
+     ================================================================ */
+  function init() {
     dom.queryInput = document.getElementById("graph-query-input");
     dom.sessionInput = document.getElementById("graph-session-filter");
-    dom.personaInput = document.getElementById("graph-persona-filter");
     dom.memoryInput = document.getElementById("graph-memory-id");
     dom.searchButton = document.getElementById("graph-search-btn");
     dom.focusButton = document.getElementById("graph-focus-btn");
     dom.overviewButton = document.getElementById("graph-overview-btn");
-    dom.modeBadge = document.getElementById("graph-mode-badge");
-    dom.statusLine = document.getElementById("graph-status-line");
     dom.legend = document.getElementById("graph-legend");
     dom.canvas = document.getElementById("graph-canvas");
-    dom.canvasShell = dom.canvas?.closest(".graph-canvas-shell") || null;
     dom.canvasState = document.getElementById("graph-canvas-state");
-    dom.inspector = document.getElementById("graph-inspector");
-    dom.topNodes = document.getElementById("graph-top-nodes");
-    dom.relatedMemories = document.getElementById("graph-related-memories");
-    dom.retrievalList = document.getElementById("graph-retrieval-list");
-    dom.visibleNodes = document.getElementById("graph-visible-node-count");
-    dom.visibleEdges = document.getElementById("graph-visible-edge-count");
-    dom.visibleEntries = document.getElementById("graph-visible-entry-count");
-    dom.visibleMemories = document.getElementById("graph-visible-memory-count");
-    dom.routeLabel = document.getElementById("graph-route-label");
 
-    dom.tabButton.addEventListener("click", () => {
-      window.setTimeout(() => {
-        resizeGraphScene();
-        if (!state.hasLoadedOverview && !state.isLoading) {
-          fetchOverview();
-        }
-      }, 0);
-    });
+    if (!dom.canvas) return;
 
     dom.searchButton.addEventListener("click", runQuery);
     dom.focusButton.addEventListener("click", focusMemory);
     dom.overviewButton.addEventListener("click", fetchOverview);
-    dom.queryInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        runQuery();
-      }
-    });
-    dom.memoryInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        focusMemory();
-      }
-    });
 
-    dom.topNodes.addEventListener("click", onPanelClick);
-    dom.relatedMemories.addEventListener("click", onPanelClick);
-    dom.retrievalList.addEventListener("click", onPanelClick);
+    dom.queryInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); runQuery(); }
+    });
+    dom.memoryInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); focusMemory(); }
+    });
 
     initResizeObserver();
     setCanvasMessage(
@@ -134,138 +107,106 @@
         : window.t("graph.canvasNo3D"),
       false
     );
+
+    /* Auto-load overview on page */
+    setTimeout(function() {
+      if (!state.hasLoadedOverview && !state.isLoading) {
+        fetchOverview();
+      }
+    }, 100);
   }
+
+  /* Expose for app.js lazy-load */
+  window.ensureGraphScene = function() {
+    if (!state.hasLoadedOverview && !state.isLoading) fetchOverview();
+  };
 
   function initResizeObserver() {
     window.addEventListener("resize", resizeGraphScene, { passive: true });
-    if (typeof window.ResizeObserver !== "function" || !dom.canvas) {
-      return;
-    }
-    state.resizeObserver = new ResizeObserver(() => {
-      resizeGraphScene();
-    });
+    if (typeof window.ResizeObserver !== "function" || !dom.canvas) return;
+    state.resizeObserver = new ResizeObserver(function() { resizeGraphScene(); });
     state.resizeObserver.observe(dom.canvas);
   }
 
+  /* ================================================================
+     Data Fetching
+     ================================================================ */
   function getFilters() {
     return {
-      session_id: dom.sessionInput.value.trim() || null,
-      persona_id: dom.personaInput.value.trim() || null,
+      session_id: dom.sessionInput ? dom.sessionInput.value.trim() || null : null,
     };
   }
 
-  async function requestGraph(path, options = {}) {
-    const bridge = window.AstrBotPluginPage;
-    if (!bridge) {
-      throw new Error(window.t("graph.bridgeError"));
-    }
-
-    var method = (options.method || "GET").toUpperCase();
-    if (method === "GET") {
-      var questionIdx = path.indexOf("?");
-      if (questionIdx !== -1) {
-        var basePath = path.substring(0, questionIdx);
-        var queryString = path.substring(questionIdx + 1);
-        var params = Object.fromEntries(new URLSearchParams(queryString));
-        return await bridge.apiGet(buildEndpoint(basePath), params);
-      }
-      return await bridge.apiGet(buildEndpoint(path), {});
-    }
-    return await bridge.apiPost(buildEndpoint(path), options.body || {});
-  }
-
   async function fetchOverview() {
-    setLoading(true, window.t("graph.loadingOverview"));
+    setLoading(true);
     try {
-      const filters = getFilters();
-      const params = new URLSearchParams();
-      if (filters.session_id) {
-        params.set("session_id", filters.session_id);
-      }
-      if (filters.persona_id) {
-        params.set("persona_id", filters.persona_id);
-      }
-      const query = params.toString();
-      const payload = await requestGraph(
-        `/graph/overview${query ? `?${query}` : ""}`
-      );
+      var filters = getFilters();
+      var params = new URLSearchParams();
+      if (filters.session_id) params.set("session_id", filters.session_id);
+      var qs = params.toString();
+      var payload = await requestGraph("/graph/overview" + (qs ? "?" + qs : ""));
       state.hasLoadedOverview = true;
       renderPayload(payload, { focusSelection: !state.sceneReady });
-    } catch (error) {
-      renderError(error.message || window.t("graph.errorFetch"));
+      if (window.lmFetchGraphStats) window.lmFetchGraphStats();
+    } catch (e) {
+      setCanvasMessage(e.message || window.t("graph.errorFetch"), false);
     } finally {
       setLoading(false);
     }
   }
 
   async function runQuery() {
-    const query = dom.queryInput.value.trim();
-    if (!query) {
-      fetchOverview();
-      return;
-    }
+    var query = dom.queryInput.value.trim();
+    if (!query) { fetchOverview(); return; }
 
-    setLoading(true, `正在检索“${query}”相关图谱...`);
+    setLoading(true);
     try {
-      const filters = getFilters();
-      const payload = await requestGraph("/graph/query", {
+      var filters = getFilters();
+      var payload = await requestGraph("/graph/query", {
         method: "POST",
-        body: {
-          query,
-          session_id: filters.session_id,
-          persona_id: filters.persona_id,
-        },
+        body: { query: query, session_id: filters.session_id },
       });
       renderPayload(payload, { focusSelection: true });
-    } catch (error) {
-      renderError(error.message || window.t("graph.queryFail"));
+    } catch (e) {
+      setCanvasMessage(e.message || window.t("graph.queryFail"), false);
     } finally {
       setLoading(false);
     }
   }
 
   async function focusMemory() {
-    const memoryIdText = dom.memoryInput.value.trim();
-    if (!memoryIdText) {
-      renderError(window.t("graph.focusEmpty"));
-      return;
-    }
+    var text = dom.memoryInput.value.trim();
+    if (!text) { setCanvasMessage(window.t("graph.focusEmpty"), false); return; }
+    var memoryId = Number.parseInt(text, 10);
+    if (Number.isNaN(memoryId)) { setCanvasMessage(window.t("graph.focusNotInt"), false); return; }
 
-    const memoryId = Number.parseInt(memoryIdText, 10);
-    if (Number.isNaN(memoryId)) {
-      renderError(window.t("graph.focusNotInt"));
-      return;
-    }
-
-    setLoading(true, window.t("graph.loadingFocus", memoryId));
+    setLoading(true);
     try {
-      const filters = getFilters();
-      const payload = await requestGraph("/graph/query", {
+      var filters = getFilters();
+      var payload = await requestGraph("/graph/query", {
         method: "POST",
-        body: {
-          memory_id: memoryId,
-          session_id: filters.session_id,
-          persona_id: filters.persona_id,
-        },
+        body: { memory_id: memoryId, session_id: filters.session_id },
       });
-      renderPayload(payload, { memoryId, focusSelection: true });
-    } catch (error) {
-      renderError(error.message || window.t("graph.focusFail"));
+      renderPayload(payload, { memoryId: memoryId, focusSelection: true });
+    } catch (e) {
+      setCanvasMessage(e.message || window.t("graph.focusFail"), false);
     } finally {
       setLoading(false);
     }
   }
 
-  function setLoading(isLoading, message = "") {
-    state.isLoading = isLoading;
-    dom.searchButton.disabled = isLoading;
-    dom.focusButton.disabled = isLoading;
-    dom.overviewButton.disabled = isLoading;
-    if (isLoading) {
-      setCanvasMessage(message || window.t("graph.loadingGeneric"), true);
-    }
+  /* ================================================================
+     Render Pipeline
+     ================================================================ */
+  function setLoading(loading) {
+    state.isLoading = loading;
+    if (dom.searchButton) dom.searchButton.disabled = loading;
+    if (dom.focusButton) dom.focusButton.disabled = loading;
+    if (dom.overviewButton) dom.overviewButton.disabled = loading;
   }
-  function renderPayload(payload, options = {}) {
+
+  function renderPayload(payload, options) {
+    options = options || {};
     state.payload = payload;
     state.graphIndex = buildGraphIndex(payload.snapshot || {});
 
@@ -277,714 +218,257 @@
     }
 
     if (!payload.enabled) {
-      renderDisabled();
+      clearGraphScene();
+      setCanvasMessage(window.t("graph.disabledCanvas"), false);
+      renderLegend(payload);
       return;
     }
 
-    renderStatus(payload);
-    renderStats(payload);
     renderLegend(payload);
     renderCanvas(payload, {
-      focusSelection:
-        options.focusSelection === undefined
-          ? payload.mode === "query" || payload.mode === "memory_focus" || !state.sceneReady
-          : Boolean(options.focusSelection),
+      focusSelection: options.focusSelection === undefined
+        ? payload.mode === "query" || payload.mode === "memory_focus" || !state.sceneReady
+        : Boolean(options.focusSelection),
     });
     renderSelectionPanels(payload);
+    if (window.lmFetchGraphStats) window.lmFetchGraphStats();
   }
 
+  /* ================================================================
+     Selection Logic
+     ================================================================ */
   function ensureSelection(payload) {
-    if (state.graphIndex?.nodeMap.has(state.selectedNodeId)) {
-      state.selectedMemoryId = null;
-      return;
+    if (state.graphIndex && state.graphIndex.nodeMap.has(state.selectedNodeId)) {
+      state.selectedMemoryId = null; return;
     }
-    if (state.graphIndex?.memoryMap.has(state.selectedMemoryId)) {
-      state.selectedNodeId = null;
-      return;
+    if (state.graphIndex && state.graphIndex.memoryMap.has(state.selectedMemoryId)) {
+      state.selectedNodeId = null; return;
     }
 
     state.selectedNodeId = null;
     state.selectedMemoryId = null;
 
-    const matchedNodeIds = payload.matched_node_ids || [];
-    const firstMatchedNodeId = matchedNodeIds.find((nodeId) =>
-      state.graphIndex.nodeMap.has(nodeId)
-    );
-    if (firstMatchedNodeId !== undefined) {
-      state.selectedNodeId = firstMatchedNodeId;
-      return;
+    var matchedNodeIds = payload.matched_node_ids || [];
+    var firstNode = matchedNodeIds.find(function(id) {
+      return state.graphIndex && state.graphIndex.nodeMap.has(id);
+    });
+    if (firstNode !== undefined) { state.selectedNodeId = firstNode; return; }
+
+    var firstRetrieved = payload.retrieval && payload.retrieval.items && payload.retrieval.items[0];
+    if (firstRetrieved && state.graphIndex && state.graphIndex.memoryMap.has(firstRetrieved.memory_id)) {
+      state.selectedMemoryId = firstRetrieved.memory_id; return;
     }
 
-    const firstRetrievedMemory = payload.retrieval?.items?.[0]?.memory_id;
-    if (state.graphIndex.memoryMap.has(firstRetrievedMemory)) {
-      state.selectedMemoryId = firstRetrievedMemory;
-      return;
+    var topNodes = payload.top_nodes || [];
+    if (topNodes.length && state.graphIndex && state.graphIndex.nodeMap.has(topNodes[0].id)) {
+      state.selectedNodeId = topNodes[0].id; return;
     }
 
-    const firstTopNode = payload.top_nodes?.[0]?.id;
-    if (state.graphIndex.nodeMap.has(firstTopNode)) {
-      state.selectedNodeId = firstTopNode;
-      return;
-    }
-
-    const firstMemory = payload.snapshot?.memories?.[0]?.memory_id;
-    if (state.graphIndex.memoryMap.has(firstMemory)) {
-      state.selectedMemoryId = firstMemory;
+    var snapMemories = (payload.snapshot && payload.snapshot.memories) || [];
+    if (snapMemories.length && state.graphIndex && state.graphIndex.memoryMap.has(snapMemories[0].memory_id)) {
+      state.selectedMemoryId = snapMemories[0].memory_id;
     }
   }
 
-  function renderDisabled() {
-    state.sceneReady = false;
-    dom.modeBadge.textContent = window.t("graph.disabledBadge");
-    dom.statusLine.textContent = window.t("graph.disabledMsg");
-    renderStats({ summary: {} });
-    dom.routeLabel.textContent = window.t("graph.disabledRoute");
-    dom.legend.innerHTML = '<span class="graph-legend-chip muted">' + window.t("graph.disabledLegend") + '</span>';
-    dom.topNodes.innerHTML = emptyPanel("__PLACEHOLDER__");
-    dom.relatedMemories.innerHTML = emptyPanel(window.t("graph.disabledMemories"));
-    dom.retrievalList.innerHTML = emptyPanel(window.t("graph.canvasDefault"));
-    dom.inspector.innerHTML = emptyPanel(window.t("graph.disabledInspector"));
-    clearGraphScene();
-    setCanvasMessage(window.t("graph.disabledCanvas"), false);
+  function clearSelection() {
+    if (!state.payload) return;
+    state.selectedNodeId = null;
+    state.selectedMemoryId = null;
+    renderCanvas(state.payload, { focusSelection: false });
+    renderSelectionPanels(state.payload);
+    if (window.lmClosePeek) window.lmClosePeek();
   }
 
-  function renderError(message) {
-    state.sceneReady = false;
-    dom.modeBadge.textContent = window.t("graph.errorBadge");
-    dom.statusLine.textContent = message;
-    dom.legend.innerHTML = '<span class="graph-legend-chip danger">' + window.t("graph.errorLegend") + '</span>';
-    dom.topNodes.innerHTML = emptyPanel(window.t("common.noData"));
-    dom.relatedMemories.innerHTML = emptyPanel(window.t("common.noData"));
-    dom.retrievalList.innerHTML = emptyPanel(window.t("common.noData"));
-    dom.inspector.innerHTML = emptyPanel(message);
-    clearGraphScene();
-    setCanvasMessage(message, false);
+  function selectNode(nodeId, options) {
+    options = options || {};
+    if (!state.graphIndex || !state.graphIndex.nodeMap.has(nodeId)) return;
+    state.selectedNodeId = nodeId;
+    state.selectedMemoryId = null;
+    renderCanvas(state.payload, { focusSelection: Boolean(options.focusCamera) });
+
+    /* Show in peek panel */
+    var node = state.graphIndex.nodeMap.get(nodeId);
+    if (window.lmOpenPeekNode && node) window.lmOpenPeekNode(node);
   }
 
-  function renderStatus(payload) {
-    const modeText = MODE_LABELS[payload.mode] || window.t("graph.modeUnknown");
-    dom.modeBadge.textContent = modeText;
+  function selectMemory(memoryId, options) {
+    options = options || {};
+    if (!state.graphIndex || !state.graphIndex.memoryMap.has(memoryId)) return;
+    state.selectedMemoryId = memoryId;
+    state.selectedNodeId = null;
+    renderCanvas(state.payload, { focusSelection: Boolean(options.focusCamera) });
 
-    const filters = payload.filters || {};
-    const filterParts = [];
-    if (filters.session_id) {
-      filterParts.push(window.t("graph.filterSession", filters.session_id));
+    /* Show in peek panel */
+    var memory = state.graphIndex.memoryMap.get(memoryId);
+    if (window.lmState && memory) {
+      var item = {
+        memory_id: memoryId,
+        summary: memory.summary || memory.content || "",
+        content: memory.content || memory.summary || "",
+        memory_type: memory.type || "",
+        importance: memory.importance,
+        status: memory.status || "active",
+        raw: memory,
+      };
+      if (window.lmOpenPeekMemory) window.lmOpenPeekMemory(item);
     }
-    if (filters.persona_id) {
-      filterParts.push(window.t("graph.filterPersona", filters.persona_id));
-    }
-
-    let line = window.t("graph.statusDefault");
-    if (payload.mode === "query" && payload.query) {
-      line = `当前展示 “${payload.query}” 的双路四模式召回对应子图。`;
-    } else if (payload.mode === "memory_focus" && payload.memory_id !== null) {
-      line = window.t("graph.statusFocus", payload.memory_id);
-    }
-    if (filterParts.length) {
-      line += window.t("graph.filterPrefix", filterParts.join(" · "));
-    }
-    dom.statusLine.textContent = line;
-    dom.routeLabel.textContent =
-      payload.mode === "query" ? window.t("graph.routeDual") : window.t("graph.routeBrowse");
   }
 
-  function renderStats(payload) {
-    const summary = payload.summary || {};
-    dom.visibleNodes.textContent = summary.visible_node_count || 0;
-    dom.visibleEdges.textContent = summary.visible_edge_count || 0;
-    dom.visibleEntries.textContent = summary.visible_entry_count || 0;
-    dom.visibleMemories.textContent = summary.visible_memory_count || 0;
+  /* ================================================================
+     Selection Panels (now using peek panel)
+     ================================================================ */
+  function renderSelectionPanels(payload) {
+    /* Selection is handled by the canvas click events -> peek panel */
+    /* No separate top/related/retrieval panels in new layout */
   }
 
+  /* ================================================================
+     Legend
+     ================================================================ */
   function renderLegend(payload) {
-    const summary = payload.summary || {};
-    const nodeTypeBreakdown = summary.node_type_breakdown || {};
-    const relationBreakdown = summary.relation_breakdown || {};
+    if (!dom.legend) return;
+    var summary = payload.summary || {};
+    var nodeTypes = summary.node_type_breakdown || {};
+    var relTypes = summary.relation_breakdown || {};
 
-    const nodeChips = Object.entries(nodeTypeBreakdown)
-      .sort((left, right) => right[1] - left[1])
-      .map(
-        ([type, count]) => `
-          <span class="graph-legend-chip graph-node-${escapeHTML(type)}">
-            ${escapeHTML(typeLabel(type))} · ${count}
-          </span>
-        `
-      );
+    var chips = Object.entries(nodeTypes).sort(function(a, b) { return b[1] - a[1]; })
+      .map(function(e) {
+        return '<span class="legend-chip"><span class="dot" style="background:' +
+          (NODE_TYPE_COLORS[e[0]] || NODE_TYPE_COLORS.other) + '"></span>' +
+          typeLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
+      });
 
-    const relationChips = Object.entries(relationBreakdown)
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 4)
-      .map(
-        ([type, count]) => `
-          <span class="graph-legend-chip secondary">
-            ${escapeHTML(relationLabel(type))} · ${count}
-          </span>
-        `
-      );
+    var rchips = Object.entries(relTypes).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 4)
+      .map(function(e) {
+        return '<span class="legend-chip">' + relationLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
+      });
 
-    const chips = [...nodeChips, ...relationChips];
-    dom.legend.innerHTML = chips.length
-      ? chips.join("")
-      : '<span class="graph-legend-chip muted">' + window.t("graph.legendEmpty") + '</span>';
+    dom.legend.innerHTML = chips.concat(rchips).join("") ||
+      '<span class="legend-chip">No connections</span>';
   }
 
-  function renderCanvas(payload, options = {}) {
-    const nodes = payload.snapshot?.nodes || [];
+  /* ================================================================
+     Graph Index
+     ================================================================ */
+  function buildGraphIndex(snapshot) {
+    var nodes = snapshot.nodes || [];
+    var edges = snapshot.edges || [];
+    var entries = snapshot.entries || [];
+    var memories = snapshot.memories || [];
+
+    var nodeMap = new Map(nodes.map(function(n) { return [Number(n.id), n]; }));
+    var memoryMap = new Map(memories.map(function(m) { return [Number(m.memory_id), m]; }));
+    var memoryToEntries = new Map();
+    var memoryToNodes = new Map();
+    var nodeToMemories = new Map();
+    var nodeToEntries = new Map();
+    var neighborMap = new Map();
+
+    function ensureSet(map, key) {
+      if (!map.has(key)) map.set(key, new Set());
+      return map.get(key);
+    }
+
+    entries.forEach(function(entry) {
+      var mId = Number(entry.memory_id);
+      if (!memoryToEntries.has(mId)) memoryToEntries.set(mId, []);
+      memoryToEntries.get(mId).push(entry);
+      (entry.node_ids || []).forEach(function(nId) {
+        var nodeId = Number(nId);
+        ensureSet(memoryToNodes, mId).add(nodeId);
+        ensureSet(nodeToMemories, nodeId).add(mId);
+        if (!nodeToEntries.has(nodeId)) nodeToEntries.set(nodeId, []);
+        nodeToEntries.get(nodeId).push(entry);
+      });
+    });
+
+    edges.forEach(function(edge) {
+      var s = Number(edge.source);
+      var t = Number(edge.target);
+      var mId = Number(edge.memory_id);
+      ensureSet(memoryToNodes, mId).add(s);
+      ensureSet(memoryToNodes, mId).add(t);
+      ensureSet(nodeToMemories, s).add(mId);
+      ensureSet(nodeToMemories, t).add(mId);
+      ensureSet(neighborMap, s).add(t);
+      ensureSet(neighborMap, t).add(s);
+    });
+
+    return {
+      nodeMap: nodeMap, memoryMap: memoryMap,
+      memoryToEntries: memoryToEntries, memoryToNodes: memoryToNodes,
+      nodeToMemories: nodeToMemories, nodeToEntries: nodeToEntries,
+      neighborMap: neighborMap, edges: edges, entries: entries,
+    };
+  }
+
+  /* ================================================================
+     Canvas Rendering
+     ================================================================ */
+  function renderCanvas(payload, options) {
+    options = options || {};
+    var nodes = (payload.snapshot && payload.snapshot.nodes) || [];
     if (!nodes.length) {
       state.sceneReady = false;
       clearGraphScene();
-      setCanvasMessage(window.t("graph.canvasEmpty"), false);
+      setCanvasMessage("No visible graph data", false);
       return;
     }
 
     if (!ensureGraphScene()) {
       state.sceneReady = false;
-      setCanvasMessage(window.t("graph.canvasNoScene"), false);
       return;
     }
 
     captureScenePositions();
-    const sceneData = buildGraphSceneData(payload);
+    var sceneData = buildGraphSceneData(payload);
     state.graph3d.graphData(sceneData);
-    if (state.resumeFrame !== null) {
-      window.cancelAnimationFrame(state.resumeFrame);
-      state.resumeFrame = null;
-    }
-    state.resumeFrame = window.requestAnimationFrame(() => {
-      if (!state.graph3d) {
-        return;
-      }
-      if (typeof state.graph3d.d3ReheatSimulation === "function") {
-        state.graph3d.d3ReheatSimulation();
-      }
-      if (typeof state.graph3d.resumeAnimation === "function") {
-        state.graph3d.resumeAnimation();
-      }
+
+    if (state.resumeFrame !== null) window.cancelAnimationFrame(state.resumeFrame);
+    state.resumeFrame = window.requestAnimationFrame(function() {
+      if (!state.graph3d) return;
+      if (typeof state.graph3d.d3ReheatSimulation === "function") state.graph3d.d3ReheatSimulation();
+      if (typeof state.graph3d.resumeAnimation === "function") state.graph3d.resumeAnimation();
       state.resumeFrame = null;
     });
+
     resizeGraphScene();
-    dom.canvas.classList.add("is-ready");
-    dom.canvasShell?.classList.add("is-ready");
     state.sceneReady = true;
     setCanvasMessage("", false);
 
-    if (options.focusSelection) {
-      queueCameraFocus();
-    }
+    if (options.focusSelection) queueCameraFocus();
   }
 
-  function renderSelectionPanels(payload) {
-    renderTopNodes(payload);
-    renderRelatedMemories(payload);
-    renderRetrieval(payload);
-    renderInspector();
-  }
-
-  function renderTopNodes(payload) {
-    const topNodes = payload.top_nodes || [];
-    if (!topNodes.length) {
-      dom.topNodes.innerHTML = emptyPanel(window.t("graph.noTopNodes"));
-      return;
-    }
-
-    dom.topNodes.innerHTML = topNodes
-      .map(
-        (node) => `
-          <button
-            class="graph-chip ${state.selectedNodeId === Number(node.id) ? "is-active" : ""}"
-            data-node-select="${node.id}"
-          >
-            <span class="graph-chip-title">${escapeHTML(truncate(node.label || window.t("graph.unnamedNode"), 18))}</span>
-            <span class="graph-chip-meta">${escapeHTML(typeLabel(node.type))} · 度 ${Number(node.degree || 0)}</span>
-          </button>
-        `
-      )
-      .join("");
-  }
-
-  function renderRelatedMemories(payload) {
-    const memories = payload.snapshot?.memories || [];
-    if (!memories.length) {
-      dom.relatedMemories.innerHTML = emptyPanel(window.t("graph.noRelatedMemories"));
-      return;
-    }
-
-    const selection = getSelectionContext();
-    const preferredMemoryIds = selection.highlightMemoryIds;
-    const sortedMemories = [...memories].sort((left, right) => {
-      const leftPreferred = preferredMemoryIds.has(Number(left.memory_id)) ? 1 : 0;
-      const rightPreferred = preferredMemoryIds.has(Number(right.memory_id)) ? 1 : 0;
-      if (leftPreferred !== rightPreferred) {
-        return rightPreferred - leftPreferred;
-      }
-      const leftScore = Number(left.retrieval?.final_score || -1);
-      const rightScore = Number(right.retrieval?.final_score || -1);
-      if (leftScore !== rightScore) {
-        return rightScore - leftScore;
-      }
-      return Number(right.entry_count || 0) - Number(left.entry_count || 0);
-    });
-
-    dom.relatedMemories.innerHTML = sortedMemories
-      .slice(0, 8)
-      .map((memory) => {
-        const memoryId = Number(memory.memory_id);
-        const selectedClass = state.selectedMemoryId === memoryId ? "is-active" : "";
-        const scoreBadge = memory.retrieval
-          ? `<span class="graph-score-pill">${formatScore(memory.retrieval.final_score)}</span>`
-          : "";
-        return `
-          <article class="graph-memory-card ${selectedClass}" data-memory-select="${memoryId}">
-            <div class="graph-memory-card-header">
-              <span class="graph-memory-id">#${memoryId}</span>
-              ${scoreBadge}
-            </div>
-            <h4 class="graph-memory-title">${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 46))}</h4>
-            <div class="graph-memory-metrics">
-              <span>节点 ${memory.node_count || 0}</span>
-              <span>条目 ${memory.entry_count || 0}</span>
-              <span>关系 ${memory.edge_count || 0}</span>
-            </div>
-            <button class="btn btn-ghost graph-memory-action" type="button" data-memory-focus="${memoryId}">聚焦此记忆</button>
-          </article>
-        `;
-      })
-      .join("");
-  }
-
-  function renderRetrieval(payload) {
-    const items = payload.retrieval?.items || [];
-    if (!items.length) {
-      dom.retrievalList.innerHTML = emptyPanel(window.t("graph.noRetrieval"));
-      return;
-    }
-
-    dom.retrievalList.innerHTML = items
-      .slice(0, 6)
-      .map((item, index) => {
-        const bars = SCORE_LABELS.map(([key, label]) => {
-          const value = clamp01(Number(item.score_breakdown?.[key] || 0));
-          return `
-            <div class="graph-score-row">
-              <span>${escapeHTML(label)}</span>
-              <div class="graph-score-track"><span style="width:${(value * 100).toFixed(1)}%"></span></div>
-              <strong>${formatScore(value)}</strong>
-            </div>
-          `;
-        }).join("");
-        return `
-          <article class="graph-retrieval-card ${state.selectedMemoryId === Number(item.memory_id) ? "is-active" : ""}" data-memory-select="${item.memory_id}">
-            <div class="graph-retrieval-header">
-              <div>
-                <span class="graph-retrieval-rank">TOP ${index + 1}</span>
-                <h4>记忆 #${item.memory_id}</h4>
-              </div>
-              <span class="graph-score-pill strong">${formatScore(item.final_score)}</span>
-            </div>
-            <p class="graph-retrieval-content">${escapeHTML(truncate(item.content || "", 72))}</p>
-            <div class="graph-score-grid">${bars}</div>
-          </article>
-        `;
-      })
-      .join("");
-  }
-  function renderInspector() {
-    const selection = getSelectionContext();
-    if (!selection.type) {
-      dom.inspector.innerHTML = emptyPanel(window.t("graph.noInspector"));
-      return;
-    }
-
-    if (selection.type === "node") {
-      const node = selection.item;
-      const entries = selection.entries.slice(0, 4);
-      const relatedMemories = selection.memories.slice(0, 4);
-      dom.inspector.innerHTML = `
-        <div class="graph-inspector-header">
-          <span class="graph-detail-badge graph-node-${escapeHTML(node.type || "other")}">${escapeHTML(typeLabel(node.type))}</span>
-          <h3>${escapeHTML(node.label || window.t("graph.unnamedNode"))}</h3>
-          <p>${escapeHTML(node.canonical_value || node.label || "")}</p>
-        </div>
-        <div class="graph-detail-grid">
-          <div><span>关联记忆</span><strong>${node.memory_count || 0}</strong></div>
-          <div><span>连接度</span><strong>${node.degree || 0}</strong></div>
-          <div><span>命中条目</span><strong>${node.entry_count || 0}</strong></div>
-          <div><span>权重</span><strong>${Number(node.weight || 0).toFixed(2)}</strong></div>
-        </div>
-        <div class="graph-detail-section">
-          <h4>相关记忆</h4>
-          ${relatedMemories.length ? relatedMemories.map((memory) => `
-            <button class="graph-inline-item" data-memory-select="${memory.memory_id}">
-              <span>#${memory.memory_id}</span>
-              <strong>${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 30))}</strong>
-            </button>
-          `).join("") : '<p class="graph-muted-copy">暂无相关记忆</p>'}
-        </div>
-        <div class="graph-detail-section">
-          <h4>相关条目</h4>
-          ${entries.length ? entries.map((entry) => `
-            <article class="graph-entry-card">
-              <span class="graph-entry-type">${escapeHTML(typeLabel(entry.entry_type))}</span>
-              <p>${escapeHTML(truncate(entry.content || "", 120))}</p>
-            </article>
-          `).join("") : '<p class="graph-muted-copy">暂无相关条目</p>'}
-        </div>
-      `;
-      return;
-    }
-
-    const memory = selection.item;
-    const entries = selection.entries.slice(0, 4);
-    const nodeIds = [...selection.highlightNodeIds];
-    dom.inspector.innerHTML = `
-      <div class="graph-inspector-header">
-        <span class="graph-detail-badge secondary">记忆 #${memory.memory_id}</span>
-        <h3>${escapeHTML(truncate(memory.summary || window.t("graph.noSummary"), 56))}</h3>
-        <p>${escapeHTML(memory.session_id || window.t("graph.noSession"))}</p>
-      </div>
-      <div class="graph-detail-grid">
-        <div><span>节点</span><strong>${memory.node_count || 0}</strong></div>
-        <div><span>条目</span><strong>${memory.entry_count || 0}</strong></div>
-        <div><span>关系</span><strong>${memory.edge_count || 0}</strong></div>
-        <div><span>重要性</span><strong>${formatImportance(memory.importance)}</strong></div>
-      </div>
-      <div class="graph-detail-section">
-        <h4>节点分布</h4>
-        <div class="graph-inline-chips">
-          ${nodeIds.length ? nodeIds.slice(0, 8).map((nodeId) => {
-            const node = state.graphIndex.nodeMap.get(nodeId);
-            if (!node) {
-              return "";
-            }
-            return `<button class="graph-inline-chip" data-node-select="${nodeId}">${escapeHTML(truncate(node.label || window.t("graph.unnamedNode"), 18))}</button>`;
-          }).join("") : '<span class="graph-muted-copy">暂无节点</span>'}
-        </div>
-      </div>
-      <div class="graph-detail-section">
-        <h4>图谱条目</h4>
-        ${entries.length ? entries.map((entry) => `
-          <article class="graph-entry-card">
-            <span class="graph-entry-type">${escapeHTML(typeLabel(entry.entry_type))}</span>
-            <p>${escapeHTML(truncate(entry.content || "", 120))}</p>
-          </article>
-        `).join("") : '<p class="graph-muted-copy">暂无图谱条目</p>'}
-      </div>
-    `;
-  }
-
-  function onPanelClick(event) {
-    const focusButton = event.target.closest("[data-memory-focus]");
-    if (focusButton) {
-      dom.memoryInput.value = focusButton.dataset.memoryFocus || "";
-      focusMemory();
-      return;
-    }
-
-    const memoryButton = event.target.closest("[data-memory-select]");
-    if (memoryButton) {
-      selectMemory(Number(memoryButton.dataset.memorySelect), { focusCamera: true });
-      return;
-    }
-
-    const nodeButton = event.target.closest("[data-node-select]");
-    if (nodeButton) {
-      selectNode(Number(nodeButton.dataset.nodeSelect), { focusCamera: true });
-    }
-  }
-
-  function clearSelection() {
-    if (!state.payload || (state.selectedNodeId === null && state.selectedMemoryId === null)) {
-      return;
-    }
-    state.selectedNodeId = null;
-    state.selectedMemoryId = null;
-    renderCanvas(state.payload, { focusSelection: false });
-    renderSelectionPanels(state.payload);
-  }
-
-  function selectNode(nodeId, options = {}) {
-    if (!state.graphIndex?.nodeMap.has(nodeId)) {
-      return;
-    }
-    state.selectedNodeId = nodeId;
-    state.selectedMemoryId = null;
-    renderCanvas(state.payload, { focusSelection: Boolean(options.focusCamera) });
-    renderSelectionPanels(state.payload);
-  }
-
-  function selectMemory(memoryId, options = {}) {
-    if (!state.graphIndex?.memoryMap.has(memoryId)) {
-      return;
-    }
-    state.selectedMemoryId = memoryId;
-    state.selectedNodeId = null;
-    renderCanvas(state.payload, { focusSelection: Boolean(options.focusCamera) });
-    renderSelectionPanels(state.payload);
-  }
-
-  function buildGraphIndex(snapshot) {
-    const nodes = snapshot.nodes || [];
-    const edges = snapshot.edges || [];
-    const entries = snapshot.entries || [];
-    const memories = snapshot.memories || [];
-
-    const nodeMap = new Map(nodes.map((node) => [Number(node.id), node]));
-    const memoryMap = new Map(memories.map((memory) => [Number(memory.memory_id), memory]));
-    const memoryToEntries = new Map();
-    const memoryToNodes = new Map();
-    const nodeToMemories = new Map();
-    const nodeToEntries = new Map();
-    const neighborMap = new Map();
-
-    const ensureSet = (map, key) => {
-      if (!map.has(key)) {
-        map.set(key, new Set());
-      }
-      return map.get(key);
-    };
-
-    entries.forEach((entry) => {
-      const memoryId = Number(entry.memory_id);
-      if (!memoryToEntries.has(memoryId)) {
-        memoryToEntries.set(memoryId, []);
-      }
-      memoryToEntries.get(memoryId).push(entry);
-      (entry.node_ids || []).forEach((nodeIdValue) => {
-        const nodeId = Number(nodeIdValue);
-        ensureSet(memoryToNodes, memoryId).add(nodeId);
-        ensureSet(nodeToMemories, nodeId).add(memoryId);
-        if (!nodeToEntries.has(nodeId)) {
-          nodeToEntries.set(nodeId, []);
-        }
-        nodeToEntries.get(nodeId).push(entry);
-      });
-    });
-
-    edges.forEach((edge) => {
-      const source = Number(edge.source);
-      const target = Number(edge.target);
-      const memoryId = Number(edge.memory_id);
-      ensureSet(memoryToNodes, memoryId).add(source);
-      ensureSet(memoryToNodes, memoryId).add(target);
-      ensureSet(nodeToMemories, source).add(memoryId);
-      ensureSet(nodeToMemories, target).add(memoryId);
-      ensureSet(neighborMap, source).add(target);
-      ensureSet(neighborMap, target).add(source);
-    });
-
-    return {
-      nodeMap,
-      memoryMap,
-      memoryToEntries,
-      memoryToNodes,
-      nodeToMemories,
-      nodeToEntries,
-      neighborMap,
-      edges,
-      entries,
-    };
-  }
-
-  function getSelectionContext() {
-    if (!state.graphIndex) {
-      return {
-        type: null,
-        highlightNodeIds: new Set(),
-        highlightMemoryIds: new Set(),
-        item: null,
-        entries: [],
-        memories: [],
-      };
-    }
-
-    if (state.selectedNodeId !== null && state.graphIndex.nodeMap.has(state.selectedNodeId)) {
-      const node = state.graphIndex.nodeMap.get(state.selectedNodeId);
-      const memoryIds = [...(state.graphIndex.nodeToMemories.get(state.selectedNodeId) || new Set())];
-      const memories = memoryIds
-        .map((memoryId) => state.graphIndex.memoryMap.get(memoryId))
-        .filter(Boolean);
-      const neighborIds = state.graphIndex.neighborMap.get(state.selectedNodeId) || new Set();
-      const highlightNodeIds = new Set([state.selectedNodeId, ...neighborIds]);
-      return {
-        type: "node",
-        item: node,
-        entries: state.graphIndex.nodeToEntries.get(state.selectedNodeId) || [],
-        memories,
-        highlightNodeIds,
-        highlightMemoryIds: new Set(memoryIds),
-      };
-    }
-
-    if (state.selectedMemoryId !== null && state.graphIndex.memoryMap.has(state.selectedMemoryId)) {
-      const memory = state.graphIndex.memoryMap.get(state.selectedMemoryId);
-      const nodeIds = state.graphIndex.memoryToNodes.get(state.selectedMemoryId) || new Set();
-      return {
-        type: "memory",
-        item: memory,
-        entries: state.graphIndex.memoryToEntries.get(state.selectedMemoryId) || [],
-        memories: [memory],
-        highlightNodeIds: new Set(nodeIds),
-        highlightMemoryIds: new Set([state.selectedMemoryId]),
-      };
-    }
-
-    return {
-      type: null,
-      highlightNodeIds: new Set(),
-      highlightMemoryIds: new Set(),
-      item: null,
-      entries: [],
-      memories: [],
-    };
-  }
-
-  function ensureGraphScene() {
-    if (state.graph3d) {
-      return true;
-    }
-    if (typeof window.ForceGraph3D !== "function" || !dom.canvas) {
-      return false;
-    }
-
-    dom.canvas.innerHTML = "";
-    const graph = window.ForceGraph3D()(dom.canvas)
-      .backgroundColor("#050816")
-      .showNavInfo(false)
-      .nodeRelSize(3.8)
-      .nodeVal((node) => node.__size)
-      .nodeColor((node) => node.__color)
-      .nodeLabel((node) => node.__label)
-      .nodeOpacity(0.98)
-      .nodeResolution(20)
-      .linkColor((link) => link.__color)
-      .linkWidth((link) => link.__width)
-      .linkOpacity(0.76)
-      .linkResolution(10)
-      .linkCurvature((link) => link.__curvature)
-      .linkLabel((link) => link.__label)
-      .linkDirectionalArrowLength((link) => link.__arrowLength)
-      .linkDirectionalArrowColor((link) => link.__particleColor)
-      .linkDirectionalParticles((link) => link.__particles)
-      .linkDirectionalParticleWidth((link) => link.__particleWidth)
-      .linkDirectionalParticleColor((link) => link.__particleColor)
-      .linkDirectionalParticleSpeed((link) => link.__particleSpeed)
-      .onNodeClick((node) => {
-        selectNode(Number(node.id), { focusCamera: true });
-      })
-      .onBackgroundClick(() => {
-        clearSelection();
-      })
-      .warmupTicks(90)
-      .cooldownTime(2200)
-      .onEngineStop(() => {
-        captureScenePositions();
-      });
-
-    if (typeof graph.pauseAnimation === "function") {
-      graph.pauseAnimation();
-    }
-
-    try {
-      const chargeForce = graph.d3Force("charge");
-      if (chargeForce && typeof chargeForce.strength === "function") {
-        chargeForce.strength(-260);
-      }
-    } catch (error) {
-      console.warn("Failed to configure graph charge force", error);
-    }
-
-    try {
-      const controls = graph.controls();
-      if (controls) {
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.08;
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.35;
-        controls.minDistance = 80;
-        controls.maxDistance = 1600;
-      }
-    } catch (error) {
-      console.warn("Failed to configure graph controls", error);
-    }
-
-    try {
-      const renderer = graph.renderer();
-      if (renderer && typeof renderer.setPixelRatio === "function") {
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      }
-    } catch (error) {
-      console.warn("Failed to configure graph renderer", error);
-    }
-
-    state.graph3d = graph;
-    resizeGraphScene();
-    return true;
+  function setCanvasMessage(msg, loading) {
+    if (!dom.canvasState) return;
+    dom.canvasState.textContent = msg || "";
   }
 
   function clearGraphScene() {
     window.clearTimeout(state.focusTimer);
-    if (state.resumeFrame !== null) {
-      window.cancelAnimationFrame(state.resumeFrame);
-      state.resumeFrame = null;
-    }
+    if (state.resumeFrame !== null) { window.cancelAnimationFrame(state.resumeFrame); state.resumeFrame = null; }
     if (state.graph3d && typeof state.graph3d.graphData === "function") {
-      if (typeof state.graph3d.pauseAnimation === "function") {
-        state.graph3d.pauseAnimation();
-      }
+      if (typeof state.graph3d.pauseAnimation === "function") state.graph3d.pauseAnimation();
       state.graph3d.graphData({ nodes: [], links: [] });
-    } else if (dom.canvas) {
-      dom.canvas.innerHTML = "";
     }
-    dom.canvas?.classList.remove("is-ready");
-    dom.canvasShell?.classList.remove("is-ready");
-  }
-
-  function getCanvasSize() {
-    const width = Math.max(
-      360,
-      Math.floor(dom.canvas?.clientWidth || dom.canvas?.getBoundingClientRect?.().width || 960)
-    );
-    const height = Math.max(
-      440,
-      Math.floor(dom.canvas?.clientHeight || dom.canvas?.getBoundingClientRect?.().height || 620)
-    );
-    return { width, height };
   }
 
   function resizeGraphScene() {
-    if (!state.graph3d) {
-      return;
-    }
-    const { width, height } = getCanvasSize();
-    state.graph3d.width(width).height(height);
-    try {
-      const renderer = state.graph3d.renderer();
-      if (renderer && typeof renderer.setPixelRatio === "function") {
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      }
-    } catch (error) {
-      console.warn("Failed to resize graph renderer", error);
-    }
+    if (!state.graph3d) return;
+    var w = Math.max(360, Math.floor(dom.canvas.clientWidth || 960));
+    var h = Math.max(440, Math.floor(dom.canvas.clientHeight || 620));
+    state.graph3d.width(w).height(h);
   }
 
   function captureScenePositions() {
-    if (!state.graph3d || typeof state.graph3d.graphData !== "function") {
-      return;
-    }
-    const graphData = state.graph3d.graphData();
-    const nodes = graphData?.nodes || [];
-    nodes.forEach((node) => {
-      const id = Number(node.id);
-      if (
-        Number.isFinite(id) &&
-        Number.isFinite(node.x) &&
-        Number.isFinite(node.y) &&
-        Number.isFinite(node.z)
-      ) {
+    if (!state.graph3d || typeof state.graph3d.graphData !== "function") return;
+    var data = state.graph3d.graphData();
+    var nodes = data && data.nodes ? data.nodes : [];
+    nodes.forEach(function(node) {
+      var id = Number(node.id);
+      if (Number.isFinite(id) && Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.z)) {
         state.scenePositions.set(id, {
-          x: node.x,
-          y: node.y,
-          z: node.z,
+          x: node.x, y: node.y, z: node.z,
           vx: Number.isFinite(node.vx) ? node.vx : 0,
           vy: Number.isFinite(node.vy) ? node.vy : 0,
           vz: Number.isFinite(node.vz) ? node.vz : 0,
@@ -993,126 +477,201 @@
     });
   }
 
-  function buildGraphSceneData(payload) {
-    const snapshotNodes = payload.snapshot?.nodes || [];
-    const snapshotEdges = payload.snapshot?.edges || [];
-    const selection = getSelectionContext();
-    const highlightedNodes = selection.highlightNodeIds;
-    const highlightedMemories = selection.highlightMemoryIds;
-    const maxWeight = Math.max(...snapshotNodes.map((node) => Number(node.weight || 1)), 1);
-    const seededPositions = buildSeedPositions(snapshotNodes, maxWeight);
+  /* ================================================================
+     3D Graph Engine
+     ================================================================ */
+  function ensureGraphScene() {
+    if (state.graph3d) return true;
+    if (typeof window.ForceGraph3D !== "function" || !dom.canvas) return false;
 
-    const nodes = snapshotNodes.map((node) => {
-      const nodeId = Number(node.id);
-      const weightRatio = clamp01(Number(node.weight || 0) / maxWeight);
-      const isSelected = state.selectedNodeId === nodeId;
-      const isHighlighted = highlightedNodes.has(nodeId);
-      const isMuted = highlightedNodes.size > 0 && !isHighlighted;
-      const memoryRatio = clamp01(Number(node.memory_count || 0) / 8);
-      const size =
-        2.6 +
-        weightRatio * 6.8 +
-        memoryRatio * 1.8 +
-        (isSelected ? 2.4 : isHighlighted ? 1.2 : 0);
-      const position = state.scenePositions.get(nodeId) || seededPositions.get(nodeId) || { x: 0, y: 0, z: 0 };
+    dom.canvas.innerHTML = "";
+    var graph = window.ForceGraph3D()(dom.canvas)
+      .backgroundColor("#050816")
+      .showNavInfo(false)
+      .nodeRelSize(3.8)
+      .nodeVal(function(node) { return node.__size; })
+      .nodeColor(function(node) { return node.__color; })
+      .nodeLabel(function(node) { return node.__label; })
+      .nodeOpacity(0.98)
+      .nodeResolution(20)
+      .linkColor(function(link) { return link.__color; })
+      .linkWidth(function(link) { return link.__width; })
+      .linkOpacity(0.76)
+      .linkResolution(10)
+      .linkCurvature(function(link) { return link.__curvature; })
+      .linkLabel(function(link) { return link.__label; })
+      .linkDirectionalArrowLength(function(link) { return link.__arrowLength; })
+      .linkDirectionalArrowColor(function(link) { return link.__particleColor; })
+      .linkDirectionalParticles(function(link) { return link.__particles; })
+      .linkDirectionalParticleWidth(function(link) { return link.__particleWidth; })
+      .linkDirectionalParticleColor(function(link) { return link.__particleColor; })
+      .linkDirectionalParticleSpeed(function(link) { return link.__particleSpeed; })
+      .onNodeClick(function(node) { selectNode(Number(node.id), { focusCamera: true }); })
+      .onBackgroundClick(function() { clearSelection(); })
+      .warmupTicks(90)
+      .cooldownTime(2200)
+      .onEngineStop(function() { captureScenePositions(); });
+
+    if (typeof graph.pauseAnimation === "function") graph.pauseAnimation();
+
+    try {
+      var charge = graph.d3Force("charge");
+      if (charge && typeof charge.strength === "function") charge.strength(-260);
+    } catch (e) { console.warn("Graph charge force config failed", e); }
+
+    try {
+      var controls = graph.controls();
+      if (controls) {
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.35;
+        controls.minDistance = 80;
+        controls.maxDistance = 1600;
+      }
+    } catch (e) { console.warn("Graph controls config failed", e); }
+
+    try {
+      var renderer = graph.renderer();
+      if (renderer && typeof renderer.setPixelRatio === "function") {
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      }
+    } catch (e) { console.warn("Graph renderer config failed", e); }
+
+    state.graph3d = graph;
+    resizeGraphScene();
+    return true;
+  }
+
+  /* ================================================================
+     Scene Data Builder
+     ================================================================ */
+  function buildGraphSceneData(payload) {
+    var snapshotNodes = (payload.snapshot && payload.snapshot.nodes) || [];
+    var snapshotEdges = (payload.snapshot && payload.snapshot.edges) || [];
+    var selection = getSelectionContext();
+    var highlightedNodes = selection.highlightNodeIds;
+    var highlightedMemories = selection.highlightMemoryIds;
+    var maxWeight = Math.max.apply(null, snapshotNodes.map(function(n) { return Number(n.weight || 1); }).concat([1]));
+    var seededPositions = buildSeedPositions(snapshotNodes, maxWeight);
+
+    var nodes = snapshotNodes.map(function(node) {
+      var nodeId = Number(node.id);
+      var weightRatio = clamp01(Number(node.weight || 0) / maxWeight);
+      var isSelected = state.selectedNodeId === nodeId;
+      var isHighlighted = highlightedNodes.has(nodeId);
+      var isMuted = highlightedNodes.size > 0 && !isHighlighted;
+      var memoryRatio = clamp01(Number(node.memory_count || 0) / 8);
+      var size = 2.6 + weightRatio * 6.8 + memoryRatio * 1.8 + (isSelected ? 2.4 : isHighlighted ? 1.2 : 0);
+      var pos = state.scenePositions.get(nodeId) || seededPositions.get(nodeId) || { x: 0, y: 0, z: 0 };
       return {
-        ...node,
-        id: nodeId,
-        x: position.x,
-        y: position.y,
-        z: position.z,
-        vx: position.vx || 0,
-        vy: position.vy || 0,
-        vz: position.vz || 0,
+        id: nodeId, x: pos.x, y: pos.y, z: pos.z,
+        vx: pos.vx || 0, vy: pos.vy || 0, vz: pos.vz || 0,
         __size: size,
-        __color: nodeColor(node.type, { isSelected, isHighlighted, isMuted }),
+        __color: nodeColor(node.type, { isSelected: isSelected, isHighlighted: isHighlighted, isMuted: isMuted }),
         __label: buildNodeTooltip(node),
       };
     });
 
-    const validNodeIds = new Set(nodes.map((node) => Number(node.id)));
-    const groupedPairs = new Map();
-    snapshotEdges.forEach((edge, index) => {
-      const source = Number(edge.source);
-      const target = Number(edge.target);
-      if (!validNodeIds.has(source) || !validNodeIds.has(target)) {
-        return;
-      }
-      const pairKey = edgePairKey(source, target);
-      if (!groupedPairs.has(pairKey)) {
-        groupedPairs.set(pairKey, []);
-      }
-      groupedPairs.get(pairKey).push(index);
+    var validNodeIds = new Set(nodes.map(function(n) { return Number(n.id); }));
+    var groupedPairs = new Map();
+    snapshotEdges.forEach(function(edge, idx) {
+      var s = Number(edge.source), t = Number(edge.target);
+      if (!validNodeIds.has(s) || !validNodeIds.has(t)) return;
+      var key = edgePairKey(s, t);
+      if (!groupedPairs.has(key)) groupedPairs.set(key, []);
+      groupedPairs.get(key).push(idx);
     });
 
-    const links = snapshotEdges
-      .map((edge, index) => {
-        const source = Number(edge.source);
-        const target = Number(edge.target);
-        if (!validNodeIds.has(source) || !validNodeIds.has(target)) {
-          return null;
-        }
+    var links = snapshotEdges.map(function(edge, idx) {
+      var s = Number(edge.source), t = Number(edge.target);
+      if (!validNodeIds.has(s) || !validNodeIds.has(t)) return null;
+      var pairKey = edgePairKey(s, t);
+      var siblings = groupedPairs.get(pairKey) || [idx];
+      var sibIdx = siblings.indexOf(idx);
+      var centerOffset = (siblings.length - 1) / 2;
+      var curvature = siblings.length === 1 ? (s <= t ? 0.06 : -0.06) : (sibIdx - centerOffset) * 0.18;
+      var isActive = highlightedNodes.size === 0 || (highlightedNodes.has(s) && highlightedNodes.has(t));
+      var isMemHighlighted = highlightedMemories.has(Number(edge.memory_id));
+      var baseColor = relationColor(edge.relation_type);
+      return {
+        id: pairKey + ":" + idx + ":" + (edge.memory_id || "na"),
+        source: s, target: t,
+        __color: linkColor(baseColor, { isActive: isActive, isMemoryHighlighted: isMemHighlighted }),
+        __label: relationLabel(edge.relation_type) + " · Memory #" + edge.memory_id,
+        __width: isMemHighlighted ? 2.6 : isActive ? 1.2 : 0.32,
+        __curvature: curvature,
+        __arrowLength: isMemHighlighted ? 5.2 : isActive ? 3.2 : 0,
+        __particles: isMemHighlighted ? 5 : isActive ? 2 : 0,
+        __particleWidth: isMemHighlighted ? 3.6 : 2.2,
+        __particleColor: toRGBA(mixHex(baseColor, "#ffffff", isMemHighlighted ? 0.16 : 0.08), 0.92),
+        __particleSpeed: isMemHighlighted ? 0.0105 : 0.0048,
+      };
+    }).filter(Boolean);
 
-        const pairKey = edgePairKey(source, target);
-        const siblings = groupedPairs.get(pairKey) || [index];
-        const siblingIndex = siblings.indexOf(index);
-        const centerOffset = (siblings.length - 1) / 2;
-        const baseCurvature =
-          siblings.length === 1
-            ? source <= target
-              ? 0.06
-              : -0.06
-            : (siblingIndex - centerOffset) * 0.18;
-        const isActive =
-          highlightedNodes.size === 0 ||
-          (highlightedNodes.has(source) && highlightedNodes.has(target));
-        const isMemoryHighlighted = highlightedMemories.has(Number(edge.memory_id));
-        const relationBaseColor = relationColor(edge.relation_type);
-        return {
-          ...edge,
-          id: `${pairKey}:${index}:${edge.memory_id || "na"}`,
-          source,
-          target,
-          __color: linkColor(relationBaseColor, { isActive, isMemoryHighlighted }),
-          __label: `${relationLabel(edge.relation_type)} · 记忆 #${edge.memory_id}`,
-          __width: isMemoryHighlighted ? 2.6 : isActive ? 1.2 : 0.32,
-          __curvature: baseCurvature,
-          __arrowLength: isMemoryHighlighted ? 5.2 : isActive ? 3.2 : 0,
-          __particles: isMemoryHighlighted ? 5 : isActive ? 2 : 0,
-          __particleWidth: isMemoryHighlighted ? 3.6 : 2.2,
-          __particleColor: toRGBA(mixHex(relationBaseColor, "#ffffff", isMemoryHighlighted ? 0.16 : 0.08), 0.92),
-          __particleSpeed: isMemoryHighlighted ? 0.0105 : 0.0048,
-        };
-      })
-      .filter(Boolean);
-
-    return { nodes, links };
+    return { nodes: nodes, links: links };
   }
 
-  function buildSeedPositions(nodes, maxWeight) {
-    const groupedNodes = { summary: [], topic: [], person: [], fact: [], other: [] };
-    nodes.forEach((node) => {
-      const groupKey = normalizeNodeType(node.type);
-      groupedNodes[groupKey].push(node);
-    });
+  function getSelectionContext() {
+    if (!state.graphIndex) {
+      return { type: null, highlightNodeIds: new Set(), highlightMemoryIds: new Set(), item: null, entries: [], memories: [] };
+    }
 
-    const positions = new Map();
-    Object.entries(groupedNodes).forEach(([groupKey, items]) => {
-      items.sort((left, right) => Number(right.weight || 0) - Number(left.weight || 0));
-      items.forEach((node, index) => {
-        positions.set(Number(node.id), seedNodePosition(node, groupKey, index, items.length, maxWeight));
+    if (state.selectedNodeId !== null && state.graphIndex.nodeMap.has(state.selectedNodeId)) {
+      var node = state.graphIndex.nodeMap.get(state.selectedNodeId);
+      var memIds = Array.from(state.graphIndex.nodeToMemories.get(state.selectedNodeId) || new Set());
+      var memories = memIds.map(function(id) { return state.graphIndex.memoryMap.get(id); }).filter(Boolean);
+      var neighbors = state.graphIndex.neighborMap.get(state.selectedNodeId) || new Set();
+      return {
+        type: "node", item: node,
+        entries: state.graphIndex.nodeToEntries.get(state.selectedNodeId) || [],
+        memories: memories,
+        highlightNodeIds: new Set([state.selectedNodeId].concat(Array.from(neighbors))),
+        highlightMemoryIds: new Set(memIds),
+      };
+    }
+
+    if (state.selectedMemoryId !== null && state.graphIndex.memoryMap.has(state.selectedMemoryId)) {
+      var mem = state.graphIndex.memoryMap.get(state.selectedMemoryId);
+      var nodeIds = state.graphIndex.memoryToNodes.get(state.selectedMemoryId) || new Set();
+      return {
+        type: "memory", item: mem,
+        entries: state.graphIndex.memoryToEntries.get(state.selectedMemoryId) || [],
+        memories: [mem],
+        highlightNodeIds: new Set(nodeIds),
+        highlightMemoryIds: new Set([state.selectedMemoryId]),
+      };
+    }
+
+    return { type: null, highlightNodeIds: new Set(), highlightMemoryIds: new Set(), item: null, entries: [], memories: [] };
+  }
+
+  /* ================================================================
+     Seed / Camera Helpers
+     ================================================================ */
+  function buildSeedPositions(nodes, maxWeight) {
+    var groups = { summary: [], topic: [], person: [], fact: [], other: [] };
+    nodes.forEach(function(node) {
+      var g = Object.prototype.hasOwnProperty.call(TYPE_ORBITS, node.type) ? node.type : "other";
+      groups[g].push(node);
+    });
+    var positions = new Map();
+    Object.keys(groups).forEach(function(g) {
+      groups[g].sort(function(a, b) { return Number(b.weight || 0) - Number(a.weight || 0); });
+      groups[g].forEach(function(node, idx) {
+        positions.set(Number(node.id), seedPosition(node, g, idx, groups[g].length, maxWeight));
       });
     });
     return positions;
   }
 
-  function seedNodePosition(node, groupKey, index, total, maxWeight) {
-    const orbit = TYPE_ORBITS[groupKey] || TYPE_ORBITS.other;
-    const ratio = total <= 1 ? 0.5 : index / total;
-    const weightRatio = clamp01(Number(node.weight || 0) / maxWeight);
-    const radius = orbit.inner + (1 - weightRatio) * (orbit.outer - orbit.inner) + (index % 3) * 12;
-    const theta = orbit.phase + ratio * Math.PI * 2.1;
-    const phi = Math.PI * (orbit.polarStart + ratio * (orbit.polarEnd - orbit.polarStart));
+  function seedPosition(node, groupKey, idx, total, maxWeight) {
+    var orbit = TYPE_ORBITS[groupKey] || TYPE_ORBITS.other;
+    var ratio = total <= 1 ? 0.5 : idx / total;
+    var wRatio = clamp01(Number(node.weight || 0) / maxWeight);
+    var radius = orbit.inner + (1 - wRatio) * (orbit.outer - orbit.inner) + (idx % 3) * 12;
+    var theta = orbit.phase + ratio * Math.PI * 2.1;
+    var phi = Math.PI * (orbit.polarStart + ratio * (orbit.polarEnd - orbit.polarStart));
     return {
       x: Math.cos(theta) * Math.sin(phi) * radius,
       y: Math.cos(phi) * radius * 0.78,
@@ -1122,249 +681,94 @@
 
   function queueCameraFocus() {
     window.clearTimeout(state.focusTimer);
-    state.focusTimer = window.setTimeout(() => {
-      focusGraphCameraOnSelection(900);
-    }, 180);
+    state.focusTimer = window.setTimeout(function() { focusGraphCameraOnSelection(900); }, 180);
   }
 
-  function focusGraphCameraOnSelection(duration = 900) {
-    if (!state.graph3d) {
-      return;
-    }
+  function focusGraphCameraOnSelection(duration) {
+    if (!state.graph3d) return;
     if (state.selectedNodeId !== null) {
-      focusGraphCameraOnNode(state.selectedNodeId, duration);
-      return;
+      focusCameraOnNode(state.selectedNodeId, duration); return;
     }
-
-    const selection = getSelectionContext();
-    const centroid = computeSelectionCentroid(selection.highlightNodeIds);
-    if (!centroid) {
-      return;
-    }
-
-    const distance = Math.max(180, 120 + selection.highlightNodeIds.size * 10);
-    const magnitude = Math.hypot(centroid.x, centroid.y, centroid.z);
-    const ratio = magnitude > 1 ? 1 + distance / magnitude : 1;
+    var sel = getSelectionContext();
+    var centroid = computeCentroid(sel.highlightNodeIds);
+    if (!centroid) return;
+    var dist = Math.max(180, 120 + sel.highlightNodeIds.size * 10);
+    var mag = Math.hypot(centroid.x, centroid.y, centroid.z);
+    var r = mag > 1 ? 1 + dist / mag : 1;
     state.graph3d.cameraPosition(
-      {
-        x: centroid.x * ratio + distance * 0.34,
-        y: centroid.y * ratio + distance * 0.18,
-        z: centroid.z * ratio + distance * 0.62,
-      },
-      centroid,
-      duration
+      { x: centroid.x * r + dist * 0.34, y: centroid.y * r + dist * 0.18, z: centroid.z * r + dist * 0.62 },
+      centroid, duration
     );
   }
 
-  function focusGraphCameraOnNode(nodeId, duration = 900) {
-    if (!state.graph3d || typeof state.graph3d.graphData !== "function") {
-      return;
-    }
-    const graphData = state.graph3d.graphData();
-    const node = (graphData?.nodes || []).find((item) => Number(item.id) === Number(nodeId));
-    if (!node) {
-      return;
-    }
-
-    const distance = Math.max(150, Number(node.__size || 0) * 18);
-    const magnitude = Math.hypot(node.x || 0, node.y || 0, node.z || 0);
-    const ratio = magnitude > 1 ? 1 + distance / magnitude : 1;
+  function focusCameraOnNode(nodeId, duration) {
+    if (!state.graph3d || typeof state.graph3d.graphData !== "function") return;
+    var data = state.graph3d.graphData();
+    var node = (data && data.nodes || []).find(function(n) { return Number(n.id) === Number(nodeId); });
+    if (!node) return;
+    var dist = Math.max(150, Number(node.__size || 0) * 18);
+    var mag = Math.hypot(node.x || 0, node.y || 0, node.z || 0);
+    var r = mag > 1 ? 1 + dist / mag : 1;
     state.graph3d.cameraPosition(
-      {
-        x: (node.x || 0) * ratio + distance * 0.18,
-        y: (node.y || 0) * ratio + distance * 0.08,
-        z: (node.z || 0) * ratio + distance * 0.42,
-      },
-      {
-        x: node.x || 0,
-        y: node.y || 0,
-        z: node.z || 0,
-      },
-      duration
+      { x: (node.x || 0) * r + dist * 0.18, y: (node.y || 0) * r + dist * 0.08, z: (node.z || 0) * r + dist * 0.42 },
+      { x: node.x || 0, y: node.y || 0, z: node.z || 0 }, duration
     );
   }
 
-  function computeSelectionCentroid(nodeIds) {
-    if (!state.graph3d || typeof state.graph3d.graphData !== "function" || !nodeIds.size) {
-      return null;
-    }
-    const lookup = new Map(
-      (state.graph3d.graphData()?.nodes || []).map((node) => [Number(node.id), node])
-    );
-    let total = 0;
-    const sum = { x: 0, y: 0, z: 0 };
-    nodeIds.forEach((nodeId) => {
-      const node = lookup.get(Number(nodeId));
-      if (
-        !node ||
-        !Number.isFinite(node.x) ||
-        !Number.isFinite(node.y) ||
-        !Number.isFinite(node.z)
-      ) {
-        return;
-      }
-      total += 1;
-      sum.x += node.x;
-      sum.y += node.y;
-      sum.z += node.z;
+  function computeCentroid(nodeIds) {
+    if (!state.graph3d || typeof state.graph3d.graphData !== "function" || !nodeIds.size) return null;
+    var lookup = new Map((state.graph3d.graphData() && state.graph3d.graphData().nodes || []).map(function(n) { return [Number(n.id), n]; }));
+    var total = 0, sum = { x: 0, y: 0, z: 0 };
+    nodeIds.forEach(function(id) {
+      var n = lookup.get(Number(id));
+      if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y) || !Number.isFinite(n.z)) return;
+      total++; sum.x += n.x; sum.y += n.y; sum.z += n.z;
     });
-    if (!total) {
-      return null;
-    }
-    return {
-      x: sum.x / total,
-      y: sum.y / total,
-      z: sum.z / total,
-    };
+    return total ? { x: sum.x / total, y: sum.y / total, z: sum.z / total } : null;
   }
 
-  function buildNodeTooltip(node) {
-    const typeKey = normalizeNodeType(node.type);
-    const detailText = node.canonical_value || node.label || window.t("graph.unnamedNode");
-    return `
-      <div class="graph-tooltip">
-        <span class="graph-tooltip-badge graph-node-${escapeHTML(typeKey)}">${escapeHTML(typeLabel(node.type))}</span>
-        <strong>${escapeHTML(node.label || window.t("graph.unnamedNode"))}</strong>
-        <span>${escapeHTML(truncate(detailText, 72))}</span>
-        <small>${window.t("graph.tooltipMemory", Number(node.memory_count || 0), Number(node.degree || 0), Number(node.entry_count || 0))}</small>
-      </div>
-    `;
+  /* ================================================================
+     Color / Label Helpers
+     ================================================================ */
+  function nodeColor(type, opts) {
+    opts = opts || {};
+    var base = NODE_TYPE_COLORS[String(type).toLowerCase()] || NODE_TYPE_COLORS.other;
+    if (opts.isSelected) return toRGBA(mixHex(base, "#ffffff", 0.24), 0.98);
+    if (opts.isHighlighted) return toRGBA(mixHex(base, "#ffffff", 0.12), 0.94);
+    if (opts.isMuted) return toRGBA("#334155", 0.34);
+    return toRGBA(base, 0.88);
   }
 
-  function normalizeNodeType(type) {
-    return Object.prototype.hasOwnProperty.call(NODE_TYPE_COLORS, type) ? type : "other";
-  }
-
-  function edgePairKey(source, target) {
-    return [Math.min(Number(source), Number(target)), Math.max(Number(source), Number(target))].join(":");
-  }
-
-  function nodeColor(type, options = {}) {
-    const baseColor = NODE_TYPE_COLORS[normalizeNodeType(type)] || NODE_TYPE_COLORS.other;
-    if (options.isSelected) {
-      return toRGBA(mixHex(baseColor, "#ffffff", 0.24), 0.98);
-    }
-    if (options.isHighlighted) {
-      return toRGBA(mixHex(baseColor, "#ffffff", 0.12), 0.94);
-    }
-    if (options.isMuted) {
-      return toRGBA("#334155", 0.34);
-    }
-    return toRGBA(baseColor, 0.88);
-  }
-
-  function relationColor(relationType) {
-    const value = String(relationType || "related");
-    const index = Math.abs(hashString(value)) % RELATION_PALETTE.length;
-    return RELATION_PALETTE[index];
-  }
-
-  function linkColor(baseColor, options = {}) {
-    if (options.isMemoryHighlighted) {
-      return toRGBA(mixHex(baseColor, "#ffffff", 0.14), 0.88);
-    }
-    if (options.isActive) {
-      return toRGBA(baseColor, 0.4);
-    }
+  function relationColor(type) { var v = String(type || "related"), idx = Math.abs(hashString(v)) % RELATION_PALETTE.length; return RELATION_PALETTE[idx]; }
+  function linkColor(base, opts) {
+    opts = opts || {};
+    if (opts.isMemoryHighlighted) return toRGBA(mixHex(base, "#ffffff", 0.14), 0.88);
+    if (opts.isActive) return toRGBA(base, 0.4);
     return toRGBA("#334155", 0.14);
   }
 
-  function mixHex(left, right, ratio) {
-    const leftRgb = hexToRgb(left);
-    const rightRgb = hexToRgb(right);
-    const weight = clamp01(ratio);
-    return rgbToHex({
-      r: Math.round(leftRgb.r + (rightRgb.r - leftRgb.r) * weight),
-      g: Math.round(leftRgb.g + (rightRgb.g - leftRgb.g) * weight),
-      b: Math.round(leftRgb.b + (rightRgb.b - leftRgb.b) * weight),
-    });
+  function buildNodeTooltip(node) {
+    var t = normalizeNodeType(node.type);
+    return '<div class="graph-tooltip"><span class="graph-tooltip-badge graph-node-' + esc(String(t)) + '">' +
+      esc(typeLabel(node.type)) + '</span><strong>' + esc(node.label || "Unnamed") +
+      '</strong><span>' + esc((node.canonical_value || node.label || "").substring(0, 72)) +
+      '</span><small>Memory ' + (node.memory_count || 0) + ' · Deg ' + (node.degree || 0) + ' · Entries ' + (node.entry_count || 0) + '</small></div>';
   }
 
-  function toRGBA(hex, alpha) {
-    const rgb = hexToRgb(hex);
-    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp01(alpha)})`;
-  }
-
-  function hexToRgb(hex) {
-    const normalized = String(hex || "#000000").replace("#", "").trim();
-    const value = normalized.length === 3
-      ? normalized.split("").map((part) => `${part}${part}`).join("")
-      : normalized.padEnd(6, "0").slice(0, 6);
-    return {
-      r: Number.parseInt(value.slice(0, 2), 16),
-      g: Number.parseInt(value.slice(2, 4), 16),
-      b: Number.parseInt(value.slice(4, 6), 16),
-    };
-  }
-
-  function rgbToHex(rgb) {
-    return `#${[rgb.r, rgb.g, rgb.b]
-      .map((channel) => clamp(Number(channel) || 0, 0, 255).toString(16).padStart(2, "0"))
-      .join("")}`;
-  }
-
-  function hashString(value) {
-    return [...String(value || "")].reduce(
-      (accumulator, character) => accumulator * 31 + character.charCodeAt(0),
-      7
-    );
-  }
-
-  function setCanvasMessage(message, loading) {
-    dom.canvasState.textContent = message || "";
-    dom.canvasState.classList.toggle("is-visible", Boolean(message));
-    dom.canvasState.classList.toggle("is-loading", Boolean(loading && message));
-    dom.canvasShell?.classList.toggle("has-state", Boolean(message));
-    dom.canvasShell?.classList.toggle("is-loading", Boolean(loading && message));
-  }
-
-  function typeLabel(type) {
-    return NODE_TYPE_LABELS[type] || type || window.t("graph.nodeUnknown");
-  }
-
-  function relationLabel(type) {
-    return String(type || "related")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase());
-  }
-
-  function formatScore(value) {
-    return `${(clamp01(Number(value || 0)) * 100).toFixed(0)}%`;
-  }
-
-  function formatImportance(value) {
-    const number = Number(value || 0);
-    return `${(number * 10).toFixed(1)} / 10`;
-  }
-
-  function truncate(text, maxLength) {
-    const value = String(text || "");
-    if (value.length <= maxLength) {
-      return value;
-    }
-    return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
-  }
-
-  function clamp(value, min, max) {
-    return Math.min(Math.max(value, min), max);
-  }
-
-  function clamp01(value) {
-    return clamp(Number.isFinite(value) ? value : 0, 0, 1);
-  }
-
-  function emptyPanel(message) {
-    return `<div class="graph-empty">${escapeHTML(message)}</div>`;
-  }
-
-  function escapeHTML(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
+  /* ================================================================
+     Math / Util
+     ================================================================ */
+  function hexToRgb(h) { var v = String(h || "#000").replace("#","").trim(); v = v.length===3 ? v.split("").map(function(c){return c+c;}).join("") : v.padEnd(6,"0").slice(0,6); return { r: parseInt(v.slice(0,2),16), g: parseInt(v.slice(2,4),16), b: parseInt(v.slice(4,6),16) }; }
+  function rgbToHex(rgb) { return "#" + [rgb.r, rgb.g, rgb.b].map(function(c) { return Math.min(255,Math.max(0,c)).toString(16).padStart(2,"0"); }).join(""); }
+  function mixHex(a, b, r) { var la = hexToRgb(a), lb = hexToRgb(b), w = clamp01(r); return rgbToHex({ r: Math.round(la.r+(lb.r-la.r)*w), g: Math.round(la.g+(lb.g-la.g)*w), b: Math.round(la.b+(lb.b-la.b)*w) }); }
+  function toRGBA(hex, alpha) { var rgb = hexToRgb(hex); return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + clamp01(alpha) + ")"; }
+  function hashString(s) { return String(s||"").split("").reduce(function(a,c){return a*31+c.charCodeAt(0);},7); }
+  function clamp01(v) { return Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0)); }
+  function edgePairKey(a, b) { return Math.min(Number(a), Number(b)) + ":" + Math.max(Number(a), Number(b)); }
+  function normalizeNodeType(t) { return Object.prototype.hasOwnProperty.call(NODE_TYPE_COLORS, t) ? t : "other"; }
+  function typeLabel(t) { return NODE_TYPE_LABELS[t] || t || "Node"; }
+  function relationLabel(t) { return String(t||"related").replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();}); }
+  function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -28,6 +28,8 @@
     "nav.memory":         { zh: "记忆管理", en: "Memory", ru: "Память" },
     "nav.graph":          { zh: "知识图谱", en: "Knowledge Graph", ru: "Граф знаний" },
     "nav.recallTest":     { zh: "召回测试", en: "Recall Test", ru: "Тест поиска" },
+    "nav.system":         { zh: "系统概览", en: "System", ru: "Система" },
+    "nav.recall":         { zh: "召回测试", en: "Recall Test", ru: "Тест поиска" },
 
     /* ---- Nuke ---- */
     "nuke.cancel":        { zh: "取消核爆", en: "Cancel Nuke", ru: "Отменить сброс" },
