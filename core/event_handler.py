@@ -134,6 +134,8 @@ class EventHandler:
                 f"content={content[:50]}..."
             )
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
 
@@ -175,7 +177,7 @@ class EventHandler:
                         )
 
                 # 先提取用户消息（消息存储和召回都需要）
-                actual_query = self._get_event_message_str(event)
+                actual_query = await self._get_event_message_str(event)
 
                 request_query = (
                     prompt_text.strip() if isinstance(prompt_text, str) else ""
@@ -367,6 +369,8 @@ class EventHandler:
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
 
@@ -605,6 +609,8 @@ class EventHandler:
                         lambda t, sid=session_id: self._on_storage_task_done(t, sid)
                     )
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"处理 on_llm_response 钩子时发生错误: {e}", exc_info=True)
 
@@ -1187,13 +1193,15 @@ class EventHandler:
 
         return " ".join(parts).strip()
 
-    def _get_event_message_str(self, event: AstrMessageEvent) -> str:
+    async def _get_event_message_str(self, event: AstrMessageEvent) -> str:
         """Get normalized raw message text from event."""
         get_message_str = getattr(event, "get_message_str", None)
         raw_message = ""
 
         if callable(get_message_str):
             raw_message = get_message_str()
+            if asyncio.iscoroutine(raw_message):
+                raw_message = await raw_message
         else:
             raw_message = getattr(event, "message_str", "")
 
