@@ -70,10 +70,16 @@ class DecayScheduler:
         if not self._state_file.exists():
             return {}
         try:
-            import aiofiles
-
-            async with aiofiles.open(self._state_file, encoding="utf-8") as f:
-                content = await f.read()
+            try:
+                import aiofiles
+            except ImportError:
+                content = await asyncio.to_thread(
+                    self._state_file.read_text,
+                    encoding="utf-8",
+                )
+            else:
+                async with aiofiles.open(self._state_file, encoding="utf-8") as f:
+                    content = await f.read()
             return json.loads(content)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"[衰减调度] 加载状态文件失败: {e}")
@@ -82,11 +88,19 @@ class DecayScheduler:
     async def _save_state(self, state: dict) -> None:
         """保存状态文件"""
         try:
-            import aiofiles
-
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(state, ensure_ascii=False))
+            content = json.dumps(state, ensure_ascii=False)
+            try:
+                import aiofiles
+            except ImportError:
+                await asyncio.to_thread(
+                    self._state_file.write_text,
+                    content,
+                    encoding="utf-8",
+                )
+            else:
+                async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
+                    await f.write(content)
         except OSError as e:
             logger.error(f"[衰减调度] 保存状态文件失败: {e}")
 
@@ -224,8 +238,6 @@ class DecayScheduler:
         if not self.db_migration:
             return
         try:
-            from pathlib import Path
-
             db_path = Path(self.db_migration.db_path)
             backup_dir = db_path.parent / "backups"
             if not backup_dir.exists():
