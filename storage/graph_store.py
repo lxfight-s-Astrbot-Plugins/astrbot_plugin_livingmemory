@@ -1055,7 +1055,8 @@ class GraphStore:
                 4,
             )
 
-        if len(node_map) > limit_nodes:
+        nodes_were_limited = len(node_map) > limit_nodes
+        if nodes_were_limited:
             ranked_nodes = sorted(
                 node_map.values(),
                 key=lambda item: (
@@ -1088,32 +1089,45 @@ class GraphStore:
                     filtered_entries.append(entry)
             entries = filtered_entries
 
-        filtered_memory_map: dict[int, dict[str, Any]] = {}
+        memory_view: dict[int, dict[str, Any]] = {}
         for memory_id, base in memory_base.items():
-            filtered_memory_map[memory_id] = {
+            memory_view[memory_id] = {
                 "memory_id": memory_id,
                 "summary": base["summary"],
                 "session_id": base["session_id"],
                 "persona_id": base["persona_id"],
                 "importance": base["importance"],
-                "entry_count": 0,
-                "edge_count": 0,
-                "node_ids": set(),
-                "entry_types": set(),
+                "entry_count": base["entry_count"],
+                "edge_count": base["edge_count"],
+                "node_ids": set(base["node_ids"]),
+                "entry_types": set(base["entry_types"]),
             }
 
-        for entry in entries:
-            memory = filtered_memory_map.get(entry["memory_id"])
-            if memory is None:
-                continue
-            memory["entry_count"] += 1
-            memory["node_ids"].update(entry["node_ids"])
-            memory["entry_types"].add(entry["entry_type"])
+        if not nodes_were_limited:
+            filtered_memory_map = memory_view
+        else:
+            filtered_memory_map = {
+                memory_id: {
+                    **base,
+                    "entry_count": 0,
+                    "edge_count": 0,
+                    "node_ids": set(),
+                    "entry_types": set(),
+                }
+                for memory_id, base in memory_view.items()
+            }
+            for entry in entries:
+                memory = filtered_memory_map.get(entry["memory_id"])
+                if memory is None:
+                    continue
+                memory["entry_count"] += 1
+                memory["node_ids"].update(entry["node_ids"])
+                memory["entry_types"].add(entry["entry_type"])
 
-        for edge in edges:
-            memory = filtered_memory_map.get(edge["memory_id"])
-            if memory is not None:
-                memory["edge_count"] += 1
+            for edge in edges:
+                memory = filtered_memory_map.get(edge["memory_id"])
+                if memory is not None:
+                    memory["edge_count"] += 1
 
         memories: list[dict[str, Any]] = []
         for memory in filtered_memory_map.values():

@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from ..models.memory_atom import compute_decay_score
 from .graph_keyword_retriever import GraphKeywordRetriever
 from .graph_vector_retriever import GraphVectorRetriever
 from .rrf_fusion import BM25Result, RRFFusion, VectorResult
@@ -128,16 +129,11 @@ class GraphRetriever:
                 days_since_access = max(
                     0.0, (current_time - last_access_time) / 86400.0
                 )
-                effective_ttl = max(1.0, atom_ttl)
-                if decay_type == "linear":
-                    temporal_factor = max(0.0, 1.0 - days_since_access / effective_ttl)
-                elif decay_type == "step":
-                    temporal_factor = 1.0 if days_since_access <= effective_ttl else 0.05
-                else:  # exponential
-                    half_life = effective_ttl / 2.0
-                    temporal_factor = math.exp(
-                        -math.log(2) * days_since_access / max(0.5, half_life)
-                    )
+                temporal_factor = compute_decay_score(
+                    decay_type,
+                    atom_ttl,
+                    days_since_access,
+                )
 
             final_score = (
                 self.score_alpha * rrf_normalized

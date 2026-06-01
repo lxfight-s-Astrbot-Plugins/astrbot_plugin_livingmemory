@@ -32,14 +32,33 @@ class AtomStatus(str, Enum):
     FORGOTTEN = "forgotten"
 
 
+def compute_decay_score(
+    decay_type: DecayType | str,
+    ttl_days: float,
+    days_since: float,
+) -> float:
+    """Return a decay multiplier for a TTL/age pair."""
+    effective_ttl = max(1.0, ttl_days)
+    days_since = max(0.0, days_since)
+    decay_value = getattr(decay_type, "value", str(decay_type))
+
+    if decay_value == DecayType.LINEAR.value:
+        return max(0.0, 1.0 - days_since / effective_ttl)
+    if decay_value == DecayType.STEP.value:
+        return 1.0 if days_since <= effective_ttl else 0.05
+
+    half_life = effective_ttl / 2.0
+    return math.exp(-math.log(2) * days_since / max(0.5, half_life))
+
+
 # Base TTL (days) and decay configuration per atom type.
 _ATOM_TTL_CONFIG: dict[AtomType, dict[str, Any]] = {
-    AtomType.EPISODIC:   {"base_ttl": 7,   "decay_type": DecayType.EXPONENTIAL},
-    AtomType.PLANNED:    {"base_ttl": 2,   "decay_type": DecayType.STEP},
-    AtomType.FACTUAL:    {"base_ttl": 180, "decay_type": DecayType.EXPONENTIAL},
-    AtomType.RELATIONAL: {"base_ttl": 90,  "decay_type": DecayType.LINEAR},
-    AtomType.PREFERENCE: {"base_ttl": 60,  "decay_type": DecayType.EXPONENTIAL},
-    AtomType.UNKNOWN:    {"base_ttl": 30,  "decay_type": DecayType.EXPONENTIAL},
+    AtomType.EPISODIC: {"base_ttl": 7, "decay_type": DecayType.EXPONENTIAL},
+    AtomType.PLANNED: {"base_ttl": 2, "decay_type": DecayType.STEP},
+    AtomType.FACTUAL: {"base_ttl": 180, "decay_type": DecayType.EXPONENTIAL},
+    AtomType.RELATIONAL: {"base_ttl": 90, "decay_type": DecayType.LINEAR},
+    AtomType.PREFERENCE: {"base_ttl": 60, "decay_type": DecayType.EXPONENTIAL},
+    AtomType.UNKNOWN: {"base_ttl": 30, "decay_type": DecayType.EXPONENTIAL},
 }
 
 
@@ -79,15 +98,7 @@ class MemoryAtom:
         if reference_time is None:
             reference_time = time.time()
         days_since = max(0.0, (reference_time - self.last_accessed_at) / 86400.0)
-        effective_ttl = max(1.0, self.ttl_days)
-
-        if self.decay_type == DecayType.LINEAR:
-            return max(0.0, 1.0 - days_since / effective_ttl)
-        elif self.decay_type == DecayType.STEP:
-            return 1.0 if days_since <= effective_ttl else 0.05
-        else:  # EXPONENTIAL
-            half_life = effective_ttl / 2.0
-            return math.exp(-math.log(2) * days_since / max(0.5, half_life))
+        return compute_decay_score(self.decay_type, self.ttl_days, days_since)
 
     def is_expired(self, reference_time: float | None = None) -> bool:
         """Check whether the atom has passed its expiry threshold."""
@@ -108,6 +119,7 @@ def compute_ttl(
     decay_type = DecayType(config["decay_type"])
 
     if atom_type == AtomType.PLANNED and event_time is not None:
+        # Keep already-past planned events for the base TTL after their event time.
         days_until_event = max(0.0, (event_time - time.time()) / 86400.0)
         base_ttl = days_until_event + base_ttl
 
@@ -123,5 +135,6 @@ __all__ = [
     "AtomType",
     "DecayType",
     "AtomStatus",
+    "compute_decay_score",
     "compute_ttl",
 ]

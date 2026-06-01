@@ -82,7 +82,9 @@ class GraphExtractor:
         participant_keys = [
             _add_node("person", participant) for participant in participants
         ]
-        fact_keys = [_add_node("fact", fact, {"summary": summary}) for fact in key_facts]
+        fact_keys = [
+            _add_node("fact", fact, {"summary": summary}) for fact in key_facts
+        ]
 
         topic_keys = [item for item in topic_keys if item]
         participant_keys = [item for item in participant_keys if item]
@@ -279,17 +281,14 @@ class GraphExtractor:
                     entity_keys.append(entity_key)
 
             # Create a fact node for the atom content
-            atom_type_str = str(getattr(atom, "atom_type", "unknown"))
-            if hasattr(getattr(atom, "atom_type", None), "value"):
-                atom_type_str = getattr(atom.atom_type, "value") if hasattr(atom, "atom_type") else atom_type_str
+            atom_type = getattr(atom, "atom_type", "unknown")
+            atom_type_str = str(getattr(atom_type, "value", atom_type))
             fact_key = _add_node("fact", atom.content, {"atom_type": atom_type_str})
             if not fact_key:
                 continue
 
             # Fact entry with atom's own confidence
-            payload = (
-                f"fact|{source_memory_id}||{fact_key}|{atom.content}"
-            )
+            payload = f"fact|{source_memory_id}||{fact_key}|{atom.content}"
             entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
             entry_metadata = {
                 "source_memory_id": source_memory_id,
@@ -297,7 +296,7 @@ class GraphExtractor:
                 "persona_id": persona_id,
                 "importance": float(getattr(atom, "importance", 0.5)),
                 "graph_confidence": atom_confidence,
-                "atom_type": str(getattr(atom, "atom_type", "unknown")),
+                "atom_type": atom_type_str,
                 "ttl_days": float(getattr(atom, "ttl_days", 30.0)),
             }
             graph.entries.append(
@@ -327,9 +326,7 @@ class GraphExtractor:
                         metadata={"atom_content": atom.content},
                     )
                 )
-                edge_payload = (
-                    f"edge|{source_memory_id}|describes|{entity_key}|{fact_key}|{atom.content}"
-                )
+                edge_payload = f"edge|{source_memory_id}|describes|{entity_key}|{fact_key}|{atom.content}"
                 edge_entry_key = hashlib.sha1(edge_payload.encode("utf-8")).hexdigest()
                 graph.entries.append(
                     GraphEntry(
@@ -339,7 +336,10 @@ class GraphExtractor:
                         persona_id=persona_id,
                         entry_type="edge",
                         content=f"Topic {entity_key} relates to fact: {atom.content}",
-                        metadata={**entry_metadata, "graph_confidence": edge_confidence},
+                        metadata={
+                            **entry_metadata,
+                            "graph_confidence": edge_confidence,
+                        },
                         node_keys=[entity_key, fact_key],
                         relation_type="describes",
                     )
@@ -353,7 +353,9 @@ class GraphExtractor:
                 summary_key = _add_node("summary", atom.content)
                 if summary_key:
                     graph.nodes = list(node_map.values())
-                    payload = f"summary|{source_memory_id}||{summary_key}|{atom.content}"
+                    payload = (
+                        f"summary|{source_memory_id}||{summary_key}|{atom.content}"
+                    )
                     s_entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
                     graph.entries.append(
                         GraphEntry(
@@ -363,7 +365,11 @@ class GraphExtractor:
                             persona_id=getattr(atom, "persona_id", None),
                             entry_type="summary",
                             content=f"Atom: {atom.content}",
-                            metadata={"graph_confidence": float(getattr(atom, "confidence", 0.6))},
+                            metadata={
+                                "graph_confidence": float(
+                                    getattr(atom, "confidence", 0.6)
+                                )
+                            },
                             node_keys=[summary_key],
                             relation_type="summary",
                         )
