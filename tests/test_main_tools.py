@@ -4,7 +4,24 @@ from unittest.mock import Mock
 
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.tools import MemoryMemorizeTool, MemorySearchTool
-from astrbot_plugin_livingmemory.main import LivingMemoryPlugin
+from astrbot_plugin_livingmemory.main import (
+    LivingMemoryPlugin,
+    _parse_version,
+    _version_lt,
+)
+
+
+def test_parse_version_accepts_source_and_prerelease_versions():
+    assert _parse_version("4.25.2") == (4, 25, 2)
+    assert _parse_version("v4.25.2-beta.1") == (4, 25, 2)
+    assert _parse_version("not-a-version") == ()
+
+
+def test_version_lt_pads_version_segments():
+    assert _version_lt("4.24.1", "4.24.2") is True
+    assert _version_lt("4.25", "4.25.0") is False
+    assert _version_lt("4.25.2", "4.24.2") is False
+    assert _version_lt("unknown", "4.24.2") is False
 
 
 def test_register_llm_tools_is_idempotent():

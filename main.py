@@ -6,7 +6,7 @@ main.py - LivingMemory 插件主文件
 import asyncio
 import re
 from collections.abc import AsyncGenerator
-from importlib.metadata import version as pkg_version
+from importlib import metadata as importlib_metadata
 from typing import Any
 
 from astrbot.api import logger
@@ -16,29 +16,63 @@ from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
 
 from .core.base.config_manager import ConfigManager
-from .core.i18n_backend import init as i18n_init, t
 from .core.command_handler import CommandHandler
 from .core.event_handler import EventHandler
+from .core.i18n_backend import init as i18n_init
+from .core.i18n_backend import t
 from .core.managers.backup_manager import BackupManager
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import MemoryMemorizeTool, MemorySearchTool
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
+_ASTRBOT_DISTRIBUTION_NAMES = ("AstrBot", "astrbot")
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
-    m = re.match(r"(\d+(?:\.\d+)*)", v)
+    m = re.match(r"v?(\d+(?:\.\d+)*)", v.strip(), re.IGNORECASE)
     if not m:
         return ()
     return tuple(int(x) for x in m.group(1).split("."))
 
 
-try:
-    _CURRENT_ASTRBOT_VERSION = pkg_version("astrbot")
-except Exception:
-    _CURRENT_ASTRBOT_VERSION = "0.0.0"
+def _version_lt(current: str, minimum: str) -> bool:
+    current_parts = _parse_version(current)
+    minimum_parts = _parse_version(minimum)
+    if not current_parts or not minimum_parts:
+        return False
+    width = max(len(current_parts), len(minimum_parts))
+    return current_parts + (0,) * (width - len(current_parts)) < minimum_parts + (
+        0,
+    ) * (width - len(minimum_parts))
 
-if _parse_version(_CURRENT_ASTRBOT_VERSION) < _parse_version(_MIN_ASTRBOT_VERSION):
+
+def _detect_astrbot_version() -> str | None:
+    for distribution_name in _ASTRBOT_DISTRIBUTION_NAMES:
+        try:
+            return importlib_metadata.version(distribution_name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+        except Exception as exc:
+            logger.debug(f"读取 AstrBot 分发版本失败 ({distribution_name}): {exc}")
+
+    for module_name in ("astrbot.core.config.default", "astrbot.core.config"):
+        try:
+            module = __import__(module_name, fromlist=["VERSION"])
+            version_value = getattr(module, "VERSION", None)
+        except Exception as exc:
+            logger.debug(f"读取 AstrBot 模块版本失败 ({module_name}): {exc}")
+            continue
+        if version_value:
+            return str(version_value)
+
+    return None
+
+
+_CURRENT_ASTRBOT_VERSION = _detect_astrbot_version()
+
+if _CURRENT_ASTRBOT_VERSION is None:
+    logger.debug("未能检测到 AstrBot 版本，跳过 LivingMemory 版本兼容提示")
+elif _version_lt(_CURRENT_ASTRBOT_VERSION, _MIN_ASTRBOT_VERSION):
     logger.warning(
         f"AstrBot 版本 {_CURRENT_ASTRBOT_VERSION} 低于推荐版本 {_MIN_ASTRBOT_VERSION}。"
         f"插件 Pages / WebUI 功能可能不可用。建议升级 AstrBot 以获得完整体验。"
