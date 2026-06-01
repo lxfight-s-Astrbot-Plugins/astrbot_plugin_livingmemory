@@ -61,6 +61,13 @@
     throw lastError || new Error(window.t("misc.requestFailed"));
   }
 
+  function unwrapApiData(response) {
+    if (response && response.status === "ok" && Object.prototype.hasOwnProperty.call(response, "data")) {
+      return response.data || {};
+    }
+    return response || {};
+  }
+
   /* ================================================================
      Theme
      ================================================================ */
@@ -149,14 +156,29 @@
       item.addEventListener("click", function() { switchPage(item.dataset.page); });
     });
     document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("lang-toggle").addEventListener("click", function() {
-      var langs = ["zh", "en", "ru"];
-      var cur = window.getLanguage();
-      var idx = langs.indexOf(cur);
-      var next = langs[(idx + 1) % langs.length];
-      window.setLanguage(next);
-      document.getElementById("lang-label").textContent = next.toUpperCase();
-      showToast("Language: " + next.toUpperCase());
+    var langMenu = document.getElementById("lang-menu");
+    document.querySelectorAll(".lang-option[data-lang]").forEach(function(option) {
+      option.addEventListener("click", function() {
+        var next = option.dataset.lang;
+        window.setLanguage(next);
+        updateLanguageMenu();
+        if (langMenu) langMenu.open = false;
+        showToast("Language: " + next.toUpperCase());
+      });
+    });
+    document.addEventListener("click", function(e) {
+      if (langMenu && langMenu.open && !langMenu.contains(e.target)) langMenu.open = false;
+    });
+    window.addEventListener("languagechange", updateLanguageMenu);
+    updateLanguageMenu();
+  }
+
+  function updateLanguageMenu() {
+    var current = window.getLanguage ? window.getLanguage() : "zh";
+    var label = document.getElementById("lang-label");
+    if (label) label.textContent = current.toUpperCase();
+    document.querySelectorAll(".lang-option[data-lang]").forEach(function(option) {
+      option.classList.toggle("active", option.dataset.lang === current);
     });
   }
 
@@ -711,10 +733,10 @@
     btn.disabled = true;
 
     try {
-      var data = await apiRequest("recall/test", {
+      var data = unwrapApiData(await apiRequest("recall/test", {
         method: "POST",
         body: { query: query, k: k, session_id: session },
-      }) || {};
+      }));
       renderRecallResults(data);
     } catch (e) {
       showToast(e.message || "Recall failed", true);
@@ -745,11 +767,12 @@
     container.innerHTML = (data.results || []).map(function(r, i) {
       var pct = r.score_percentage || 0;
       var badgeCls = pct >= 70 ? "high" : pct >= 45 ? "medium" : "low";
+      var scoreMeta = Object.assign({}, r.metadata || {}, r.score_breakdown || {});
       var scores = [
-        { label: "Doc-KW", val: r.metadata && r.metadata.document_keyword_score, cls: "doc-kw" },
-        { label: "Doc-Vec", val: r.metadata && r.metadata.document_vector_score, cls: "doc-vec" },
-        { label: "Graph-KW", val: r.metadata && r.metadata.graph_keyword_score, cls: "graph-kw" },
-        { label: "Graph-Vec", val: r.metadata && r.metadata.graph_vector_score, cls: "graph-vec" },
+        { label: "Doc-KW", val: scoreMeta.document_keyword_score, cls: "doc-kw" },
+        { label: "Doc-Vec", val: scoreMeta.document_vector_score, cls: "doc-vec" },
+        { label: "Graph-KW", val: scoreMeta.graph_keyword_score, cls: "graph-kw" },
+        { label: "Graph-Vec", val: scoreMeta.graph_vector_score, cls: "graph-vec" },
       ];
       return '<div class="result-card" data-memory-id="' + r.memory_id + '">' +
         '<div class="result-card-header">' +

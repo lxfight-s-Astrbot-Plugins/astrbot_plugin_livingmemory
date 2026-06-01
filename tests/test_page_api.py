@@ -4,31 +4,35 @@ Tests for PluginPageApi — WebUI REST API endpoints and helpers.
 
 from __future__ import annotations
 
-import json
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from astrbot_plugin_livingmemory.core.page_api import PAGE_API_PREFIX, PLUGIN_NAME, PluginPageApi
-
+from astrbot_plugin_livingmemory.core.page_api import (
+    PAGE_API_PREFIX,
+    PLUGIN_NAME,
+    PluginPageApi,
+)
 
 # ---------------------------------------------------------------------------
 # Fake / stub helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FakeMemoryEngine:
     db_path: str = ":memory:"
     graph_store: Any = None
-    stats: dict = field(default_factory=lambda: {
-        "total_memories": 42,
-        "status_breakdown": {"active": 30, "archived": 8, "deleted": 4},
-        "sessions": {"s1": 10, "s2": 5},
-    })
+    stats: dict = field(
+        default_factory=lambda: {
+            "total_memories": 42,
+            "status_breakdown": {"active": 30, "archived": 8, "deleted": 4},
+            "sessions": {"s1": 10, "s2": 5},
+        }
+    )
 
     async def get_statistics(self):
         return self.stats
@@ -92,6 +96,7 @@ class FakePlugin:
 # on the module's __dict__ to replace it without triggering the proxy.
 # ---------------------------------------------------------------------------
 
+
 def _mock_page_request(**overrides):
     """Build a MagicMock suitable for standing in as ``quart.request``.
 
@@ -141,6 +146,7 @@ def _qp(req=None, **kw):
 # Helper method unit tests (no plugin needed)
 # ---------------------------------------------------------------------------
 
+
 class TestResponseHelpers:
     def test_ok_returns_status_format(self):
         result = PluginPageApi._ok({"items": [1, 2]})
@@ -161,15 +167,18 @@ class TestResponseHelpers:
 
 
 class TestNormalizeMetadata:
-    @pytest.mark.parametrize("raw,expected", [
-        ({"key": "value"}, {"key": "value"}),
-        (None, {}),
-        ("", {}),
-        ('{"a":1}', {"a": 1}),
-        ("not-json", {}),
-        (123, {}),
-        ([1, 2, 3], {}),  # valid JSON but not a dict
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ({"key": "value"}, {"key": "value"}),
+            (None, {}),
+            ("", {}),
+            ('{"a":1}', {"a": 1}),
+            ("not-json", {}),
+            (123, {}),
+            ([1, 2, 3], {}),  # valid JSON but not a dict
+        ],
+    )
     def test_normalize_metadata(self, raw, expected):
         assert PluginPageApi._normalize_metadata(raw) == expected
 
@@ -193,7 +202,9 @@ class TestTokenizeGraphQuery:
         assert all(len(t) >= 2 for t in tokens)
 
     def test_caps_returns_at_most_12(self):
-        tokens = PluginPageApi._tokenize_graph_query("a b c d e f g h i j k l m n o p q r s t u v w x y z")
+        tokens = PluginPageApi._tokenize_graph_query(
+            "a b c d e f g h i j k l m n o p q r s t u v w x y z"
+        )
         assert len(tokens) <= 12
 
     def test_mixed_chinese_english(self):
@@ -206,7 +217,11 @@ class TestBuildGraphViewPayload:
         snapshot = {"nodes": [], "edges": [], "entries": [], "memories": []}
         stats = {"graph_nodes": 0, "graph_edges": 0, "graph_entries": 0}
         result = PluginPageApi._build_graph_view_payload(
-            snapshot, stats, enabled=True, mode="overview", filters={},
+            snapshot,
+            stats,
+            enabled=True,
+            mode="overview",
+            filters={},
         )
         assert result["enabled"] is True
         assert result["mode"] == "overview"
@@ -216,14 +231,19 @@ class TestBuildGraphViewPayload:
 
     def test_nodes_get_highlighted(self):
         snapshot = {
-            "nodes": [{"id": 1, "type": "topic", "weight": 0.8, "degree": 3, "label": "AI"}],
+            "nodes": [
+                {"id": 1, "type": "topic", "weight": 0.8, "degree": 3, "label": "AI"}
+            ],
             "edges": [],
             "entries": [],
             "memories": [],
         }
         stats = {"graph_nodes": 1, "graph_edges": 0, "graph_entries": 0}
         result = PluginPageApi._build_graph_view_payload(
-            snapshot, stats, enabled=True, mode="query",
+            snapshot,
+            stats,
+            enabled=True,
+            mode="query",
             matched_node_ids=[1],
             filters={},
         )
@@ -241,7 +261,11 @@ class TestBuildGraphViewPayload:
         }
         stats = {"graph_nodes": 2, "graph_edges": 0, "graph_entries": 0}
         result = PluginPageApi._build_graph_view_payload(
-            snapshot, stats, enabled=True, mode="overview", filters={},
+            snapshot,
+            stats,
+            enabled=True,
+            mode="overview",
+            filters={},
         )
         top = result["top_nodes"]
         assert top[0]["id"] == 2  # higher weight first
@@ -259,7 +283,11 @@ class TestBuildGraphViewPayload:
         }
         stats = {"graph_nodes": 3, "graph_edges": 0, "graph_entries": 0}
         result = PluginPageApi._build_graph_view_payload(
-            snapshot, stats, enabled=True, mode="overview", filters={},
+            snapshot,
+            stats,
+            enabled=True,
+            mode="overview",
+            filters={},
         )
         breakdown = result["summary"]["node_type_breakdown"]
         assert breakdown.get("topic") == 2
@@ -281,6 +309,7 @@ class TestGetGraphStore:
 # ---------------------------------------------------------------------------
 # Endpoint tests (with mocked plugin)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def api():
@@ -313,9 +342,15 @@ class TestListMemories:
     @pytest.mark.asyncio
     async def test_missing_db_path(self, api):
         api.plugin.initializer.memory_engine.db_path = None
-        req = _mock_page_request(args={
-            "page": "1", "page_size": "20", "session_id": "", "keyword": "", "status": "all",
-        })
+        req = _mock_page_request(
+            args={
+                "page": "1",
+                "page_size": "20",
+                "session_id": "",
+                "keyword": "",
+                "status": "all",
+            }
+        )
         with _patch_page_request(req):
             result = await api.list_memories()
         assert result["status"] == "error"
@@ -323,10 +358,15 @@ class TestListMemories:
 
     @pytest.mark.asyncio
     async def test_invalid_pagination(self, api):
-        req = _mock_page_request(args={
-            "page": "not-a-number", "page_size": "20",
-            "session_id": "", "keyword": "", "status": "all",
-        })
+        req = _mock_page_request(
+            args={
+                "page": "not-a-number",
+                "page_size": "20",
+                "session_id": "",
+                "keyword": "",
+                "status": "all",
+            }
+        )
         with _patch_page_request(req):
             result = await api.list_memories()
         assert result["status"] == "error"
@@ -334,11 +374,19 @@ class TestListMemories:
 
     @pytest.mark.asyncio
     async def test_valid_request(self, api):
-        req = _mock_page_request(args={
-            "page": "1", "page_size": "20", "session_id": "", "keyword": "", "status": "all",
-        })
+        req = _mock_page_request(
+            args={
+                "page": "1",
+                "page_size": "20",
+                "session_id": "",
+                "keyword": "",
+                "status": "all",
+            }
+        )
         with _patch_page_request(req):
-            with patch("astrbot_plugin_livingmemory.core.page_api.aiosqlite") as mock_sqlite:
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api.aiosqlite"
+            ) as mock_sqlite:
                 mock_conn = AsyncMock()
                 mock_conn.execute.return_value = mock_conn
                 mock_conn.fetchone.return_value = {"total": 0}
@@ -370,7 +418,9 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_memory_id_not_integer(self, api):
-        req = _mock_page_request(get_json={"memory_id": "abc", "field": "importance", "value": 0.8})
+        req = _mock_page_request(
+            get_json={"memory_id": "abc", "field": "importance", "value": 0.8}
+        )
         with _patch_page_request(req):
             result = await api.update_memory()
         assert result["status"] == "error"
@@ -385,53 +435,89 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_unsupported_field(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 1, "field": "unsupported", "value": "x",
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "unsupported",
+                "value": "x",
+            }
+        )
         with _patch_page_request(req):
-            with patch.object(PluginPageApi, "_get_memory_record", return_value={"id": 1, "text": "hello", "metadata": {}}):
+            with patch.object(
+                PluginPageApi,
+                "_get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "不支持" in result["message"]
 
     @pytest.mark.asyncio
     async def test_importance_out_of_range(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 1, "field": "importance", "value": 100,
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "importance",
+                "value": 100,
+            }
+        )
         with _patch_page_request(req):
-            with patch.object(PluginPageApi, "_get_memory_record", return_value={"id": 1, "text": "hello", "metadata": {}}):
+            with patch.object(
+                PluginPageApi,
+                "_get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "重要性" in result["message"]
 
     @pytest.mark.asyncio
     async def test_importance_valid_range(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 1, "field": "importance", "value": 8.5,
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "importance",
+                "value": 8.5,
+            }
+        )
         with _patch_page_request(req):
-            with patch.object(PluginPageApi, "_get_memory_record", return_value={"id": 1, "text": "hello", "metadata": {}}):
+            with patch.object(
+                PluginPageApi,
+                "_get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
                 result = await api.update_memory()
         assert result["status"] == "ok"
         assert result["data"]["field"] == "importance"
 
     @pytest.mark.asyncio
     async def test_status_invalid_value(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 1, "field": "status", "value": "invalid",
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "status",
+                "value": "invalid",
+            }
+        )
         with _patch_page_request(req):
-            with patch.object(PluginPageApi, "_get_memory_record", return_value={"id": 1, "text": "hello", "metadata": {}}):
+            with patch.object(
+                PluginPageApi,
+                "_get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "状态" in result["message"]
 
     @pytest.mark.asyncio
     async def test_memory_not_found(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 999, "field": "importance", "value": 0.5,
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 999,
+                "field": "importance",
+                "value": 0.5,
+            }
+        )
         with _patch_page_request(req):
             with patch.object(PluginPageApi, "_get_memory_record", return_value=None):
                 result = await api.update_memory()
@@ -440,11 +526,19 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_content_update_empty_value(self, api):
-        req = _mock_page_request(get_json={
-            "memory_id": 1, "field": "content", "value": "   ",
-        })
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "content",
+                "value": "   ",
+            }
+        )
         with _patch_page_request(req):
-            memory = {"id": 1, "text": "hello", "metadata": {"session_id": "s1", "persona_id": "p1", "importance": 0.5}}
+            memory = {
+                "id": 1,
+                "text": "hello",
+                "metadata": {"session_id": "s1", "persona_id": "p1", "importance": 0.5},
+            }
             with patch.object(PluginPageApi, "_get_memory_record", return_value=memory):
                 result = await api.update_memory()
         assert result["status"] == "error"
@@ -511,26 +605,62 @@ class TestTestRecall:
         assert result["data"]["query"] == "test"
         assert result["data"]["total"] == 0
 
+    @pytest.mark.asyncio
+    async def test_recall_includes_score_breakdown_for_dashboard(self, api):
+        api.plugin.initializer.memory_engine.search_memories = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    doc_id=7,
+                    content="memory",
+                    final_score=0.42,
+                    metadata={"session_id": "s1"},
+                    score_breakdown={
+                        "document_keyword_score": 0.1,
+                        "document_vector_score": 0.2,
+                        "graph_keyword_score": 0.3,
+                        "graph_vector_score": 0.4,
+                    },
+                )
+            ]
+        )
+        req = _mock_page_request(get_json={"query": "test", "k": 5})
+        with _patch_page_request(req):
+            result = await api.test_recall()
+
+        item = result["data"]["results"][0]
+        assert item["score_breakdown"]["graph_vector_score"] == 0.4
+        assert item["metadata"]["document_keyword_score"] == 0.1
+
 
 class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_overview_invalid_params(self, api):
-        req = _mock_page_request(args={
-            "session_id": "", "persona_id": "",
-            "limit_memories": "abc", "limit_entries": "36",
-            "limit_nodes": "48", "limit_edges": "72",
-        })
+        req = _mock_page_request(
+            args={
+                "session_id": "",
+                "persona_id": "",
+                "limit_memories": "abc",
+                "limit_entries": "36",
+                "limit_nodes": "48",
+                "limit_edges": "72",
+            }
+        )
         with _patch_page_request(req):
             result = await api.get_graph_overview()
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_overview_no_graph_store(self, api):
-        req = _mock_page_request(args={
-            "session_id": "", "persona_id": "",
-            "limit_memories": "12", "limit_entries": "36",
-            "limit_nodes": "48", "limit_edges": "72",
-        })
+        req = _mock_page_request(
+            args={
+                "session_id": "",
+                "persona_id": "",
+                "limit_memories": "12",
+                "limit_entries": "36",
+                "limit_nodes": "48",
+                "limit_edges": "72",
+            }
+        )
         with _patch_page_request(req):
             result = await api.get_graph_overview()
         assert result["status"] == "ok"
@@ -538,20 +668,28 @@ class TestGraphEndpoints:
 
     @pytest.mark.asyncio
     async def test_query_invalid_params(self, api):
-        req = _mock_page_request(get_json={
-            "query": "test", "limit_memories": "abc",
-        })
+        req = _mock_page_request(
+            get_json={
+                "query": "test",
+                "limit_memories": "abc",
+            }
+        )
         with _patch_page_request(req):
             result = await api.query_graph()
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_query_empty_no_graph_store(self, api):
-        req = _mock_page_request(get_json={
-            "query": "", "session_id": "",
-            "limit_memories": 10, "limit_entries": 40,
-            "limit_nodes": 56, "limit_edges": 96,
-        })
+        req = _mock_page_request(
+            get_json={
+                "query": "",
+                "session_id": "",
+                "limit_memories": 10,
+                "limit_entries": 40,
+                "limit_nodes": 56,
+                "limit_edges": 96,
+            }
+        )
         with _patch_page_request(req):
             result = await api.query_graph()
         assert result["status"] == "ok"
@@ -575,7 +713,10 @@ class TestListBackups:
 
     @pytest.mark.asyncio
     async def test_with_backup_dir(self, api):
-        with patch("astrbot_plugin_livingmemory.core.page_api.BackupManager.list_backups", return_value=[]):
+        with patch(
+            "astrbot_plugin_livingmemory.core.page_api.BackupManager.list_backups",
+            return_value=[],
+        ):
             result = await api.list_backups()
         assert result["data"]["backups"] == []
         assert result["data"]["total"] == 0
@@ -584,6 +725,7 @@ class TestListBackups:
 # ---------------------------------------------------------------------------
 # Ensure plugin ready helper
 # ---------------------------------------------------------------------------
+
 
 class TestEnsurePluginReady:
     @pytest.mark.asyncio
@@ -613,6 +755,7 @@ class TestEnsurePluginReady:
 # ---------------------------------------------------------------------------
 # Route registration
 # ---------------------------------------------------------------------------
+
 
 class TestRouteRegistration:
     def test_registers_all_eight_routes(self):

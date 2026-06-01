@@ -14,8 +14,9 @@ import time
 from typing import Any
 
 import aiosqlite
-from astrbot.api import logger
 from quart import request
+
+from astrbot.api import logger
 
 from .managers.backup_manager import BackupManager
 
@@ -95,13 +96,23 @@ class PluginPageApi:
             if graph_store is not None:
                 try:
                     snapshot = await graph_store.get_graph_snapshot(
-                        session_id=None, persona_id=None,
-                        limit_memories=1, limit_entries=1, limit_nodes=1, limit_edges=1,
+                        session_id=None,
+                        persona_id=None,
+                        limit_memories=1,
+                        limit_entries=1,
+                        limit_nodes=1,
+                        limit_edges=1,
                     )
-                    summary = (snapshot or {}).get("summary", {}) if isinstance(snapshot, dict) else {}
+                    summary = (
+                        (snapshot or {}).get("summary", {})
+                        if isinstance(snapshot, dict)
+                        else {}
+                    )
                     stats["graph_nodes"] = int(summary.get("graph_node_count", 0) or 0)
                     stats["graph_edges"] = int(summary.get("graph_edge_count", 0) or 0)
-                    stats["graph_entries"] = int(summary.get("graph_entry_count", 0) or 0)
+                    stats["graph_entries"] = int(
+                        summary.get("graph_entry_count", 0) or 0
+                    )
                 except Exception:
                     stats["graph_nodes"] = 0
                     stats["graph_edges"] = 0
@@ -124,18 +135,30 @@ class PluginPageApi:
             # 重要性分布 — 默认零值，前端正常展示
             if "importance_distribution" not in stats:
                 stats["importance_distribution"] = {
-                    "0-1":0,"1-2":0,"2-3":0,"3-4":0,"4-5":0,
-                    "5-6":0,"6-7":0,"7-8":0,"8-9":0,"9-10":0,
+                    "0-1": 0,
+                    "1-2": 0,
+                    "2-3": 0,
+                    "3-4": 0,
+                    "4-5": 0,
+                    "5-6": 0,
+                    "6-7": 0,
+                    "7-8": 0,
+                    "8-9": 0,
+                    "9-10": 0,
                 }
 
             # 最近会话从 sessions 统计数据派生
             session_data = stats.get("sessions", {})
-            stats["recent_sessions"] = [
-                {"session_id": sid, "message_count": cnt}
-                for sid, cnt in sorted(
-                    session_data.items(), key=lambda x: -x[1]
-                )[:10]
-            ] if isinstance(session_data, dict) else []
+            stats["recent_sessions"] = (
+                [
+                    {"session_id": sid, "message_count": cnt}
+                    for sid, cnt in sorted(session_data.items(), key=lambda x: -x[1])[
+                        :10
+                    ]
+                ]
+                if isinstance(session_data, dict)
+                else []
+            )
 
             return self._ok(stats)
         except Exception as exc:
@@ -187,7 +210,9 @@ class PluginPageApi:
         if keyword:
             keyword_like = f"%{keyword}%"
             if keyword.isdigit():
-                where_clauses.append("(CAST(id AS TEXT) = ? OR text LIKE ? COLLATE NOCASE)")
+                where_clauses.append(
+                    "(CAST(id AS TEXT) = ? OR text LIKE ? COLLATE NOCASE)"
+                )
                 params.extend([keyword, keyword_like])
             else:
                 where_clauses.append(
@@ -448,20 +473,30 @@ class PluginPageApi:
 
         formatted_results = []
         for result in results:
+            score_breakdown = {
+                key: round(float(value), 6)
+                for key, value in (
+                    getattr(result, "score_breakdown", None) or {}
+                ).items()
+                if isinstance(value, (int, float))
+            }
+            metadata = {
+                "session_id": result.metadata.get("session_id"),
+                "persona_id": result.metadata.get("persona_id"),
+                "importance": result.metadata.get("importance", 0.5),
+                "memory_type": result.metadata.get("memory_type", "GENERAL"),
+                "status": result.metadata.get("status", "active"),
+                "create_time": result.metadata.get("create_time"),
+            }
+            metadata.update(score_breakdown)
             formatted_results.append(
                 {
                     "memory_id": result.doc_id,
                     "content": result.content,
                     "similarity_score": round(float(result.final_score), 4),
                     "score_percentage": round(float(result.final_score) * 100, 2),
-                    "metadata": {
-                        "session_id": result.metadata.get("session_id"),
-                        "persona_id": result.metadata.get("persona_id"),
-                        "importance": result.metadata.get("importance", 0.5),
-                        "memory_type": result.metadata.get("memory_type", "GENERAL"),
-                        "status": result.metadata.get("status", "active"),
-                        "create_time": result.metadata.get("create_time"),
-                    },
+                    "metadata": metadata,
+                    "score_breakdown": score_breakdown,
                 }
             )
 
