@@ -138,3 +138,17 @@ async def test_handle_memory_recall_awaits_async_get_message_str() -> None:
         handler.memory_engine.search_memories.await_args.kwargs["query"]
         == "async getter text"
     )
+
+
+@pytest.mark.asyncio
+async def test_extract_message_content_skips_unknown_components() -> None:
+    from astrbot.core.message.components import Plain
+
+    handler = _make_handler()
+    event = _make_event()
+    unknown = Mock(type="sticker")
+    event.get_messages = Mock(return_value=[Plain("hello"), unknown])
+
+    content = await handler._extract_message_content(event)
+
+    assert content == "hello"

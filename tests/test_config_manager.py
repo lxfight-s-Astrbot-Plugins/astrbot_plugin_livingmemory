@@ -2,6 +2,8 @@
 Tests for config manager and validator behavior.
 """
 
+from unittest.mock import patch
+
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.base.config_validator import validate_config
 
@@ -42,8 +44,13 @@ def test_config_manager_sections_and_properties() -> None:
 
 def test_invalid_user_config_falls_back_to_defaults() -> None:
     # Invalid type for top_k -> validation fails -> manager falls back to defaults.
-    manager = ConfigManager({"recall_engine": {"top_k": "invalid"}})
+    with patch(
+        "astrbot_plugin_livingmemory.core.base.config_manager.logger.warning"
+    ) as warning:
+        manager = ConfigManager({"recall_engine": {"top_k": "invalid"}})
+
     assert manager.get("recall_engine.top_k") == 5
+    warning.assert_called_once_with("配置验证失败，已降级为默认配置", exc_info=True)
 
 
 def test_validate_config_accepts_merged_model_shape() -> None:

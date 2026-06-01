@@ -1189,7 +1189,12 @@ class EventHandler:
                 else:
                     parts.append("[引用消息]")
             else:
-                parts.append(f"[{component.type}]")
+                component_type = getattr(
+                    component,
+                    "type",
+                    component.__class__.__name__,
+                )
+                logger.debug(f"跳过未知消息组件: {component_type}")
 
         return " ".join(parts).strip()
 
