@@ -95,10 +95,10 @@ async def test_stopwords_manager_materializes_fallback_when_builtin_missing(
 
 
 @pytest.mark.asyncio
-async def test_text_processor_async_init_uses_stopwords_fallback(tmp_path: Path):
+async def test_text_processor_async_init_loads_builtin_stopwords(tmp_path: Path):
     processor = TextProcessor(str(tmp_path))
 
     await processor.async_init()
 
     assert processor.is_stopword("的")
-    assert (tmp_path / "stopwords_hit.txt").exists()
+    assert not (tmp_path / "stopwords_hit.txt").exists()
