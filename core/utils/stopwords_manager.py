@@ -55,14 +55,13 @@ class StopwordsManager:
         # 1. 加载标准停用词表
         if source == "hit":
             # 从仓库内置目录加载
-            filename = f"stopwords_{source}.txt"
-            filepath = self.builtin_stopwords_dir / filename
-
-            if filepath.exists():
+            stopwords_path = await self.get_stopwords(source)
+            filepath = Path(stopwords_path) if stopwords_path else None
+            if filepath and filepath.exists():
                 self.stopwords = await self._load_from_file(filepath)
                 logger.info(f"从内置目录加载停用词: {filepath}")
             else:
-                logger.warning(f"内置停用词文件不存在: {filepath}，使用后备停用词")
+                logger.warning("内置停用词文件不可用，使用后备停用词")
                 self.stopwords = self._get_builtin_stopwords()
         else:
             # 使用自定义文件路径
@@ -352,7 +351,8 @@ class StopwordsManager:
         """
         获取停用词文件路径。
 
-        从仓库内置目录返回停用词文件路径。
+        优先返回仓库内置停用词文件；如果文件不存在，则在用户自定义目录
+        写入一份内置后备停用词，避免调用方拿到不存在的路径。
 
         Args:
             source: 停用词来源 ("hit")
@@ -367,12 +367,34 @@ class StopwordsManager:
             # 检查内置文件是否存在
             if filepath.exists():
                 return str(filepath)
-            else:
-                logger.warning(f"内置停用词文件不存在: {filepath}")
-                return None
+
+            logger.warning(f"内置停用词文件不存在: {filepath}")
+            if self.custom_stopwords_dir:
+                fallback_path = self.custom_stopwords_dir / filename
+                await self._write_fallback_stopwords(fallback_path)
+                return str(fallback_path)
+            return None
         except Exception as e:
             logger.error(f"获取停用词文件失败: {e}")
             return None
+
+    async def _write_fallback_stopwords(self, filepath: Path) -> None:
+        if filepath.exists():
+            return
+
+        try:
+            import aiofiles
+
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            words = sorted(self._get_builtin_stopwords())
+            async with aiofiles.open(filepath, "w", encoding="utf-8") as f:
+                await f.write("# Generated fallback stopwords for LivingMemory\n")
+                for word in words:
+                    await f.write(f"{word}\n")
+            logger.info(f"已生成后备停用词文件: {filepath}")
+        except Exception as e:
+            logger.error(f"生成后备停用词文件失败: {e}")
+            raise
 
 
 # 全局单例

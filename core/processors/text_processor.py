@@ -314,9 +314,9 @@ class TextProcessor:
             from ..utils.stopwords_manager import StopwordsManager
 
             manager = StopwordsManager(self.stopwords_dir)
-            stopwords_path = await manager.get_stopwords()
-            if stopwords_path:
-                await self.load_stopwords(stopwords_path)
+            stopwords = await manager.load_stopwords()
+            if stopwords:
+                self.stopwords.update(stopwords)
 
     def tokenize(self, text: str, remove_stopwords: bool = True) -> list[str]:
         """
@@ -399,6 +399,7 @@ class TextProcessor:
     ) -> list[str]:
         """异步分词：将 CPU 密集型 jieba 分词卸载到线程池，避免阻塞事件循环。"""
         import asyncio
+
         return await asyncio.to_thread(self.tokenize, text, remove_stopwords)
 
     async def load_stopwords(self, stopwords_path: str) -> set[str]:

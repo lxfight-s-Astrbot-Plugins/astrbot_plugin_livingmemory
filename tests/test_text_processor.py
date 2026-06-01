@@ -7,6 +7,7 @@ from pathlib import Path
 import astrbot_plugin_livingmemory.core.processors.text_processor as text_processor_mod
 import pytest
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
+from astrbot_plugin_livingmemory.core.utils.stopwords_manager import StopwordsManager
 
 
 def test_tokenize_handles_empty_and_basic_cleaning():
@@ -61,7 +62,9 @@ def test_tokenize_falls_back_when_jieba_runtime_fails(monkeypatch):
     class BrokenJieba:
         @staticmethod
         def cut_for_search(text):
-            raise AttributeError("module 'pkg_resources' has no attribute 'resource_stream'")
+            raise AttributeError(
+                "module 'pkg_resources' has no attribute 'resource_stream'"
+            )
 
     monkeypatch.setattr(text_processor_mod, "JIEBA_AVAILABLE", True)
     monkeypatch.setattr(text_processor_mod, "JIEBA_RUNTIME_DISABLED", False)
@@ -74,3 +77,28 @@ def test_tokenize_falls_back_when_jieba_runtime_fails(monkeypatch):
     assert tokens
     assert "编" in tokens
     assert text_processor_mod.JIEBA_RUNTIME_DISABLED is True
+
+
+@pytest.mark.asyncio
+async def test_stopwords_manager_materializes_fallback_when_builtin_missing(
+    tmp_path: Path,
+):
+    manager = StopwordsManager(str(tmp_path))
+    manager.builtin_stopwords_dir = tmp_path / "missing"
+
+    stopwords_path = await manager.get_stopwords()
+    loaded = await manager.load_stopwords()
+
+    assert stopwords_path is not None
+    assert Path(stopwords_path).exists()
+    assert "的" in loaded
+
+
+@pytest.mark.asyncio
+async def test_text_processor_async_init_uses_stopwords_fallback(tmp_path: Path):
+    processor = TextProcessor(str(tmp_path))
+
+    await processor.async_init()
+
+    assert processor.is_stopword("的")
+    assert (tmp_path / "stopwords_hit.txt").exists()
