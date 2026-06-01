@@ -767,9 +767,7 @@ async def test_hybrid_retriever_fallback_disabled_raises_on_both_fail():
         rrf_fusion=RRFFusion(k=60),
         config={"fallback_enabled": False},
     )
-    # 两路都失败且 fallback 关闭时，应返回空列表（gather 捕获了异常）
-    # 注意：当前实现中 gather 使用 return_exceptions=True，所以不会直接抛出
-    # 但两路都失败后 bm25_results=None, vector_results=None → 返回 []
+    # 两路都失败且 fallback 关闭时，路由错误会被收敛为失败结果。
     results = await retriever.search("query", k=2)
     assert results == []
 
