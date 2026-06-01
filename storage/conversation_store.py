@@ -3,6 +3,7 @@
 负责管理会话和消息的持久化存储,使用 SQLite 数据库
 """
 
+import json
 import time
 from pathlib import Path
 
@@ -562,8 +563,62 @@ class ConversationStore:
         session_id: str,
         delete_count: int,
     ) -> int:
-        """Delete the oldest messages for a session and refresh its count."""
+        """Delete only summarized oldest messages and refresh the session count."""
         if self.connection is None or delete_count <= 0:
+            return 0
+
+        async with self.connection.execute(
+            """
+            SELECT
+                s.metadata,
+                COUNT(m.id) AS actual_count
+            FROM sessions s
+            LEFT JOIN messages m ON m.session_id = s.session_id
+            WHERE s.session_id = ?
+            GROUP BY s.session_id
+            """,
+            (session_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if not row:
+            return 0
+
+        try:
+            metadata = json.loads(row["metadata"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        try:
+            last_summarized_index = int(metadata.get("last_summarized_index", 0) or 0)
+        except (TypeError, ValueError):
+            last_summarized_index = 0
+        last_summarized_index = max(0, last_summarized_index)
+
+        actual_count = int(row["actual_count"] or 0)
+
+        if last_summarized_index > actual_count:
+            metadata["last_summarized_index"] = 0
+            await self.connection.execute(
+                """
+                UPDATE sessions
+                SET metadata = ?,
+                    message_count = ?
+                WHERE session_id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False), actual_count, session_id),
+            )
+            await self.connection.commit()
+            logger.warning(
+                f"[ConversationStore] 阻止清理未总结消息并重置 last_summarized_index: "
+                f"{session_id} ({last_summarized_index} > {actual_count})"
+            )
+            return 0
+
+        safe_delete_count = min(delete_count, last_summarized_index)
+        if safe_delete_count <= 0:
             return 0
 
         cursor = await self.connection.execute(
@@ -576,16 +631,27 @@ class ConversationStore:
                 LIMIT ?
             )
             """,
-            (session_id, delete_count),
+            (session_id, safe_delete_count),
         )
-        deleted_count = cursor.rowcount
+        deleted_count = max(0, cursor.rowcount)
+        if deleted_count <= 0:
+            return 0
+
+        metadata["last_summarized_index"] = max(
+            0, last_summarized_index - deleted_count
+        )
         await self.connection.execute(
             """
             UPDATE sessions
-            SET message_count = MAX(0, message_count - ?)
+            SET message_count = ?,
+                metadata = ?
             WHERE session_id = ?
             """,
-            (deleted_count, session_id),
+            (
+                max(0, actual_count - deleted_count),
+                json.dumps(metadata, ensure_ascii=False),
+                session_id,
+            ),
         )
         await self.connection.commit()
         return deleted_count

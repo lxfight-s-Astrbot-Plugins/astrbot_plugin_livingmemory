@@ -1270,13 +1270,12 @@ class EventHandler:
                 )
             )
 
-            # 更新 last_summarized_index（减去已删除的数量）
-            new_summarized_index = last_summarized_index - actually_deleted
-            await self.conversation_manager.update_session_metadata(
-                session_id, "last_summarized_index", max(0, new_summarized_index)
-            )
-
             new_actual_count = max(0, actual_count - actually_deleted)
+            new_summarized_index = await self.conversation_manager.get_session_metadata(
+                session_id,
+                "last_summarized_index",
+                max(0, last_summarized_index - actually_deleted),
+            )
 
             # 清除缓存（使用公共接口）
             await self.conversation_manager.invalidate_cache(session_id)

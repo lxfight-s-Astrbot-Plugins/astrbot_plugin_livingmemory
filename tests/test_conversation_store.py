@@ -2,6 +2,7 @@
 Tests for ConversationStore persistence behaviors.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,85 @@ async def test_conversation_store_crud(tmp_path: Path):
     deleted = await store.delete_session_messages("s1")
     assert deleted == 1
     assert await store.get_message_count("s1") == 0
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_trim_session_messages_respects_last_summarized_index(tmp_path: Path):
+    db_path = tmp_path / "trim-safe.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+
+    for index in range(5):
+        msg = Message(
+            id=0,
+            session_id="s-trim",
+            role="user",
+            content=f"content-{index}",
+            sender_id="u1",
+            sender_name="tester",
+            group_id=None,
+            platform="test",
+            metadata={},
+        )
+        await store.add_message(msg)
+
+    await store.connection.execute(
+        "UPDATE sessions SET metadata = ? WHERE session_id = ?",
+        (json.dumps({"last_summarized_index": 2}), "s-trim"),
+    )
+    await store.connection.commit()
+
+    deleted = await store.trim_session_messages("s-trim", 4)
+
+    assert deleted == 2
+    assert await store.get_message_count("s-trim") == 3
+
+    remaining = await store.get_messages_range("s-trim", offset=0, limit=10)
+    assert [message.content for message in remaining] == [
+        "content-2",
+        "content-3",
+        "content-4",
+    ]
+
+    session = await store.get_session("s-trim")
+    assert session is not None
+    assert session.metadata["last_summarized_index"] == 0
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_trim_session_messages_skips_when_no_summary_marker(tmp_path: Path):
+    db_path = tmp_path / "trim-no-marker.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+
+    for index in range(3):
+        msg = Message(
+            id=0,
+            session_id="s-no-marker",
+            role="user",
+            content=f"content-{index}",
+            sender_id="u1",
+            sender_name="tester",
+            group_id=None,
+            platform="test",
+            metadata={},
+        )
+        await store.add_message(msg)
+
+    deleted = await store.trim_session_messages("s-no-marker", 2)
+
+    assert deleted == 0
+    assert await store.get_message_count("s-no-marker") == 3
+    remaining = await store.get_messages_range("s-no-marker", offset=0, limit=10)
+    assert [message.content for message in remaining] == [
+        "content-0",
+        "content-1",
+        "content-2",
+    ]
 
     await store.close()
 

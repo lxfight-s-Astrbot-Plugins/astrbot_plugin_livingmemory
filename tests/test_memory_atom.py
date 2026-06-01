@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from astrbot_plugin_livingmemory.core.models.memory_atom import (
     AtomStatus,
     AtomType,
@@ -15,11 +14,10 @@ from astrbot_plugin_livingmemory.core.models.memory_atom import (
     compute_ttl,
 )
 from astrbot_plugin_livingmemory.core.processors.atom_classifier import (
-    classify_atoms,
     _classify_single,
+    classify_atoms,
 )
 from astrbot_plugin_livingmemory.storage.atom_store import AtomStore
-
 
 # ---------- TTL computation ----------
 
@@ -149,7 +147,13 @@ def test_classify_episodic_atom() -> None:
 
 
 def test_classify_atoms_batch() -> None:
-    facts = ["明天下午3点开会", "张三喜欢喝咖啡", "张三和李四是同事", "张三的生日是5月20日", "张三讨论了Q3计划"]
+    facts = [
+        "明天下午3点开会",
+        "张三喜欢喝咖啡",
+        "张三和李四是同事",
+        "张三的生日是5月20日",
+        "张三讨论了Q3计划",
+    ]
     atoms = classify_atoms(
         key_facts=facts,
         topics=["会议", "偏好"],
@@ -200,6 +204,27 @@ async def test_atom_store_insert_and_retrieve(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_atom_store_insert_many_commits_in_batches(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test_atoms_insert_many.db")
+    store = AtomStore(db_path)
+    await store.initialize()
+
+    atom_count = AtomStore._SQLITE_BATCH_SIZE * 2 + 25
+    atoms = [
+        MemoryAtom(parent_memory_id=99, content=f"batch atom {index}")
+        for index in range(atom_count)
+    ]
+
+    atom_ids = await store.insert_many(atoms)
+
+    assert len(atom_ids) == atom_count
+    assert all(atom.atom_id > 0 for atom in atoms)
+
+    stored = await store.get_by_parent(99)
+    assert len(stored) == atom_count
+
+
+@pytest.mark.asyncio
 async def test_atom_store_fts_search(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test_atoms_fts.db")
     store = AtomStore(db_path)
@@ -232,7 +257,6 @@ async def test_atom_store_lifecycle(tmp_path: Path) -> None:
     )
     atom_id = await store.insert(atom)
     # Manually force override since insert recalculates expiry
-    import aiosqlite
     async with store._connect() as db:
         await db.execute(
             "UPDATE memory_atoms SET expires_at = ?, status = 'active' WHERE id = ?",
@@ -352,7 +376,10 @@ async def test_atom_retriever_session_filter(tmp_path: Path) -> None:
 
     retriever = AtomRetriever(store)
     results = await retriever.search("记忆", k=5, session_id="session_a")
-    assert all(r.metadata.get("session_id") == "session_a" or "公共" in r.content for r in results)
+    assert all(
+        r.metadata.get("session_id") == "session_a" or "公共" in r.content
+        for r in results
+    )
 
 
 # ---------- Classifier edge cases ----------
@@ -571,7 +598,10 @@ async def test_atom_retriever_touch(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_graph_store_semantic_edge_merge(tmp_path: Path) -> None:
-    from astrbot_plugin_livingmemory.core.models.graph_models import GraphEdge, GraphNode
+    from astrbot_plugin_livingmemory.core.models.graph_models import (
+        GraphEdge,
+        GraphNode,
+    )
     from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 
     db_path = str(tmp_path / "test_semantic_edge.db")
@@ -579,7 +609,9 @@ async def test_graph_store_semantic_edge_merge(tmp_path: Path) -> None:
     await store.initialize()
 
     # Create two nodes
-    node_a = GraphNode(node_type="topic", value="项目Alpha", canonical_value="项目alpha")
+    node_a = GraphNode(
+        node_type="topic", value="项目Alpha", canonical_value="项目alpha"
+    )
     node_b = GraphNode(node_type="fact", value="明天发布", canonical_value="明天发布")
     node_a_id = await store.upsert_node(node_a)
     node_b_id = await store.upsert_node(node_b)
@@ -610,9 +642,10 @@ async def test_graph_store_semantic_edge_merge(tmp_path: Path) -> None:
     assert e1_id == e2_id
 
     # Verify EMA-updated confidence: 0.8 * 0.7 + 0.9 * 0.3 = 0.56 + 0.27 = 0.83
-    import aiosqlite
     async with store._connect() as db:
-        cursor = await db.execute("SELECT confidence, weight FROM graph_edges WHERE id = ?", (e1_id,))
+        cursor = await db.execute(
+            "SELECT confidence, weight FROM graph_edges WHERE id = ?", (e1_id,)
+        )
         row = await cursor.fetchone()
     assert row is not None
     assert 0.8 < float(row[0]) <= 0.9  # confidence between old and new
@@ -624,7 +657,10 @@ async def test_graph_store_semantic_edge_merge(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_graph_store_first_edge_no_merge(tmp_path: Path) -> None:
-    from astrbot_plugin_livingmemory.core.models.graph_models import GraphEdge, GraphNode
+    from astrbot_plugin_livingmemory.core.models.graph_models import (
+        GraphEdge,
+        GraphNode,
+    )
     from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 
     db_path = str(tmp_path / "test_edge_no_merge.db")
@@ -648,9 +684,10 @@ async def test_graph_store_first_edge_no_merge(tmp_path: Path) -> None:
     edge_id = await store.add_edge(edge, node_map)
     assert edge_id > 0
 
-    import aiosqlite
     async with store._connect() as db:
-        cursor = await db.execute("SELECT confidence FROM graph_edges WHERE id = ?", (edge_id,))
+        cursor = await db.execute(
+            "SELECT confidence FROM graph_edges WHERE id = ?", (edge_id,)
+        )
         row = await cursor.fetchone()
     assert float(row[0]) == 0.85
 
@@ -662,10 +699,17 @@ async def test_graph_store_first_edge_no_merge(tmp_path: Path) -> None:
 
 def test_graph_extractor_empty_atoms_falls_back_to_legacy() -> None:
     """Empty atoms list is falsy → extract() falls back to legacy path."""
-    from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
+    from astrbot_plugin_livingmemory.core.processors.graph_extractor import (
+        GraphExtractor,
+    )
 
     extractor = GraphExtractor()
-    result = extractor.extract(1, "content", {"canonical_summary": "legacy summary", "key_facts": ["fact1"]}, atoms=[])
+    result = extractor.extract(
+        1,
+        "content",
+        {"canonical_summary": "legacy summary", "key_facts": ["fact1"]},
+        atoms=[],
+    )
     # [] is falsy, so legacy path is used with metadata
     assert len(result.nodes) >= 1
     assert len(result.entries) >= 1
@@ -673,7 +717,9 @@ def test_graph_extractor_empty_atoms_falls_back_to_legacy() -> None:
 
 def test_graph_extractor_atoms_with_entities() -> None:
     from astrbot_plugin_livingmemory.core.models.memory_atom import AtomType, MemoryAtom
-    from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
+    from astrbot_plugin_livingmemory.core.processors.graph_extractor import (
+        GraphExtractor,
+    )
 
     extractor = GraphExtractor()
     atom = MemoryAtom(
@@ -696,7 +742,9 @@ def test_graph_extractor_atoms_with_entities() -> None:
 
 def test_graph_extractor_atoms_no_entities_fallback() -> None:
     from astrbot_plugin_livingmemory.core.models.memory_atom import AtomType, MemoryAtom
-    from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
+    from astrbot_plugin_livingmemory.core.processors.graph_extractor import (
+        GraphExtractor,
+    )
 
     extractor = GraphExtractor()
     # Atom without entities — _add_node("fact") fails if canonicalize returns ""
@@ -738,7 +786,9 @@ def test_classify_atoms_from_metadata_default_config() -> None:
 
 def test_classify_atoms_from_metadata_atom_disabled() -> None:
     """When atom_enabled is False, classify_atoms_from_metadata returns empty list."""
-    from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+    from astrbot_plugin_livingmemory.core.processors.memory_processor import (
+        MemoryProcessor,
+    )
 
     processor = MemoryProcessor(config={"atom_enabled": False})
     atoms = processor.classify_atoms_from_metadata(
@@ -770,7 +820,9 @@ def test_classify_atoms_from_metadata_atom_enabled_returns_atoms() -> None:
 
 def test_classify_atoms_from_metadata_no_key_facts() -> None:
     """When key_facts is empty, classify_atoms_from_metadata returns empty list."""
-    from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+    from astrbot_plugin_livingmemory.core.processors.memory_processor import (
+        MemoryProcessor,
+    )
 
     processor = MemoryProcessor(config={"atom_enabled": True})
     atoms = processor.classify_atoms_from_metadata(
@@ -781,7 +833,9 @@ def test_classify_atoms_from_metadata_no_key_facts() -> None:
 
 def test_legacy_extract_path_unchanged() -> None:
     """When no atoms provided, extract() uses legacy path (backward compatible)."""
-    from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
+    from astrbot_plugin_livingmemory.core.processors.graph_extractor import (
+        GraphExtractor,
+    )
 
     extractor = GraphExtractor()
     result = extractor.extract(
@@ -806,7 +860,9 @@ def test_legacy_extract_path_unchanged() -> None:
 
 
 def test_event_time_parsing_tomorrow() -> None:
-    from astrbot_plugin_livingmemory.core.processors.atom_classifier import _parse_event_time
+    from astrbot_plugin_livingmemory.core.processors.atom_classifier import (
+        _parse_event_time,
+    )
 
     result = _parse_event_time("明天下午3点开会")
     assert result is not None
@@ -815,14 +871,18 @@ def test_event_time_parsing_tomorrow() -> None:
 
 
 def test_event_time_parsing_month_day() -> None:
-    from astrbot_plugin_livingmemory.core.processors.atom_classifier import _parse_event_time
+    from astrbot_plugin_livingmemory.core.processors.atom_classifier import (
+        _parse_event_time,
+    )
 
     result = _parse_event_time("5月30日截止")
     assert result is not None
 
 
 def test_event_time_parsing_no_time() -> None:
-    from astrbot_plugin_livingmemory.core.processors.atom_classifier import _parse_event_time
+    from astrbot_plugin_livingmemory.core.processors.atom_classifier import (
+        _parse_event_time,
+    )
 
     result = _parse_event_time("这是一个普通事实")
     assert result is None

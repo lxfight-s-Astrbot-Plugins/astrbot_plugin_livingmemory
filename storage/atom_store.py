@@ -22,6 +22,8 @@ from ..core.models.memory_atom import (
 class AtomStore:
     """Persist memory atoms with FTS search support."""
 
+    _SQLITE_BATCH_SIZE = 500
+
     def __init__(self, db_path: str):
         self.db_path = db_path
 
@@ -131,16 +133,28 @@ class AtomStore:
         return atom_id
 
     async def insert_many(self, atoms: list[MemoryAtom]) -> list[int]:
-        """Insert atoms in one transaction and return their ids."""
+        """Insert atoms in chunked transactions and return their ids."""
         if not atoms:
             return []
 
         atom_ids: list[int] = []
         async with self._connect() as db:
-            for atom in atoms:
-                self._prepare_atom_for_insert(atom)
-                atom_ids.append(await self._insert_atom(db, atom))
-            await db.commit()
+            for index in range(0, len(atoms), self._SQLITE_BATCH_SIZE):
+                batch = atoms[index : index + self._SQLITE_BATCH_SIZE]
+                batch_atom_ids: list[int] = []
+                prepared_batch: list[MemoryAtom] = []
+                try:
+                    for atom in batch:
+                        self._prepare_atom_for_insert(atom)
+                        prepared_batch.append(atom)
+                        batch_atom_ids.append(await self._insert_atom(db, atom))
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    for atom in prepared_batch:
+                        atom.atom_id = 0
+                    raise
+                atom_ids.extend(batch_atom_ids)
         return atom_ids
 
     def _prepare_atom_for_insert(self, atom: MemoryAtom) -> None:
@@ -494,10 +508,9 @@ class AtomStore:
             return 0
 
         deleted_count = 0
-        chunk_size = 500
         async with self._connect() as db:
-            for index in range(0, len(normalized_ids), chunk_size):
-                batch = normalized_ids[index : index + chunk_size]
+            for index in range(0, len(normalized_ids), self._SQLITE_BATCH_SIZE):
+                batch = normalized_ids[index : index + self._SQLITE_BATCH_SIZE]
                 parent_placeholders = ",".join("?" * len(batch))
                 cursor = await db.execute(
                     f"""

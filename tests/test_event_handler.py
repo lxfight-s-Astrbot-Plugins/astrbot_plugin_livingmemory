@@ -219,9 +219,10 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
     conversation_manager.store.trim_session_messages.assert_awaited_once_with(
         "test:private:sid-1", 20
     )
-    conversation_manager.update_session_metadata.assert_awaited_with(
+    conversation_manager.get_session_metadata.assert_any_await(
         "test:private:sid-1", "last_summarized_index", 60
     )
+    conversation_manager.update_session_metadata.assert_not_awaited()
     conversation_manager.invalidate_cache.assert_awaited_once_with("test:private:sid-1")
 
 
