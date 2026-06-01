@@ -5,12 +5,14 @@
 
 import asyncio
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.star import Context
-from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from astrbot.core.provider.provider import EmbeddingProvider, Provider
 
 from ..storage.conversation_store import ConversationStore
@@ -22,6 +24,8 @@ from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
 from .schedulers.decay_scheduler import DecayScheduler
 from .validators.index_validator import IndexValidator
+
+FaissVecDB: Any = None
 
 
 class PluginInitializer:
@@ -43,8 +47,8 @@ class PluginInitializer:
         # 组件实例
         self.embedding_provider: EmbeddingProvider | None = None
         self.llm_provider: Provider | None = None
-        self.db: FaissVecDB | None = None
-        self.graph_db: FaissVecDB | None = None
+        self.db: Any | None = None
+        self.graph_db: Any | None = None
         self.memory_engine: MemoryEngine | None = None
         self.memory_processor: MemoryProcessor | None = None
         self.db_migration: DBMigration | None = None
@@ -288,6 +292,51 @@ class PluginInitializer:
             return inst_map.get(provider_id)
         return None
 
+    def _check_faiss_runtime(self) -> None:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", "import faiss"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise InitializationError(
+                "FAISS 运行时检查失败，无法安全初始化向量数据库。"
+                "请确认 faiss-cpu 已正确安装，或改用兼容当前 CPU 的 FAISS 包。"
+            ) from exc
+
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout or "").strip()
+            if result.returncode < 0:
+                details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
+            raise InitializationError(
+                "FAISS 初始化失败，当前 CPU 或运行环境可能不兼容 faiss-cpu。"
+                "无 AVX2 的 CPU 上可能触发 Illegal instruction；"
+                "请使用支持 AVX2 的 CPU、安装兼容版本 FAISS，或更换运行环境。"
+                f"{' 原始错误: ' + details if details else ''}"
+            )
+
+    def _load_faiss_vec_db_class(self):
+        global FaissVecDB
+        if FaissVecDB is not None:
+            return FaissVecDB
+
+        self._check_faiss_runtime()
+        try:
+            from astrbot.core.db.vec_db.faiss_impl.vec_db import (
+                FaissVecDB as LoadedFaissVecDB,
+            )
+        except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
+            raise InitializationError(
+                "FAISS 初始化失败，无法加载 AstrBot FaissVecDB。"
+                "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
+            ) from exc
+
+        FaissVecDB = LoadedFaissVecDB
+        return LoadedFaissVecDB
+
     async def _complete_initialization(self):
         """完成完整的初始化流程"""
         if self._initialization_complete:
@@ -309,12 +358,14 @@ class PluginInitializer:
             if not self.llm_provider or not isinstance(self.llm_provider, Provider):
                 raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
 
+            faiss_vec_db_cls = self._load_faiss_vec_db_class()
+
             # 检查索引文件维度与当前 embedding provider 维度是否一致
             await self._check_and_fix_dimension_mismatch(str(index_path))
             if graph_memory_enabled:
                 await self._check_and_fix_dimension_mismatch(str(graph_index_path))
 
-            self.db = FaissVecDB(
+            self.db = faiss_vec_db_cls(
                 str(db_path),
                 str(index_path),
                 self.embedding_provider,
@@ -322,7 +373,7 @@ class PluginInitializer:
             await self.db.initialize()
             self.graph_db = None
             if graph_memory_enabled:
-                self.graph_db = FaissVecDB(
+                self.graph_db = faiss_vec_db_cls(
                     str(graph_doc_path),
                     str(graph_index_path),
                     self.embedding_provider,
@@ -688,7 +739,13 @@ class PluginInitializer:
             return
 
         try:
-            import faiss
+            try:
+                import faiss
+            except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
+                raise InitializationError(
+                    "FAISS 初始化失败，无法读取索引文件。"
+                    "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
+                ) from exc
 
             old_index = faiss.read_index(index_path)
             old_dim = old_index.d
@@ -708,6 +765,8 @@ class PluginInitializer:
                 logger.info(f"已删除不兼容的旧索引文件: {index_path}")
                 logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
 
+        except InitializationError:
+            raise
         except Exception as e:
             quarantine_path = f"{index_path}.corrupt_{int(time.time())}"
             try:

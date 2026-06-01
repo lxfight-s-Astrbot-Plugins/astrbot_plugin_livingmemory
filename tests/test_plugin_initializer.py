@@ -2,10 +2,13 @@
 Tests for PluginInitializer state management and provider resolution.
 """
 
+import subprocess
 from unittest.mock import AsyncMock, Mock
 
+import astrbot_plugin_livingmemory.core.plugin_initializer as plugin_initializer_mod
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.base.exceptions import InitializationError
 from astrbot_plugin_livingmemory.core.plugin_initializer import PluginInitializer
 
 
@@ -63,6 +66,30 @@ def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path)
 
     assert init.embedding_provider is emb
     assert init.llm_provider is llm
+
+
+def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
+    result = subprocess.CompletedProcess(
+        args=[],
+        returncode=-4,
+        stdout="",
+        stderr="Illegal instruction",
+    )
+    monkeypatch.setattr(
+        plugin_initializer_mod.subprocess, "run", Mock(return_value=result)
+    )
+
+    with pytest.raises(InitializationError, match="FAISS 初始化失败"):
+        initializer._check_faiss_runtime()
+
+
+def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
+    class FakeFaissVecDB:
+        pass
+
+    monkeypatch.setattr(plugin_initializer_mod, "FaissVecDB", FakeFaissVecDB)
+
+    assert initializer._load_faiss_vec_db_class() is FakeFaissVecDB
 
 
 @pytest.mark.asyncio
