@@ -902,6 +902,32 @@ def test_event_time_parsing_tomorrow() -> None:
     assert time.time() + 0.8 * 86400 < result < time.time() + 1.2 * 86400
 
 
+def test_event_time_parsing_bare_weekday_uses_next_occurrence(monkeypatch) -> None:
+    from astrbot_plugin_livingmemory.core.processors import atom_classifier
+
+    # 2024-06-05 is Wednesday; bare "周二" should point to the next Tuesday.
+    now = 1717588800.0
+    monkeypatch.setattr(atom_classifier.time, "time", lambda: now)
+
+    result = atom_classifier._parse_event_time("周二开会")
+
+    assert result is not None
+    assert result == now + 6 * 86400
+
+
+def test_event_time_parsing_explicit_next_week(monkeypatch) -> None:
+    from astrbot_plugin_livingmemory.core.processors import atom_classifier
+
+    # 2024-06-05 is Wednesday; "下周二" is six days after this Wednesday.
+    now = 1717588800.0
+    monkeypatch.setattr(atom_classifier.time, "time", lambda: now)
+
+    result = atom_classifier._parse_event_time("下周二提交方案")
+
+    assert result is not None
+    assert result == now + 6 * 86400
+
+
 def test_event_time_parsing_month_day() -> None:
     from astrbot_plugin_livingmemory.core.processors.atom_classifier import (
         _parse_event_time,

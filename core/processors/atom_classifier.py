@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from datetime import datetime, timedelta
 
 from ..models.memory_atom import AtomType, DecayType, MemoryAtom, compute_ttl
-
 
 # ---------- classification patterns (Chinese-focused, extensible) ----------
 
 _TIME_INDICATORS = re.compile(
-    r"明天|后天|大后天|昨天|前天|今天|下周|下下周|下周[一二三四五六日]|"
-    r"本周[一二三四五六日]|上周[一二三四五六日]|"
+    r"明天|后天|大后天|昨天|前天|今天|"
+    r"(?:上周|本周|下下周|下周)?周[一二三四五六日天]|"
+    r"上周|本周|下下周|下周|"
     r"下个?月|上个?月|明年|后年|去年|前年|"
     r"\d{1,2}月\d{1,2}[日号]|\d{4}年\d{1,2}月|"
     r"上午|下午|晚上|凌晨|早上|中午|傍晚|"
@@ -42,6 +42,41 @@ _PERSON_PATTERNS = re.compile(
     r"[a-zA-Z一-鿿]{1,3})"
 )
 
+_WEEKDAY_INDEX = {
+    "一": 0,
+    "二": 1,
+    "三": 2,
+    "四": 3,
+    "五": 4,
+    "六": 5,
+    "日": 6,
+    "天": 6,
+}
+
+
+def _parse_weekday_time(text: str, now: float) -> float | None:
+    """Parse Chinese weekday expressions into the intended calendar date."""
+    match = re.search(r"(上周|本周|下下周|下周)?周([一二三四五六日天])", text)
+    if not match:
+        return None
+
+    prefix = match.group(1) or ""
+    target_weekday = _WEEKDAY_INDEX[match.group(2)]
+    now_dt = datetime.fromtimestamp(now)
+
+    if prefix == "上周":
+        days_delta = target_weekday - now_dt.weekday() - 7
+    elif prefix == "本周":
+        days_delta = target_weekday - now_dt.weekday()
+    elif prefix == "下周":
+        days_delta = target_weekday - now_dt.weekday() + 7
+    elif prefix == "下下周":
+        days_delta = target_weekday - now_dt.weekday() + 14
+    else:
+        days_delta = (target_weekday - now_dt.weekday()) % 7
+
+    return (now_dt + timedelta(days=days_delta)).timestamp()
+
 
 def _parse_event_time(text: str) -> float | None:
     """Best-effort extraction of an absolute timestamp from Chinese time expressions.
@@ -52,28 +87,39 @@ def _parse_event_time(text: str) -> float | None:
     day_sec = 86400.0
 
     mapping: dict[str, float] = {
-        "前天": -2 * day_sec, "昨天": -1 * day_sec, "今天": 0,
-        "明天": 1 * day_sec, "后天": 2 * day_sec, "大后天": 3 * day_sec,
+        "前天": -2 * day_sec,
+        "昨天": -1 * day_sec,
+        "今天": 0,
+        "明天": 1 * day_sec,
+        "后天": 2 * day_sec,
+        "大后天": 3 * day_sec,
     }
     for word, offset in mapping.items():
         if word in text:
             return now + offset
 
-    week_offset: dict[str, float] = {}
-    for i, day in enumerate(["周一", "周二", "周三", "周四", "周五", "周六", "周日", "周天"]):
-        week_offset[day] = float(i)
+    weekday_time = _parse_weekday_time(text, now)
+    if weekday_time is not None:
+        return weekday_time
 
-    for day, base in week_offset.items():
-        if day in text:
-            return now + (base * day_sec)
+    week_mapping: dict[str, float] = {
+        "上周": -7 * day_sec,
+        "本周": 0,
+        "下下周": 14 * day_sec,
+        "下周": 7 * day_sec,
+    }
+    for word, offset in week_mapping.items():
+        if word in text:
+            return now + offset
 
     # month/day format like "5月30日"
     m = re.search(r"(\d{1,2})月(\d{1,2})[日号]", text)
     if m:
-        import datetime
         month, day = int(m.group(1)), int(m.group(2))
-        now_dt = datetime.datetime.fromtimestamp(now)
-        target = now_dt.replace(month=month, day=day, hour=0, minute=0, second=0, microsecond=0)
+        now_dt = datetime.fromtimestamp(now)
+        target = now_dt.replace(
+            month=month, day=day, hour=0, minute=0, second=0, microsecond=0
+        )
         if target < now_dt:
             target = target.replace(year=now_dt.year + 1)
         return target.timestamp()
