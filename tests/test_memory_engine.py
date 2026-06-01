@@ -7,10 +7,13 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
 
-import pytest
 import aiosqlite
+import pytest
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+from astrbot_plugin_livingmemory.core.models.memory_atom import MemoryAtom
+from astrbot_plugin_livingmemory.storage.atom_store import AtomStore
 
 
 @dataclass
@@ -292,6 +295,307 @@ async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
     await engine.close()
 
 
+@pytest.mark.asyncio
+async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_write(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "memory_cache.db"
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=faiss,
+        config={
+            "fallback_enabled": True,
+            "search_cache_enabled": True,
+            "search_cache_ttl_seconds": 60,
+            "search_cache_max_size": 8,
+        },
+    )
+    await engine.initialize()
+
+    await engine.add_memory(
+        content="缓存测试：用户喜欢苹果",
+        session_id="test:private:s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    calls = 0
+    original_search = engine.hybrid_retriever.search
+
+    async def counted_search(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return await original_search(*args, **kwargs)
+
+    engine.hybrid_retriever.search = counted_search
+
+    first = await engine.search_memories(
+        query="苹果", k=3, session_id="test:private:s1", persona_id="p1"
+    )
+    second = await engine.search_memories(
+        query="  苹果  ", k=3, session_id="test:private:s1", persona_id="p1"
+    )
+    assert [item.doc_id for item in second] == [item.doc_id for item in first]
+    assert calls == 1
+
+    await engine.add_memory(
+        content="缓存测试：用户喜欢香蕉",
+        session_id="test:private:s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+    await engine.search_memories(
+        query="苹果", k=3, session_id="test:private:s1", persona_id="p1"
+    )
+    assert calls == 2
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_write_ops_record_completed_add(tmp_path: Path):
+    db_path = tmp_path / "write_ops.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+
+    mid = await engine.add_memory(
+        content="写操作日志测试",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.7,
+        metadata={},
+    )
+    assert mid > 0
+
+    cursor = await engine.db_connection.execute(
+        """
+        SELECT op_type, memory_id, status, step
+        FROM memory_write_ops
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    assert row["op_type"] == "add"
+    assert row["memory_id"] == mid
+    assert row["status"] == "completed"
+    assert row["step"] == "completed"
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_atom_fallback_skips_previously_inserted_atoms(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "atom_partial_fallback.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"graph_memory_enabled": True, "graph_memory_atom_enabled": True},
+    )
+    await engine.initialize()
+    engine.atom_store = Mock()
+    engine.atom_store.insert_many = AsyncMock(side_effect=RuntimeError("batch failed"))
+    engine.atom_store.insert = AsyncMock()
+
+    inserted_atom = MemoryAtom(parent_memory_id=0, content="already inserted")
+    inserted_atom.atom_id = 42
+    pending_atom = MemoryAtom(parent_memory_id=0, content="pending insert")
+
+    memory_id = await engine.add_memory(
+        content="fallback atom test",
+        session_id="s1",
+        persona_id="p1",
+        atoms=[inserted_atom, pending_atom],
+    )
+
+    assert memory_id > 0
+    engine.atom_store.insert.assert_awaited_once_with(pending_atom)
+
+    cursor = await engine.db_connection.execute(
+        """
+        SELECT status, step
+        FROM memory_write_ops
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    assert row["status"] == "completed"
+    assert row["step"] == "completed"
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_repair_inserts_failed_atoms_when_parent_has_atoms(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "atom_partial_repair.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"graph_memory_enabled": True, "graph_memory_atom_enabled": True},
+    )
+    await engine.initialize()
+    engine.atom_store = AtomStore(str(db_path))
+    await engine.atom_store.initialize()
+
+    memory_id = await engine.hybrid_retriever.add_memory(
+        "partial repair source",
+        {
+            "session_id": "s1",
+            "persona_id": "p1",
+            "importance": 0.7,
+            "create_time": time.time(),
+            "last_access_time": time.time(),
+        },
+    )
+    existing_atom = MemoryAtom(
+        parent_memory_id=memory_id,
+        content="already stored",
+        session_id="s1",
+        persona_id="p1",
+    )
+    await engine.atom_store.insert(existing_atom)
+
+    failed_atom = MemoryAtom(
+        parent_memory_id=memory_id,
+        content="repair me",
+        session_id="s1",
+        persona_id="p1",
+    )
+    op_id = await engine._start_write_op(
+        "add",
+        {
+            "session_id": "s1",
+            "persona_id": "p1",
+            "failed_atoms": [engine._serialize_atom_for_repair(failed_atom)],
+        },
+        memory_id=memory_id,
+    )
+
+    repaired = await engine._repair_add_write_op(
+        op_id,
+        memory_id,
+        {
+            "session_id": "s1",
+            "persona_id": "p1",
+            "failed_atoms": [engine._serialize_atom_for_repair(failed_atom)],
+        },
+    )
+
+    assert repaired is True
+    stored = await engine.atom_store.get_by_parent(memory_id)
+    assert {atom.content for atom in stored} == {"already stored", "repair me"}
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_engine_access_count_increments_and_slows_decay(tmp_path: Path):
+    db_path = tmp_path / "access_decay.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "access_decay_window_days": 30,
+            "access_decay_max_count": 10,
+            "access_count_decay_multiplier": 0.5,
+        },
+    )
+    await engine.initialize()
+
+    now = time.time()
+    low_access_id = await engine.add_memory(
+        content="低访问记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+    high_access_id = await engine.add_memory(
+        content="高访问记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.8,
+        metadata={},
+    )
+
+    await engine.db_connection.execute(
+        """
+        INSERT OR REPLACE INTO documents(
+            id, doc_id, text, metadata, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (
+            low_access_id,
+            f"uuid-{low_access_id}",
+            "低访问记忆",
+            json.dumps(
+                {
+                    "importance": 0.8,
+                    "last_access_time": now,
+                    "access_count": 0,
+                }
+            ),
+        ),
+    )
+    await engine.db_connection.execute(
+        """
+        INSERT OR REPLACE INTO documents(
+            id, doc_id, text, metadata, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (
+            high_access_id,
+            f"uuid-{high_access_id}",
+            "高访问记忆",
+            json.dumps(
+                {
+                    "importance": 0.8,
+                    "last_access_time": now,
+                    "access_count": 10,
+                }
+            ),
+        ),
+    )
+    await engine.db_connection.commit()
+
+    await engine._update_access_time_internal(low_access_id)
+    cursor = await engine.db_connection.execute(
+        "SELECT metadata FROM documents WHERE id = ?",
+        (low_access_id,),
+    )
+    row = await cursor.fetchone()
+    assert json.loads(row["metadata"])["access_count"] == 1
+
+    affected = await engine.apply_daily_decay(decay_rate=0.1, days=1)
+    assert affected >= 2
+
+    cursor = await engine.db_connection.execute(
+        "SELECT id, metadata FROM documents WHERE id IN (?, ?)",
+        (low_access_id, high_access_id),
+    )
+    rows = await cursor.fetchall()
+    metadata_by_id = {row["id"]: json.loads(row["metadata"]) for row in rows}
+    assert (
+        metadata_by_id[high_access_id]["importance"]
+        > metadata_by_id[low_access_id]["importance"]
+    )
+    assert metadata_by_id[high_access_id]["access_count"] == 5
+
+    await engine.close()
+
+
 # ── MemoryEngine 过滤/衰减/清理边界测试 ──────────────────────────────────────
 
 
@@ -437,7 +741,9 @@ async def test_memory_engine_cleanup_negative_days_returns_zero(tmp_path: Path):
         metadata={},
     )
 
-    result = await engine.cleanup_old_memories(days_threshold=-1, importance_threshold=0.5)
+    result = await engine.cleanup_old_memories(
+        days_threshold=-1, importance_threshold=0.5
+    )
     assert result == 0
 
     await engine.close()
@@ -482,7 +788,9 @@ async def test_memory_engine_cleanup_zero_days_deletes_low_importance(tmp_path: 
         )
         await engine.db_connection.commit()
 
-    deleted = await engine.cleanup_old_memories(days_threshold=0, importance_threshold=0.5)
+    deleted = await engine.cleanup_old_memories(
+        days_threshold=0, importance_threshold=0.5
+    )
     assert deleted >= 1
     assert await engine.get_memory(high_id) is not None
 
@@ -490,7 +798,9 @@ async def test_memory_engine_cleanup_zero_days_deletes_low_importance(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_memory_engine_update_memory_content_creates_new_deletes_old(tmp_path: Path):
+async def test_memory_engine_update_memory_content_creates_new_deletes_old(
+    tmp_path: Path,
+):
     """update_memory 更新内容时，应先创建新记忆再删除旧记忆。"""
     db_path = tmp_path / "update.db"
     engine = MemoryEngine(
@@ -744,7 +1054,11 @@ async def test_cleanup_old_memories_uses_batch_delete(tmp_path: Path):
             "id": mid,
             "doc_id": f"uuid-{mid}",
             "text": f"待清理记忆{i}",
-            "metadata": {"importance": 0.1, "create_time": old_time, "session_id": "s1"},
+            "metadata": {
+                "importance": 0.1,
+                "create_time": old_time,
+                "session_id": "s1",
+            },
         }
         ids.append(mid)
 
@@ -784,8 +1098,11 @@ async def test_update_memory_rollback_on_delete_failure(tmp_path: Path):
     await engine.initialize()
 
     old_id = await engine.add_memory(
-        content="旧内容", session_id="s1", persona_id="p1",
-        importance=0.7, metadata={},
+        content="旧内容",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.7,
+        metadata={},
     )
 
     original_delete = engine.delete_memory
@@ -819,8 +1136,11 @@ async def test_update_memory_add_fails_returns_false(tmp_path: Path):
     await engine.initialize()
 
     old_id = await engine.add_memory(
-        content="旧内容", session_id="s1", persona_id="p1",
-        importance=0.7, metadata={},
+        content="旧内容",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.7,
+        metadata={},
     )
 
     delete_called = False
@@ -865,15 +1185,21 @@ async def test_get_session_memories_batch_pagination(tmp_path: Path):
             "create_time": create_time,
         }
         faiss.docs[mid] = {
-            "id": mid, "doc_id": f"uuid-{mid}",
-            "text": f"测试记忆内容 {i}", "metadata": dict(metadata),
+            "id": mid,
+            "doc_id": f"uuid-{mid}",
+            "text": f"测试记忆内容 {i}",
+            "metadata": dict(metadata),
         }
         if engine.db_connection is not None:
             await engine.db_connection.execute(
                 "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-                (mid, f"uuid-{mid}", f"测试记忆内容 {i}",
-                 json.dumps(metadata, ensure_ascii=False)),
+                (
+                    mid,
+                    f"uuid-{mid}",
+                    f"测试记忆内容 {i}",
+                    json.dumps(metadata, ensure_ascii=False),
+                ),
             )
     if engine.db_connection is not None:
         await engine.db_connection.commit()
@@ -908,7 +1234,8 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
         mid = faiss._next_id
         faiss._next_id += 1
         faiss.docs[mid] = {
-            "id": mid, "doc_id": f"uuid-{mid}",
+            "id": mid,
+            "doc_id": f"uuid-{mid}",
             "text": f"test fts {i}",
             "metadata": {"importance": 0.5, "session_id": "s1"},
         }
@@ -920,8 +1247,12 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
             await engine.db_connection.execute(
                 "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-                (doc["id"], doc["doc_id"], doc["text"],
-                 json.dumps(doc["metadata"], ensure_ascii=False)),
+                (
+                    doc["id"],
+                    doc["doc_id"],
+                    doc["text"],
+                    json.dumps(doc["metadata"], ensure_ascii=False),
+                ),
             )
             await engine.db_connection.execute(
                 "INSERT INTO livingmemory_memories_fts(doc_id, content) VALUES (?, ?)",
@@ -935,7 +1266,8 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
     if engine.db_connection is not None:
         for mid in ids:
             cursor = await engine.db_connection.execute(
-                "SELECT COUNT(*) FROM livingmemory_memories_fts WHERE doc_id = ?", (mid,)
+                "SELECT COUNT(*) FROM livingmemory_memories_fts WHERE doc_id = ?",
+                (mid,),
             )
             row = await cursor.fetchone()
             assert row[0] == 0
@@ -956,7 +1288,8 @@ async def test_batch_delete_faiss_failure_continues(tmp_path: Path):
         mid = faiss._next_id
         faiss._next_id += 1
         faiss.docs[mid] = {
-            "id": mid, "doc_id": f"uuid-{mid}",
+            "id": mid,
+            "doc_id": f"uuid-{mid}",
             "text": f"test {i}",
             "metadata": {"importance": 0.5, "session_id": "s1"},
         }
@@ -968,8 +1301,12 @@ async def test_batch_delete_faiss_failure_continues(tmp_path: Path):
             await engine.db_connection.execute(
                 "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-                (doc["id"], doc["doc_id"], doc["text"],
-                 json.dumps(doc["metadata"], ensure_ascii=False)),
+                (
+                    doc["id"],
+                    doc["doc_id"],
+                    doc["text"],
+                    json.dumps(doc["metadata"], ensure_ascii=False),
+                ),
             )
             await engine.db_connection.execute(
                 "INSERT INTO livingmemory_memories_fts(doc_id, content) VALUES (?, ?)",

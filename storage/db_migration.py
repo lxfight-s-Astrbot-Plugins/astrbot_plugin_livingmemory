@@ -17,7 +17,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 7
+    CURRENT_VERSION = 8
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -28,6 +28,7 @@ class DBMigration:
         5: "Graph memory - graph tables and dual-route retrieval metadata",
         6: "插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 安全重命名备份",
         7: "Storage indexes and FTS optimization for graph and atom data",
+        8: "Write-operation log and access-aware metadata indexes",
     }
 
     def __init__(self, db_path: str):
@@ -234,6 +235,10 @@ class DBMigration:
                 # 从版本6升级到版本7
                 if current_version <= 6:
                     migration_steps.append(self._migrate_v6_to_v7)
+
+                # 从版本7升级到版本8
+                if current_version <= 7:
+                    migration_steps.append(self._migrate_v7_to_v8)
 
                 # 执行所有迁移步骤
                 for step in migration_steps:
@@ -658,6 +663,86 @@ class DBMigration:
 
         except Exception as e:
             logger.error(f"v6 -> v7 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _migrate_v7_to_v8(
+        self,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """Add write-operation log and expression indexes for hot metadata fields."""
+        logger.info("执行迁移步骤: v7 -> v8 (write ops and hot metadata indexes)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA busy_timeout = 10000")
+                await db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS memory_write_ops (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        op_type TEXT NOT NULL,
+                        memory_id INTEGER,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        step TEXT NOT NULL DEFAULT 'started',
+                        payload TEXT DEFAULT '{}',
+                        error TEXT,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_status
+                    ON memory_write_ops(status, updated_at)
+                    """
+                )
+                await db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_memory
+                    ON memory_write_ops(memory_id, op_type)
+                    """
+                )
+
+                if await self._table_exists(db, "documents"):
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_doc_persona_metadata
+                        ON documents(json_extract(metadata, '$.persona_id'))
+                        """
+                    )
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_doc_importance_metadata
+                        ON documents(json_extract(metadata, '$.importance'))
+                        """
+                    )
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
+                        ON documents(json_extract(metadata, '$.last_access_time'))
+                        """
+                    )
+                    await db.execute(
+                        """
+                        UPDATE documents
+                        SET metadata = json_set(
+                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
+                            '$.access_count',
+                            COALESCE(json_extract(metadata, '$.access_count'), 0)
+                        )
+                        WHERE json_valid(
+                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}')
+                        )
+                        """
+                    )
+
+                await db.commit()
+
+            logger.info("v7 -> v8 迁移完成")
+
+        except Exception as e:
+            logger.error(f"v7 -> v8 迁移失败: {e}", exc_info=True)
             raise
 
     async def _table_exists(self, db: aiosqlite.Connection, table_name: str) -> bool:

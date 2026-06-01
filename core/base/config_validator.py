@@ -71,6 +71,15 @@ class RecallEngineConfig(BaseModel):
         default=False,
         description="启用后使用最近2轮对话作为扩展查询关键词，提升检索精准度",
     )
+    search_cache_enabled: bool = Field(
+        default=True, description="是否启用短期检索结果缓存"
+    )
+    search_cache_ttl_seconds: float = Field(
+        default=45.0, ge=0.0, le=600.0, description="检索缓存 TTL 秒数"
+    )
+    search_cache_max_size: int = Field(
+        default=256, ge=0, le=10000, description="检索缓存最大条目数"
+    )
 
 
 class FusionStrategyConfig(BaseModel):
@@ -132,6 +141,15 @@ class ImportanceDecayConfig(BaseModel):
     """重要性衰减配置"""
 
     decay_rate: float = Field(default=0.01, ge=0.0, le=1.0, description="每日衰减率")
+    access_decay_window_days: float = Field(
+        default=30.0, ge=1.0, le=3650.0, description="访问频次强化的有效窗口天数"
+    )
+    access_decay_max_count: int = Field(
+        default=10, ge=1, le=10000, description="抵消衰减所需的访问次数上限"
+    )
+    access_count_decay_multiplier: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="每日衰减后访问次数保留比例"
+    )
 
 
 class MigrationSettings(BaseModel):
@@ -179,6 +197,15 @@ class GraphMemoryConfig(BaseModel):
     )
     expansion_limit: int = Field(
         default=24, ge=1, le=200, description="图邻居扩展候选上限"
+    )
+    expansion_hops: int = Field(
+        default=1, ge=1, le=2, description="图关键词检索邻居扩展跳数"
+    )
+    second_hop_weight: float = Field(
+        default=0.4, ge=0.0, le=1.0, description="二跳图扩展候选权重"
+    )
+    dynamic_route_weighting: bool = Field(
+        default=True, description="是否按查询意图动态调整文档路和图路权重"
     )
     max_topics_per_memory: int = Field(
         default=6, ge=1, le=20, description="单条记忆最多索引主题数"

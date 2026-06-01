@@ -4,8 +4,10 @@
 """
 
 import asyncio
+import copy
 import json
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ from ...storage.atom_store import AtomStore
 from ...storage.graph_store import GraphStore
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
 from ..managers.graph_memory_manager import GraphMemoryManager
+from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
 from ..processors.graph_extractor import GraphExtractor
 from ..processors.text_processor import TextProcessor
 from ..retrieval.atom_retriever import AtomRetriever
@@ -133,6 +136,19 @@ class MemoryEngine:
         self.atom_lifecycle_manager = None
         self.atom_retriever = None
         self.db_connection = None
+        self._search_cache_enabled = bool(self.config.get("search_cache_enabled", True))
+        self._search_cache_ttl = float(
+            self.config.get("search_cache_ttl_seconds", 45.0)
+        )
+        self._search_cache_max_size = int(self.config.get("search_cache_max_size", 256))
+        self._search_cache_generation = 0
+        self._search_cache: OrderedDict[
+            tuple[Any, ...], tuple[float, list[HybridResult]]
+        ] = OrderedDict()
+        self._write_op_repair_enabled = bool(
+            self.config.get("write_op_repair_enabled", True)
+        )
+        self._write_op_max_retries = int(self.config.get("write_op_max_retries", 3))
 
     async def initialize(self):
         """
@@ -213,6 +229,9 @@ class MemoryEngine:
                 self.config,
             )
 
+        if self._write_op_repair_enabled:
+            await self._repair_incomplete_write_ops()
+
     async def close(self):
         """关闭数据库连接和清理资源"""
         if self.atom_lifecycle_manager is not None:
@@ -233,6 +252,456 @@ class MemoryEngine:
         task = asyncio.create_task(coro)
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+
+    async def _create_write_ops_table(self) -> None:
+        """Create the resumable write-operation log."""
+        if self.db_connection is None:
+            return
+        await self.db_connection.execute("""
+            CREATE TABLE IF NOT EXISTS memory_write_ops (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_type TEXT NOT NULL,
+                memory_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                step TEXT NOT NULL DEFAULT 'started',
+                payload TEXT DEFAULT '{}',
+                error TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memory_write_ops_status
+            ON memory_write_ops(status, updated_at)
+        """)
+        await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memory_write_ops_memory
+            ON memory_write_ops(memory_id, op_type)
+        """)
+
+    async def _start_write_op(
+        self,
+        op_type: str,
+        payload: dict[str, Any] | None = None,
+        memory_id: int | None = None,
+    ) -> int | None:
+        """Record the beginning of a multi-store write operation."""
+        if self.db_connection is None:
+            return None
+        now = time.time()
+        try:
+            cursor = await self.db_connection.execute(
+                """
+                INSERT INTO memory_write_ops(
+                    op_type, memory_id, status, step, payload,
+                    created_at, updated_at
+                ) VALUES (?, ?, 'pending', 'started', ?, ?, ?)
+                """,
+                (
+                    op_type,
+                    memory_id,
+                    json.dumps(payload or {}, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            await self.db_connection.commit()
+            return int(cursor.lastrowid)
+        except Exception:
+            logger.debug("[MemoryEngine] 写操作日志创建失败", exc_info=True)
+            return None
+
+    async def _advance_write_op(
+        self,
+        op_id: int | None,
+        step: str,
+        *,
+        status: str = "pending",
+        memory_id: int | None = None,
+        error: str | None = None,
+        payload_patch: dict[str, Any] | None = None,
+    ) -> None:
+        """Advance a write-operation log entry."""
+        if op_id is None or self.db_connection is None:
+            return
+
+        try:
+            if status == "completed":
+                error = None
+            current_payload: dict[str, Any] = {}
+            if payload_patch:
+                cursor = await self.db_connection.execute(
+                    "SELECT payload FROM memory_write_ops WHERE id = ?",
+                    (op_id,),
+                )
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    try:
+                        loaded = json.loads(row[0])
+                        current_payload = loaded if isinstance(loaded, dict) else {}
+                    except (json.JSONDecodeError, TypeError):
+                        current_payload = {}
+                current_payload.update(payload_patch)
+
+            fields = ["status = ?", "step = ?", "updated_at = ?"]
+            params: list[Any] = [status, step, time.time()]
+            if memory_id is not None:
+                fields.append("memory_id = ?")
+                params.append(memory_id)
+            if error is not None:
+                fields.append("error = ?")
+                params.append(error[:1000])
+                if status != "completed":
+                    fields.append("retry_count = retry_count + 1")
+            elif status == "completed":
+                fields.append("error = NULL")
+            if payload_patch:
+                fields.append("payload = ?")
+                params.append(json.dumps(current_payload, ensure_ascii=False))
+            params.append(op_id)
+            await self.db_connection.execute(
+                f"UPDATE memory_write_ops SET {', '.join(fields)} WHERE id = ?",
+                params,
+            )
+            await self.db_connection.commit()
+        except Exception:
+            logger.debug("[MemoryEngine] 写操作日志更新失败", exc_info=True)
+
+    def _normalize_cache_query(self, query: str) -> str:
+        return " ".join(query.casefold().split())
+
+    def _search_cache_key(
+        self,
+        query: str,
+        k: int,
+        session_id: str | None,
+        persona_id: str | None,
+    ) -> tuple[Any, ...]:
+        return (
+            self._search_cache_generation,
+            self._normalize_cache_query(query),
+            int(k),
+            session_id or "",
+            persona_id or "",
+            bool(self.dual_route_retriever is not None),
+            round(float(self.config.get("document_route_weight", 0.65)), 4),
+            round(float(self.config.get("graph_route_weight", 0.35)), 4),
+            int(self.config.get("graph_expansion_hops", 1)),
+        )
+
+    def _get_cached_search_results(
+        self,
+        cache_key: tuple[Any, ...],
+    ) -> list[HybridResult] | None:
+        if (
+            not self._search_cache_enabled
+            or self._search_cache_ttl <= 0
+            or self._search_cache_max_size <= 0
+        ):
+            return None
+
+        cached = self._search_cache.get(cache_key)
+        if cached is None:
+            return None
+
+        cached_at, results = cached
+        if time.time() - cached_at > self._search_cache_ttl:
+            self._search_cache.pop(cache_key, None)
+            return None
+
+        self._search_cache.move_to_end(cache_key)
+        return copy.deepcopy(results)
+
+    def _set_cached_search_results(
+        self,
+        cache_key: tuple[Any, ...],
+        results: list[HybridResult],
+    ) -> None:
+        if (
+            not self._search_cache_enabled
+            or self._search_cache_ttl <= 0
+            or self._search_cache_max_size <= 0
+        ):
+            return
+
+        self._search_cache[cache_key] = (time.time(), copy.deepcopy(results))
+        self._search_cache.move_to_end(cache_key)
+        while len(self._search_cache) > self._search_cache_max_size:
+            self._search_cache.popitem(last=False)
+
+    def _invalidate_search_cache(self) -> None:
+        """Invalidate cached retrieval results after memory writes."""
+        self._search_cache_generation += 1
+        self._search_cache.clear()
+
+    def _serialize_atom_for_repair(self, atom: Any) -> dict[str, Any]:
+        """Convert a MemoryAtom-like object into JSON-safe repair payload."""
+        atom_type = getattr(atom, "atom_type", AtomType.UNKNOWN)
+        decay_type = getattr(atom, "decay_type", DecayType.EXPONENTIAL)
+        status = getattr(atom, "status", AtomStatus.ACTIVE)
+        return {
+            "parent_memory_id": int(getattr(atom, "parent_memory_id", 0) or 0),
+            "atom_type": getattr(atom_type, "value", str(atom_type)),
+            "content": str(getattr(atom, "content", "")),
+            "entities": list(getattr(atom, "entities", []) or []),
+            "importance": float(getattr(atom, "importance", 0.5) or 0.5),
+            "confidence": float(getattr(atom, "confidence", 0.7) or 0.7),
+            "created_at": float(
+                getattr(atom, "created_at", time.time()) or time.time()
+            ),
+            "last_accessed_at": float(
+                getattr(atom, "last_accessed_at", time.time()) or time.time()
+            ),
+            "last_reinforced_at": getattr(atom, "last_reinforced_at", None),
+            "event_time": getattr(atom, "event_time", None),
+            "ttl_days": float(getattr(atom, "ttl_days", 30.0) or 30.0),
+            "expires_at": float(getattr(atom, "expires_at", 0.0) or 0.0),
+            "status": getattr(status, "value", str(status)),
+            "reinforcement_count": int(getattr(atom, "reinforcement_count", 0) or 0),
+            "decay_type": getattr(decay_type, "value", str(decay_type)),
+            "session_id": getattr(atom, "session_id", None),
+            "persona_id": getattr(atom, "persona_id", None),
+            "metadata": dict(getattr(atom, "metadata", {}) or {}),
+        }
+
+    def _deserialize_atom_from_repair(
+        self,
+        payload: dict[str, Any],
+        parent_memory_id: int,
+        session_id: str | None,
+        persona_id: str | None,
+    ) -> MemoryAtom | None:
+        """Rebuild a MemoryAtom from repair payload."""
+        content = str(payload.get("content") or "")
+        if not content.strip():
+            return None
+
+        try:
+            atom_type = AtomType(payload.get("atom_type") or AtomType.UNKNOWN.value)
+        except ValueError:
+            atom_type = AtomType.UNKNOWN
+        try:
+            decay_type = DecayType(
+                payload.get("decay_type") or DecayType.EXPONENTIAL.value
+            )
+        except ValueError:
+            decay_type = DecayType.EXPONENTIAL
+        try:
+            status = AtomStatus(payload.get("status") or AtomStatus.ACTIVE.value)
+        except ValueError:
+            status = AtomStatus.ACTIVE
+
+        return MemoryAtom(
+            parent_memory_id=parent_memory_id,
+            atom_type=atom_type,
+            content=content,
+            entities=[str(item) for item in payload.get("entities", []) if item],
+            importance=float(payload.get("importance", 0.5) or 0.5),
+            confidence=float(payload.get("confidence", 0.7) or 0.7),
+            created_at=float(payload.get("created_at", time.time()) or time.time()),
+            last_accessed_at=float(
+                payload.get("last_accessed_at", time.time()) or time.time()
+            ),
+            last_reinforced_at=payload.get("last_reinforced_at"),
+            event_time=payload.get("event_time"),
+            ttl_days=float(payload.get("ttl_days", 30.0) or 30.0),
+            expires_at=float(payload.get("expires_at", 0.0) or 0.0),
+            status=status,
+            reinforcement_count=int(payload.get("reinforcement_count", 0) or 0),
+            decay_type=decay_type,
+            session_id=payload.get("session_id") or session_id,
+            persona_id=payload.get("persona_id") or persona_id,
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    async def _repair_incomplete_write_ops(self) -> int:
+        """Best-effort replay for incomplete add/delete operations."""
+        if self.db_connection is None:
+            return 0
+
+        try:
+            cursor = await self.db_connection.execute(
+                """
+                SELECT id, op_type, memory_id, status, step, payload, retry_count
+                FROM memory_write_ops
+                WHERE status IN ('pending', 'needs_repair')
+                  AND retry_count < ?
+                ORDER BY id ASC
+                LIMIT 25
+                """,
+                (self._write_op_max_retries,),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            logger.debug("[MemoryEngine] 读取待修复写操作失败", exc_info=True)
+            return 0
+
+        repaired = 0
+        for row in rows:
+            payload = self._safe_json_dict(row["payload"])
+            try:
+                op_type = row["op_type"]
+                memory_id = row["memory_id"]
+                if op_type == "add":
+                    ok = await self._repair_add_write_op(
+                        int(row["id"]),
+                        int(memory_id) if memory_id is not None else None,
+                        payload,
+                    )
+                elif op_type == "delete":
+                    ok = await self._repair_delete_write_op(
+                        int(row["id"]),
+                        int(memory_id) if memory_id is not None else None,
+                    )
+                else:
+                    ok = False
+                repaired += 1 if ok else 0
+            except Exception as e:
+                await self._advance_write_op(
+                    int(row["id"]),
+                    str(row["step"] or "repair_failed"),
+                    status="needs_repair",
+                    error=str(e),
+                )
+
+        if repaired:
+            logger.info(f"[MemoryEngine] 已修复 {repaired} 个未完成写操作")
+            self._invalidate_search_cache()
+        return repaired
+
+    async def _repair_add_write_op(
+        self,
+        op_id: int,
+        memory_id: int | None,
+        payload: dict[str, Any],
+    ) -> bool:
+        if memory_id is None:
+            await self._advance_write_op(
+                op_id,
+                "unrepairable",
+                status="failed",
+                error="missing memory_id for add repair",
+            )
+            return False
+
+        memory = await self.get_memory(int(memory_id))
+        if memory is None:
+            await self._advance_write_op(
+                op_id,
+                "source_missing",
+                status="failed",
+                memory_id=int(memory_id),
+                error="source document missing",
+            )
+            return False
+
+        metadata = memory.get("metadata") or payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = self._safe_json_dict(metadata)
+        content = str(memory.get("text") or "")
+        session_id = metadata.get("session_id") or payload.get("session_id")
+        persona_id = metadata.get("persona_id") or payload.get("persona_id")
+
+        atom_payloads = payload.get("failed_atoms") or payload.get("atoms", []) or []
+        atoms: list[MemoryAtom] = []
+        for atom_payload in atom_payloads:
+            if isinstance(atom_payload, dict):
+                atom = self._deserialize_atom_from_repair(
+                    atom_payload,
+                    int(memory_id),
+                    session_id,
+                    persona_id,
+                )
+                if atom is not None:
+                    atoms.append(atom)
+
+        if self.atom_store is not None and atoms and self.atom_enabled:
+            existing_atoms = await self.atom_store.get_by_parent(int(memory_id))
+            if payload.get("failed_atoms"):
+                existing_keys = {
+                    (
+                        atom.content,
+                        atom.atom_type.value,
+                        atom.session_id,
+                        atom.persona_id,
+                    )
+                    for atom in existing_atoms
+                }
+                atoms_to_insert = [
+                    atom
+                    for atom in atoms
+                    if (
+                        atom.content,
+                        atom.atom_type.value,
+                        atom.session_id,
+                        atom.persona_id,
+                    )
+                    not in existing_keys
+                ]
+                if atoms_to_insert:
+                    await self.atom_store.insert_many(atoms_to_insert)
+            elif not existing_atoms:
+                await self.atom_store.insert_many(atoms)
+            await self._advance_write_op(op_id, "atoms_repaired", memory_id=memory_id)
+
+        if self.graph_memory_manager is not None and content.strip():
+            await self.graph_memory_manager.index_memory(
+                int(memory_id),
+                content,
+                metadata,
+                atoms or None,
+            )
+            await self._advance_write_op(op_id, "graph_repaired", memory_id=memory_id)
+
+        await self._advance_write_op(
+            op_id,
+            "completed",
+            status="completed",
+            memory_id=int(memory_id),
+        )
+        return True
+
+    async def _repair_delete_write_op(
+        self,
+        op_id: int,
+        memory_id: int | None,
+    ) -> bool:
+        if memory_id is None:
+            await self._advance_write_op(
+                op_id,
+                "unrepairable",
+                status="failed",
+                error="missing memory_id for delete repair",
+            )
+            return False
+
+        if self.graph_memory_manager is not None:
+            await self.graph_memory_manager.delete_memory(int(memory_id))
+        if self.atom_store is not None:
+            await self.atom_store.delete_by_parent(int(memory_id))
+
+        await self._advance_write_op(
+            op_id,
+            "completed",
+            status="completed",
+            memory_id=int(memory_id),
+        )
+        return True
+
+    @staticmethod
+    def _safe_json_dict(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if not value:
+            return {}
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else {}
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return {}
 
     async def _create_tables(self):
         """创建数据库表
@@ -309,9 +778,23 @@ class MemoryEngine:
             ON documents(json_extract(metadata, '$.session_id'))
         """)
             await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_persona_metadata
+            ON documents(json_extract(metadata, '$.persona_id'))
+        """)
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_importance_metadata
+            ON documents(json_extract(metadata, '$.importance'))
+        """)
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
+            ON documents(json_extract(metadata, '$.last_access_time'))
+        """)
+            await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_documents_doc_id
             ON documents(doc_id)
         """)
+
+            await self._create_write_ops_table()
 
             # 创建版本管理表
             await self.db_connection.execute("""
@@ -341,8 +824,10 @@ class MemoryEngine:
             version_count = version_result[0] if version_result else 0
 
             if version_count == 0:
-                # 全新数据库，设置初始版本为 3（与 DBMigration.CURRENT_VERSION 一致）
+                # 全新数据库，设置初始版本为最新迁移版本
                 from datetime import datetime, timezone
+
+                from ...storage.db_migration import DBMigration
 
                 await self.db_connection.execute(
                     """
@@ -350,15 +835,15 @@ class MemoryEngine:
                     VALUES (?, ?, ?, ?)
                 """,
                     (
-                        3,
-                        "初始版本 - v3架构",
+                        DBMigration.CURRENT_VERSION,
+                        "初始版本 - 当前架构",
                         datetime.now(timezone.utc).isoformat(),
                         0.0,
                     ),
                 )
                 await self.db_connection.commit()
 
-                logger.info("已初始化数据库版本信息: v3")
+                logger.info(f"已初始化数据库版本信息: v{DBMigration.CURRENT_VERSION}")
 
     async def _drop_legacy_documents_fts_triggers(self):
         if self.db_connection is None:
@@ -402,6 +887,20 @@ class MemoryEngine:
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
 
+        op_id = await self._start_write_op(
+            "add",
+            {
+                "content_preview": content[:500],
+                "session_id": session_id,
+                "persona_id": persona_id,
+                "importance": importance,
+                "metadata": metadata or {},
+                "atoms": [
+                    self._serialize_atom_for_repair(atom) for atom in (atoms or [])
+                ],
+            },
+        )
+
         # 准备完整元数据 - 保存完整的 unified_msg_origin，不提取UUID
         # 只在查询/过滤时才提取UUID进行匹配，存储时保留完整信息
         current_time = time.time()
@@ -425,32 +924,113 @@ class MemoryEngine:
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
         if self.hybrid_retriever is None:
             raise RuntimeError("混合检索器未初始化")
-        doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
+        try:
+            doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
+            await self._advance_write_op(
+                op_id,
+                "document_indexed",
+                memory_id=doc_id,
+                payload_patch={"memory_id": doc_id},
+            )
+        except Exception as e:
+            await self._advance_write_op(
+                op_id,
+                "document_failed",
+                status="failed",
+                error=str(e),
+            )
+            raise
 
         # 写入记忆原子
+        atom_write_failed = False
         if atoms and self.atom_store is not None and self.atom_enabled:
             prepared_atoms = []
             for atom in atoms:
+                atom.session_id = atom.session_id or session_id
+                atom.persona_id = atom.persona_id or persona_id
                 atom.parent_memory_id = doc_id
                 prepared_atoms.append(atom)
             try:
                 await self.atom_store.insert_many(prepared_atoms)
+                await self._advance_write_op(
+                    op_id,
+                    "atoms_indexed",
+                    memory_id=doc_id,
+                )
             except Exception:
                 logger.error("[MemoryEngine] 批量写入记忆原子失败", exc_info=True)
+                failed_atoms: list[dict[str, Any]] = []
                 for atom in prepared_atoms:
+                    if getattr(atom, "atom_id", 0):
+                        continue
                     try:
                         await self.atom_store.insert(atom)
                     except Exception:
+                        failed_atoms.append(self._serialize_atom_for_repair(atom))
                         logger.error(
                             f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
                             exc_info=True,
                         )
+                if failed_atoms:
+                    await self._advance_write_op(
+                        op_id,
+                        "atoms_partial",
+                        status="needs_repair",
+                        memory_id=doc_id,
+                        error="atom insert failed",
+                        payload_patch={"failed_atoms": failed_atoms},
+                    )
+                    atom_write_failed = True
+                else:
+                    await self._advance_write_op(
+                        op_id,
+                        "atoms_indexed",
+                        memory_id=doc_id,
+                    )
+        else:
+            await self._advance_write_op(op_id, "atoms_skipped", memory_id=doc_id)
 
+        needs_repair = atom_write_failed
         if self.graph_memory_manager is not None:
-            await self.graph_memory_manager.index_memory(
-                doc_id, content, full_metadata, atoms
+            try:
+                await self.graph_memory_manager.index_memory(
+                    doc_id, content, full_metadata, atoms
+                )
+                await self._advance_write_op(
+                    op_id,
+                    "graph_indexed",
+                    status="needs_repair" if needs_repair else "pending",
+                    memory_id=doc_id,
+                )
+            except Exception as e:
+                await self._advance_write_op(
+                    op_id,
+                    "graph_failed",
+                    status="needs_repair",
+                    memory_id=doc_id,
+                    error=str(e),
+                )
+                needs_repair = True
+                logger.error(
+                    f"[MemoryEngine] 图记忆索引失败，已标记待修复 (memory_id={doc_id})",
+                    exc_info=True,
+                )
+        else:
+            await self._advance_write_op(
+                op_id,
+                "graph_skipped",
+                status="needs_repair" if needs_repair else "pending",
+                memory_id=doc_id,
             )
 
+        if not needs_repair:
+            await self._advance_write_op(
+                op_id,
+                "completed",
+                status="completed",
+                memory_id=doc_id,
+            )
+        self._invalidate_search_cache()
         return doc_id
 
     async def search_memories(
@@ -474,6 +1054,15 @@ class MemoryEngine:
         """
         if not query or not query.strip():
             return []
+
+        cache_key = self._search_cache_key(query, k, session_id, persona_id)
+        cached_results = self._get_cached_search_results(cache_key)
+        if cached_results is not None:
+            for result in cached_results:
+                self._create_tracked_task(
+                    self._update_access_time_internal(result.doc_id)
+                )
+            return cached_results
 
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
         if session_id and ":" in session_id:
@@ -503,6 +1092,7 @@ class MemoryEngine:
         for result in results:
             self._create_tracked_task(self._update_access_time_internal(result.doc_id))
 
+        self._set_cached_search_results(cache_key, results)
         return results
 
     async def get_memory(self, memory_id: int) -> dict[str, Any] | None:
@@ -624,6 +1214,7 @@ class MemoryEngine:
                 logger.info(
                     f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})"
                 )
+                self._invalidate_search_cache()
                 return True
 
             except Exception as e:
@@ -675,6 +1266,7 @@ class MemoryEngine:
                         memory["text"],
                         current_metadata,
                     )
+                self._invalidate_search_cache()
             else:
                 logger.error(f"[更新] 元数据更新失败 (memory_id={memory_id})")
 
@@ -693,15 +1285,79 @@ class MemoryEngine:
             bool: 是否删除成功
         """
 
+        op_id = await self._start_write_op(
+            "delete",
+            {"memory_id": memory_id},
+            memory_id=memory_id,
+        )
+
         # hybrid_retriever.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
         if self.hybrid_retriever is None:
             logger.error("混合检索器未初始化")
+            await self._advance_write_op(
+                op_id,
+                "document_delete_failed",
+                status="failed",
+                error="hybrid retriever not initialized",
+            )
             return False
         success = await self.hybrid_retriever.delete_memory(memory_id)
-        if success and self.graph_memory_manager is not None:
-            await self.graph_memory_manager.delete_memory(memory_id)
-        if success and self.atom_store is not None:
-            await self.atom_store.delete_by_parent(memory_id)
+        if not success:
+            await self._advance_write_op(
+                op_id,
+                "document_delete_failed",
+                status="failed",
+                error="document/vector delete failed",
+            )
+            return False
+
+        await self._advance_write_op(op_id, "document_deleted", memory_id=memory_id)
+
+        needs_repair = False
+        try:
+            if self.graph_memory_manager is not None:
+                await self.graph_memory_manager.delete_memory(memory_id)
+            await self._advance_write_op(op_id, "graph_deleted", memory_id=memory_id)
+        except Exception as e:
+            await self._advance_write_op(
+                op_id,
+                "graph_delete_failed",
+                status="needs_repair",
+                memory_id=memory_id,
+                error=str(e),
+            )
+            needs_repair = True
+            logger.error(
+                f"[MemoryEngine] 图记忆删除失败，已标记待修复 (memory_id={memory_id})",
+                exc_info=True,
+            )
+
+        try:
+            if self.atom_store is not None:
+                await self.atom_store.delete_by_parent(memory_id)
+            await self._advance_write_op(op_id, "atoms_deleted", memory_id=memory_id)
+        except Exception as e:
+            await self._advance_write_op(
+                op_id,
+                "atom_delete_failed",
+                status="needs_repair",
+                memory_id=memory_id,
+                error=str(e),
+            )
+            needs_repair = True
+            logger.error(
+                f"[MemoryEngine] 记忆原子删除失败，已标记待修复 (memory_id={memory_id})",
+                exc_info=True,
+            )
+
+        if not needs_repair:
+            await self._advance_write_op(
+                op_id,
+                "completed",
+                status="completed",
+                memory_id=memory_id,
+            )
+        self._invalidate_search_cache()
         return success
 
     async def rebuild_graph_index(self) -> dict[str, int]:
@@ -746,6 +1402,7 @@ class MemoryEngine:
 
             offset += batch_size
 
+        self._invalidate_search_cache()
         return {"rebuilt": rebuilt, "skipped": skipped}
 
     # ==================== 高级功能 ====================
@@ -782,40 +1439,72 @@ class MemoryEngine:
             return 0
 
         try:
-            # 计算衰减因子：(1 - decay_rate) ^ days
-            decay_factor = (1 - decay_rate) ** days
-
-            # 使用 SQL 批量更新所有记忆的 importance
-            # 公式：new_importance = importance * decay_factor
-            # 最小值限制为 0.01，避免完全衰减到 0
+            if decay_rate >= 1:
+                decay_rate = 1.0
+            access_window_days = float(
+                self.config.get("access_decay_window_days", 30.0)
+            )
+            max_access_count = float(self.config.get("access_decay_max_count", 10.0))
+            access_decay_multiplier = float(
+                self.config.get("access_count_decay_multiplier", 0.5)
+            )
+            access_window_start = time.time() - max(1.0, access_window_days) * 86400.0
+            access_decay_multiplier = max(0.0, min(1.0, access_decay_multiplier))
             cursor = await self.db_connection.execute(
-                """
-                UPDATE documents
-                SET metadata = json_set(
-                    metadata,
-                    '$.importance',
-                    MAX(0.01, ROUND(
-                        COALESCE(
-                            json_extract(metadata, '$.importance'),
-                            0.5
-                        ) * ?,
-                        4
-                    ))
+                "SELECT id, metadata FROM documents WHERE json_extract(metadata, '$.importance') IS NOT NULL OR metadata LIKE '%\"importance\"%'"
+            )
+            rows = await cursor.fetchall()
+            updates: list[tuple[str, int]] = []
+
+            for row in rows:
+                metadata = self._safe_json_dict(row["metadata"])
+                try:
+                    importance = float(metadata.get("importance", 0.5) or 0.5)
+                except (TypeError, ValueError):
+                    importance = 0.5
+                try:
+                    access_count = float(metadata.get("access_count", 0) or 0)
+                except (TypeError, ValueError):
+                    access_count = 0.0
+                try:
+                    last_access_time = float(metadata.get("last_access_time", 0) or 0)
+                except (TypeError, ValueError):
+                    last_access_time = 0.0
+
+                recent_access_factor = (
+                    1.0 if last_access_time >= access_window_start else 0.5
                 )
-                WHERE json_extract(metadata, '$.importance') IS NOT NULL
-                   OR metadata LIKE '%"importance"%'
-                """,
-                (decay_factor,),
+                access_factor = min(1.0, access_count / max(1.0, max_access_count))
+                effective_decay_rate = decay_rate * (
+                    1 - 0.5 * access_factor * recent_access_factor
+                )
+                decay_factor = (1 - effective_decay_rate) ** days
+                metadata["importance"] = max(
+                    0.01,
+                    round(importance * decay_factor, 4),
+                )
+                metadata["access_count"] = int(access_count * access_decay_multiplier)
+                updates.append(
+                    (json.dumps(metadata, ensure_ascii=False), int(row["id"]))
+                )
+
+            if not updates:
+                return 0
+
+            await self.db_connection.executemany(
+                "UPDATE documents SET metadata = ? WHERE id = ?",
+                updates,
             )
 
             await self.db_connection.commit()
-            affected = cursor.rowcount
+            affected = len(updates)
 
             logger.info(
                 f"[衰减] 批量衰减完成: 衰减率={decay_rate}, 天数={days}, "
-                f"衰减因子={decay_factor:.4f}, 影响记录={affected}"
+                f"访问窗口={access_window_days:.1f}天, 影响记录={affected}"
             )
 
+            self._invalidate_search_cache()
             return affected
 
         except Exception as e:
@@ -868,6 +1557,11 @@ class MemoryEngine:
                 metadata = {}
 
             metadata["last_access_time"] = current_time
+            try:
+                access_count = int(metadata.get("access_count", 0) or 0)
+            except (TypeError, ValueError):
+                access_count = 0
+            metadata["access_count"] = min(access_count + 1, 1_000_000)
 
             # 3. 写回 documents 表
             await self.db_connection.execute(
@@ -977,6 +1671,7 @@ class MemoryEngine:
             logger.error("[批量删除] 数据库连接未初始化")
             return 0
 
+        self._invalidate_search_cache()
         total_deleted = 0
         sql_batch_size = 200
 

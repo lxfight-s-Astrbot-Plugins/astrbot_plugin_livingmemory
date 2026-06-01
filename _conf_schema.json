@@ -121,6 +121,24 @@
                 "hint": "启用后检索记忆时会自动拼接最近 2 轮对话（当前消息 + Bot 上一条回复 + 用户上一条消息）作为扩展查询，提升召回记忆与当前话题的相关性，减少无关记忆干扰。",
                 "type": "bool",
                 "default": false
+            },
+            "search_cache_enabled": {
+                "description": "启用短期检索缓存",
+                "hint": "短时间内相同会话和相同查询会复用检索结果，降低连续追问时的 SQLite/FAISS 开销。",
+                "type": "bool",
+                "default": true
+            },
+            "search_cache_ttl_seconds": {
+                "description": "检索缓存 TTL 秒数",
+                "hint": "缓存保留时间。写入、更新、删除记忆时会自动失效。设为 0 可关闭缓存。",
+                "type": "float",
+                "default": 45.0
+            },
+            "search_cache_max_size": {
+                "description": "检索缓存最大条目数",
+                "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。",
+                "type": "int",
+                "default": 256
             }
         }
     },
@@ -134,6 +152,24 @@
                 "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。",
                 "type": "float",
                 "default": 0.01
+            },
+            "access_decay_window_days": {
+                "description": "访问强化窗口(天)",
+                "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。",
+                "type": "float",
+                "default": 30.0
+            },
+            "access_decay_max_count": {
+                "description": "访问强化次数上限",
+                "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。",
+                "type": "int",
+                "default": 10
+            },
+            "access_count_decay_multiplier": {
+                "description": "访问次数保留比例",
+                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。",
+                "type": "float",
+                "default": 0.5
             }
         }
     },
@@ -234,6 +270,24 @@
                 "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。",
                 "type": "int",
                 "default": 24
+            },
+            "expansion_hops": {
+                "description": "图扩展跳数",
+                "hint": "图关键词检索从命中节点向外扩展的跳数。默认 1；设为 2 可召回间接关联，但会增加少量查询开销。",
+                "type": "int",
+                "default": 1
+            },
+            "second_hop_weight": {
+                "description": "二跳扩展权重",
+                "hint": "二跳图候选的分数权重。值越高，间接关系越容易进入最终召回。",
+                "type": "float",
+                "default": 0.4
+            },
+            "dynamic_route_weighting": {
+                "description": "动态路由权重",
+                "hint": "根据查询中的关系、时间、定义类意图，自动调整文档路和图路权重。",
+                "type": "bool",
+                "default": true
             },
             "max_topics_per_memory": {
                 "description": "单记忆最大主题数",

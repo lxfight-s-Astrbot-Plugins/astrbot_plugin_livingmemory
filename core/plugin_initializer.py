@@ -346,8 +346,26 @@ class PluginInitializer:
                 "decay_rate": self.config_manager.get(
                     "importance_decay.decay_rate", 0.01
                 ),
+                "access_decay_window_days": self.config_manager.get(
+                    "importance_decay.access_decay_window_days", 30.0
+                ),
+                "access_decay_max_count": self.config_manager.get(
+                    "importance_decay.access_decay_max_count", 10
+                ),
+                "access_count_decay_multiplier": self.config_manager.get(
+                    "importance_decay.access_count_decay_multiplier", 0.5
+                ),
                 "importance_weight": self.config_manager.get(
                     "recall_engine.importance_weight", 1.0
+                ),
+                "search_cache_enabled": self.config_manager.get(
+                    "recall_engine.search_cache_enabled", True
+                ),
+                "search_cache_ttl_seconds": self.config_manager.get(
+                    "recall_engine.search_cache_ttl_seconds", 45.0
+                ),
+                "search_cache_max_size": self.config_manager.get(
+                    "recall_engine.search_cache_max_size", 256
                 ),
                 "fallback_enabled": self.config_manager.get(
                     "recall_engine.fallback_to_vector", True
@@ -374,6 +392,15 @@ class PluginInitializer:
                 ),
                 "graph_expansion_limit": self.config_manager.get(
                     "graph_memory.expansion_limit", 24
+                ),
+                "graph_expansion_hops": self.config_manager.get(
+                    "graph_memory.expansion_hops", 1
+                ),
+                "graph_second_hop_weight": self.config_manager.get(
+                    "graph_memory.second_hop_weight", 0.4
+                ),
+                "dynamic_route_weighting": self.config_manager.get(
+                    "graph_memory.dynamic_route_weighting", True
                 ),
                 "graph_max_topics": self.config_manager.get(
                     "graph_memory.max_topics_per_memory", 6
