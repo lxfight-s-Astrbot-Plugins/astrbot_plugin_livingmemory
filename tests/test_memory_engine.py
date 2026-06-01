@@ -775,16 +775,30 @@ async def test_memory_engine_cleanup_zero_days_deletes_low_importance(tmp_path: 
         metadata={},
     )
 
-    # 确保 SQLite 中有正确的 importance 和 create_time
+    # 确保 SQLite documents 表与 fake FAISS 存储保持一致。
     now = time.time()
     if engine.db_connection is not None:
         await engine.db_connection.execute(
-            "UPDATE documents SET metadata = ? WHERE id = ?",
-            (json.dumps({"importance": 0.1, "create_time": now}), low_id),
+            "INSERT OR REPLACE INTO documents "
+            "(id, doc_id, text, metadata, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (
+                low_id,
+                f"uuid-{low_id}",
+                "低重要性记忆",
+                json.dumps({"importance": 0.1, "create_time": now}),
+            ),
         )
         await engine.db_connection.execute(
-            "UPDATE documents SET metadata = ? WHERE id = ?",
-            (json.dumps({"importance": 0.9, "create_time": now}), high_id),
+            "INSERT OR REPLACE INTO documents "
+            "(id, doc_id, text, metadata, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (
+                high_id,
+                f"uuid-{high_id}",
+                "高重要性记忆",
+                json.dumps({"importance": 0.9, "create_time": now}),
+            ),
         )
         await engine.db_connection.commit()
 
@@ -980,6 +994,19 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
     row = await cursor.fetchone()
     assert row[0] == 0
 
+    cursor = await engine.db_connection.execute(
+        """
+        SELECT op_type, status, step
+        FROM memory_write_ops
+        WHERE op_type = 'batch_delete'
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    op_row = await cursor.fetchone()
+    assert op_row["status"] == "completed"
+    assert op_row["step"] == "completed"
+
     await engine.close()
 
 
@@ -1027,8 +1054,43 @@ async def test_batch_delete_memories_nonexistent_ids_are_noop(tmp_path: Path):
         await engine.db_connection.commit()
 
     deleted = await engine.batch_delete_memories([mid, 99999, 99998])
-    assert deleted >= 1
+    assert deleted == 1
     assert mid not in faiss.docs
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_repair_batch_delete_removes_graph_and_atoms(tmp_path: Path):
+    db_path = tmp_path / "batch_del_repair.db"
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=_FakeFaissDB(), config={})
+    await engine.initialize()
+
+    engine.graph_memory_manager = Mock()
+    engine.graph_memory_manager.batch_delete_memories = AsyncMock()
+    engine.atom_store = Mock()
+    engine.atom_store.batch_delete_by_parent = AsyncMock()
+
+    op_id = await engine._start_write_op(
+        "batch_delete",
+        {"memory_ids": [1, "bad", 2]},
+    )
+    repaired = await engine._repair_batch_delete_write_op(
+        op_id,
+        {"memory_ids": [1, "bad", 2]},
+    )
+
+    assert repaired is True
+    engine.graph_memory_manager.batch_delete_memories.assert_awaited_once_with([1, 2])
+    engine.atom_store.batch_delete_by_parent.assert_awaited_once_with([1, 2])
+
+    cursor = await engine.db_connection.execute(
+        "SELECT status, step FROM memory_write_ops WHERE id = ?",
+        (op_id,),
+    )
+    row = await cursor.fetchone()
+    assert row["status"] == "completed"
+    assert row["step"] == "completed"
 
     await engine.close()
 

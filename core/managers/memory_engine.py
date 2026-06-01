@@ -308,8 +308,10 @@ class MemoryEngine:
             )
             await self.db_connection.commit()
             return int(cursor.lastrowid)
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            logger.debug("[MemoryEngine] 写操作日志创建失败", exc_info=True)
+            logger.error("[MemoryEngine] 写操作日志创建失败", exc_info=True)
             return None
 
     async def _advance_write_op(
@@ -365,8 +367,10 @@ class MemoryEngine:
                 params,
             )
             await self.db_connection.commit()
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            logger.debug("[MemoryEngine] 写操作日志更新失败", exc_info=True)
+            logger.error("[MemoryEngine] 写操作日志更新失败", exc_info=True)
 
     def _normalize_cache_query(self, query: str) -> str:
         return " ".join(query.casefold().split())
@@ -533,8 +537,10 @@ class MemoryEngine:
                 (self._write_op_max_retries,),
             )
             rows = await cursor.fetchall()
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            logger.debug("[MemoryEngine] 读取待修复写操作失败", exc_info=True)
+            logger.error("[MemoryEngine] 读取待修复写操作失败", exc_info=True)
             return 0
 
         repaired = 0
@@ -554,10 +560,21 @@ class MemoryEngine:
                         int(row["id"]),
                         int(memory_id) if memory_id is not None else None,
                     )
+                elif op_type == "batch_delete":
+                    ok = await self._repair_batch_delete_write_op(
+                        int(row["id"]),
+                        payload,
+                    )
                 else:
                     ok = False
                 repaired += 1 if ok else 0
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
+                logger.error(
+                    f"[MemoryEngine] 修复写操作失败 (op_id={row['id']})",
+                    exc_info=True,
+                )
                 await self._advance_write_op(
                     int(row["id"]),
                     str(row["step"] or "repair_failed"),
@@ -688,6 +705,91 @@ class MemoryEngine:
             memory_id=int(memory_id),
         )
         return True
+
+    async def _repair_batch_delete_write_op(
+        self,
+        op_id: int,
+        payload: dict[str, Any],
+    ) -> bool:
+        memory_ids_raw = payload.get("memory_ids") or []
+        if not isinstance(memory_ids_raw, list):
+            await self._advance_write_op(
+                op_id,
+                "unrepairable",
+                status="failed",
+                error="missing memory_ids for batch delete repair",
+            )
+            return False
+
+        memory_ids: list[int] = []
+        for raw_id in memory_ids_raw:
+            try:
+                memory_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+
+        if not memory_ids:
+            await self._advance_write_op(
+                op_id,
+                "unrepairable",
+                status="failed",
+                error="empty memory_ids for batch delete repair",
+            )
+            return False
+
+        await self._delete_document_indexes_for_batch(memory_ids)
+        await self._delete_graph_and_atoms_for_batch(memory_ids)
+        await self._advance_write_op(
+            op_id,
+            "completed",
+            status="completed",
+            payload_patch={"deleted_count": len(memory_ids)},
+        )
+        return True
+
+    async def _delete_document_indexes_for_batch(self, memory_ids: list[int]) -> int:
+        if not memory_ids or self.db_connection is None:
+            return 0
+
+        placeholders = ",".join("?" * len(memory_ids))
+        await self.db_connection.execute(
+            f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+            memory_ids,
+        )
+
+        cursor = await self.db_connection.execute(
+            f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
+            memory_ids,
+        )
+        uuid_rows = await cursor.fetchall()
+        for row in uuid_rows:
+            uuid_doc_id = row["doc_id"]
+            if not uuid_doc_id:
+                continue
+            try:
+                await self.faiss_db.delete(uuid_doc_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    f"[批量删除] FAISS 删除失败 (id={row['id']})",
+                    exc_info=True,
+                )
+
+        cursor = await self.db_connection.execute(
+            f"DELETE FROM documents WHERE id IN ({placeholders})",
+            memory_ids,
+        )
+        await self.db_connection.commit()
+        return int(cursor.rowcount or 0)
+
+    async def _delete_graph_and_atoms_for_batch(self, memory_ids: list[int]) -> None:
+        if not memory_ids:
+            return
+        if self.graph_memory_manager is not None:
+            await self.graph_memory_manager.batch_delete_memories(memory_ids)
+        if self.atom_store is not None:
+            await self.atom_store.batch_delete_by_parent(memory_ids)
 
     @staticmethod
     def _safe_json_dict(value: Any) -> dict[str, Any]:
@@ -932,6 +1034,8 @@ class MemoryEngine:
                 memory_id=doc_id,
                 payload_patch={"memory_id": doc_id},
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             await self._advance_write_op(
                 op_id,
@@ -957,6 +1061,8 @@ class MemoryEngine:
                     "atoms_indexed",
                     memory_id=doc_id,
                 )
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.error("[MemoryEngine] 批量写入记忆原子失败", exc_info=True)
                 failed_atoms: list[dict[str, Any]] = []
@@ -965,6 +1071,8 @@ class MemoryEngine:
                         continue
                     try:
                         await self.atom_store.insert(atom)
+                    except asyncio.CancelledError:
+                        raise
                     except Exception:
                         failed_atoms.append(self._serialize_atom_for_repair(atom))
                         logger.error(
@@ -1002,6 +1110,8 @@ class MemoryEngine:
                     status="needs_repair" if needs_repair else "pending",
                     memory_id=doc_id,
                 )
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 await self._advance_write_op(
                     op_id,
@@ -1121,7 +1231,10 @@ class MemoryEngine:
                 "text": doc["text"],
                 "metadata": doc["metadata"],
             }
+        except asyncio.CancelledError:
+            raise
         except Exception:
+            logger.warning("[MemoryEngine] 获取记忆详情失败", exc_info=True)
             return None
 
     async def update_memory(
@@ -1217,6 +1330,8 @@ class MemoryEngine:
                 self._invalidate_search_cache()
                 return True
 
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error(
                     f"[更新] 内容更新失败 (memory_id={memory_id}): {e}", exc_info=True
@@ -1318,6 +1433,8 @@ class MemoryEngine:
             if self.graph_memory_manager is not None:
                 await self.graph_memory_manager.delete_memory(memory_id)
             await self._advance_write_op(op_id, "graph_deleted", memory_id=memory_id)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             await self._advance_write_op(
                 op_id,
@@ -1336,6 +1453,8 @@ class MemoryEngine:
             if self.atom_store is not None:
                 await self.atom_store.delete_by_parent(memory_id)
             await self._advance_write_op(op_id, "atoms_deleted", memory_id=memory_id)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             await self._advance_write_op(
                 op_id,
@@ -1507,6 +1626,8 @@ class MemoryEngine:
             self._invalidate_search_cache()
             return affected
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"[衰减] 批量衰减失败: {e}", exc_info=True)
             return 0
@@ -1572,9 +1693,14 @@ class MemoryEngine:
 
             return True
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             # 记录错误但不影响查询流程
-            logger.debug(f"更新访问时间失败 (memory_id={memory_id}): {e}")
+            logger.warning(
+                f"更新访问时间失败 (memory_id={memory_id}): {e}",
+                exc_info=True,
+            )
             return False
 
     async def get_session_memories(
@@ -1659,7 +1785,13 @@ class MemoryEngine:
                 )
 
             return memories
+        except asyncio.CancelledError:
+            raise
         except Exception:
+            logger.warning(
+                f"[MemoryEngine] 获取会话记忆失败 (session_id={session_id})",
+                exc_info=True,
+            )
             return []
 
     async def batch_delete_memories(self, memory_ids: list[int]) -> int:
@@ -1678,44 +1810,103 @@ class MemoryEngine:
         for i in range(0, len(memory_ids), sql_batch_size):
             batch = memory_ids[i : i + sql_batch_size]
             placeholders = ",".join("?" * len(batch))
-
-            # 1. Batch delete from BM25 FTS
-            await self.db_connection.execute(
-                f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
-                batch,
+            op_id = await self._start_write_op(
+                "batch_delete",
+                {
+                    "memory_ids": batch,
+                    "batch_offset": i,
+                    "batch_size": len(batch),
+                },
             )
+            batch_deleted = 0
 
-            # 2. Look up UUIDs and delete from FAISS vector DB
-            cursor = await self.db_connection.execute(
-                f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
-                batch,
+            try:
+                # 1. Batch delete from BM25 FTS
+                await self.db_connection.execute(
+                    f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+                    batch,
+                )
+                await self._advance_write_op(
+                    op_id,
+                    "bm25_deleted",
+                    payload_patch={"memory_ids": batch},
+                )
+
+                # 2. Look up UUIDs and delete from FAISS vector DB
+                cursor = await self.db_connection.execute(
+                    f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
+                    batch,
+                )
+                uuid_rows = await cursor.fetchall()
+                found_ids = [int(row["id"]) for row in uuid_rows]
+                for row in uuid_rows:
+                    uuid_doc_id = row["doc_id"]
+                    if uuid_doc_id:
+                        try:
+                            await self.faiss_db.delete(uuid_doc_id)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            logger.warning(
+                                f"[批量删除] FAISS 删除失败 (id={row['id']})",
+                                exc_info=True,
+                            )
+                await self._advance_write_op(
+                    op_id,
+                    "faiss_deleted",
+                    payload_patch={"memory_ids": batch, "found_ids": found_ids},
+                )
+
+                # 3. Batch delete from documents table
+                cursor = await self.db_connection.execute(
+                    f"DELETE FROM documents WHERE id IN ({placeholders})",
+                    batch,
+                )
+                await self.db_connection.commit()
+                batch_deleted = int(cursor.rowcount or 0)
+                await self._advance_write_op(
+                    op_id,
+                    "documents_deleted",
+                    payload_patch={
+                        "memory_ids": batch,
+                        "found_ids": found_ids,
+                        "deleted_count": batch_deleted,
+                    },
+                )
+
+                # 4. Batch delete graph artifacts and atoms
+                await self._delete_graph_and_atoms_for_batch(batch)
+                await self._advance_write_op(
+                    op_id,
+                    "graph_atoms_deleted",
+                    payload_patch={"memory_ids": batch, "deleted_count": batch_deleted},
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                await self._advance_write_op(
+                    op_id,
+                    "batch_delete_failed",
+                    status="needs_repair",
+                    error=str(e),
+                    payload_patch={
+                        "memory_ids": batch,
+                        "deleted_count": batch_deleted,
+                    },
+                )
+                logger.error(
+                    f"[批量删除] 批次删除失败 (offset={i}, size={len(batch)})",
+                    exc_info=True,
+                )
+                raise
+
+            await self._advance_write_op(
+                op_id,
+                "completed",
+                status="completed",
+                payload_patch={"memory_ids": batch, "deleted_count": batch_deleted},
             )
-            uuid_rows = await cursor.fetchall()
-            for row in uuid_rows:
-                uuid_doc_id = row["doc_id"]
-                if uuid_doc_id:
-                    try:
-                        await self.faiss_db.delete(uuid_doc_id)
-                    except Exception:
-                        logger.debug(
-                            f"[批量删除] FAISS 删除失败 (id={row['id']})",
-                            exc_info=True,
-                        )
-
-            # 3. Batch delete from documents table
-            await self.db_connection.execute(
-                f"DELETE FROM documents WHERE id IN ({placeholders})",
-                batch,
-            )
-            await self.db_connection.commit()
-
-            # 4. Batch delete graph artifacts
-            if self.graph_memory_manager is not None:
-                await self.graph_memory_manager.batch_delete_memories(batch)
-            if self.atom_store is not None:
-                await self.atom_store.batch_delete_by_parent(batch)
-
-            total_deleted += len(batch)
+            total_deleted += batch_deleted
 
         if total_deleted:
             logger.info(f"[批量删除] 共删除 {total_deleted} 条记忆")
@@ -1819,7 +2010,10 @@ class MemoryEngine:
             logger.info(f"[清理] 完成，已删除 {deleted_count} 条旧记忆")
 
             return deleted_count
+        except asyncio.CancelledError:
+            raise
         except Exception:
+            logger.error("[清理] 清理旧记忆失败", exc_info=True)
             return 0
 
     async def _migrate_session_data_if_needed(self, unified_msg_origin: str) -> None:
@@ -1947,6 +2141,8 @@ class MemoryEngine:
                 f"[自动迁移] 完成！已更新 {updated_count} 条记录 -> {unified_msg_origin}"
             )
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"[自动迁移] 迁移失败: {e}", exc_info=True)
 
@@ -2055,6 +2251,8 @@ class MemoryEngine:
                 stats["graph_memory_enabled"] = False
 
             return stats
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"获取统计信息失败: {e}", exc_info=True)
             return {
@@ -2090,6 +2288,8 @@ class MemoryEngine:
                     await self.db_connection.execute(
                         f"INSERT INTO {fts_table}({fts_table}) VALUES ('optimize')"
                     )
+                except asyncio.CancelledError:
+                    raise
                 except Exception:
                     logger.debug(
                         f"[StorageMaintenance] 跳过 FTS optimize: {fts_table}",
@@ -2116,6 +2316,8 @@ class MemoryEngine:
                     before_size + before_wal_size - after_size - after_wal_size,
                 ),
             }
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"[StorageMaintenance] 执行存储维护失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}

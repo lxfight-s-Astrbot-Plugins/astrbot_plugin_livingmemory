@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from astrbot.api import logger
+
 from ...storage.atom_store import AtomStore
 
 
@@ -52,8 +54,12 @@ class AtomLifecycleManager:
         while self._running:
             try:
                 await self.run_maintenance()
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                pass
+                logger.error("[AtomLifecycle] 维护任务异常", exc_info=True)
+                await asyncio.sleep(60.0)
+                continue
             await asyncio.sleep(self._maintenance_interval_hours * 3600.0)
 
     async def run_maintenance(self) -> dict[str, int]:

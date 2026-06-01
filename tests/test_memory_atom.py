@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from astrbot_plugin_livingmemory.core.models.memory_atom import (
@@ -550,6 +551,37 @@ async def test_lifecycle_manager_reinforcement_jaccard_match(tmp_path: Path) -> 
     )
     count = await mgr.run_manual_reinforcement([new_atom], similarity_threshold=0.3)
     assert count >= 1
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_manager_logs_and_backs_off_on_error(monkeypatch):
+    import astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager as lifecycle_module
+    from astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager import (
+        AtomLifecycleManager,
+    )
+
+    class FailingStore:
+        async def expire_stale_atoms(self):
+            raise RuntimeError("maintenance failed")
+
+    sleep_calls: list[float] = []
+    mgr = AtomLifecycleManager(FailingStore(), {"atom_maintenance_interval_hours": 1})
+    mgr._running = True
+
+    async def fake_sleep(seconds: float):
+        sleep_calls.append(seconds)
+        mgr._running = False
+
+    error_mock = Mock()
+    monkeypatch.setattr(lifecycle_module.logger, "error", error_mock)
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+    await mgr._maintenance_loop()
+
+    error_mock.assert_called_once()
+    assert error_mock.call_args.args[0] == "[AtomLifecycle] 维护任务异常"
+    assert error_mock.call_args.kwargs["exc_info"] is True
+    assert sleep_calls == [60.0]
 
 
 # ---------- AtomRetriever get_atoms_for_memory ----------
