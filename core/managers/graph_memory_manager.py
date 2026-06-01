@@ -36,39 +36,34 @@ class GraphMemoryManager:
         """
         await self.delete_memory(source_memory_id)
 
-        extracted = self.graph_extractor.extract(source_memory_id, content, metadata, atoms)
+        extracted = self.graph_extractor.extract(
+            source_memory_id, content, metadata, atoms
+        )
         if not extracted.entries:
             return
 
-        node_key_to_id: dict[str, int] = {}
-        for node in extracted.nodes:
-            node_key_to_id[node.node_key] = await self.graph_store.upsert_node(node)
+        node_key_to_id = await self.graph_store.upsert_nodes(extracted.nodes)
 
-        edge_key_to_id: dict[str, int] = {}
-        for edge in extracted.edges:
-            edge_key_to_id[edge.edge_key] = await self.graph_store.add_edge(
-                edge,
-                node_key_to_id,
-            )
+        edge_key_to_id = await self.graph_store.add_edges(
+            extracted.edges,
+            node_key_to_id,
+        )
 
-        for entry in extracted.entries:
-            edge_id = None
-            if entry.relation_type and len(entry.node_keys) >= 2:
-                edge_key = (
-                    f"{entry.node_keys[0]}|{entry.relation_type}|"
-                    f"{entry.node_keys[1]}|{source_memory_id}"
+        entry_ids = await self.graph_store.add_entries(
+            extracted.entries,
+            node_key_to_id,
+            edge_key_to_id,
+        )
+        entry_vector_doc_ids: dict[int, int] = {}
+        try:
+            for entry_id, entry in zip(entry_ids, extracted.entries, strict=False):
+                vector_doc_id = await self.graph_vector_retriever.add_entry(
+                    entry.content,
+                    dict(entry.metadata),
                 )
-                edge_id = edge_key_to_id.get(edge_key)
-            entry_id = await self.graph_store.add_entry(
-                entry,
-                node_key_to_id,
-                edge_id=edge_id,
-            )
-            vector_doc_id = await self.graph_vector_retriever.add_entry(
-                entry.content,
-                dict(entry.metadata),
-            )
-            await self.graph_store.update_entry_vector_doc_id(entry_id, vector_doc_id)
+                entry_vector_doc_ids[entry_id] = vector_doc_id
+        finally:
+            await self.graph_store.update_entry_vector_doc_ids(entry_vector_doc_ids)
 
     async def delete_memory(self, source_memory_id: int) -> None:
         """Delete graph artifacts belonging to one source memory."""
@@ -80,9 +75,7 @@ class GraphMemoryManager:
         """Batch delete graph artifacts for multiple source memories."""
         if not source_memory_ids:
             return
-        memory_vec_map = await self.graph_store.batch_delete_memories(
-            source_memory_ids
-        )
+        memory_vec_map = await self.graph_store.batch_delete_memories(source_memory_ids)
         for vector_doc_ids in memory_vec_map.values():
             for vector_doc_id in vector_doc_ids:
                 await self.graph_vector_retriever.delete_entry(vector_doc_id)

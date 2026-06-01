@@ -210,28 +210,19 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
         conversation_manager=conversation_manager,
     )
 
-    count_results = [101, 81]
-
-    async def _get_message_count(_session_id):
-        return count_results.pop(0)
-
-    conversation_manager.store.get_message_count = AsyncMock(
-        side_effect=_get_message_count
-    )
+    conversation_manager.store.get_message_count = AsyncMock(return_value=101)
     conversation_manager.get_session_metadata = AsyncMock(return_value=80)
-    cursor = Mock(rowcount=20)
-    conversation_manager.store.connection.execute = AsyncMock(return_value=cursor)
+    conversation_manager.store.trim_session_messages = AsyncMock(return_value=20)
 
     await handler._enforce_message_limit("test:private:sid-1")
 
-    delete_call = conversation_manager.store.connection.execute.await_args_list[0]
-    assert delete_call.args[1] == ("test:private:sid-1", 20)
+    conversation_manager.store.trim_session_messages.assert_awaited_once_with(
+        "test:private:sid-1", 20
+    )
     conversation_manager.update_session_metadata.assert_awaited_with(
         "test:private:sid-1", "last_summarized_index", 60
     )
-    conversation_manager.invalidate_cache.assert_awaited_once_with(
-        "test:private:sid-1"
-    )
+    conversation_manager.invalidate_cache.assert_awaited_once_with("test:private:sid-1")
 
 
 @pytest.mark.asyncio
@@ -586,7 +577,6 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
     memory_engine.add_memory.assert_not_awaited()
 
 
-
 # ==================== fake_tool_call 注入策略测试 ====================
 
 
@@ -669,9 +659,7 @@ async def test_format_memories_for_fake_tool_call_empty():
 
 
 @pytest.mark.asyncio
-async def test_handle_memory_recall_injection_fake_tool_call(
-    handler, memory_engine
-):
+async def test_handle_memory_recall_injection_fake_tool_call(handler, memory_engine):
     """injection_method=fake_tool_call 时，记忆应以伪造工具调用的形式注入到 contexts。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
@@ -722,7 +710,9 @@ async def test_handle_memory_recall_injection_fake_tool_call(
     assert assistant_msg["role"] == "assistant"
     assert assistant_msg["content"] is None
     assert len(assistant_msg["tool_calls"]) == 1
-    assert assistant_msg["tool_calls"][0]["function"]["name"] == "recall_long_term_memory"
+    assert (
+        assistant_msg["tool_calls"][0]["function"]["name"] == "recall_long_term_memory"
+    )
 
     # 验证 tool 消息
     assert tool_msg["role"] == "tool"
@@ -968,12 +958,15 @@ async def test_handle_memory_recall_fake_tool_call_fallback_logs_once(
     event = _make_event(group=False)
     req = _make_req("今天吃什么")
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona, patch(
-        "astrbot_plugin_livingmemory.core.event_handler.logger.warning"
-    ) as mock_warning:
+    with (
+        patch(
+            "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+            new_callable=AsyncMock,
+        ) as get_persona,
+        patch(
+            "astrbot_plugin_livingmemory.core.event_handler.logger.warning"
+        ) as mock_warning,
+    ):
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
@@ -1138,9 +1131,7 @@ async def test_handle_memory_recall_non_fake_modes_do_not_fetch_provider(
 # ==================== top_k=0 回归测试 ====================
 
 
-def _make_handler_with_top_k_0(
-    memory_engine, memory_processor, conversation_manager
-):
+def _make_handler_with_top_k_0(memory_engine, memory_processor, conversation_manager):
     """创建一个 top_k=0 的 EventHandler 用于回归测试。"""
     return EventHandler(
         context=Mock(),
@@ -1194,9 +1185,7 @@ async def test_top_k_0_still_cleans_injected_memories(
     )
     event = _make_event(group=False)
     req = _make_req("test query")
-    req.system_prompt = (
-        f"你是助手。\n{MEMORY_INJECTION_HEADER}\n旧记忆内容\n{MEMORY_INJECTION_FOOTER}\n请回答。"
-    )
+    req.system_prompt = f"你是助手。\n{MEMORY_INJECTION_HEADER}\n旧记忆内容\n{MEMORY_INJECTION_FOOTER}\n请回答。"
 
     with patch(
         "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
@@ -1285,7 +1274,9 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
     )
     h.conversation_manager.add_message_from_event = AsyncMock()
 
-    recalled = Mock(content="mem_fallback", final_score=0.8, metadata={"importance": 0.9})
+    recalled = Mock(
+        content="mem_fallback", final_score=0.8, metadata={"importance": 0.9}
+    )
     memory_engine.search_memories = AsyncMock(return_value=[recalled])
 
     event = _make_event(group=False)
@@ -1309,22 +1300,26 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
 
 
 @pytest.mark.asyncio
-async def test_context_expansion_enriches_query(memory_engine, memory_processor, conversation_manager):
+async def test_context_expansion_enriches_query(
+    memory_engine, memory_processor, conversation_manager
+):
     """启用 inject_with_recent_context 时，查询应拼接历史消息上下文。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
     h = EventHandler(
         context=Mock(),
-        config_manager=ConfigManager({
-            "recall_engine": {
-                "top_k": 3,
-                "injection_method": "extra_user_content",
-                "inject_with_recent_context": True,
-            },
-            "reflection_engine": {"summary_trigger_rounds": 1},
-            "session_manager": {"max_messages_per_session": 100},
-        }),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "extra_user_content",
+                    "inject_with_recent_context": True,
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
         memory_engine=memory_engine,
         memory_processor=Mock(),
         conversation_manager=Mock(),
@@ -1332,13 +1327,17 @@ async def test_context_expansion_enriches_query(memory_engine, memory_processor,
     h.conversation_manager.add_message_from_event = AsyncMock()
 
     # 模拟返回 3 条消息（最新在前）: [当前消息, bot 回复, 用户上条]
-    h.conversation_manager.get_context = AsyncMock(return_value=[
-        {"content": "当前用户消息"},
-        {"content": "Bot 的上一条回复"},
-        {"content": "用户之前说的事情"},
-    ])
+    h.conversation_manager.get_context = AsyncMock(
+        return_value=[
+            {"content": "当前用户消息"},
+            {"content": "Bot 的上一条回复"},
+            {"content": "用户之前说的事情"},
+        ]
+    )
 
-    recalled = Mock(content="mem_context", final_score=0.8, metadata={"importance": 0.9})
+    recalled = Mock(
+        content="mem_context", final_score=0.8, metadata={"importance": 0.9}
+    )
     memory_engine.search_memories = AsyncMock(return_value=[recalled])
 
     event = _make_event(group=False)
@@ -1359,22 +1358,26 @@ async def test_context_expansion_enriches_query(memory_engine, memory_processor,
 
 
 @pytest.mark.asyncio
-async def test_context_expansion_skips_when_empty(memory_engine, memory_processor, conversation_manager):
+async def test_context_expansion_skips_when_empty(
+    memory_engine, memory_processor, conversation_manager
+):
     """get_context 返回空或单条时，直接使用原始查询。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
     h = EventHandler(
         context=Mock(),
-        config_manager=ConfigManager({
-            "recall_engine": {
-                "top_k": 3,
-                "injection_method": "extra_user_content",
-                "inject_with_recent_context": True,
-            },
-            "reflection_engine": {"summary_trigger_rounds": 1},
-            "session_manager": {"max_messages_per_session": 100},
-        }),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "extra_user_content",
+                    "inject_with_recent_context": True,
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
         memory_engine=memory_engine,
         memory_processor=Mock(),
         conversation_manager=Mock(),
@@ -1382,9 +1385,11 @@ async def test_context_expansion_skips_when_empty(memory_engine, memory_processo
     h.conversation_manager.add_message_from_event = AsyncMock()
 
     # 只返回一条消息（只有当前消息，无历史）
-    h.conversation_manager.get_context = AsyncMock(return_value=[
-        {"content": "唯一一条消息"},
-    ])
+    h.conversation_manager.get_context = AsyncMock(
+        return_value=[
+            {"content": "唯一一条消息"},
+        ]
+    )
 
     recalled = Mock(content="mem_skip", final_score=0.8, metadata={"importance": 0.9})
     memory_engine.search_memories = AsyncMock(return_value=[recalled])
@@ -1409,12 +1414,16 @@ async def test_context_expansion_skips_when_empty(memory_engine, memory_processo
 
 
 @pytest.mark.asyncio
-async def test_pending_summary_retry_max_abandons(handler, conversation_manager, memory_engine):
+async def test_pending_summary_retry_max_abandons(
+    handler, conversation_manager, memory_engine
+):
     """retry_count >= 3 时应放弃该范围，更新 last_summarized_index 并跳过总结。"""
-    conversation_manager.get_session_metadata = AsyncMock(side_effect=lambda sid, key, default=None: {
-        "last_summarized_index": 0,
-        "pending_summary": {"start_index": 2, "end_index": 10, "retry_count": 3},
-    }.get(key, default))
+    conversation_manager.get_session_metadata = AsyncMock(
+        side_effect=lambda sid, key, default=None: {
+            "last_summarized_index": 0,
+            "pending_summary": {"start_index": 2, "end_index": 10, "retry_count": 3},
+        }.get(key, default)
+    )
     conversation_manager.store.get_message_count = AsyncMock(return_value=12)
 
     event = _make_event(group=False)
@@ -1429,13 +1438,15 @@ async def test_pending_summary_retry_max_abandons(handler, conversation_manager,
 
     # 验证 pending_summary 被清除
     clear_calls = [
-        c for c in conversation_manager.update_session_metadata.await_args_list
+        c
+        for c in conversation_manager.update_session_metadata.await_args_list
         if c.args[1] == "pending_summary"
     ]
     assert len(clear_calls) >= 1
     # 验证 last_summarized_index 被更新到 end_index
     skip_calls = [
-        c for c in conversation_manager.update_session_metadata.await_args_list
+        c
+        for c in conversation_manager.update_session_metadata.await_args_list
         if c.args[1] == "last_summarized_index"
     ]
     assert any(c.args[2] == 12 for c in skip_calls)
@@ -1448,10 +1459,12 @@ async def test_pending_summary_retry_merges_range(
     handler, conversation_manager, memory_engine
 ):
     """retry_count < 3 时应合并范围（start_index 使用 pending_start）。"""
-    conversation_manager.get_session_metadata = AsyncMock(side_effect=lambda sid, key, default=None: {
-        "last_summarized_index": 5,
-        "pending_summary": {"start_index": 2, "retry_count": 1},
-    }.get(key, default))
+    conversation_manager.get_session_metadata = AsyncMock(
+        side_effect=lambda sid, key, default=None: {
+            "last_summarized_index": 5,
+            "pending_summary": {"start_index": 2, "retry_count": 1},
+        }.get(key, default)
+    )
     conversation_manager.store.get_message_count = AsyncMock(return_value=12)
     # 返回足够消息以满足 end_index - start_index >= 2
     msgs = [Mock(group_id=None) for _ in range(8)]
@@ -1472,4 +1485,4 @@ async def test_pending_summary_retry_merges_range(
     conversation_manager.get_messages_range.assert_awaited_once()
     call_kwargs = conversation_manager.get_messages_range.await_args.kwargs
     assert call_kwargs["start_index"] == 2  # pending_start
-    assert call_kwargs["end_index"] == 12    # total_messages
+    assert call_kwargs["end_index"] == 12  # total_messages

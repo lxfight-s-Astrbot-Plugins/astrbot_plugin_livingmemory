@@ -393,6 +393,9 @@ class PluginInitializer:
                 "atom_forget_delay_days": self.config_manager.get(
                     "graph_memory.atom_forget_delay_days", 7.0
                 ),
+                "atom_purge_delay_days": self.config_manager.get(
+                    "graph_memory.atom_purge_delay_days", 30.0
+                ),
                 "index_rebuild_batch_size": self.config_manager.get(
                     "index_rebuild_settings.batch_size", 50
                 ),
@@ -455,7 +458,9 @@ class PluginInitializer:
             self.memory_processor = MemoryProcessor(
                 self.context,
                 llm_provider=llm_id if llm_id else None,
-                config=memory_engine_config,
+                config={
+                    "atom_enabled": memory_engine_config["atom_enabled"],
+                },
             )
             logger.info("MemoryProcessor 已初始化")
 
@@ -525,9 +530,7 @@ class PluginInitializer:
                 if backup_path:
                     logger.info(f"数据库备份已创建: {backup_path}")
 
-            result = await self.db_migration.migrate(
-                progress_callback=None
-            )
+            result = await self.db_migration.migrate(progress_callback=None)
 
             if result.get("success"):
                 logger.info(f"数据库迁移结果: {result.get('message')}")

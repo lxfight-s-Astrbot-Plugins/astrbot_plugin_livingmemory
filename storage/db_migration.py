@@ -17,7 +17,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 6
+    CURRENT_VERSION = 7
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -27,6 +27,7 @@ class DBMigration:
         4: "Schema v2 - 双通道总结字段 + source_window 溯源支持",
         5: "Graph memory - graph tables and dual-route retrieval metadata",
         6: "插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 安全重命名备份",
+        7: "Storage indexes and FTS optimization for graph and atom data",
     }
 
     def __init__(self, db_path: str):
@@ -229,6 +230,10 @@ class DBMigration:
                 # 从版本5升级到版本6
                 if current_version <= 5:
                     migration_steps.append(self._migrate_v5_to_v6)
+
+                # 从版本6升级到版本7
+                if current_version <= 6:
+                    migration_steps.append(self._migrate_v6_to_v7)
 
                 # 执行所有迁移步骤
                 for step in migration_steps:
@@ -584,6 +589,84 @@ class DBMigration:
             logger.error(f"v5 -> v6 迁移失败: {e}", exc_info=True)
             raise
 
+    async def _migrate_v6_to_v7(
+        self,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ):
+        """Add storage indexes and run lightweight FTS maintenance."""
+        logger.info("执行迁移步骤: v6 -> v7 (storage indexes and FTS maintenance)")
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA busy_timeout = 10000")
+                await db.execute("PRAGMA foreign_keys = ON")
+
+                if await self._table_exists(db, "graph_edges"):
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
+                        ON graph_edges(source_node_id, target_node_id, relation_type)
+                        """
+                    )
+                if await self._table_exists(db, "graph_entries"):
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_graph_entries_scope_latest
+                        ON graph_entries(session_id, persona_id, source_memory_id, id DESC)
+                        """
+                    )
+                if await self._table_exists(db, "graph_entry_nodes"):
+                    await db.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_graph_entry_nodes_node ON graph_entry_nodes(node_id)"
+                    )
+                if await self._table_exists(db, "memory_atoms"):
+                    await db.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_atoms_persona ON memory_atoms(persona_id)"
+                    )
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_atoms_scope_status
+                        ON memory_atoms(status, session_id, persona_id)
+                        """
+                    )
+                    await db.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_atoms_status_expires
+                        ON memory_atoms(status, expires_at)
+                        """
+                    )
+
+                for table_name in (
+                    "livingmemory_memories_fts",
+                    "livingmemory_graph_entries_fts",
+                    "memory_atoms_fts",
+                ):
+                    try:
+                        await db.execute(
+                            f"INSERT INTO {table_name}({table_name}) VALUES ('optimize')"
+                        )
+                    except Exception:
+                        logger.debug(
+                            f"跳过 FTS optimize: {table_name}",
+                            exc_info=True,
+                        )
+
+                await db.commit()
+                await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+            logger.info("v6 -> v7 迁移完成")
+
+        except Exception as e:
+            logger.error(f"v6 -> v7 迁移失败: {e}", exc_info=True)
+            raise
+
+    async def _table_exists(self, db: aiosqlite.Connection, table_name: str) -> bool:
+        cursor = await db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        )
+        return await cursor.fetchone() is not None
+
     async def _copy_fts_rows_if_exists(
         self,
         db: aiosqlite.Connection,
@@ -620,7 +703,9 @@ class DBMigration:
             return
 
         if not await self._is_legacy_livingmemory_documents_fts(db, row[0] or ""):
-            logger.warning("documents_fts 不完全匹配旧 LivingMemory FTS 结构，保留不处理")
+            logger.warning(
+                "documents_fts 不完全匹配旧 LivingMemory FTS 结构，保留不处理"
+            )
             return
 
         cursor = await db.execute("""
@@ -628,7 +713,9 @@ class DBMigration:
             WHERE type='table' AND name='livingmemory_legacy_documents_fts_backup'
         """)
         if await cursor.fetchone():
-            logger.warning("旧表备份 livingmemory_legacy_documents_fts_backup 已存在，保留 documents_fts 不处理")
+            logger.warning(
+                "旧表备份 livingmemory_legacy_documents_fts_backup 已存在，保留 documents_fts 不处理"
+            )
             return
 
         await db.execute(
@@ -644,9 +731,7 @@ class DBMigration:
         create_sql: str,
     ) -> bool:
         normalized_sql = " ".join(create_sql.lower().replace("\n", " ").split())
-        expected_sql = (
-            "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
-        )
+        expected_sql = "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
         if normalized_sql != expected_sql:
             return False
 

@@ -42,7 +42,9 @@ class SessionManagerConfig(BaseModel):
 class RecallEngineConfig(BaseModel):
     """回忆引擎配置"""
 
-    top_k: int = Field(default=5, ge=0, le=50, description="返回记忆数量。设为 0 则跳过自动召回和注入")
+    top_k: int = Field(
+        default=5, ge=0, le=50, description="返回记忆数量。设为 0 则跳过自动召回和注入"
+    )
     max_k: int = Field(
         default=10, ge=1, le=50, description="Agent 主动检索时允许的最大返回数量"
     )
@@ -66,7 +68,8 @@ class RecallEngineConfig(BaseModel):
         default=True, description="是否自动删除对话历史中已注入的记忆片段"
     )
     inject_with_recent_context: bool = Field(
-        default=False, description="启用后使用最近2轮对话作为扩展查询关键词，提升检索精准度"
+        default=False,
+        description="启用后使用最近2轮对话作为扩展查询关键词，提升检索精准度",
     )
 
 
@@ -195,6 +198,9 @@ class GraphMemoryConfig(BaseModel):
     )
     atom_forget_delay_days: float = Field(
         default=7.0, ge=1.0, le=90.0, description="过期原子延迟遗忘天数"
+    )
+    atom_purge_delay_days: float = Field(
+        default=30.0, ge=1.0, le=365.0, description="遗忘原子物理清理延迟天数"
     )
 
     @model_validator(mode="after")

@@ -13,13 +13,13 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from ...storage.graph_store import GraphStore
 from ...storage.atom_store import AtomStore
-from ..managers.graph_memory_manager import GraphMemoryManager
+from ...storage.graph_store import GraphStore
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
-from ..retrieval.atom_retriever import AtomRetriever
+from ..managers.graph_memory_manager import GraphMemoryManager
 from ..processors.graph_extractor import GraphExtractor
 from ..processors.text_processor import TextProcessor
+from ..retrieval.atom_retriever import AtomRetriever
 from ..retrieval.bm25_retriever import BM25Retriever
 from ..retrieval.dual_route_retriever import DualRouteRetriever
 from ..retrieval.graph_keyword_retriever import GraphKeywordRetriever
@@ -429,18 +429,27 @@ class MemoryEngine:
 
         # 写入记忆原子
         if atoms and self.atom_store is not None and self.atom_enabled:
+            prepared_atoms = []
             for atom in atoms:
                 atom.parent_memory_id = doc_id
-                try:
-                    await self.atom_store.insert(atom)
-                except Exception:
-                    logger.error(
-                        f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
-                        exc_info=True,
-                    )
+                prepared_atoms.append(atom)
+            try:
+                await self.atom_store.insert_many(prepared_atoms)
+            except Exception:
+                logger.error("[MemoryEngine] 批量写入记忆原子失败", exc_info=True)
+                for atom in prepared_atoms:
+                    try:
+                        await self.atom_store.insert(atom)
+                    except Exception:
+                        logger.error(
+                            f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
+                            exc_info=True,
+                        )
 
         if self.graph_memory_manager is not None:
-            await self.graph_memory_manager.index_memory(doc_id, content, full_metadata, atoms)
+            await self.graph_memory_manager.index_memory(
+                doc_id, content, full_metadata, atoms
+            )
 
         return doc_id
 
@@ -691,6 +700,8 @@ class MemoryEngine:
         success = await self.hybrid_retriever.delete_memory(memory_id)
         if success and self.graph_memory_manager is not None:
             await self.graph_memory_manager.delete_memory(memory_id)
+        if success and self.atom_store is not None:
+            await self.atom_store.delete_by_parent(memory_id)
         return success
 
     async def rebuild_graph_index(self) -> dict[str, int]:
@@ -892,7 +903,6 @@ class MemoryEngine:
 
         # 使用数据库层面的排序和分页，避免加载所有数据
         try:
-
             # 先获取总数判断是否需要分批
             total_count = await self.faiss_db.document_storage.count_documents(
                 metadata_filters={"session_id": session_id}
@@ -914,9 +924,7 @@ class MemoryEngine:
                 )
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda d: float(
-                        d.get("metadata", {}).get("create_time", 0)
-                    ),
+                    key=lambda d: float(d.get("metadata", {}).get("create_time", 0)),
                     reverse=True,
                 )
             else:
@@ -942,9 +950,7 @@ class MemoryEngine:
 
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda d: float(
-                        d.get("metadata", {}).get("create_time", 0)
-                    ),
+                    key=lambda d: float(d.get("metadata", {}).get("create_time", 0)),
                     reverse=True,
                 )[:limit]
 
@@ -1011,6 +1017,8 @@ class MemoryEngine:
             # 4. Batch delete graph artifacts
             if self.graph_memory_manager is not None:
                 await self.graph_memory_manager.batch_delete_memories(batch)
+            if self.atom_store is not None:
+                await self.atom_store.batch_delete_by_parent(batch)
 
             total_deleted += len(batch)
 
@@ -1111,9 +1119,7 @@ class MemoryEngine:
             if not to_delete_ids:
                 return 0
 
-            logger.info(
-                f"[清理] 发现 {len(to_delete_ids)} 条候选记忆，开始批量删除"
-            )
+            logger.info(f"[清理] 发现 {len(to_delete_ids)} 条候选记忆，开始批量删除")
             deleted_count = await self.batch_delete_memories(to_delete_ids)
             logger.info(f"[清理] 完成，已删除 {deleted_count} 条旧记忆")
 
@@ -1365,6 +1371,59 @@ class MemoryEngine:
                 "newest_memory": None,
                 "graph_memory_enabled": bool(self.graph_store is not None),
             }
+
+    async def maintain_storage(self, *, vacuum: bool = False) -> dict[str, Any]:
+        """Run SQLite storage maintenance and return size diagnostics."""
+        try:
+            db_path = Path(self.db_path)
+            wal_path = Path(f"{self.db_path}-wal")
+            before_size = db_path.stat().st_size if db_path.exists() else 0
+            before_wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+
+            if self.db_connection is None:
+                return {
+                    "success": False,
+                    "error": "database connection is not initialized",
+                }
+
+            for fts_table in (
+                "livingmemory_memories_fts",
+                "livingmemory_graph_entries_fts",
+                "memory_atoms_fts",
+            ):
+                try:
+                    await self.db_connection.execute(
+                        f"INSERT INTO {fts_table}({fts_table}) VALUES ('optimize')"
+                    )
+                except Exception:
+                    logger.debug(
+                        f"[StorageMaintenance] 跳过 FTS optimize: {fts_table}",
+                        exc_info=True,
+                    )
+
+            await self.db_connection.commit()
+            await self.db_connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+            if vacuum:
+                await self.db_connection.execute("VACUUM")
+
+            after_size = db_path.stat().st_size if db_path.exists() else 0
+            after_wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+            return {
+                "success": True,
+                "vacuum": vacuum,
+                "db_size_before": before_size,
+                "db_size_after": after_size,
+                "wal_size_before": before_wal_size,
+                "wal_size_after": after_wal_size,
+                "bytes_reclaimed": max(
+                    0,
+                    before_size + before_wal_size - after_size - after_wal_size,
+                ),
+            }
+        except Exception as e:
+            logger.error(f"[StorageMaintenance] 执行存储维护失败: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     @staticmethod
     def _normalize_batch_metadata(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:

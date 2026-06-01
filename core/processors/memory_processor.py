@@ -58,7 +58,9 @@ class MemoryProcessor:
         """
         if not self.context:
             # 无 context 时直接返回传入的 provider 实例（测试路径）
-            if self._llm_provider is not None and not isinstance(self._llm_provider, str):
+            if self._llm_provider is not None and not isinstance(
+                self._llm_provider, str
+            ):
                 return self._llm_provider
             return None
 
@@ -793,7 +795,11 @@ class MemoryProcessor:
             is_group_chat,
         )
         metadata["summary_quality"] = quality
-        return content, metadata, self._validate_importance(normalized.get("importance"))
+        return (
+            content,
+            metadata,
+            self._validate_importance(normalized.get("importance")),
+        )
 
     def _get_default_value(self, field: str) -> Any:
         """获取字段的默认值"""

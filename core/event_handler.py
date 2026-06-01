@@ -34,9 +34,7 @@ from .utils.injection_adapter import InjectionAdapter
 
 # 预编译记忆注入清理正则（热路径优化：避免每次调用 re.compile）
 _INJECTION_CLEANUP_PATTERN = re.compile(
-    re.escape(MEMORY_INJECTION_HEADER)
-    + r".*?"
-    + re.escape(MEMORY_INJECTION_FOOTER),
+    re.escape(MEMORY_INJECTION_HEADER) + r".*?" + re.escape(MEMORY_INJECTION_FOOTER),
     flags=re.DOTALL,
 )
 
@@ -170,9 +168,7 @@ class EventHandler:
                     removed = self._remove_injected_memories_from_context(
                         req, session_id
                     )
-                    removed += self._remove_fake_tool_call_from_context(
-                        req, session_id
-                    )
+                    removed += self._remove_fake_tool_call_from_context(req, session_id)
                     if removed > 0:
                         logger.info(
                             f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
@@ -190,7 +186,9 @@ class EventHandler:
                 if not is_group and actual_query:
                     message_to_store = request_query
                     if not message_to_store:
-                        message_to_store = await self._extract_message_content(event, req)
+                        message_to_store = await self._extract_message_content(
+                            event, req
+                        )
                     if not message_to_store:
                         message_to_store = actual_query.strip()
                     await self.conversation_manager.add_message_from_event(
@@ -236,7 +234,9 @@ class EventHandler:
                 query_for_search = actual_query
 
                 # 上下文扩展：拼接最近2轮对话作为查询，提升检索精准度
-                if self.config_manager.get("recall_engine.inject_with_recent_context", False):
+                if self.config_manager.get(
+                    "recall_engine.inject_with_recent_context", False
+                ):
                     try:
                         recent_messages = await self.conversation_manager.get_context(
                             session_id, max_messages=5
@@ -257,9 +257,7 @@ class EventHandler:
                                     f"{len(context_parts)}条历史消息 + 当前消息"
                                 )
                     except Exception as e:
-                        logger.warning(
-                            f"[{session_id}] 获取上下文扩展失败: {e}"
-                        )
+                        logger.warning(f"[{session_id}] 获取上下文扩展失败: {e}")
 
                 # 执行记忆召回
                 logger.info(
@@ -330,9 +328,7 @@ class EventHandler:
                         fake_messages = format_memories_for_fake_tool_call(
                             memory_list,
                             query=actual_query,
-                            k=self.config_manager.get(
-                                "recall_engine.top_k", 5
-                            ),
+                            k=self.config_manager.get("recall_engine.top_k", 5),
                             session_filtered=use_session_filtering,
                             persona_filtered=use_persona_filtering,
                         )
@@ -346,9 +342,7 @@ class EventHandler:
                         fake_replay = format_memories_for_fake_tool_call_deepseek_v4(
                             memory_list,
                             query=actual_query,
-                            k=self.config_manager.get(
-                                "recall_engine.top_k", 5
-                            ),
+                            k=self.config_manager.get("recall_engine.top_k", 5),
                             session_filtered=use_session_filtering,
                             persona_filtered=use_persona_filtering,
                         )
@@ -362,6 +356,7 @@ class EventHandler:
                         # extra_user_content（推荐）：追加到用户消息末尾，
                         # 不影响前缀缓存且 mark_as_temp 后不污染对话历史
                         from astrbot.core.agent.message import TextPart
+
                         req.extra_user_content_parts.append(
                             TextPart(text=memory_str).mark_as_temp()
                         )
@@ -858,7 +853,10 @@ class EventHandler:
                             )
 
             # 清理 extra_user_content_parts（处理 extra_user_content 注入方式）
-            if hasattr(req, "extra_user_content_parts") and req.extra_user_content_parts:
+            if (
+                hasattr(req, "extra_user_content_parts")
+                and req.extra_user_content_parts
+            ):
                 kept_parts = []
                 for part in req.extra_user_content_parts:
                     text = getattr(part, "text", "")
@@ -1056,9 +1054,7 @@ class EventHandler:
                 removed += 1
 
             if removed > 0:
-                logger.info(
-                    f"[{session_id}] 清理了 {removed} 条伪造工具调用消息"
-                )
+                logger.info(f"[{session_id}] 清理了 {removed} 条伪造工具调用消息")
 
         except Exception as e:
             logger.error(
@@ -1230,9 +1226,6 @@ class EventHandler:
             return
 
         try:
-            conn = self.conversation_manager.store.connection
-
-            # 获取实际消息数量
             actual_count = await self.conversation_manager.store.get_message_count(
                 session_id
             )
@@ -1270,21 +1263,12 @@ class EventHandler:
                 f"实际删除={safe_to_delete}"
             )
 
-            # 删除最旧的已总结消息
-            cursor = await conn.execute(
-                """
-                DELETE FROM messages
-                WHERE id IN (
-                    SELECT id FROM messages
-                    WHERE session_id = ?
-                    ORDER BY timestamp ASC
-                    LIMIT ?
+            actually_deleted = (
+                await self.conversation_manager.store.trim_session_messages(
+                    session_id,
+                    safe_to_delete,
                 )
-                """,
-                (session_id, safe_to_delete),
             )
-
-            actually_deleted = cursor.rowcount
 
             # 更新 last_summarized_index（减去已删除的数量）
             new_summarized_index = last_summarized_index - actually_deleted
@@ -1292,21 +1276,7 @@ class EventHandler:
                 session_id, "last_summarized_index", max(0, new_summarized_index)
             )
 
-            # 更新 sessions 表的 message_count
-            new_actual_count = await self.conversation_manager.store.get_message_count(
-                session_id
-            )
-
-            await conn.execute(
-                """
-                UPDATE sessions
-                SET message_count = ?
-                WHERE session_id = ?
-                """,
-                (new_actual_count, session_id),
-            )
-
-            await conn.commit()
+            new_actual_count = max(0, actual_count - actually_deleted)
 
             # 清除缓存（使用公共接口）
             await self.conversation_manager.invalidate_cache(session_id)

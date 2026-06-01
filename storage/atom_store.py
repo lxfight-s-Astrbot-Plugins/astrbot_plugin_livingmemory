@@ -10,7 +10,13 @@ from typing import Any
 
 import aiosqlite
 
-from ..core.models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom, compute_ttl
+from ..core.models.memory_atom import (
+    AtomStatus,
+    AtomType,
+    DecayType,
+    MemoryAtom,
+    compute_ttl,
+)
 
 
 class AtomStore:
@@ -93,6 +99,21 @@ class AtomStore:
                 "CREATE INDEX IF NOT EXISTS idx_atoms_session ON memory_atoms(session_id)"
             )
             await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_atoms_persona ON memory_atoms(persona_id)"
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_atoms_scope_status
+                ON memory_atoms(status, session_id, persona_id)
+                """
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_atoms_status_expires
+                ON memory_atoms(status, expires_at)
+                """
+            )
+            await db.execute(
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS memory_atoms_fts
                 USING fts5(content, atom_id UNINDEXED, tokenize='unicode61')
@@ -102,6 +123,28 @@ class AtomStore:
 
     async def insert(self, atom: MemoryAtom) -> int:
         """Insert a new atom and return its id. Updates atom.atom_id in place."""
+        self._prepare_atom_for_insert(atom)
+
+        async with self._connect() as db:
+            atom_id = await self._insert_atom(db, atom)
+            await db.commit()
+        return atom_id
+
+    async def insert_many(self, atoms: list[MemoryAtom]) -> list[int]:
+        """Insert atoms in one transaction and return their ids."""
+        if not atoms:
+            return []
+
+        atom_ids: list[int] = []
+        async with self._connect() as db:
+            for atom in atoms:
+                self._prepare_atom_for_insert(atom)
+                atom_ids.append(await self._insert_atom(db, atom))
+            await db.commit()
+        return atom_ids
+
+    def _prepare_atom_for_insert(self, atom: MemoryAtom) -> None:
+        """Populate time-derived fields before persistence."""
         now = time.time()
         atom.created_at = now
         atom.last_accessed_at = now
@@ -112,46 +155,49 @@ class AtomStore:
         atom.decay_type = decay
         atom.expires_at = now + ttl * 86400.0
 
-        async with self._connect() as db:
-            cursor = await db.execute(
-                """
-                INSERT INTO memory_atoms (
-                    parent_memory_id, atom_type, content, entities,
-                    importance, confidence, created_at, last_accessed_at,
-                    last_reinforced_at, event_time, ttl_days, expires_at,
-                    status, reinforcement_count, decay_type,
-                    session_id, persona_id, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    atom.parent_memory_id,
-                    atom.atom_type.value,
-                    atom.content,
-                    json.dumps(atom.entities, ensure_ascii=False),
-                    atom.importance,
-                    atom.confidence,
-                    atom.created_at,
-                    atom.last_accessed_at,
-                    atom.last_reinforced_at,
-                    atom.event_time,
-                    atom.ttl_days,
-                    atom.expires_at,
-                    atom.status.value,
-                    atom.reinforcement_count,
-                    atom.decay_type.value,
-                    atom.session_id,
-                    atom.persona_id,
-                    self._to_json(atom.metadata),
-                ),
-            )
-            atom_id = int(cursor.lastrowid)
-            atom.atom_id = atom_id
+    async def _insert_atom(
+        self,
+        db: aiosqlite.Connection,
+        atom: MemoryAtom,
+    ) -> int:
+        cursor = await db.execute(
+            """
+            INSERT INTO memory_atoms (
+                parent_memory_id, atom_type, content, entities,
+                importance, confidence, created_at, last_accessed_at,
+                last_reinforced_at, event_time, ttl_days, expires_at,
+                status, reinforcement_count, decay_type,
+                session_id, persona_id, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                atom.parent_memory_id,
+                atom.atom_type.value,
+                atom.content,
+                json.dumps(atom.entities, ensure_ascii=False),
+                atom.importance,
+                atom.confidence,
+                atom.created_at,
+                atom.last_accessed_at,
+                atom.last_reinforced_at,
+                atom.event_time,
+                atom.ttl_days,
+                atom.expires_at,
+                atom.status.value,
+                atom.reinforcement_count,
+                atom.decay_type.value,
+                atom.session_id,
+                atom.persona_id,
+                self._to_json(atom.metadata),
+            ),
+        )
+        atom_id = int(cursor.lastrowid)
+        atom.atom_id = atom_id
 
-            await db.execute(
-                "INSERT INTO memory_atoms_fts(atom_id, content) VALUES (?, ?)",
-                (atom_id, atom.content),
-            )
-            await db.commit()
+        await db.execute(
+            "INSERT INTO memory_atoms_fts(atom_id, content) VALUES (?, ?)",
+            (atom_id, atom.content),
+        )
         return atom_id
 
     async def get(self, atom_id: int) -> MemoryAtom | None:
@@ -233,9 +279,15 @@ class AtomStore:
             if not rows:
                 like_clauses = " OR ".join(["ma.content LIKE ?" for _ in tokens])
                 like_params_full: list[Any] = [f"%{t}%" for t in tokens]
-                status_filter = "AND ma.status = 'active'" if not include_expired else ""
-                session_filter = "AND ma.session_id = ?" if session_id is not None else ""
-                persona_filter = "AND ma.persona_id = ?" if persona_id is not None else ""
+                status_filter = (
+                    "AND ma.status = 'active'" if not include_expired else ""
+                )
+                session_filter = (
+                    "AND ma.session_id = ?" if session_id is not None else ""
+                )
+                persona_filter = (
+                    "AND ma.persona_id = ?" if persona_id is not None else ""
+                )
                 if session_id is not None:
                     like_params_full.append(session_id)
                 if persona_id is not None:
@@ -264,13 +316,20 @@ class AtomStore:
         now = time.time()
         for row in rows:
             atom = self._row_to_atom(row)
-            normalized = 1.0 if score_range == 0 else (max_score - float(row["bm25_score"])) / score_range
+            normalized = (
+                1.0
+                if score_range == 0
+                else (max_score - float(row["bm25_score"])) / score_range
+            )
             atom.metadata["bm25_score"] = normalized
             atom.metadata["temporal_score"] = atom.compute_temporal_score(now)
             atoms.append(atom)
 
         atoms.sort(
-            key=lambda a: float(a.metadata.get("bm25_score", 0)) * float(a.metadata.get("temporal_score", 1)),
+            key=lambda a: (
+                float(a.metadata.get("bm25_score", 0))
+                * float(a.metadata.get("temporal_score", 1))
+            ),
             reverse=True,
         )
         return atoms
@@ -295,7 +354,9 @@ class AtomStore:
             )
             await db.commit()
 
-    async def reinforce(self, atom_id: int, new_confidence: float | None = None) -> None:
+    async def reinforce(
+        self, atom_id: int, new_confidence: float | None = None
+    ) -> None:
         """Record a reinforcement event, extending TTL and optionally boosting confidence."""
         now = time.time()
         async with self._connect() as db:
@@ -314,7 +375,11 @@ class AtomStore:
             event_time = float(row["event_time"]) if row["event_time"] else None
             new_ttl, decay = compute_ttl(atom_type, importance, new_count, event_time)
 
-            confidence = new_confidence if new_confidence is not None else float(row["confidence"])
+            confidence = (
+                new_confidence
+                if new_confidence is not None
+                else float(row["confidence"])
+            )
             # EMA update if new_confidence provided
             if new_confidence is not None:
                 confidence = float(row["confidence"]) * 0.7 + new_confidence * 0.3
@@ -327,7 +392,15 @@ class AtomStore:
                     last_reinforced_at = ?
                 WHERE id = ?
                 """,
-                (new_count, confidence, new_ttl, now + new_ttl * 86400.0, decay.value, now, atom_id),
+                (
+                    new_count,
+                    confidence,
+                    new_ttl,
+                    now + new_ttl * 86400.0,
+                    decay.value,
+                    now,
+                    atom_id,
+                ),
             )
             await db.commit()
 
@@ -365,6 +438,33 @@ class AtomStore:
                 await db.commit()
             return len(atom_ids)
 
+    async def forget_expired_atoms(self, older_than_days: float = 7.0) -> int:
+        """Soft-delete old expired atoms and remove them from the FTS index."""
+        cutoff = time.time() - older_than_days * 86400.0
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT id FROM memory_atoms WHERE status = 'expired' AND expires_at < ?",
+                (cutoff,),
+            )
+            rows = await cursor.fetchall()
+            atom_ids = [int(row[0]) for row in rows]
+            if atom_ids:
+                placeholders = ",".join("?" * len(atom_ids))
+                await db.execute(
+                    f"DELETE FROM memory_atoms_fts WHERE atom_id IN ({placeholders})",
+                    atom_ids,
+                )
+                await db.execute(
+                    f"""
+                    UPDATE memory_atoms
+                    SET status = ?
+                    WHERE id IN ({placeholders})
+                    """,
+                    (AtomStatus.FORGOTTEN.value, *atom_ids),
+                )
+                await db.commit()
+            return len(atom_ids)
+
     async def delete_by_parent(self, parent_memory_id: int) -> int:
         """Delete all atoms belonging to a parent memory. Returns count."""
         async with self._connect() as db:
@@ -386,6 +486,46 @@ class AtomStore:
                 )
                 await db.commit()
             return len(atom_ids)
+
+    async def batch_delete_by_parent(self, parent_memory_ids: list[int]) -> int:
+        """Delete atoms for multiple parent memories in bulk."""
+        normalized_ids = sorted({int(item) for item in parent_memory_ids})
+        if not normalized_ids:
+            return 0
+
+        deleted_count = 0
+        chunk_size = 500
+        async with self._connect() as db:
+            for index in range(0, len(normalized_ids), chunk_size):
+                batch = normalized_ids[index : index + chunk_size]
+                parent_placeholders = ",".join("?" * len(batch))
+                cursor = await db.execute(
+                    f"""
+                    SELECT id
+                    FROM memory_atoms
+                    WHERE parent_memory_id IN ({parent_placeholders})
+                    """,
+                    batch,
+                )
+                rows = await cursor.fetchall()
+                atom_ids = [int(row[0]) for row in rows]
+                if not atom_ids:
+                    continue
+
+                atom_placeholders = ",".join("?" * len(atom_ids))
+                await db.execute(
+                    f"DELETE FROM memory_atoms_fts WHERE atom_id IN ({atom_placeholders})",
+                    atom_ids,
+                )
+                cursor = await db.execute(
+                    f"DELETE FROM memory_atoms WHERE id IN ({atom_placeholders})",
+                    atom_ids,
+                )
+                deleted_count += cursor.rowcount
+
+            if deleted_count:
+                await db.commit()
+        return deleted_count
 
     async def get_stats(self) -> dict[str, int]:
         """Return per-status atom counts."""
@@ -412,7 +552,9 @@ class AtomStore:
             confidence=float(row["confidence"]),
             created_at=float(row["created_at"]),
             last_accessed_at=float(row["last_accessed_at"]),
-            last_reinforced_at=float(row["last_reinforced_at"]) if row["last_reinforced_at"] else None,
+            last_reinforced_at=float(row["last_reinforced_at"])
+            if row["last_reinforced_at"]
+            else None,
             event_time=float(row["event_time"]) if row["event_time"] else None,
             ttl_days=float(row["ttl_days"]),
             expires_at=float(row["expires_at"]),

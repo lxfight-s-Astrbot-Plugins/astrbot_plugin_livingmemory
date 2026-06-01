@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
 from ...storage.atom_store import AtomStore
-from ..models.memory_atom import AtomStatus, AtomType
 
 
 class AtomLifecycleManager:
@@ -23,8 +21,12 @@ class AtomLifecycleManager:
         self._maintenance_interval_hours = float(
             self.config.get("atom_maintenance_interval_hours", 24.0)
         )
-        self._forget_delay_days = float(
-            self.config.get("atom_forget_delay_days", 7.0)
+        self._forget_delay_days = float(self.config.get("atom_forget_delay_days", 7.0))
+        self._purge_delay_days = float(
+            self.config.get(
+                "atom_purge_delay_days",
+                max(self._forget_delay_days * 4.0, 30.0),
+            )
         )
         self._running = False
         self._task: asyncio.Task | None = None
@@ -62,11 +64,13 @@ class AtomLifecycleManager:
         expired = await self.atom_store.expire_stale_atoms()
         result["expired"] = expired
 
-        # 2. Forget low-importance expired atoms
-        #    (mark EXPIRED atoms past forget_delay_days as FORGOTTEN)
-        #    This is a soft delete — they stay in the db but are removed from FTS.
-        forgotten = await self.atom_store.cleanup_forgotten(self._forget_delay_days)
+        # 2. Soft-delete old expired atoms: keep metadata but remove them from FTS.
+        forgotten = await self.atom_store.forget_expired_atoms(self._forget_delay_days)
         result["forgotten"] = forgotten
+
+        # 3. Physically purge much older forgotten atoms to cap long-term storage.
+        purged = await self.atom_store.cleanup_forgotten(self._purge_delay_days)
+        result["purged"] = purged
 
         return result
 
@@ -91,7 +95,7 @@ class AtomLifecycleManager:
             if len(new_tokens) < 3:
                 chars = content.replace(" ", "")
                 if len(chars) >= 4:
-                    new_tokens = set(chars[i:i+2] for i in range(len(chars)-1))
+                    new_tokens = {chars[i : i + 2] for i in range(len(chars) - 1)}
 
             if len(new_tokens) < 2:
                 continue
@@ -106,10 +110,16 @@ class AtomLifecycleManager:
                 ex_content = ex.content.lower()
                 ex_tokens = set(ex_content.split())
                 if len(ex_tokens) < 2:
-                    ex_tokens = set(ex_content[i:i+2] for i in range(len(ex_content)-1)) if len(ex_content) >= 4 else set()
+                    ex_tokens = (
+                        {ex_content[i : i + 2] for i in range(len(ex_content) - 1)}
+                        if len(ex_content) >= 4
+                        else set()
+                    )
                 if not ex_tokens or not new_tokens:
                     continue
-                jaccard = len(new_tokens & ex_tokens) / max(1, len(new_tokens | ex_tokens))
+                jaccard = len(new_tokens & ex_tokens) / max(
+                    1, len(new_tokens | ex_tokens)
+                )
                 if jaccard >= similarity_threshold:
                     await self.atom_store.reinforce(
                         ex.atom_id,

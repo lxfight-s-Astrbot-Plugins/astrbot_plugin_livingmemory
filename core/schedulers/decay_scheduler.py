@@ -166,6 +166,23 @@ class DecayScheduler:
             if self.backup_enabled and self.db_migration:
                 await self._run_backup()
 
+            try:
+                maintenance_result = await self.memory_engine.maintain_storage()
+                if maintenance_result.get("success"):
+                    reclaimed = int(maintenance_result.get("bytes_reclaimed", 0))
+                    logger.info(
+                        f"[衰减调度] 存储维护完成，释放 {reclaimed / 1024 / 1024:.2f} MB"
+                    )
+                else:
+                    logger.warning(
+                        f"[衰减调度] 存储维护失败: {maintenance_result.get('error')}"
+                    )
+            except Exception as maintenance_err:
+                logger.warning(
+                    f"[衰减调度] 存储维护异常: {maintenance_err}",
+                    exc_info=True,
+                )
+
             return True
         except Exception as e:
             logger.error(f"[衰减调度] 执行衰减失败: {e}", exc_info=True)
