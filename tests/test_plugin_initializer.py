@@ -158,6 +158,7 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
         def __init__(self, context=None, llm_provider=None, **kwargs):
             self.context = context
             self.llm_provider = llm_provider
+            self.config = kwargs.get("config", {})
 
     class FakeIndexValidator:
         def __init__(self, db_path, db):
@@ -228,6 +229,9 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
                     "max_topics_per_memory": 4,
                     "max_participants_per_memory": 5,
                     "max_facts_per_memory": 6,
+                    "atom_enabled": False,
+                    "atom_maintenance_interval_hours": 12.0,
+                    "atom_forget_delay_days": 3.0,
                 },
             }
         ),
@@ -253,6 +257,10 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     assert init.memory_engine.config["graph_max_topics"] == 4
     assert init.memory_engine.config["graph_max_participants"] == 5
     assert init.memory_engine.config["graph_max_facts"] == 6
+    assert init.memory_engine.config["atom_enabled"] is False
+    assert init.memory_engine.config["atom_maintenance_interval_hours"] == 12.0
+    assert init.memory_engine.config["atom_forget_delay_days"] == 3.0
+    assert init.memory_processor.config is init.memory_engine.config
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,12 @@ class MemoryProcessor:
     支持私聊和群聊两种场景的不同处理策略。
     """
 
-    def __init__(self, context=None, llm_provider: Any = None):
+    def __init__(
+        self,
+        context=None,
+        llm_provider: Any = None,
+        config: dict[str, Any] | None = None,
+    ):
         """
         初始化记忆处理器
 
@@ -34,9 +39,11 @@ class MemoryProcessor:
             llm_provider: LLM Provider 实例或 Provider ID 字符串。
                           传入实例时直接使用（测试用）；传入字符串时动态解析。
                           留空则使用AstrBot默认Provider。
+            config: 记忆处理器配置。
         """
         self.context = context
         self._llm_provider = llm_provider
+        self.config = config or {}
 
         # 加载提示词模板
         self._load_prompts()
