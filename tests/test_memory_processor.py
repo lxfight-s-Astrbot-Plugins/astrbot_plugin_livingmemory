@@ -272,35 +272,56 @@ async def test_summary_quality_low_for_generic_terms():
 def test_validate_summary_quality_directly():
     """直接测试 _validate_summary_quality 的各种边界情况。"""
     from unittest.mock import MagicMock
+
     processor = MemoryProcessor(llm_provider=MagicMock(), context=None)
 
     # 正常情况
-    assert processor._validate_summary_quality({
-        "summary": "用户明确表示喜欢吃寿司",
-        "key_facts": ["用户喜欢寿司"],
-        "importance": 0.7,
-    }) == "normal"
+    assert (
+        processor._validate_summary_quality(
+            {
+                "summary": "用户明确表示喜欢吃寿司",
+                "key_facts": ["用户喜欢寿司"],
+                "importance": 0.7,
+            }
+        )
+        == "normal"
+    )
 
     # summary 过短
-    assert processor._validate_summary_quality({
-        "summary": "短",
-        "key_facts": ["fact"],
-        "importance": 0.5,
-    }) == "low"
+    assert (
+        processor._validate_summary_quality(
+            {
+                "summary": "短",
+                "key_facts": ["fact"],
+                "importance": 0.5,
+            }
+        )
+        == "low"
+    )
 
     # importance 超出范围
-    assert processor._validate_summary_quality({
-        "summary": "用户明确表示喜欢吃寿司",
-        "key_facts": ["用户喜欢寿司"],
-        "importance": 1.5,
-    }) == "low"
+    assert (
+        processor._validate_summary_quality(
+            {
+                "summary": "用户明确表示喜欢吃寿司",
+                "key_facts": ["用户喜欢寿司"],
+                "importance": 1.5,
+            }
+        )
+        == "low"
+    )
 
     # 泛化词检测
-    assert processor._validate_summary_quality({
-        "summary": "有人提到了一些事情",
-        "key_facts": ["有人说话"],
-        "importance": 0.5,
-    }) == "low"
+    assert (
+        processor._validate_summary_quality(
+            {
+                "summary": "有人提到了一些事情",
+                "key_facts": ["有人说话"],
+                "importance": 0.5,
+            }
+        )
+        == "low"
+    )
 
 
 def test_build_memory_from_structured_data_uses_standard_storage_format():
@@ -532,7 +553,8 @@ async def test_process_group_chat_long_content():
                 id=i + 1,
                 session_id="aiocqhttp:GroupMessage:99999",
                 role="user",
-                content=f"成员{i % 5} 说：这是第 {i+1} 条消息，内容比较详细，包含了很多信息。" * 3,
+                content=f"成员{i % 5} 说：这是第 {i + 1} 条消息，内容比较详细，包含了很多信息。"
+                * 3,
                 sender_id=str(10000 + i % 5),
                 sender_name=f"成员{i % 5}",
                 group_id="99999",
@@ -587,3 +609,50 @@ async def test_process_group_chat_quality_low_for_generic_terms():
     )
 
     assert metadata.get("summary_quality") == "low"
+
+
+def test_format_conversation_sanitizes_multimodal_private_message():
+    processor = MemoryProcessor(llm_provider=None, context=None)
+    message = Message(
+        id=1,
+        session_id="s1",
+        role="user",
+        content=[
+            {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}},
+            {"type": "text", "text": "这张图里有会议安排"},
+        ],
+        sender_id="u1",
+        sender_name="张三",
+        group_id=None,
+        platform="test",
+        metadata={},
+    )
+
+    formatted = processor._format_conversation([message])
+
+    assert "这张图里有会议安排" in formatted
+    assert "image_url" not in formatted
+    assert "example.test" not in formatted
+
+
+def test_format_conversation_uses_placeholder_for_image_only_group_message():
+    processor = MemoryProcessor(llm_provider=None, context=None)
+    message = Message(
+        id=1,
+        session_id="g1",
+        role="user",
+        content=[
+            {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}}
+        ],
+        sender_id="u1",
+        sender_name="张三",
+        group_id="group1",
+        platform="test",
+        metadata={},
+    )
+
+    formatted = processor._format_conversation([message])
+
+    assert "张三" in formatted
+    assert "[图片消息]" in formatted
+    assert "image_url" not in formatted

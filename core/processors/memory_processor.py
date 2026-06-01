@@ -416,37 +416,83 @@ class MemoryProcessor:
                 f"role={msg.role}, group_id={msg.group_id}"
             )
 
+            content_text = self._message_content_to_text(msg.content)
+            sender_info = self._format_sender_info(msg)
+            formatted_line = f"{sender_info} {content_text}".rstrip()
+            formatted_lines.append(formatted_line)
             if msg.group_id:
-                # 群聊场景：使用Message对象的format_for_llm方法
-                formatted = msg.format_for_llm(include_sender_name=True)
-                formatted_lines.append(formatted["content"])
                 logger.debug(
-                    f"[_format_conversation] 消息#{i} 格式化结果(群聊): {formatted['content'][:100]}..."
+                    f"[_format_conversation] 消息#{i} 格式化结果(群聊): {formatted_line[:100]}..."
                 )
             else:
-                # 私聊场景：也使用 [昵称 | ID: xxx | 时间] 格式
-                time_str = datetime.fromtimestamp(msg.timestamp).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-                display_name = (
-                    msg.sender_name if msg.sender_name else msg.sender_id or "未知"
-                )
-                is_bot = (
-                    msg.metadata.get("is_bot_message", False) or msg.role == "assistant"
-                )
-
-                if is_bot:
-                    sender_info = (
-                        f"[Bot: {display_name} | ID: {msg.sender_id} | {time_str}]"
-                    )
-                else:
-                    sender_info = f"[{display_name} | ID: {msg.sender_id} | {time_str}]"
-
-                formatted_lines.append(f"{sender_info} {msg.content}")
                 logger.debug(
                     f"[_format_conversation] 消息#{i} 格式化结果(私聊): {sender_info[:50]}..."
                 )
         return "\n".join(formatted_lines)
+
+    @staticmethod
+    def _format_sender_info(msg: Message) -> str:
+        time_str = datetime.fromtimestamp(msg.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        display_name = msg.sender_name if msg.sender_name else msg.sender_id or "未知"
+        is_bot = msg.metadata.get("is_bot_message", False) or msg.role == "assistant"
+        if is_bot:
+            return f"[Bot: {display_name} | ID: {msg.sender_id} | {time_str}]"
+        return f"[{display_name} | ID: {msg.sender_id} | {time_str}]"
+
+    @classmethod
+    def _message_content_to_text(cls, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, (int, float, bool)):
+            return str(content)
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            saw_media = False
+            for part in content:
+                part_text, part_has_media = cls._message_part_to_text(part)
+                if part_text:
+                    text_parts.append(part_text)
+                saw_media = saw_media or part_has_media
+            text = " ".join(text_parts).strip()
+            if text:
+                return text
+            return "[图片消息]" if saw_media else ""
+
+        text, saw_media = cls._message_part_to_text(content)
+        if text:
+            return text
+        return "[图片消息]" if saw_media else str(content)
+
+    @classmethod
+    def _message_part_to_text(cls, part: Any) -> tuple[str, bool]:
+        if part is None:
+            return "", False
+        if isinstance(part, str):
+            return part, False
+        if isinstance(part, (int, float, bool)):
+            return str(part), False
+        if isinstance(part, list):
+            text = cls._message_content_to_text(part)
+            return ("" if text == "[图片消息]" else text), text == "[图片消息]"
+        if not isinstance(part, dict):
+            return str(part), False
+
+        part_type = str(part.get("type", "")).lower()
+        if part_type in {"text", "plain"}:
+            return str(part.get("text") or part.get("content") or ""), False
+        if "text" in part and isinstance(part.get("text"), str):
+            return part["text"], False
+        if "content" in part:
+            return cls._message_part_to_text(part.get("content"))
+        if "message" in part:
+            return cls._message_part_to_text(part.get("message"))
+
+        media_keys = {"image_url", "image", "file", "audio", "video", "media"}
+        if part_type in media_keys or any(key in part for key in media_keys):
+            return "", True
+        return "", False
 
     def _parse_llm_response(
         self, response_text: str, is_group_chat: bool
