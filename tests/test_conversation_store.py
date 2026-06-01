@@ -56,6 +56,36 @@ async def test_conversation_store_crud(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_add_message_normalizes_multimodal_content(tmp_path: Path):
+    db_path = tmp_path / "conversations_multimodal.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+
+    msg = Message(
+        id=0,
+        session_id="s1",
+        role="user",
+        content=[
+            {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}},
+            {"type": "text", "text": "图片里的日程是下午三点"},
+        ],
+        sender_id="u1",
+        sender_name="tester",
+        group_id=None,
+        platform="test",
+        metadata={},
+    )
+
+    await store.add_message(msg)
+    messages = await store.get_messages("s1", limit=10)
+
+    assert messages[0].content == "图片里的日程是下午三点"
+    assert "image_url" not in messages[0].content
+
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_trim_session_messages_respects_last_summarized_index(tmp_path: Path):
     db_path = tmp_path / "trim-safe.db"
     store = ConversationStore(str(db_path))
