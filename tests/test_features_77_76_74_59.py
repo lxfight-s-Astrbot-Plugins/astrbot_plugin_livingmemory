@@ -7,12 +7,10 @@ Tests for features #77, #76, #74, #59.
 #59 - Group chat sender nicknames preserved in memory
 """
 
-import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
@@ -26,7 +24,6 @@ from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import VectorRe
 from astrbot_plugin_livingmemory.storage.conversation_store import ConversationStore
 
 from astrbot.api.platform import MessageType
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared helpers
@@ -133,7 +130,9 @@ _VALID_GROUP_JSON_RESPONSE = """{
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _make_command_handler(memory_processor=None, conversation_manager=None, memory_engine=None):
+def _make_command_handler(
+    memory_processor=None, conversation_manager=None, memory_engine=None
+):
     """Build a CommandHandler with sensible defaults."""
     if memory_engine is None:
         memory_engine = Mock()
@@ -148,7 +147,9 @@ def _make_command_handler(memory_processor=None, conversation_manager=None, memo
         conversation_manager.store = Mock()
         conversation_manager.store.get_message_count = AsyncMock(return_value=5)
         conversation_manager.get_session_metadata = AsyncMock(return_value=0)
-        conversation_manager.get_messages_range = AsyncMock(return_value=_make_private_messages())
+        conversation_manager.get_messages_range = AsyncMock(
+            return_value=_make_private_messages()
+        )
         conversation_manager.update_session_metadata = AsyncMock()
         conversation_manager.clear_session = AsyncMock()
 
@@ -353,9 +354,11 @@ async def test_search_does_not_truncate_short_query():
 
 @pytest.mark.asyncio
 async def test_add_document_truncates_long_content():
-    """Content longer than 4000 chars should be truncated before calling faiss_db.insert."""
+    """Long content should keep both the beginning and the tail before insertion."""
     retriever = _make_vector_retriever()
-    long_content = "y" * 8000
+    head = "HEAD-" + ("h" * 3995)
+    tail = "TAIL-" + ("t" * 3995)
+    long_content = head + tail
     metadata = {
         "importance": 0.5,
         "create_time": time.time(),
@@ -369,6 +372,9 @@ async def test_add_document_truncates_long_content():
     call_args = retriever.faiss_db.insert.call_args
     actual_content = call_args.kwargs.get("content") or call_args.args[0]
     assert len(actual_content) <= 4000
+    assert actual_content.startswith("HEAD-")
+    assert actual_content.endswith("t" * 64)
+    assert "中间内容已截断" in actual_content
 
 
 @pytest.mark.asyncio
@@ -503,8 +509,7 @@ async def test_system_prompt_instructs_relative_time_conversion():
 
     # Should mention relative time conversion
     assert any(
-        keyword in system_prompt
-        for keyword in ["相对时间", "今天", "明天", "转换"]
+        keyword in system_prompt for keyword in ["相对时间", "今天", "明天", "转换"]
     )
 
 
@@ -629,7 +634,9 @@ async def test_add_message_from_event_sets_is_bot_message_for_assistant(tmp_path
             return "aiocqhttp"
 
     event = _GroupEvent()
-    msg = await manager.add_message_from_event(event, role="assistant", content="我来回答")
+    msg = await manager.add_message_from_event(
+        event, role="assistant", content="我来回答"
+    )
 
     assert msg.metadata.get("is_bot_message") is True
     await store.close()
@@ -675,7 +682,9 @@ async def test_group_memory_format_contains_nicknames():
     the sender's actual nickname, not a generic placeholder.
     """
     messages = _make_group_messages()
-    processor = MemoryProcessor(llm_provider=_DummyLLMProvider(_VALID_GROUP_JSON_RESPONSE), context=None)
+    processor = MemoryProcessor(
+        llm_provider=_DummyLLMProvider(_VALID_GROUP_JSON_RESPONSE), context=None
+    )
 
     conversation_text = processor._format_conversation(messages)
 
