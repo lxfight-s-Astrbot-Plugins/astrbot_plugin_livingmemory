@@ -9,6 +9,7 @@ from typing import cast
 
 import aiosqlite
 import pytest
+from astrbot_plugin_livingmemory.core.models.default_stopwords import DEFAULT_STOPWORDS
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 from astrbot_plugin_livingmemory.core.retrieval.bm25_retriever import BM25Retriever
 from astrbot_plugin_livingmemory.core.retrieval.dual_route_retriever import (
@@ -27,6 +28,7 @@ from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import (
     VectorResult,
 )
 from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import VectorRetriever
+from astrbot_plugin_livingmemory.core.utils.stopwords_manager import StopwordsManager
 
 
 @pytest.mark.asyncio
@@ -1038,6 +1040,11 @@ def test_add_custom_words_normal():
         assert JIEBA_RUNTIME_DISABLED is False
 
 
+def test_text_processor_and_manager_share_default_stopwords():
+    assert TextProcessor.DEFAULT_STOPWORDS is DEFAULT_STOPWORDS
+    assert StopwordsManager()._get_builtin_stopwords() == set(DEFAULT_STOPWORDS)
+
+
 def test_add_custom_words_jieba_unavailable():
     """jieba 不可用时，add_custom_words 应发出警告并提前返回。"""
     from astrbot_plugin_livingmemory.core.processors import text_processor
@@ -1055,14 +1062,25 @@ def test_add_custom_words_jieba_unavailable():
 
 
 def test_add_custom_words_jieba_add_word_fails():
-    """jieba.add_word 抛异常时，应禁用 jieba 运行时并发出警告。"""
+    """单个自定义词添加失败时，应跳过坏词并继续加载后续词。"""
     from unittest.mock import patch
 
     from astrbot_plugin_livingmemory.core.processors import text_processor
 
     processor = text_processor.TextProcessor()
-    with patch("jieba.add_word", side_effect=Exception("jieba init failed")):
-        with pytest.warns(UserWarning, match="jieba 初始化失败"):
-            processor.add_custom_words(["word1", "word2"])
+    original_disabled = text_processor.JIEBA_RUNTIME_DISABLED
+    text_processor.JIEBA_RUNTIME_DISABLED = False
+    try:
+        with patch(
+            "jieba.add_word",
+            side_effect=[Exception("bad word"), None],
+        ) as add_word:
+            with pytest.warns(UserWarning, match="已跳过 1 个"):
+                processor.add_custom_words(["bad", "good"])
 
-    assert text_processor.JIEBA_RUNTIME_DISABLED is True
+        assert add_word.call_count == 2
+        assert "bad" not in processor.custom_words
+        assert "good" in processor.custom_words
+        assert text_processor.JIEBA_RUNTIME_DISABLED is False
+    finally:
+        text_processor.JIEBA_RUNTIME_DISABLED = original_disabled
