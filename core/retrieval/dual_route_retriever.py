@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridResult, HybridRetriever
@@ -28,6 +29,9 @@ class DualRouteRetriever:
         )
         self.graph_route_weight = float(self.config.get("graph_route_weight", 0.35))
         self.cross_route_bonus = float(self.config.get("cross_route_bonus", 0.08))
+        self.dynamic_route_weighting = bool(
+            self.config.get("dynamic_route_weighting", True)
+        )
 
     async def search(
         self,
@@ -48,6 +52,8 @@ class DualRouteRetriever:
             return doc_results[:k]
         if not doc_results and not graph_results:
             return []
+
+        document_weight, graph_weight, intent = self._route_weights_for_query(query)
 
         document_max = (
             max((item.final_score for item in doc_results), default=1.0) or 1.0
@@ -96,8 +102,8 @@ class DualRouteRetriever:
 
             final_score = min(
                 1.0,
-                self.document_route_weight * doc_signal
-                + self.graph_route_weight * graph_signal
+                document_weight * doc_signal
+                + graph_weight * graph_signal
                 + route_bonus,
             )
 
@@ -110,10 +116,14 @@ class DualRouteRetriever:
                 {
                     "document_route_score": round(doc_signal, 4),
                     "graph_route_score": round(graph_signal, 4),
+                    "document_route_weight": round(document_weight, 4),
+                    "graph_route_weight": round(graph_weight, 4),
                     "cross_route_bonus": round(route_bonus, 4),
                     "dual_route_final_score": round(final_score, 4),
                 }
             )
+            if intent:
+                score_breakdown["query_intent"] = intent
             if doc_result is not None:
                 score_breakdown["document_keyword_score"] = round(
                     float(doc_result.bm25_score or 0.0),
@@ -155,6 +165,88 @@ class DualRouteRetriever:
 
         merged_results.sort(key=lambda item: item.final_score, reverse=True)
         return merged_results[:k]
+
+    def _route_weights_for_query(self, query: str) -> tuple[float, float, str]:
+        """Adjust document/graph weights with lightweight query intent rules."""
+        base_document = self.document_route_weight
+        base_graph = self.graph_route_weight
+        if not self.dynamic_route_weighting:
+            return base_document, base_graph, "fixed"
+
+        normalized = query.casefold()
+        relation_terms = (
+            "谁",
+            "和谁",
+            "关系",
+            "认识",
+            "朋友",
+            "同事",
+            "家人",
+            "父母",
+            "妈妈",
+            "爸爸",
+            "老师",
+            "同学",
+            "partner",
+            "friend",
+            "relationship",
+            "with whom",
+        )
+        temporal_terms = (
+            "上次",
+            "昨天",
+            "前天",
+            "刚才",
+            "之前",
+            "什么时候",
+            "哪天",
+            "最近",
+            "last time",
+            "yesterday",
+            "recently",
+            "when",
+        )
+        factual_terms = (
+            "是什么",
+            "什么是",
+            "解释",
+            "定义",
+            "怎么",
+            "如何",
+            "why",
+            "what is",
+            "explain",
+            "define",
+            "how to",
+        )
+
+        relation_hit = any(term in normalized for term in relation_terms)
+        temporal_hit = any(term in normalized for term in temporal_terms)
+        factual_hit = any(term in normalized for term in factual_terms)
+
+        document_weight = base_document
+        graph_weight = base_graph
+        intent = "default"
+
+        if relation_hit:
+            graph_weight += 0.2
+            document_weight -= 0.2
+            intent = "relationship"
+        if temporal_hit:
+            graph_weight += 0.1
+            document_weight -= 0.1
+            intent = "temporal" if intent == "default" else f"{intent}+temporal"
+        if factual_hit and not relation_hit:
+            document_weight += 0.15
+            graph_weight -= 0.15
+            intent = "factual" if intent == "default" else f"{intent}+factual"
+
+        document_weight = max(0.15, min(0.9, document_weight))
+        graph_weight = max(0.1, min(0.85, graph_weight))
+        total = document_weight + graph_weight
+        if total <= 0:
+            return base_document, base_graph, "fixed"
+        return document_weight / total, graph_weight / total, intent
 
 
 __all__ = ["DualRouteRetriever"]

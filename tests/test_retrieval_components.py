@@ -11,7 +11,14 @@ import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 from astrbot_plugin_livingmemory.core.retrieval.bm25_retriever import BM25Retriever
-from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+from astrbot_plugin_livingmemory.core.retrieval.dual_route_retriever import (
+    DualRouteRetriever,
+)
+from astrbot_plugin_livingmemory.core.retrieval.graph_retriever import GraphResult
+from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
+    HybridResult,
+    HybridRetriever,
+)
 from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import (
     BM25Result as RRFBM25Result,
 )
@@ -243,6 +250,66 @@ async def test_hybrid_retriever_fallback_when_one_channel_fails():
     assert len(results) >= 1
 
 
+@pytest.mark.asyncio
+async def test_dual_route_retriever_dynamic_weighting_promotes_relationship_query():
+    class _DocRoute:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                HybridResult(
+                    doc_id=1,
+                    final_score=1.0,
+                    rrf_score=1.0,
+                    bm25_score=1.0,
+                    vector_score=None,
+                    content="doc only",
+                    metadata={},
+                ),
+                HybridResult(
+                    doc_id=2,
+                    final_score=0.6,
+                    rrf_score=0.6,
+                    bm25_score=0.6,
+                    vector_score=None,
+                    content="graph hit doc",
+                    metadata={},
+                ),
+            ]
+
+    class _GraphRoute:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                GraphResult(
+                    doc_id=2,
+                    final_score=1.0,
+                    rrf_score=1.0,
+                    keyword_score=1.0,
+                    vector_score=None,
+                    content="graph hit",
+                    metadata={},
+                )
+            ]
+
+    async def loader(memory_id):
+        return {"text": f"memory {memory_id}", "metadata": {}}
+
+    retriever = DualRouteRetriever(
+        document_retriever=cast(HybridRetriever, _DocRoute()),
+        graph_retriever=cast(object, _GraphRoute()),
+        memory_loader=loader,
+        config={
+            "document_route_weight": 0.65,
+            "graph_route_weight": 0.35,
+            "cross_route_bonus": 0,
+            "dynamic_route_weighting": True,
+        },
+    )
+
+    results = await retriever.search("我和张三是什么关系", k=2)
+    assert results[0].doc_id == 2
+    assert (results[0].score_breakdown or {})["query_intent"] == "relationship"
+    assert (results[0].score_breakdown or {})["graph_route_weight"] > 0.35
+
+
 # ── New tests for weighted-sum scoring, last_access_time decay, MMR ──────────
 
 
@@ -314,7 +381,12 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
         bm25_retriever=cast(BM25Retriever, _OldImportantBM25()),
         vector_retriever=cast(VectorRetriever, _OldImportantVector()),
         rrf_fusion=RRFFusion(k=60),
-        config={"decay_rate": 0.01, "score_alpha": 0.5, "score_beta": 0.25, "score_gamma": 0.25},
+        config={
+            "decay_rate": 0.01,
+            "score_alpha": 0.5,
+            "score_beta": 0.25,
+            "score_gamma": 0.25,
+        },
     )
 
     results = await retriever.search("query", k=2)
@@ -329,7 +401,9 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
     assert new_result.final_score > 0.3, "新记忆分数也应合理"
     # 旧记忆分数差距不应过大（加权求和保证了高重要性记忆的竞争力）
     score_gap = new_result.final_score - old_result.final_score
-    assert score_gap < 0.2, f"旧重要记忆与新记忆分差不应超过0.2，实际差距: {score_gap:.4f}"
+    assert score_gap < 0.2, (
+        f"旧重要记忆与新记忆分差不应超过0.2，实际差距: {score_gap:.4f}"
+    )
 
 
 @pytest.mark.asyncio
@@ -431,7 +505,13 @@ async def test_score_breakdown_fields_present():
     results = await retriever.search("query", k=2)
     for r in results:
         assert r.score_breakdown is not None
-        for field in ("rrf_normalized", "importance", "recency_weight", "days_old", "final_score"):
+        for field in (
+            "rrf_normalized",
+            "importance",
+            "recency_weight",
+            "days_old",
+            "final_score",
+        ):
             assert field in r.score_breakdown, f"score_breakdown 缺少字段: {field}"
 
 
@@ -535,6 +615,7 @@ async def test_hybrid_retriever_empty_query_returns_empty():
 @pytest.mark.asyncio
 async def test_hybrid_retriever_both_channels_fail_returns_empty():
     """两路检索都失败时，应返回空列表而不是抛出异常。"""
+
     class _FailBM25:
         async def search(self, *args, **kwargs):
             raise RuntimeError("bm25 down")
@@ -562,6 +643,7 @@ async def test_hybrid_retriever_both_channels_fail_returns_empty():
 @pytest.mark.asyncio
 async def test_hybrid_retriever_vector_only_fallback():
     """BM25 失败时，应退化为仅向量检索结果。"""
+
     class _FailBM25:
         async def search(self, *args, **kwargs):
             raise RuntimeError("bm25 down")
@@ -582,6 +664,7 @@ async def test_hybrid_retriever_vector_only_fallback():
 @pytest.mark.asyncio
 async def test_hybrid_retriever_bm25_only_fallback():
     """向量检索失败时，应退化为仅 BM25 结果。"""
+
     class _FailVector:
         async def search(self, *args, **kwargs):
             raise RuntimeError("vector down")
@@ -605,7 +688,6 @@ async def test_hybrid_retriever_bm25_only_fallback():
 @pytest.mark.asyncio
 async def test_hybrid_retriever_metadata_missing_fields_no_crash():
     """metadata 缺少 importance/create_time 等字段时，评分不应崩溃。"""
-    now = time.time()
 
     class _MinimalBM25:
         async def search(self, query, k, session_id=None, persona_id=None):
@@ -662,6 +744,7 @@ async def test_hybrid_retriever_k_limits_results():
 @pytest.mark.asyncio
 async def test_hybrid_retriever_fallback_disabled_raises_on_both_fail():
     """fallback_enabled=False 且两路都失败时，应抛出异常。"""
+
     class _FailBM25:
         async def search(self, *args, **kwargs):
             raise RuntimeError("bm25 down")
@@ -694,14 +777,20 @@ async def test_hybrid_retriever_fallback_disabled_raises_on_both_fail():
 
 def test_weighting_metadata_json_string():
     """_apply_weighting 应正确解析 JSON 字符串格式的 metadata。"""
-    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
+        HybridRetriever,
+    )
     from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
 
     now = time.time()
     fused = [
         FusedResult(
-            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
-            content="test", metadata='{"importance":0.8}',
+            doc_id=1,
+            rrf_score=0.9,
+            bm25_score=0.8,
+            vector_score=0.7,
+            content="test",
+            metadata='{"importance":0.8}',
         ),
     ]
     retriever = HybridRetriever(
@@ -717,14 +806,20 @@ def test_weighting_metadata_json_string():
 
 def test_weighting_metadata_none():
     """_apply_weighting 应对 None metadata 回退到空字典。"""
-    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
+        HybridRetriever,
+    )
     from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
 
     now = time.time()
     fused = [
         FusedResult(
-            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
-            content="test", metadata=None,
+            doc_id=1,
+            rrf_score=0.9,
+            bm25_score=0.8,
+            vector_score=0.7,
+            content="test",
+            metadata=None,
         ),
     ]
     retriever = HybridRetriever(
@@ -743,14 +838,20 @@ def test_weighting_metadata_none():
 
 def test_weighting_metadata_corrupted():
     """_apply_weighting 应对损坏/非 dict 的 metadata 回退到空字典。"""
-    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridRetriever
+    from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
+        HybridRetriever,
+    )
     from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
 
     now = time.time()
     fused = [
         FusedResult(
-            doc_id=1, rrf_score=0.9, bm25_score=0.8, vector_score=0.7,
-            content="test", metadata="not-valid-json",
+            doc_id=1,
+            rrf_score=0.9,
+            bm25_score=0.8,
+            vector_score=0.7,
+            content="test",
+            metadata="not-valid-json",
         ),
     ]
     retriever = HybridRetriever(
@@ -784,8 +885,10 @@ async def test_delete_memory_vector_fails_triggers_rollback():
     class _VectorFails:
         async def search(self, *args, **kwargs):
             return []
+
         async def delete_document(self, doc_id):
             return False
+
         async def update_metadata(self, doc_id, metadata):
             return True
 
@@ -801,7 +904,9 @@ async def test_delete_memory_vector_fails_triggers_rollback():
 
     # 在 documents 表中准备一条记录供备份查询
     async with aiosqlite.connect(":memory:") as db:
-        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute(
+            "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+        )
         await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
         await db.commit()
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
@@ -831,8 +936,10 @@ async def test_delete_memory_vector_raises_triggers_rollback():
     class _VectorRaises:
         async def search(self, *args, **kwargs):
             return []
+
         async def delete_document(self, doc_id):
             raise RuntimeError("vector store unavailable")
+
         async def update_metadata(self, doc_id, metadata):
             return True
 
@@ -847,7 +954,9 @@ async def test_delete_memory_vector_raises_triggers_rollback():
     )
 
     async with aiosqlite.connect(":memory:") as db:
-        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute(
+            "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+        )
         await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
         await db.commit()
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
@@ -876,8 +985,10 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
     class _VectorOK:
         async def search(self, *args, **kwargs):
             return []
+
         async def delete_document(self, doc_id):
             return True
+
         async def update_metadata(self, doc_id, metadata):
             return True
 
@@ -892,7 +1003,9 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
     )
 
     async with aiosqlite.connect(":memory:") as db:
-        await db.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)")
+        await db.execute(
+            "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+        )
         await db.execute("INSERT INTO documents VALUES (1, 'test content', '{}')")
         await db.commit()
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
@@ -915,6 +1028,7 @@ def test_add_custom_words_normal():
         JIEBA_RUNTIME_DISABLED,
         TextProcessor,
     )
+
     processor = TextProcessor()
     processor.add_custom_words(["AstrBot", "LivingMemory"])
 
@@ -926,7 +1040,6 @@ def test_add_custom_words_normal():
 
 def test_add_custom_words_jieba_unavailable():
     """jieba 不可用时，add_custom_words 应发出警告并提前返回。"""
-    import warnings
     from astrbot_plugin_livingmemory.core.processors import text_processor
 
     original = text_processor.JIEBA_AVAILABLE
@@ -944,6 +1057,7 @@ def test_add_custom_words_jieba_unavailable():
 def test_add_custom_words_jieba_add_word_fails():
     """jieba.add_word 抛异常时，应禁用 jieba 运行时并发出警告。"""
     from unittest.mock import patch
+
     from astrbot_plugin_livingmemory.core.processors import text_processor
 
     processor = text_processor.TextProcessor()

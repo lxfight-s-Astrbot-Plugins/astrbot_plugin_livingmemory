@@ -32,6 +32,11 @@ class GraphKeywordRetriever:
         self.text_processor = text_processor
         self.config = config or {}
         self.expansion_limit = int(self.config.get("graph_expansion_limit", 24))
+        self.expansion_hops = max(
+            1,
+            min(2, int(self.config.get("graph_expansion_hops", 1))),
+        )
+        self.second_hop_weight = float(self.config.get("graph_second_hop_weight", 0.4))
 
     async def search(
         self,
@@ -61,12 +66,50 @@ class GraphKeywordRetriever:
             tokens=tokens,
             limit=max(limit * 3, 12),
         )
+        matched_node_ids = [item["id"] for item in matched_nodes]
         expansion_hits = await self.graph_store.get_entries_for_node_ids(
-            node_ids=[item["id"] for item in matched_nodes],
+            node_ids=matched_node_ids,
             limit=max(self.expansion_limit, limit * 3),
             session_id=session_id,
             persona_id=persona_id,
         )
+        edge_neighbor_hits: list[dict[str, Any]] = []
+        second_hop_hits: list[dict[str, Any]] = []
+        if matched_node_ids:
+            first_hop_node_ids = await self.graph_store.get_neighbor_node_ids(
+                node_ids=matched_node_ids,
+                limit=max(self.expansion_limit, limit * 3),
+            )
+            matched_node_set = set(matched_node_ids)
+            first_hop_node_ids = [
+                node_id
+                for node_id in first_hop_node_ids
+                if node_id not in matched_node_set
+            ]
+            edge_neighbor_hits = await self.graph_store.get_entries_for_node_ids(
+                node_ids=first_hop_node_ids,
+                limit=max(self.expansion_limit, limit * 3),
+                session_id=session_id,
+                persona_id=persona_id,
+            )
+
+            if self.expansion_hops >= 2 and first_hop_node_ids:
+                second_hop_node_ids = await self.graph_store.get_neighbor_node_ids(
+                    node_ids=first_hop_node_ids,
+                    limit=max(self.expansion_limit, limit * 3),
+                )
+                excluded_node_ids = matched_node_set | set(first_hop_node_ids)
+                second_hop_node_ids = [
+                    node_id
+                    for node_id in second_hop_node_ids
+                    if node_id not in excluded_node_ids
+                ]
+                second_hop_hits = await self.graph_store.get_entries_for_node_ids(
+                    node_ids=second_hop_node_ids,
+                    limit=max(self.expansion_limit, limit * 3),
+                    session_id=session_id,
+                    persona_id=persona_id,
+                )
 
         aggregated: dict[int, GraphKeywordResult] = {}
 
@@ -97,6 +140,16 @@ class GraphKeywordRetriever:
 
         for hit in expansion_hits:
             merge_hit(hit, weight=0.7, match_source="graph_neighbor")
+
+        for hit in edge_neighbor_hits:
+            merge_hit(hit, weight=0.7, match_source="graph_edge_neighbor")
+
+        for hit in second_hop_hits:
+            merge_hit(
+                hit,
+                weight=max(0.0, min(1.0, self.second_hop_weight)),
+                match_source="graph_second_hop",
+            )
 
         results = sorted(aggregated.values(), key=lambda item: item.score, reverse=True)
         return results[:limit]

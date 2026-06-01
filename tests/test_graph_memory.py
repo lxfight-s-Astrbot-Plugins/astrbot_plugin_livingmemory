@@ -4,8 +4,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
+from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
+    GraphMemoryManager,
+)
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+from astrbot_plugin_livingmemory.core.models.graph_models import (
+    GraphEdge,
+    GraphEntry,
+    GraphNode,
+)
 from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
 from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
 from astrbot_plugin_livingmemory.core.retrieval.graph_keyword_retriever import (
@@ -17,9 +24,6 @@ from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
 )
 from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import RRFFusion
 from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
-from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
-    GraphMemoryManager,
-)
 
 
 @dataclass
@@ -243,6 +247,80 @@ async def test_graph_retriever_supports_keyword_and_vector_search(tmp_path: Path
     assert results
     assert results[0].doc_id == 5
     assert (results[0].vector_score or 0) > 0
+
+
+@pytest.mark.asyncio
+async def test_graph_keyword_retriever_supports_configurable_second_hop(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "graph_second_hop.db"
+    graph_store = GraphStore(str(db_path))
+    await graph_store.initialize()
+
+    nodes = [
+        GraphNode("person", "张三", "张三"),
+        GraphNode("topic", "项目", "项目"),
+        GraphNode("fact", "周五上线", "周五上线"),
+    ]
+    node_key_to_id = await graph_store.upsert_nodes(nodes)
+    edges = [
+        GraphEdge(
+            source_key="person:张三",
+            target_key="topic:项目",
+            relation_type="mentioned_in",
+            source_memory_id=1,
+        ),
+        GraphEdge(
+            source_key="topic:项目",
+            target_key="fact:周五上线",
+            relation_type="describes",
+            source_memory_id=2,
+        ),
+    ]
+    edge_key_to_id = await graph_store.add_edges(edges, node_key_to_id)
+    await graph_store.add_entries(
+        [
+            GraphEntry(
+                entry_key="entry-1",
+                source_memory_id=1,
+                session_id="s1",
+                persona_id="p1",
+                entry_type="participant",
+                content="Participant: 张三",
+                metadata={"importance": 0.5},
+                node_keys=["person:张三"],
+                relation_type="participant",
+            ),
+            GraphEntry(
+                entry_key="entry-2",
+                source_memory_id=2,
+                session_id="s1",
+                persona_id="p1",
+                entry_type="fact",
+                content="Fact: 周五上线",
+                metadata={"importance": 0.5},
+                node_keys=["fact:周五上线"],
+                relation_type="fact",
+            ),
+        ],
+        node_key_to_id,
+        edge_key_to_id,
+    )
+
+    retriever = GraphKeywordRetriever(
+        graph_store,
+        TextProcessor(),
+        config={
+            "graph_expansion_hops": 2,
+            "graph_expansion_limit": 12,
+            "graph_second_hop_weight": 0.4,
+        },
+    )
+
+    results = await retriever.search("张三", limit=5, session_id="s1", persona_id="p1")
+    assert {item.doc_id for item in results} >= {1, 2}
+    second_hop = next(item for item in results if item.doc_id == 2)
+    assert "graph_second_hop" in second_hop.metadata["graph_match_source"]
 
 
 @pytest.mark.asyncio

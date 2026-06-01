@@ -782,6 +782,45 @@ class GraphStore:
             )
         return hits
 
+    async def get_neighbor_node_ids(
+        self,
+        node_ids: list[int],
+        limit: int,
+    ) -> list[int]:
+        """Return graph nodes adjacent to the given nodes through active edges."""
+        if not node_ids:
+            return []
+
+        normalized_ids = sorted({int(item) for item in node_ids})
+        placeholders = ",".join("?" * len(normalized_ids))
+        limit = max(1, min(limit, 500))
+
+        async with self._connect() as db:
+            cursor = await db.execute(
+                f"""
+                SELECT neighbor_id, SUM(edge_weight) AS total_weight
+                FROM (
+                    SELECT target_node_id AS neighbor_id, weight AS edge_weight
+                    FROM graph_edges
+                    WHERE source_node_id IN ({placeholders})
+                      AND status = 'active'
+                    UNION ALL
+                    SELECT source_node_id AS neighbor_id, weight AS edge_weight
+                    FROM graph_edges
+                    WHERE target_node_id IN ({placeholders})
+                      AND status = 'active'
+                )
+                WHERE neighbor_id NOT IN ({placeholders})
+                GROUP BY neighbor_id
+                ORDER BY total_weight DESC, neighbor_id ASC
+                LIMIT ?
+                """,
+                (*normalized_ids, *normalized_ids, *normalized_ids, limit),
+            )
+            rows = await cursor.fetchall()
+
+        return [int(row[0]) for row in rows]
+
     async def get_recent_memory_ids(
         self,
         limit: int = 12,
