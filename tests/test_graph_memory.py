@@ -148,6 +148,51 @@ async def test_graph_memory_manager_indexes_nodes_edges_and_entries(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_graph_memory_manager_rejects_entry_id_mismatch(tmp_path: Path):
+    db_path = tmp_path / "graph_memory_mismatch.db"
+    graph_store = GraphStore(str(db_path))
+    await graph_store.initialize()
+
+    class MismatchedGraphStore:
+        async def upsert_nodes(self, nodes):
+            return await graph_store.upsert_nodes(nodes)
+
+        async def add_edges(self, edges, node_key_to_id):
+            return await graph_store.add_edges(edges, node_key_to_id)
+
+        async def add_entries(self, entries, node_key_to_id, edge_key_to_id):
+            entry_ids = await graph_store.add_entries(
+                entries,
+                node_key_to_id,
+                edge_key_to_id,
+            )
+            return entry_ids[:-1]
+
+        async def update_entry_vector_doc_ids(self, entry_vector_doc_ids):
+            return await graph_store.update_entry_vector_doc_ids(entry_vector_doc_ids)
+
+        async def delete_memory(self, source_memory_id):
+            return await graph_store.delete_memory(source_memory_id)
+
+    graph_manager = GraphMemoryManager(
+        graph_store=MismatchedGraphStore(),
+        graph_vector_retriever=GraphVectorRetriever(_FakeFaissDB()),
+        graph_extractor=GraphExtractor(),
+    )
+
+    with pytest.raises(RuntimeError, match="graph entry id count mismatch"):
+        await graph_manager.index_memory(
+            1,
+            "项目会议安排在明天下午三点",
+            {
+                "topics": ["项目会议"],
+                "participants": ["张三"],
+                "key_facts": ["明天下午三点开会"],
+            },
+        )
+
+
+@pytest.mark.asyncio
 async def test_graph_store_snapshot_builds_ui_ready_subgraphs(tmp_path: Path):
     db_path = tmp_path / "graph_snapshot.db"
     graph_store = GraphStore(str(db_path))

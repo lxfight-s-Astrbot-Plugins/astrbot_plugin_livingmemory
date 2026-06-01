@@ -54,9 +54,14 @@ class GraphMemoryManager:
             node_key_to_id,
             edge_key_to_id,
         )
+        if len(entry_ids) != len(extracted.entries):
+            raise RuntimeError(
+                "graph entry id count mismatch: "
+                f"ids={len(entry_ids)}, entries={len(extracted.entries)}"
+            )
         entry_vector_doc_ids: dict[int, int] = {}
         try:
-            for entry_id, entry in zip(entry_ids, extracted.entries, strict=False):
+            for entry_id, entry in zip(entry_ids, extracted.entries, strict=True):
                 vector_doc_id = await self.graph_vector_retriever.add_entry(
                     entry.content,
                     dict(entry.metadata),
