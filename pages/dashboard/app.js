@@ -92,15 +92,15 @@
      ================================================================ */
   function readTheme() {
     try {
+      var stored = localStorage.getItem("lmem_theme");
+      if (stored) return stored;
+    } catch (_) {}
+    try {
       var bridge = window.AstrBotPluginPage;
       if (bridge) {
         var ctx = bridge.getContext();
         if (ctx && typeof ctx.isDark === "boolean") return ctx.isDark ? "dark" : "light";
       }
-    } catch (_) {}
-    try {
-      var stored = localStorage.getItem("lmem_theme");
-      if (stored) return stored;
     } catch (_) {}
     var html = document.documentElement.getAttribute("data-theme");
     if (html) return html;
@@ -131,6 +131,9 @@
       if (!bridge || typeof bridge.onContext !== "function") return;
       bridge.onContext(function(ctx) {
         if (!ctx || typeof ctx.isDark !== "boolean") return;
+        try {
+          if (localStorage.getItem("lmem_theme")) return;
+        } catch (_) {}
         var t = ctx.isDark ? "dark" : "light";
         if (t !== (document.documentElement.getAttribute("data-theme") || "light")) {
           applyTheme(t);
