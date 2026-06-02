@@ -5,7 +5,7 @@ Tests for retrieval components (BM25/RRF/Hybrid).
 import json
 import time
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import aiosqlite
 import pytest
@@ -15,7 +15,10 @@ from astrbot_plugin_livingmemory.core.retrieval.bm25_retriever import BM25Retrie
 from astrbot_plugin_livingmemory.core.retrieval.dual_route_retriever import (
     DualRouteRetriever,
 )
-from astrbot_plugin_livingmemory.core.retrieval.graph_retriever import GraphResult
+from astrbot_plugin_livingmemory.core.retrieval.graph_retriever import (
+    GraphResult,
+    GraphRetriever,
+)
 from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
     HybridResult,
     HybridRetriever,
@@ -863,6 +866,91 @@ def test_weighting_metadata_corrupted():
     results = retriever._apply_weighting(fused, now)
     assert len(results) == 1
     assert results[0].metadata == {}
+
+
+def test_weighting_non_numeric_numeric_metadata_no_crash():
+    """Legacy string metadata values should fall back instead of breaking search."""
+    from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import FusedResult
+
+    now = time.time()
+    fused = [
+        FusedResult(
+            doc_id=1,
+            rrf_score=0.9,
+            bm25_score=0.8,
+            vector_score=0.7,
+            content="test",
+            metadata={
+                "importance": "default",
+                "create_time": "unknown",
+                "last_access_time": "later",
+            },
+        ),
+    ]
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01, "importance_weight": 1.0, "fallback_enabled": True},
+    )
+
+    results = retriever._apply_weighting(fused, now)
+
+    assert len(results) == 1
+    assert results[0].score_breakdown["importance"] == 0.5
+    assert results[0].score_breakdown["days_old"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_graph_retriever_non_numeric_numeric_metadata_no_crash():
+    """Graph route should tolerate old string values in vector/entry metadata."""
+
+    class _GraphKeyword:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                RRFBM25Result(
+                    doc_id=1,
+                    score=0.8,
+                    content="graph keyword",
+                    metadata={
+                        "importance": "default",
+                        "create_time": "unknown",
+                        "last_access_time": "later",
+                        "graph_confidence": "auto",
+                        "ttl_days": "never",
+                    },
+                )
+            ]
+
+    class _GraphVector:
+        async def search(self, query, k, session_id=None, persona_id=None):
+            return [
+                VectorResult(
+                    doc_id=1,
+                    score=0.7,
+                    content="graph keyword",
+                    metadata={
+                        "importance": "default",
+                        "create_time": "unknown",
+                        "last_access_time": "later",
+                        "graph_confidence": "auto",
+                        "ttl_days": "never",
+                    },
+                )
+            ]
+
+    retriever = GraphRetriever(
+        keyword_retriever=cast(Any, _GraphKeyword()),
+        vector_retriever=cast(Any, _GraphVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"decay_rate": 0.01},
+    )
+
+    results = await retriever.search("query", k=1)
+
+    assert len(results) == 1
+    assert results[0].score_breakdown["graph_importance"] == 0.5
+    assert results[0].score_breakdown["graph_confidence"] == 0.7
 
 
 # ==================== 删除回滚测试 ====================

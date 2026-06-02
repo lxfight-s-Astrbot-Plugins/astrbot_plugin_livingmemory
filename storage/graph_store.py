@@ -10,6 +10,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.models.graph_models import GraphEdge, GraphEntry, GraphNode
+from ..core.utils.number_utils import safe_float
 
 
 class GraphStore:
@@ -1002,7 +1003,7 @@ class GraphStore:
                     "summary": metadata.get("canonical_summary") or row["content"],
                     "session_id": metadata.get("session_id") or row["session_id"],
                     "persona_id": metadata.get("persona_id") or row["persona_id"],
-                    "importance": float(metadata.get("importance", 0.0) or 0.0),
+                    "importance": safe_float(metadata.get("importance"), 0.0),
                     "entry_count": 0,
                     "edge_count": 0,
                     "node_ids": set(),
@@ -1060,7 +1061,7 @@ class GraphStore:
             ranked_nodes = sorted(
                 node_map.values(),
                 key=lambda item: (
-                    -float(item.get("weight", 0.0)),
+                    -safe_float(item.get("weight"), 0.0),
                     -int(item.get("entry_count", 0)),
                     -int(item.get("degree", 0)),
                     str(item.get("label", "")),
@@ -1142,7 +1143,7 @@ class GraphStore:
         nodes = sorted(
             node_map.values(),
             key=lambda item: (
-                -float(item.get("weight", 0.0)),
+                -safe_float(item.get("weight"), 0.0),
                 -int(item.get("entry_count", 0)),
                 -int(item.get("degree", 0)),
                 str(item.get("label", "")),
@@ -1153,7 +1154,7 @@ class GraphStore:
                 -int(item.get("entry_count", 0)),
                 -int(item.get("node_count", 0)),
                 -int(item.get("edge_count", 0)),
-                -float(item.get("importance", 0.0)),
+                -safe_float(item.get("importance"), 0.0),
             )
         )
 

@@ -12,6 +12,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..utils.number_utils import clamp_float, safe_float
 from .bm25_retriever import BM25Retriever
 from .rrf_fusion import BM25Result, FusedResult, RRFFusion, VectorResult
 from .vector_retriever import VectorRetriever
@@ -274,12 +275,12 @@ class HybridRetriever:
                 metadata = {}
 
             # 获取重要性(默认0.5)，限制在 [0, 1]
-            importance = max(0.0, min(1.0, metadata.get("importance", 0.5)))
+            importance = clamp_float(metadata.get("importance"), default=0.5)
 
             # 时间衰减：取 create_time 与 last_access_time 的较大值
             # 高频访问的记忆衰减更慢，符合"记忆强化"认知规律
-            create_time = metadata.get("create_time", current_time)
-            last_access_time = metadata.get("last_access_time", 0)
+            create_time = safe_float(metadata.get("create_time"), current_time)
+            last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
             reference_time = max(create_time, last_access_time)
             days_old = max(0.0, (current_time - reference_time) / 86400)
             recency_weight = math.exp(-self.decay_rate * days_old)

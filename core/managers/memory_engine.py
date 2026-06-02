@@ -31,6 +31,7 @@ from ..retrieval.graph_vector_retriever import GraphVectorRetriever
 from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
+from ..utils.number_utils import clamp_float, safe_float
 
 
 class MemoryEngine:
@@ -1287,8 +1288,9 @@ class MemoryEngine:
                 # 保留必要信息
                 session_id = current_metadata.get("session_id")
                 persona_id = current_metadata.get("persona_id")
-                importance = current_metadata.get(
-                    "importance", updates.get("importance", 0.5)
+                importance = clamp_float(
+                    current_metadata.get("importance", updates.get("importance", 0.5)),
+                    default=0.5,
                 )
 
                 # 构建新元数据
@@ -1342,7 +1344,9 @@ class MemoryEngine:
         metadata_updates = {}
 
         if "importance" in updates:
-            metadata_updates["importance"] = max(0.0, min(1.0, updates["importance"]))
+            metadata_updates["importance"] = clamp_float(
+                updates["importance"], default=0.5
+            )
 
         if "metadata" in updates:
             metadata_updates.update(updates["metadata"])
@@ -1577,18 +1581,9 @@ class MemoryEngine:
 
             for row in rows:
                 metadata = self._safe_json_dict(row["metadata"])
-                try:
-                    importance = float(metadata.get("importance", 0.5) or 0.5)
-                except (TypeError, ValueError):
-                    importance = 0.5
-                try:
-                    access_count = float(metadata.get("access_count", 0) or 0)
-                except (TypeError, ValueError):
-                    access_count = 0.0
-                try:
-                    last_access_time = float(metadata.get("last_access_time", 0) or 0)
-                except (TypeError, ValueError):
-                    last_access_time = 0.0
+                importance = clamp_float(metadata.get("importance"), default=0.5)
+                access_count = safe_float(metadata.get("access_count"), 0.0)
+                last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
 
                 recent_access_factor = (
                     1.0 if last_access_time >= access_window_start else 0.5
@@ -1744,7 +1739,9 @@ class MemoryEngine:
                 )
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda d: float(d.get("metadata", {}).get("create_time", 0)),
+                    key=lambda d: safe_float(
+                        d.get("metadata", {}).get("create_time"), 0.0
+                    ),
                     reverse=True,
                 )
             else:
@@ -1770,7 +1767,9 @@ class MemoryEngine:
 
                 sorted_docs = sorted(
                     all_docs,
-                    key=lambda d: float(d.get("metadata", {}).get("create_time", 0)),
+                    key=lambda d: safe_float(
+                        d.get("metadata", {}).get("create_time"), 0.0
+                    ),
                     reverse=True,
                 )[:limit]
 
@@ -1985,15 +1984,10 @@ class MemoryEngine:
                 for doc in batch_docs:
                     metadata = doc["metadata"]
 
-                    create_time = metadata.get("create_time", time.time())
-                    doc_importance = metadata.get("importance", 0.5)
-
-                    # 确保时间值是数字类型
-                    try:
-                        create_time = float(create_time)
-                        doc_importance = float(doc_importance)
-                    except (ValueError, TypeError):
-                        continue
+                    create_time = safe_float(metadata.get("create_time"), time.time())
+                    doc_importance = clamp_float(
+                        metadata.get("importance"), default=0.5
+                    )
 
                     if create_time < cutoff_time and doc_importance < importance:
                         to_delete_ids.append(doc["id"])
@@ -2215,24 +2209,17 @@ class MemoryEngine:
                     # 统计重要性
                     importance = metadata.get("importance")
                     if importance is not None:
-                        try:
-                            importance = float(importance)
-                            importance_sum += importance
-                            importance_count += 1
-                        except (ValueError, TypeError):
-                            pass
+                        importance_sum += clamp_float(importance, default=0.5)
+                        importance_count += 1
 
                     # 统计时间
                     create_time = metadata.get("create_time")
                     if create_time:
-                        try:
-                            create_time = float(create_time)
-                            if oldest_time is None or create_time < oldest_time:
-                                oldest_time = create_time
-                            if newest_time is None or create_time > newest_time:
-                                newest_time = create_time
-                        except (ValueError, TypeError):
-                            pass
+                        create_time = safe_float(create_time, 0.0)
+                        if oldest_time is None or create_time < oldest_time:
+                            oldest_time = create_time
+                        if newest_time is None or create_time > newest_time:
+                            newest_time = create_time
 
                 # 移动到下一批
                 offset += batch_size
