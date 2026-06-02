@@ -565,23 +565,23 @@
       }
 
       if (newStatus !== detail.status) {
-        await apiRequest("memories/update", {
+        unwrapApiData(await apiRequest("memories/update", {
           method: "POST", body: { memory_id: id, field: "status", value: newStatus, reason: reason },
-        });
+        }));
         messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
       }
 
       if (newType !== detail.memory_type) {
-        await apiRequest("memories/update", {
+        unwrapApiData(await apiRequest("memories/update", {
           method: "POST", body: { memory_id: id, field: "type", value: newType, reason: reason },
-        });
+        }));
         messages.push(window.t("detail.typeUpdated", newType));
       }
 
       if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
-        await apiRequest("memories/update", {
+        unwrapApiData(await apiRequest("memories/update", {
           method: "POST", body: { memory_id: id, field: "importance", value: newImportance, reason: reason },
-        });
+        }));
         messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
       }
 
@@ -832,10 +832,12 @@
           status: (item.metadata && item.metadata.status) || "active",
           created_at: (item.metadata && item.metadata.create_time)
             ? new Date(item.metadata.create_time * 1000).toLocaleString()
-            : "--",
+            : item.created_at || "--",
           updated_at: (item.metadata && item.metadata.updated_at)
             ? new Date(item.metadata.updated_at * 1000).toLocaleString()
-            : item.updated_at || "--",
+            : (item.metadata && item.metadata.create_time)
+              ? new Date(item.metadata.create_time * 1000).toLocaleString()
+              : item.updated_at || "--",
           last_access: (item.metadata && item.metadata.last_access_time)
             ? new Date(item.metadata.last_access_time * 1000).toLocaleString()
             : "--",
@@ -1192,7 +1194,12 @@
       card.addEventListener("click", function() {
         var mid = parseInt(card.dataset.memoryId);
         var item = state.memory.items.find(function(i) { return i.memory_id === mid; });
-        if (item) renderPeekMemory(item);
+        if (item) {
+          renderPeekMemory(item);
+        } else {
+          // 记忆不在当前列表中时，仍然可以打开详情（API 会拉取完整数据）
+          renderPeekMemory({ memory_id: mid });
+        }
       });
     });
   }
