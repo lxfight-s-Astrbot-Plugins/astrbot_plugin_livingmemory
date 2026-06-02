@@ -5,6 +5,7 @@
 
 /* ----- Design Tokens (Light) ----------------------------------- */
 :root {
+  color-scheme: light dark;
   /* Surface */
   --bg-app: #f8f9fa;
   --bg-sidebar: #f1f3f5;
