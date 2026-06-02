@@ -553,6 +553,26 @@ class AtomStore:
             stats[row["status"]] = int(row["cnt"])
         return stats
 
+    async def count_atoms(self) -> int:
+        """Return the total number of atoms."""
+        async with self._connect() as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms")
+            row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def count_by_type(self) -> dict[str, int]:
+        """Return per-type atom counts for frontend display."""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT atom_type, COUNT(*) AS cnt FROM memory_atoms GROUP BY atom_type"
+            )
+            rows = await cursor.fetchall()
+        breakdown: dict[str, int] = {}
+        for row in rows:
+            breakdown[row["atom_type"]] = int(row["cnt"])
+        return breakdown
+
     def _row_to_atom(self, row: aiosqlite.Row) -> MemoryAtom:
         """Map a database row to a MemoryAtom instance."""
         return MemoryAtom(

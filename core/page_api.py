@@ -130,8 +130,12 @@ class PluginPageApi:
                     stats["atom_count"] = await atom_store.count_atoms() or 0
                 except Exception:
                     pass
+                try:
+                    stats["atom_breakdown"] = await atom_store.count_by_type()
+                except Exception:
+                    pass
 
-            # 重要性分布 — 默认零值，前端正常展示
+            # 重要性分布 — 兜底默认值（get_statistics 已计算，此处仅容错）
             if "importance_distribution" not in stats:
                 stats["importance_distribution"] = {
                     "0-1": 0,
