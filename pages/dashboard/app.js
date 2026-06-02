@@ -617,19 +617,91 @@
     ctx.clearRect(0, 0, W, H);
     var pad = 20;
     var cx = W / 2, cy = H / 2;
-    var radius = Math.min(W, H) / 2 - pad;
 
     var n = nodes.length;
-    var nodePositions = [];
-    nodes.forEach(function(node, i) {
-      var angle = (2 * Math.PI * i) / n - Math.PI / 2;
-      var x = cx + Math.cos(angle) * radius * 0.75;
-      var y = cy + Math.sin(angle) * radius * 0.65;
-      nodePositions.push({ id: node.id, x: x, y: y, type: node.type });
+    if (n === 0) return;
+
+    /* ── Mini force-directed layout ── */
+    var simNodes = nodes.map(function(node, i) {
+      return {
+        id: node.id,
+        type: node.type || "other",
+        x: cx + (Math.random() - 0.5) * W * 0.6,
+        y: cy + (Math.random() - 0.5) * H * 0.6,
+        vx: 0,
+        vy: 0,
+      };
+    });
+
+    var indexMap = {};
+    simNodes.forEach(function(sn, i) { indexMap[sn.id] = i; });
+
+    var simEdges = [];
+    edges.forEach(function(edge) {
+      var si = indexMap[edge.source];
+      var ti = indexMap[edge.target];
+      if (si != null && ti != null) simEdges.push({ source: si, target: ti });
+    });
+
+    /* Quick force simulation */
+    var iterations = Math.min(100, 30 + n * 8);
+    for (var step = 0; step < iterations; step++) {
+      var alpha = 1 - step / iterations;
+
+      /* Repulsion */
+      for (var i = 0; i < simNodes.length; i++) {
+        var a = simNodes[i];
+        for (var j = i + 1; j < simNodes.length; j++) {
+          var b = simNodes[j];
+          var dx = a.x - b.x;
+          var dy = a.y - b.y;
+          var distSq = dx * dx + dy * dy;
+          if (distSq < 1) distSq = 1;
+          var dist = Math.sqrt(distSq);
+          var repulse = 800 * alpha / distSq;
+          var fx = dx / dist * repulse;
+          var fy = dy / dist * repulse;
+          a.vx += fx; a.vy += fy;
+          b.vx -= fx; b.vy -= fy;
+        }
+      }
+
+      /* Spring attraction */
+      simEdges.forEach(function(e) {
+        var s = simNodes[e.source];
+        var t = simNodes[e.target];
+        var dx = t.x - s.x;
+        var dy = t.y - s.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        var desired = 55;
+        var force = (dist - desired) * 0.004 * alpha;
+        var fx = dx / dist * force;
+        var fy = dy / dist * force;
+        s.vx += fx; s.vy += fy;
+        t.vx -= fx; t.vy -= fy;
+      });
+
+      /* Gentle centering */
+      simNodes.forEach(function(sn) {
+        sn.vx += (cx - sn.x) * 0.004 * alpha;
+        sn.vy += (cy - sn.y) * 0.004 * alpha;
+        sn.vx *= 0.72;
+        sn.vy *= 0.72;
+        sn.x += sn.vx;
+        sn.y += sn.vy;
+      });
+    }
+
+    /* Clamp to canvas */
+    simNodes.forEach(function(sn) {
+      sn.x = Math.min(W - pad, Math.max(pad, sn.x));
+      sn.y = Math.min(H - pad, Math.max(pad, sn.y));
     });
 
     var nodeLookup = {};
-    nodePositions.forEach(function(np) { nodeLookup[np.id] = np; });
+    simNodes.forEach(function(sn) { nodeLookup[sn.id] = sn; });
+
+    /* Draw edges */
     ctx.strokeStyle = "rgba(148,163,184,0.3)";
     ctx.lineWidth = 0.8;
     edges.forEach(function(edge) {
@@ -642,10 +714,11 @@
       ctx.stroke();
     });
 
-    nodePositions.forEach(function(np) {
-      var color = MINI_NODE_COLORS[np.type] || MINI_NODE_COLORS.other;
+    /* Draw nodes */
+    simNodes.forEach(function(sn) {
+      var color = MINI_NODE_COLORS[sn.type] || MINI_NODE_COLORS.other;
       ctx.beginPath();
-      ctx.arc(np.x, np.y, 4, 0, 2 * Math.PI);
+      ctx.arc(sn.x, sn.y, 4, 0, 2 * Math.PI);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
