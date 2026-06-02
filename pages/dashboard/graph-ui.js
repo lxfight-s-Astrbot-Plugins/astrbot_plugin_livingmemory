@@ -261,10 +261,12 @@
     renderLegend(payload);
 
     /* Apply selection to Graph2D */
-    if (state.selectedNodeId !== null) {
-      window.Graph2D.selectNode(state.selectedNodeId);
-    } else if (state.selectedMemoryId !== null) {
-      window.Graph2D.selectMemory(state.selectedMemoryId);
+    if (state.isGraphReady) {
+      if (state.selectedNodeId !== null) {
+        window.Graph2D.selectNode(state.selectedNodeId);
+      } else if (state.selectedMemoryId !== null) {
+        window.Graph2D.selectMemory(state.selectedMemoryId);
+      }
     }
 
     if (window.lmFetchGraphStats) window.lmFetchGraphStats();
