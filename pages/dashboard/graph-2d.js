@@ -2,8 +2,8 @@
   "use strict";
 
   /* ================================================================
-     Graph2D — Circular Knowledge Graph
-     Center node radiates outward with circular nodes and straight links
+     Graph2D — Centered Knowledge Graph
+     Center node anchors an organic force-directed canvas
      ================================================================ */
 
   /* ── Configuration ─────────────────────────────────────────── */
@@ -24,11 +24,16 @@
     PARTICLE_COUNT_HIGHLIGHT: 0,
     PARTICLE_SPEED: 0.18,
     PARTICLE_SIZE: 2.0,
-    /* Radial layout */
-    RING1_RADIUS: 160,
-    RING2_RADIUS: 300,
-    RING3_RADIUS: 440,
-    RING_GAP: 10,
+    /* Centered force layout */
+    FORCE_ITERATIONS: 360,
+    FORCE_REPULSION: 3400,
+    FORCE_LINK_DISTANCE: 66,
+    FORCE_LINK_DEPTH_GAP: 10,
+    FORCE_LINK_STRENGTH: 0.045,
+    FORCE_CENTER_PULL: 0.0038,
+    FORCE_DAMPING: 0.76,
+    FORCE_MAX_SPEED: 16,
+    FORCE_BRANCH_SPREAD: 84,
     /* Center node is larger */
     CENTER_SCALE: 1.65,
     CENTER_MAX_RADIUS: 15,
@@ -75,16 +80,16 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     RadialLayout — computes hub-spoke positions
+     CenteredForceLayout — computes organic hub-spoke positions
      ═══════════════════════════════════════════════════════════════ */
-  function RadialLayout() {
+  function CenteredForceLayout() {
     this.centerId = null;
     this.positions = {};  // id → {tx, ty}
-    this.rings = {};      // id → ring number (0=center, 1,2,3)
+    this.rings = {};      // id → graph depth (0=center)
   }
 
   /* Build adjacency map from edges */
-  RadialLayout.prototype._buildAdjacency = function(nodes, edges) {
+  CenteredForceLayout.prototype._buildAdjacency = function(nodes, edges) {
     var adj = {};
     nodes.forEach(function(n) { adj[n.id] = []; });
     edges.forEach(function(e) {
@@ -94,8 +99,62 @@
     return adj;
   };
 
-  /* Compute radial target positions */
-  RadialLayout.prototype.compute = function(nodes, edges, centerId) {
+  CenteredForceLayout.prototype._nodeScore = function(node, degree) {
+    return Number(node.weight || 0) * 2 +
+      Number(node.memory_count || 0) * 3 +
+      Number(node.entry_count || 0) +
+      Number(node.degree || 0) +
+      degree * 4;
+  };
+
+  CenteredForceLayout.prototype._layoutRadius = function(node, isCenter) {
+    var w = clamp(Number(node.weight || 0), 0, 20);
+    var mr = clamp(Number(node.memory_count || 0), 0, 15);
+    var radius = CFG.NODE_RADIUS_BASE + Math.sqrt(w) * 0.75 + Math.sqrt(mr) * 0.4;
+    if (isCenter) radius = Math.min(CFG.CENTER_MAX_RADIUS, radius * CFG.CENTER_SCALE);
+    return clamp(radius, CFG.NODE_RADIUS_MIN, isCenter ? CFG.CENTER_MAX_RADIUS : CFG.NODE_RADIUS_MAX);
+  };
+
+  CenteredForceLayout.prototype._hashUnit = function(value, salt) {
+    var str = String(value) + ":" + String(salt || 0);
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ((h >>> 0) % 100000) / 100000;
+  };
+
+  CenteredForceLayout.prototype._seedPosition = function(node, index, count, depth, degree) {
+    if (depth === 0) return { x: 0, y: 0 };
+
+    var disconnected = depth == null || depth > 6;
+    var d = disconnected ? 4 : Math.max(1, depth);
+    var spreadX = disconnected ? 720 : 190 + Math.pow(d, 1.08) * 115;
+    var spreadY = disconnected ? 520 : 140 + Math.pow(d, 1.03) * 96;
+    var centrality = Math.min(0.44, (degree || 0) * 0.035 + Math.sqrt(Number(node.weight || 0)) * 0.035);
+    spreadX *= 1 - centrality;
+    spreadY *= 1 - centrality;
+    if (count <= 3) { spreadX *= 0.72; spreadY *= 0.72; }
+
+    function signedCloud(value, power) {
+      var centered = value - 0.5;
+      var sign = centered < 0 ? -1 : 1;
+      return sign * Math.pow(Math.abs(centered) * 2, power);
+    }
+
+    var x = signedCloud(this._hashUnit(node.id, 31), 1.45) * spreadX;
+    var y = signedCloud(this._hashUnit(node.id, 37), 1.35) * spreadY;
+    var skew = (this._hashUnit(node.type || "other", 43) - 0.5) * 96;
+    var local = (this._hashUnit(node.id, 41) - 0.5) * CFG.FORCE_BRANCH_SPREAD * (1 + d * 0.32);
+    return {
+      x: x + skew + local,
+      y: y - skew * 0.32 + Math.sin((index + 1) * 1.618) * 22,
+    };
+  };
+
+  /* Compute force-directed target positions around a fixed center */
+  CenteredForceLayout.prototype.compute = function(nodes, edges, centerId) {
     var self = this;
     this.centerId = centerId;
     this.positions = {};
@@ -110,125 +169,200 @@
       return;
     }
 
-    /* Pick center: use provided centerId, or highest-weight node, or first */
+    var adj = this._buildAdjacency(nodes, edges);
+    var degree = {};
+    nodes.forEach(function(nd) {
+      degree[nd.id] = (adj[nd.id] || []).length;
+    });
+
+    /* Pick center: use provided centerId, or the strongest connected node */
     var centerNode = null;
     if (centerId != null) {
       centerNode = nodes.find(function(nd) { return nd.id === centerId; });
     }
     if (!centerNode) {
-      /* Highest weight */
-      var bestW = -1;
+      var bestScore = -Infinity;
       nodes.forEach(function(nd) {
-        if (nd.weight > bestW) { bestW = nd.weight; centerNode = nd; }
+        var score = self._nodeScore(nd, degree[nd.id] || 0);
+        if (score > bestScore) { bestScore = score; centerNode = nd; }
       });
     }
     if (!centerNode) centerNode = nodes[0];
+    this.centerId = centerNode.id;
 
-    var adj = this._buildAdjacency(nodes, edges);
-    var nodeMap = {};
-    nodes.forEach(function(nd) { nodeMap[nd.id] = nd; });
-
-    /* BFS from center to assign rings */
+    /* BFS from center to assign graph depth. */
     var visited = {};
-    var queue = [{ id: centerNode.id, ring: 0 }];
+    var queue = [{ id: centerNode.id, depth: 0 }];
     visited[centerNode.id] = 0;
 
     while (queue.length > 0) {
       var curr = queue.shift();
-      this.rings[curr.id] = curr.ring;
+      this.rings[curr.id] = curr.depth;
       var neighbors = adj[curr.id] || [];
       neighbors.forEach(function(nid) {
         if (!(nid in visited)) {
-          visited[nid] = curr.ring + 1;
-          queue.push({ id: nid, ring: curr.ring + 1 });
+          visited[nid] = curr.depth + 1;
+          queue.push({ id: nid, depth: curr.depth + 1 });
         }
       });
     }
 
-    /* Assign any unvisited nodes to ring 3 */
     nodes.forEach(function(nd) {
-      if (!(nd.id in self.rings)) self.rings[nd.id] = 3;
+      if (!(nd.id in self.rings)) self.rings[nd.id] = 7;
     });
 
-    /* Clamp rings: 0,1,2,3 */
-    nodes.forEach(function(nd) {
-      var ring = self.rings[nd.id];
-      self.rings[nd.id] = Math.min(3, ring == null ? 3 : ring);
+    var indexById = {};
+    var sim = nodes.map(function(nd, i) {
+      indexById[nd.id] = i;
+      var depth = self.rings[nd.id];
+      var seed = self._seedPosition(nd, i, n, depth, degree[nd.id] || 0);
+      return {
+        id: nd.id,
+        node: nd,
+        x: seed.x,
+        y: seed.y,
+        vx: 0,
+        vy: 0,
+        depth: depth,
+        degree: degree[nd.id] || 0,
+        radius: self._layoutRadius(nd, nd.id === centerNode.id),
+      };
     });
 
-    /* Group nodes by ring */
-    var ringGroups = { 0: [], 1: [], 2: [], 3: [] };
-    nodes.forEach(function(nd) {
-      var r = self.rings[nd.id];
-      if (r === 0) {
-        ringGroups[0].push(nd);
-      } else {
-        ringGroups[r].push(nd);
+    var simEdges = [];
+    edges.forEach(function(edge) {
+      var si = indexById[edge.source];
+      var ti = indexById[edge.target];
+      if (si == null || ti == null) return;
+      var weight = clamp(Number(edge.weight || 1), 0.4, 12);
+      var confidence = clamp(Number(edge.confidence || 0.8), 0.2, 1);
+      simEdges.push({
+        source: si,
+        target: ti,
+        weight: weight,
+        confidence: confidence,
+        distanceJitter: self._hashUnit(String(edge.id) + ":" + edge.source + ":" + edge.target, 61),
+      });
+    });
+
+    var iterations = n > 260 ? 150 : n > 140 ? 200 : CFG.FORCE_ITERATIONS;
+    for (var step = 0; step < iterations; step++) {
+      var alpha = 1 - step / iterations;
+      var cooled = 0.25 + alpha * 0.75;
+
+      for (var i = 0; i < sim.length; i++) {
+        var a = sim[i];
+        for (var j = i + 1; j < sim.length; j++) {
+          var b = sim[j];
+          var dx = a.x - b.x;
+          var dy = a.y - b.y;
+          var distSq = dx * dx + dy * dy;
+          if (distSq < 0.01) {
+            var kick = self._hashUnit(a.id + ":" + b.id, 43) * Math.PI * 2;
+            dx = Math.cos(kick) * 0.1;
+            dy = Math.sin(kick) * 0.1;
+            distSq = dx * dx + dy * dy;
+          }
+          var dist = Math.sqrt(distSq);
+          var maxRange = 280 + Math.min(160, n * 1.8);
+          if (dist > maxRange) continue;
+
+          var minSep = (a.radius + b.radius) * 2.6 + 11;
+          var repulse = CFG.FORCE_REPULSION * cooled / Math.max(distSq, minSep * minSep * 0.36);
+          repulse *= 1 - dist / maxRange;
+          if (dist < minSep) repulse += (minSep - dist) * 0.18;
+          var fx = dx / dist * repulse;
+          var fy = dy / dist * repulse;
+          a.vx += fx; a.vy += fy;
+          b.vx -= fx; b.vy -= fy;
+        }
       }
-    });
 
-    /* Place center */
-    if (ringGroups[0].length > 0) {
-      ringGroups[0].forEach(function(nd) {
-        self.positions[nd.id] = { tx: 0, ty: 0 };
+      simEdges.forEach(function(edge) {
+        var s = sim[edge.source];
+        var t = sim[edge.target];
+        var dx = t.x - s.x;
+        var dy = t.y - s.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+        var depth = Math.min(s.depth || 4, t.depth || 4);
+        var isCenterLink = s.id === centerNode.id || t.id === centerNode.id;
+        var desired = CFG.FORCE_LINK_DISTANCE + Math.min(4, depth) * CFG.FORCE_LINK_DEPTH_GAP + edge.distanceJitter * 82;
+        desired -= Math.min(30, Math.sqrt(edge.weight) * 8);
+        if (isCenterLink) desired = 44 + edge.distanceJitter * 126 - Math.min(22, Math.sqrt(edge.weight) * 6);
+        var force = (dist - desired) * CFG.FORCE_LINK_STRENGTH * edge.confidence * cooled;
+        var fx = dx / dist * force;
+        var fy = dy / dist * force;
+        s.vx += fx; s.vy += fy;
+        t.vx -= fx; t.vy -= fy;
+      });
+
+      for (var k = 0; k < sim.length; k++) {
+        var sn = sim[k];
+        if (sn.id === centerNode.id) {
+          sn.x = 0; sn.y = 0; sn.vx = 0; sn.vy = 0;
+          continue;
+        }
+
+        var d = sn.depth == null ? 7 : sn.depth;
+        var disconnected = d >= 7;
+        var distCenter = Math.sqrt(sn.x * sn.x + sn.y * sn.y) || 0.001;
+        var pull = CFG.FORCE_CENTER_PULL * cooled * (disconnected ? 0.4 : d === 1 ? 0.35 : 1);
+        sn.vx -= sn.x * pull;
+        sn.vy -= sn.y * pull;
+
+        var minCenterDistance = sn.radius + (d === 1 ? 42 : 30);
+        if (distCenter < minCenterDistance) {
+          var push = (minCenterDistance - distCenter) * 0.12 * cooled;
+          sn.vx += sn.x / distCenter * push;
+          sn.vy += sn.y / distCenter * push;
+        }
+      }
+
+      sim.forEach(function(sn) {
+        if (sn.id === centerNode.id) return;
+        sn.vx *= CFG.FORCE_DAMPING;
+        sn.vy *= CFG.FORCE_DAMPING;
+        var speed = Math.sqrt(sn.vx * sn.vx + sn.vy * sn.vy);
+        if (speed > CFG.FORCE_MAX_SPEED) {
+          sn.vx = sn.vx / speed * CFG.FORCE_MAX_SPEED;
+          sn.vy = sn.vy / speed * CFG.FORCE_MAX_SPEED;
+        }
+        sn.x += sn.vx;
+        sn.y += sn.vy;
       });
     }
 
-    /* Place ring nodes: group by type within each ring, then spread evenly */
-    var radii = [0, CFG.RING1_RADIUS, CFG.RING2_RADIUS, CFG.RING3_RADIUS];
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    sim.forEach(function(sn) {
+      if (sn.id === centerNode.id) return;
+      minX = Math.min(minX, sn.x); maxX = Math.max(maxX, sn.x);
+      minY = Math.min(minY, sn.y); maxY = Math.max(maxY, sn.y);
+    });
 
-    for (var r = 1; r <= 3; r++) {
-      var ringNodes = ringGroups[r];
-      if (ringNodes.length === 0) continue;
-
-      /* Sub-group by type for visual clustering */
-      var typeGroups = {};
-      ringNodes.forEach(function(nd) {
-        var t = nd.type || "other";
-        if (!typeGroups[t]) typeGroups[t] = [];
-        typeGroups[t].push(nd);
-      });
-
-      /* Flatten type groups, interleaving types */
-      var ordered = [];
-      var typeKeys = Object.keys(typeGroups);
-      /* Sort type groups by size (largest first) */
-      typeKeys.sort(function(a, b) { return typeGroups[b].length - typeGroups[a].length; });
-
-      var maxLen = 0;
-      typeKeys.forEach(function(t) { maxLen = Math.max(maxLen, typeGroups[t].length); });
-
-      /* Interleave: take one from each type group in round-robin */
-      for (var i = 0; i < maxLen; i++) {
-        typeKeys.forEach(function(t) {
-          if (i < typeGroups[t].length) ordered.push(typeGroups[t][i]);
-        });
-      }
-
-      /* Place in circle */
-      var count = ordered.length;
-      var radius = radii[r];
-      ordered.forEach(function(nd, i) {
-        var angle = (2 * Math.PI * i) / count - Math.PI / 2;
-        /* Slight radius variation within ring */
-        var rVar = radius + (i % 3) * CFG.RING_GAP;
-        self.positions[nd.id] = {
-          tx: Math.cos(angle) * rVar,
-          ty: Math.sin(angle) * rVar,
-        };
+    if (Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY)) {
+      var cx = (minX + maxX) / 2;
+      var cy = (minY + maxY) / 2;
+      sim.forEach(function(sn) {
+        if (sn.id === centerNode.id) return;
+        sn.x -= cx * 0.16;
+        sn.y -= cy * 0.16;
       });
     }
+
+    sim.forEach(function(sn) {
+      self.positions[sn.id] = { tx: sn.id === centerNode.id ? 0 : sn.x, ty: sn.id === centerNode.id ? 0 : sn.y };
+    });
   };
 
   /* Get target position for a node */
-  RadialLayout.prototype.getTarget = function(nodeId) {
+  CenteredForceLayout.prototype.getTarget = function(nodeId) {
     var p = this.positions[nodeId];
     return p || { tx: 0, ty: 0 };
   };
 
   /* Get ring of a node (0=center) */
-  RadialLayout.prototype.getRing = function(nodeId) {
-    return this.rings[nodeId] != null ? this.rings[nodeId] : 3;
+  CenteredForceLayout.prototype.getRing = function(nodeId) {
+    return this.rings[nodeId] != null ? this.rings[nodeId] : 7;
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -243,6 +377,7 @@
     this.dpr = 1;
     this._drawnNodes = [];
     this._drawnEdges = [];
+    this._labelBoxes = [];
     this._particleOffsets = {};
     this._selection = null;
   }
@@ -314,7 +449,7 @@
     return this.nodeWorldRadius(nodeData, isCenter) * this.viewport.scale;
   };
 
-  Renderer.prototype.render = function(nodes, edges, nodeMap, selection, hoverId, radial, animProgress) {
+  Renderer.prototype.render = function(nodes, edges, nodeMap, selection, hoverId, layout, animProgress) {
     var ctx = this.ctx;
     var scale = this.viewport.scale;
     var dark = isDark();
@@ -345,15 +480,16 @@
       });
     }
 
-    var centerId = radial ? radial.centerId : null;
+    var centerId = layout ? layout.centerId : null;
 
     this.drawBackground(dark);
 
     /* Compute animated positions */
-    var ap = animProgress || 1;
+    var ap = animProgress == null ? 1 : animProgress;
 
     /* Draw edges first (under nodes) */
     this._drawnEdges = [];
+    this._labelBoxes = [];
     ctx.save();
     for (var e = 0; e < edges.length; e++) {
       var edge = edges[e];
@@ -377,6 +513,7 @@
         sourceId: edge.source, targetId: edge.target,
         relationType: edge.relation_type || "related",
         memoryId: edge.memory_id, weight: edge.weight || 1,
+        confidence: edge.confidence || 0.8,
         isActive: isActive, isHighlighted: isMemHl,
         isMuted: isMuted, hasFocus: hasFocus,
         isHovered: edge.id === hoverId,
@@ -422,6 +559,7 @@
         isHovered: nd.id === hoverId, isCenter: isCenter, hasFocus: hasNodeFocus,
         type: nd.type || "other", label: nd.label || "Unnamed",
         memoryCount: nd.memory_count || 0, degree: nd.degree || 0,
+        labelScore: nd.labelScore || 0,
         color: TYPE_COLORS[nd.type] || TYPE_COLORS.other, fixed: nd.fixed,
       };
       this._drawnNodes.push(drawInfo);
@@ -446,8 +584,13 @@
       : de.hasFocus && de.isActive ? CFG.EDGE_OPACITY_ACTIVE : CFG.EDGE_OPACITY_DEFAULT;
     var width = de.isHighlighted ? CFG.EDGE_WIDTH_HIGHLIGHT
       : de.hasFocus && de.isActive ? CFG.EDGE_WIDTH_ACTIVE : CFG.EDGE_WIDTH_DEFAULT;
+    var strength = clamp(Math.sqrt(Number(de.weight || 1)) / 3.6, 0, 1);
 
     if (de.isMuted) opacity *= 0.35;
+    if (!de.isMuted) {
+      width += strength * (de.hasFocus ? 0.35 : 0.8);
+      opacity = clamp(opacity + strength * (de.hasFocus ? 0.04 : 0.1), 0, 0.84);
+    }
 
     ctx.beginPath();
     ctx.moveTo(de.sx, de.sy);
@@ -506,8 +649,10 @@
       : dark ? "#202126" : "#ffffff";
     ctx.stroke();
 
+    var prominent = dn.degree >= 4 || dn.memoryCount >= 3 || dn.labelScore >= 11;
     var labelVisible = dn.isHovered || dn.isSelected || dn.isCenter ||
-      (!dn.hasFocus && scale > 1.05 && dn.degree >= 2);
+      (!dn.hasFocus && scale > 0.72 && prominent) ||
+      (!dn.hasFocus && scale > 1.12 && dn.degree >= 2);
     if (!labelVisible || dn.isMuted) {
       ctx.restore();
       return;
@@ -521,6 +666,20 @@
     var maxChars = dn.isCenter ? 28 : 24;
     var label = dn.label.length > maxChars ? dn.label.substring(0, maxChars - 1) + "…" : dn.label;
     var labelX = x + r + 7 * scale;
+    var labelWidth = ctx.measureText(label).width;
+    var labelHeight = fontSize + 4;
+    var box = {
+      x1: labelX - 3 * scale,
+      y1: y - labelHeight / 2 - 2,
+      x2: labelX + labelWidth + 3 * scale,
+      y2: y + labelHeight / 2 + 2,
+    };
+    var forceLabel = dn.isHovered || dn.isSelected || dn.isCenter;
+    if (!forceLabel && (!this._labelInView(box) || this._labelIntersects(box))) {
+      ctx.restore();
+      return;
+    }
+    this._labelBoxes.push(box);
     ctx.fillText(label, labelX, y);
 
     if (dn.isHovered || dn.isSelected) {
@@ -532,6 +691,20 @@
     }
 
     ctx.restore();
+  };
+
+  Renderer.prototype._labelInView = function(box) {
+    return box.x2 >= 0 && box.x1 <= this.width && box.y2 >= 0 && box.y1 <= this.height;
+  };
+
+  Renderer.prototype._labelIntersects = function(box) {
+    for (var i = 0; i < this._labelBoxes.length; i++) {
+      var other = this._labelBoxes[i];
+      if (box.x1 <= other.x2 && box.x2 >= other.x1 && box.y1 <= other.y2 && box.y2 >= other.y1) {
+        return true;
+      }
+    }
+    return false;
   };
 
   Renderer.prototype.hitTestNode = function(sx, sy) {
@@ -740,7 +913,7 @@
   Interaction.prototype.getHoverType = function() { return this._hoverType; };
 
   /* ═══════════════════════════════════════════════════════════════
-     Animator — RAF loop with radial position tweening
+     Animator — RAF loop with layout position tweening
      ═══════════════════════════════════════════════════════════════ */
   function Animator(renderer, interaction) {
     this.renderer = renderer;
@@ -751,7 +924,7 @@
     this._edges = [];
     this._nodeMap = {};
     this._mem2node = {};
-    this._radial = new RadialLayout();
+    this._layout = new CenteredForceLayout();
     this._animProgress = 1; // 0→1 for position transitions
     this._needsRender = true;
   }
@@ -760,14 +933,14 @@
     options = options || {};
     if (!this._nodes.length || !this.renderer.width || !this.renderer.height) return;
 
-    var centerId = options.centerId;
-    var centerTarget = centerId != null ? this._radial.getTarget(centerId) : null;
+    var centerId = options.centerId != null ? options.centerId : this._layout.centerId;
+    var centerTarget = centerId != null ? this._layout.getTarget(centerId) : null;
     var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
     for (var i = 0; i < this._nodes.length; i++) {
       var nd = this._nodes[i];
-      var target = this._radial.getTarget(nd.id);
-      var isCenter = this._radial.centerId != null && nd.id === this._radial.centerId;
+      var target = this._layout.getTarget(nd.id);
+      var isCenter = this._layout.centerId != null && nd.id === this._layout.centerId;
       var pad = this.renderer.nodeWorldRadius(nd, isCenter) + 28;
       minX = Math.min(minX, target.tx - pad);
       maxX = Math.max(maxX, target.tx + pad);
@@ -779,7 +952,7 @@
 
     var boundsW = Math.max(1, maxX - minX);
     var boundsH = Math.max(1, maxY - minY);
-    var padding = this.renderer.width < 520 ? 0.9 : 0.82;
+    var padding = this.renderer.width < 520 ? 0.88 : 0.8;
     var fitScale = Math.min(
       (this.renderer.width * padding) / boundsW,
       (this.renderer.height * padding) / boundsH
@@ -788,9 +961,10 @@
     var cx = (minX + maxX) / 2;
     var cy = (minY + maxY) / 2;
 
-    if (centerTarget && this.renderer.width >= 520) {
-      cx = lerp(cx, centerTarget.tx, 0.28);
-      cy = lerp(cy, centerTarget.ty, 0.2);
+    if (centerTarget) {
+      var centerBias = this.renderer.width < 520 ? 0.36 : 0.62;
+      cx = lerp(cx, centerTarget.tx, centerBias);
+      cy = lerp(cy, centerTarget.ty, centerBias * 0.78);
     }
 
     this.renderer.viewport.scale = scale;
@@ -819,14 +993,14 @@
     this.renderer._nodesMap = this._nodeMap;
   };
 
-  Animator.prototype.layoutRadial = function(centerId) {
+  Animator.prototype.layoutGraph = function(centerId) {
     var self = this;
     /* Save previous positions for animation */
     this._nodes.forEach(function(n) {
       n._prevX = n.x;
       n._prevY = n.y;
     });
-    this._radial.compute(this._nodes, this._edges, centerId);
+    this._layout.compute(this._nodes, this._edges, centerId);
     this.fitViewport({ centerId: centerId });
     this._animProgress = 0;
     this._needsRender = true;
@@ -834,7 +1008,7 @@
   };
 
   Animator.prototype.recenter = function(centerId) {
-    this.layoutRadial(centerId);
+    this.layoutGraph(centerId);
   };
 
   Animator.prototype._tick = function() {
@@ -842,7 +1016,7 @@
     var self = this;
     this._rafId = requestAnimationFrame(function() { self._tick(); });
 
-    /* Animate positions toward radial targets */
+    /* Animate positions toward layout targets */
     var dirty = true;
     if (this._animProgress < 1) {
       this._animProgress = Math.min(1, this._animProgress + CFG.ANIM_SPEED);
@@ -851,7 +1025,7 @@
       for (var i = 0; i < this._nodes.length; i++) {
         var nd = this._nodes[i];
         if (nd.fixed) continue;
-        var target = this._radial.getTarget(nd.id);
+        var target = this._layout.getTarget(nd.id);
         if (nd._prevX == null) { nd._prevX = nd.x; nd._prevY = nd.y; }
         nd.x = lerp(nd._prevX, target.tx, ap);
         nd.y = lerp(nd._prevY, target.ty, ap);
@@ -861,7 +1035,7 @@
         for (var j = 0; j < this._nodes.length; j++) {
           var nd2 = this._nodes[j];
           if (nd2.fixed) continue;
-          var tgt = this._radial.getTarget(nd2.id);
+          var tgt = this._layout.getTarget(nd2.id);
           nd2.x = tgt.tx; nd2.y = tgt.ty;
           nd2._prevX = null; nd2._prevY = null;
         }
@@ -871,8 +1045,8 @@
       for (var k = 0; k < this._nodes.length; k++) {
         var floatNode = this._nodes[k];
         if (floatNode.fixed) continue;
-        var home = this._radial.getTarget(floatNode.id);
-        var ring = this._radial.getRing(floatNode.id);
+        var home = this._layout.getTarget(floatNode.id);
+        var ring = this._layout.getRing(floatNode.id);
         var amp = ring === 0 ? 1.2 : 2.4 + ring * 0.5;
         var phase = (floatNode.id % 17) * 0.37;
         floatNode.x = lerp(floatNode.x, home.tx + Math.sin(now * 0.65 + phase) * amp, CFG.IDLE_DAMPING);
@@ -884,7 +1058,7 @@
       this.renderer.clear();
       var sel = this.renderer._selection;
       var hoverId = this.interaction.getHoverId();
-      this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._radial, this._animProgress);
+      this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, this._animProgress);
       this._needsRender = false;
     }
   };
@@ -991,6 +1165,10 @@
         memory_count: Number(node.memory_count || 0),
         degree: Number(node.degree || 0),
         entry_count: Number(node.entry_count || 0),
+        labelScore: Number(node.degree || 0) * 2 +
+          Number(node.memory_count || 0) * 3 +
+          Number(node.entry_count || 0) +
+          Number(node.weight || 0),
         color: TYPE_COLORS[node.type] || TYPE_COLORS.other,
       });
     });
@@ -1034,8 +1212,8 @@
       if (mids.length > 0) centerId = mids[0];
     }
 
-    /* Apply radial layout with animation */
-    this.animator.layoutRadial(centerId);
+    /* Apply centered force layout with animation */
+    this.animator.layoutGraph(centerId);
 
     this.animator.wake();
   };
@@ -1060,8 +1238,8 @@
   Graph2D.prototype.clearSelection = function() {
     this.selection = null;
     this.renderer._selection = null;
-    /* Re-layout with highest-weight node as center */
-    this.animator.layoutRadial(null);
+    /* Re-layout with highest-scoring node as center */
+    this.animator.layoutGraph(null);
   };
 
   Graph2D.prototype.resize = function() {
