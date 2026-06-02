@@ -35,6 +35,12 @@
         "hint": "管理用户会话状态和对话历史的缓存行为",
         "type": "object",
         "items": {
+            "enable_full_group_capture": {
+                "description": "捕获群聊所有消息",
+                "hint": "是否捕获群聊中的所有消息（包括非 @Bot 的消息）。开启后群聊中每条消息都会被记录，有助于构建更完整的群聊上下文。",
+                "type": "bool",
+                "default": true
+            },
             "max_sessions": {
                 "description": "最大缓存会话数",
                 "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。",
@@ -98,7 +104,7 @@
             },
             "injection_method": {
                 "description": "记忆注入位置",
-                "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾，不影响前缀缓存，且标记为临时消息不保存到对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：DeepSeek V4 thinking 模式专用伪工具转录。Gemini 下若选择 fake_tool_call 会自动降级为 user_message_before。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
+                "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：DeepSeek V4 thinking 模式专用伪工具转录。Gemini 下若选择 fake_tool_call 会自动降级为 user_message_before。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
                 "type": "string",
                 "default": "extra_user_content",
                 "options": [
