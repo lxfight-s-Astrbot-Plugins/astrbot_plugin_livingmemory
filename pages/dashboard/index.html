@@ -125,9 +125,9 @@
                 <option value="deleted" data-i18n="filter.statusDeleted">Deleted</option>
               </select>
               <select id="mem-page-size" class="select input" style="width:auto">
-                <option value="20">20 per page</option>
-                <option value="50">50 per page</option>
-                <option value="100">100 per page</option>
+                <option value="20" data-i18n="common.perPage20">20 per page</option>
+                <option value="50" data-i18n="common.perPage50">50 per page</option>
+                <option value="100" data-i18n="common.perPage100">100 per page</option>
               </select>
             </div>
             <div class="table-container">
@@ -135,8 +135,9 @@
               <table class="data-table" id="memories-table">
                 <thead>
                   <tr>
+                    <th class="cell-check"><input type="checkbox" id="mem-select-page" data-i18n-aria="table.selectPage" aria-label="Select page" /></th>
                     <th class="cell-id" data-i18n="table.id">ID</th>
-                    <th data-i18n="table.summary">Summary</th>
+                    <th class="cell-summary" data-i18n="table.summary">Summary</th>
                     <th class="cell-type" data-i18n="table.type">Type</th>
                     <th class="cell-importance" data-i18n="table.importance">Importance</th>
                     <th class="cell-status" data-i18n="table.status">Status</th>
@@ -144,7 +145,7 @@
                   </tr>
                 </thead>
                 <tbody id="memories-body">
-                  <tr><td colspan="6" class="table-empty" data-i18n="table.noData">No data</td></tr>
+                  <tr><td colspan="7" class="table-empty" data-i18n="table.noData">No data</td></tr>
                 </tbody>
               </table>
               </div>
@@ -164,7 +165,7 @@
               <button class="btn btn-sm btn-secondary" id="batch-archive" data-i18n="edit.statusArchived">Archive</button>
               <button class="btn btn-sm btn-danger" id="batch-delete" data-i18n="filter.deleteSelected">Delete</button>
             </div>
-            <button class="btn btn-sm btn-ghost" id="batch-clear">Clear</button>
+            <button class="btn btn-sm btn-ghost" id="batch-clear" data-i18n="common.clear">Clear</button>
           </div>
         </section>
 
@@ -178,7 +179,7 @@
               <textarea id="recall-query" class="input textarea" rows="3" data-i18n-placeholder="recall.queryPh" placeholder="Enter a query to test the dual-route four-mode hybrid retrieval engine..."></textarea>
               <div class="recall-form-row">
                 <div class="recall-form-field" style="max-width:200px">
-                  <label class="recall-form-label">Results (k)</label>
+                  <label class="recall-form-label" data-i18n="recall.kLabel">Results (k)</label>
                   <div class="slider-group">
                     <input type="range" id="recall-k" min="1" max="50" value="5" />
                     <span class="slider-value" id="recall-k-value">5</span>
@@ -210,25 +211,25 @@
               <div class="stat-card"><div class="stat-card-value" id="ss-active">--</div><div class="stat-card-label" data-i18n="stats.active">Active</div></div>
               <div class="stat-card"><div class="stat-card-value" id="ss-archived">--</div><div class="stat-card-label" data-i18n="stats.archived">Archived</div></div>
               <div class="stat-card"><div class="stat-card-value" id="ss-deleted">--</div><div class="stat-card-label" data-i18n="stats.deleted">Deleted</div></div>
-              <div class="stat-card"><div class="stat-card-value" id="ss-nodes">--</div><div class="stat-card-label">Graph Nodes</div></div>
-              <div class="stat-card"><div class="stat-card-value" id="ss-atoms">--</div><div class="stat-card-label">Atoms</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-nodes">--</div><div class="stat-card-label" data-i18n="stats.graphNodes">Graph Nodes</div></div>
+              <div class="stat-card"><div class="stat-card-value" id="ss-atoms">--</div><div class="stat-card-label" data-i18n="stats.atoms">Atoms</div></div>
             </div>
             <div class="system-grid">
               <div class="system-panel">
-                <div class="system-panel-title">Importance Distribution</div>
+                <div class="system-panel-title" data-i18n="system.importanceDistribution">Importance Distribution</div>
                 <div class="bar-chart" id="importance-chart"></div>
               </div>
               <div class="system-panel">
-                <div class="system-panel-title">Atom Types</div>
+                <div class="system-panel-title" data-i18n="system.atomTypes">Atom Types</div>
                 <div class="bar-chart" id="atom-chart"></div>
               </div>
             </div>
             <div class="system-panel mb-6" style="margin-top:0">
-              <div class="system-panel-title">Active Sessions</div>
+              <div class="system-panel-title" data-i18n="system.activeSessions">Active Sessions</div>
               <div class="session-list" id="session-list"></div>
             </div>
             <div class="system-panel">
-              <div class="system-panel-title">Version Backups</div>
+              <div class="system-panel-title" data-i18n="system.versionBackups">Version Backups</div>
               <div class="backup-list" id="backup-list"></div>
             </div>
           </div>

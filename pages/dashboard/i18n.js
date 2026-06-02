@@ -8,14 +8,19 @@
     /* ---- Common ---- */
     "common.close":       { zh: "关闭", en: "Close", ru: "Закрыть" },
     "common.cancel":      { zh: "取消", en: "Cancel", ru: "Отмена" },
+    "common.clear":       { zh: "清空", en: "Clear", ru: "Очистить" },
     "common.save":        { zh: "保存", en: "Save", ru: "Сохранить" },
     "common.refresh":     { zh: "刷新", en: "Refresh", ru: "Обновить" },
     "common.search":      { zh: "搜索", en: "Search", ru: "Поиск" },
     "common.confirm":     { zh: "确定", en: "Confirm", ru: "Подтвердить" },
     "common.loading":     { zh: "加载中...", en: "Loading...", ru: "Загрузка..." },
     "common.noData":      { zh: "暂无数据", en: "No data", ru: "Нет данных" },
+    "common.unavailable": { zh: "暂不可用", en: "Unavailable", ru: "Недоступно" },
     "common.page":        { zh: "第 {0} / {1} 页 · 共 {2} 条", en: "Page {0}/{1} · {2} total", ru: "Стр. {0}/{1} · всего {2}" },
     "common.perPage":     { zh: "每页", en: "Per page", ru: "На стр." },
+    "common.perPage20":   { zh: "20 条/页", en: "20 per page", ru: "20 на стр." },
+    "common.perPage50":   { zh: "50 条/页", en: "50 per page", ru: "50 на стр." },
+    "common.perPage100":  { zh: "100 条/页", en: "100 per page", ru: "100 на стр." },
 
     /* ---- Title / Header ---- */
     "page.title":         { zh: "LivingMemory 控制台", en: "LivingMemory Console", ru: "Консоль LivingMemory" },
@@ -23,6 +28,10 @@
     "header.subtitle":    { zh: "长期记忆与会话管理 · 基于混合检索的智能记忆系统", en: "Long-term memory & session management · Hybrid retrieval system", ru: "Долгосрочная память и управление сессиями · Гибридная поисковая система" },
     "header.theme":       { zh: "切换主题", en: "Toggle theme", ru: "Сменить тему" },
     "header.lang":        { zh: "语言", en: "Language", ru: "Язык" },
+    "language.current.zh": { zh: "中文", en: "Chinese", ru: "Китайский" },
+    "language.current.en": { zh: "英文", en: "English", ru: "Английский" },
+    "language.current.ru": { zh: "俄文", en: "Russian", ru: "Русский" },
+    "language.toast":     { zh: "语言：{0}", en: "Language: {0}", ru: "Язык: {0}" },
 
     /* ---- Navigation ---- */
     "nav.memory":         { zh: "记忆管理", en: "Memory", ru: "Память" },
@@ -49,6 +58,8 @@
     "stats.archived":     { zh: "已归档", en: "Archived", ru: "Архив" },
     "stats.deleted":      { zh: "已删除", en: "Deleted", ru: "Удалено" },
     "stats.sessions":     { zh: "活跃会话", en: "Active Sessions", ru: "Активных сессий" },
+    "stats.graphNodes":   { zh: "图谱节点", en: "Graph Nodes", ru: "Узлы графа" },
+    "stats.atoms":        { zh: "原子记忆", en: "Atoms", ru: "Атомы" },
 
     /* ---- Filter ---- */
     "filter.keyword":     { zh: "关键字（支持 memory_id / 内容搜索）", en: "Keyword (memory_id / content)", ru: "Ключевое слово (memory_id / контент)" },
@@ -60,6 +71,7 @@
     "filter.apply":       { zh: "筛选", en: "Filter", ru: "Фильтр" },
     "filter.selectAll":   { zh: "全选", en: "Select All", ru: "Выбрать все" },
     "filter.deleteSelected":{ zh: "删除选中", en: "Delete Selected", ru: "Удалить выбранное" },
+    "filter.selectedCount":{ zh: "已选择 {0} 条", en: "{0} selected", ru: "Выбрано {0}" },
 
     /* ---- Table ---- */
     "table.id":           { zh: "记忆 ID", en: "Memory ID", ru: "ID памяти" },
@@ -75,6 +87,9 @@
     "table.noContent":    { zh: "（无内容）", en: "(No content)", ru: "(Нет контента)" },
     "table.noData":       { zh: "暂无数据", en: "No data", ru: "Нет данных" },
     "table.na":           { zh: "--", en: "--", ru: "--" },
+    "table.updated":      { zh: "更新于 {0}", en: "Updated {0}", ru: "Обновлено {0}" },
+    "table.selectPage":   { zh: "选择当前页", en: "Select page", ru: "Выбрать страницу" },
+    "table.selectMemory": { zh: "选择记忆 #{0}", en: "Select memory #{0}", ru: "Выбрать память #{0}" },
 
     /* ---- Pagination ---- */
     "pagination.prev":    { zh: "上一页", en: "Previous", ru: "Пред." },
@@ -96,8 +111,13 @@
     "delete.allFailed":   { zh: " 删除失败：全部 {0} 条记忆无法删除\n失败ID: {1}\n请检查日志了解详情", en: " Delete failed: all {0} memories could not be deleted\nFailed IDs: {1}", ru: " Ошибка: все {0} записей не удалены\nID: {1}" },
     "delete.partialFailed":{ zh: "️ 部分删除失败：成功 {0} 条，失败 {1} 条\n失败ID: {2}", en: "️ Partial failure: {0} succeeded, {1} failed\nFailed IDs: {2}", ru: "️ Частичная ошибка: {0} удалено, {1} не удалено\nID: {2}" },
     "delete.success":     { zh: " 已成功删除 {0} 条记忆", en: " Successfully deleted {0} memories", ru: " Удалено {0} записей" },
+    "delete.successOne":  { zh: "已删除记忆 #{0}", en: "Deleted memory #{0}", ru: "Удалена память #{0}" },
     "delete.none":        { zh: "️ 没有删除任何记忆", en: "️ No memories were deleted", ru: "️ Ничего не удалено" },
     "delete.error":       { zh: "删除失败，请稍后重试", en: "Delete failed, please try again later", ru: "Ошибка удаления, попробуйте позже" },
+
+    /* ---- Archive ---- */
+    "archive.success":    { zh: "已归档 {0} 条记忆", en: "Archived {0} memories", ru: "Архивировано {0} записей" },
+    "archive.fail":       { zh: "归档失败", en: "Archive failed", ru: "Ошибка архивации" },
 
     /* ---- Detail Drawer ---- */
     "detail.title":       { zh: "记忆详情", en: "Memory Detail", ru: "Детали памяти" },
@@ -165,6 +185,8 @@
 
     /* ---- Graph Stats ---- */
     "graph.visibleNodes": { zh: "可视节点", en: "Visible Nodes", ru: "Видимых узлов" },
+    "graph.nodes":        { zh: "节点", en: "Nodes", ru: "Узлы" },
+    "graph.edges":        { zh: "关系", en: "Relations", ru: "Связи" },
     "graph.visibleEdges": { zh: "关系边", en: "Relation Edges", ru: "Связей" },
     "graph.visibleEntries":{ zh: "图谱条目", en: "Graph Entries", ru: "Записей графа" },
     "graph.routeLabel":   { zh: "检索视角", en: "Retrieval Route", ru: "Маршрут поиска" },
@@ -283,12 +305,14 @@
     "recall.queryLabel":  { zh: "查询内容", en: "Query", ru: "Запрос" },
     "recall.queryPh":     { zh: "输入你的查询语句，系统将使用混合检索（BM25+向量相似度）进行召回", en: "Enter your query. The system uses hybrid retrieval (BM25 + vector similarity).", ru: "Введите запрос. Система использует гибридный поиск (BM25 + векторы)." },
     "recall.countLabel":  { zh: "返回数量", en: "Result Count", ru: "Кол-во результатов" },
+    "recall.kLabel":      { zh: "结果数 (k)", en: "Results (k)", ru: "Результаты (k)" },
     "recall.countPh":     { zh: "返回的记忆数量", en: "Number of memories to return", ru: "Количество возвращаемых памятей" },
     "recall.sessionLabel":{ zh: "会话 ID (可选)", en: "Session ID (optional)", ru: "ID сессии (опц.)" },
     "recall.sessionPh":   { zh: "输入会话 ID 以过滤特定会话的记忆（支持多种格式）", en: "Enter session ID to filter memories (supports multiple formats)", ru: "Введите ID сессии для фильтрации (разные форматы)" },
     "recall.searchBtn":   { zh: "执行召回", en: "Run Recall", ru: "Запустить поиск" },
     "recall.resultTitle": { zh: "召回结果", en: "Recall Results", ru: "Результаты поиска" },
     "recall.resultCount": { zh: "召回数量", en: "Recall Count", ru: "Найдено" },
+    "recall.resultsCount":{ zh: "{0} 条结果", en: "{0} results", ru: "{0} результатов" },
     "recall.time":        { zh: "查询耗时", en: "Query Time", ru: "Время запроса" },
     "recall.empty":       { zh: "暂无召回结果 · 请输入查询内容并执行召回", en: "No results · Enter a query and run recall", ru: "Нет результатов · Введите запрос и запустите поиск" },
     "recall.noMatch":     { zh: "未找到匹配的记忆", en: "No matching memories found", ru: "Совпадений не найдено" },
@@ -319,6 +343,59 @@
     "misc.statsUnavailable":{ zh: "无法获取统计信息", en: "Stats unavailable", ru: "Статистика недоступна" },
     "misc.fetchMemoriesFail":{ zh: "获取记忆失败", en: "Failed to fetch memories", ru: "Не удалось загрузить память" },
     "misc.loadFail":      { zh: "加载失败", en: "Load failed", ru: "Ошибка загрузки" },
+    "misc.systemFail":    { zh: "系统概览加载失败", en: "Failed to load system overview", ru: "Не удалось загрузить обзор системы" },
+
+    /* ---- System ---- */
+    "system.importanceDistribution":{ zh: "重要性分布", en: "Importance Distribution", ru: "Распределение важности" },
+    "system.atomTypes":   { zh: "原子类型", en: "Atom Types", ru: "Типы атомов" },
+    "system.activeSessions":{ zh: "活跃会话", en: "Active Sessions", ru: "Активные сессии" },
+    "system.versionBackups":{ zh: "版本备份", en: "Version Backups", ru: "Резервные копии" },
+    "system.noActiveSessions":{ zh: "暂无活跃会话", en: "No active sessions", ru: "Нет активных сессий" },
+    "system.noBackups":   { zh: "暂无备份", en: "No backups", ru: "Нет резервных копий" },
+    "system.files":       { zh: "{0} 个文件", en: "{0} files", ru: "{0} файлов" },
+    "system.atomFactual": { zh: "事实", en: "Factual", ru: "Фактическая" },
+    "system.atomEpisodic":{ zh: "事件", en: "Episodic", ru: "Эпизодическая" },
+    "system.atomPreference":{ zh: "偏好", en: "Preference", ru: "Предпочтения" },
+    "system.atomRelational":{ zh: "关系", en: "Relational", ru: "Связи" },
+    "system.atomPlanned": { zh: "计划", en: "Planned", ru: "Планы" },
+
+    /* ---- Memory Detail ---- */
+    "detail.viewTitle":   { zh: "记忆详情", en: "Memory Detail", ru: "Детали памяти" },
+    "detail.editTitle":   { zh: "编辑记忆", en: "Edit Memory", ru: "Редактировать память" },
+    "detail.content":     { zh: "内容", en: "Content", ru: "Содержимое" },
+    "detail.metadata":    { zh: "元数据", en: "Metadata", ru: "Метаданные" },
+    "detail.graphContext":{ zh: "知识图谱关联", en: "Knowledge Graph Context", ru: "Контекст графа знаний" },
+    "detail.keyFacts":    { zh: "关键事实", en: "Key Facts", ru: "Ключевые факты" },
+    "detail.topics":      { zh: "主题", en: "Topics", ru: "Темы" },
+    "detail.editHistory": { zh: "编辑历史", en: "Edit History", ru: "История изменений" },
+    "detail.editBtn":     { zh: "编辑", en: "Edit", ru: "Редактировать" },
+    "detail.deleteBtn":   { zh: "删除", en: "Delete", ru: "Удалить" },
+    "detail.saveBtn":     { zh: "保存修改", en: "Save Changes", ru: "Сохранить" },
+    "detail.cancelBtn":   { zh: "取消", en: "Cancel", ru: "Отмена" },
+    "detail.memoryTitle": { zh: "记忆 #{0}", en: "Memory #{0}", ru: "Память #{0}" },
+    "detail.editingTitle":{ zh: "正在编辑记忆 #{0}", en: "Editing Memory #{0}", ru: "Редактирование памяти #{0}" },
+    "detail.sessionId":   { zh: "会话 ID", en: "Session ID", ru: "ID сессии" },
+    "detail.personaId":   { zh: "人格 ID", en: "Persona ID", ru: "ID персоны" },
+    "detail.updated":     { zh: "更新时间", en: "Updated", ru: "Обновлено" },
+    "detail.updateReason":{ zh: "更新原因（可选）", en: "Update Reason (optional)", ru: "Причина обновления (опц.)" },
+    "detail.reasonPh":    { zh: "说明本次更新的原因", en: "Why this update?", ru: "Причина обновления" },
+    "detail.contentHint": { zh: "编辑内容将创建新记忆（ID会变更）", en: "Editing content creates a new memory (ID will change).", ru: "Изменение создаст новую память (ID изменится)." },
+    "detail.noGraphData": { zh: "暂无图谱数据", en: "No graph data", ru: "Нет данных графа" },
+    "detail.noChanges":   { zh: "没有检测到修改", en: "No changes", ru: "Нет изменений" },
+    "detail.contentRequired":{ zh: "记忆内容不能为空", en: "Memory content cannot be empty", ru: "Содержимое памяти не может быть пустым" },
+    "detail.contentUpdated":{ zh: "内容已更新（新 ID：{0}）", en: "Content updated (new ID: {0})", ru: "Содержимое обновлено (новый ID: {0})" },
+    "detail.statusUpdated":{ zh: "状态 → {0}", en: "Status → {0}", ru: "Статус → {0}" },
+    "detail.typeUpdated": { zh: "类型 → {0}", en: "Type → {0}", ru: "Тип → {0}" },
+    "detail.importanceUpdated":{ zh: "重要性 → {0}", en: "Importance → {0}", ru: "Важность → {0}" },
+    "detail.nodeMemories":{ zh: "关联记忆", en: "Memories", ru: "Память" },
+    "detail.nodeDegree":  { zh: "连接度", en: "Degree", ru: "Степень" },
+    "detail.nodeEntries": { zh: "条目", en: "Entries", ru: "Записи" },
+    "detail.nodeWeight":  { zh: "权重", en: "Weight", ru: "Вес" },
+
+    /* ---- Graph 2D ---- */
+    "graph2d.noData":     { zh: "暂无图谱数据", en: "No graph data available", ru: "Нет данных графа" },
+    "graph2d.loading":    { zh: "加载图谱中...", en: "Loading graph...", ru: "Загрузка графа..." },
+    "graph2d.moduleFail": { zh: "2D 图谱模块未加载，请刷新页面重试。", en: "2D graph module not loaded. Refresh and retry.", ru: "2D модуль графа не загружен. Обновите страницу." },
   };
 
   /* ---- Engine ---- */
