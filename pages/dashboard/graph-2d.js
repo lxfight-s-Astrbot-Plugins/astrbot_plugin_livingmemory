@@ -24,16 +24,14 @@
     PARTICLE_COUNT_HIGHLIGHT: 0,
     PARTICLE_SPEED: 0.18,
     PARTICLE_SIZE: 2.0,
-    /* Centered force layout */
-    FORCE_ITERATIONS: 360,
-    FORCE_REPULSION: 3400,
-    FORCE_LINK_DISTANCE: 66,
-    FORCE_LINK_DEPTH_GAP: 10,
-    FORCE_LINK_STRENGTH: 0.045,
-    FORCE_CENTER_PULL: 0.0038,
-    FORCE_DAMPING: 0.76,
-    FORCE_MAX_SPEED: 16,
-    FORCE_BRANCH_SPREAD: 84,
+    /* Force-directed layout - optimized for natural clustering */
+    FORCE_ITERATIONS: 400,
+    FORCE_REPULSION: 1800,
+    FORCE_LINK_DISTANCE: 120,
+    FORCE_LINK_STRENGTH: 0.025,
+    FORCE_GRAVITY: 0.008,
+    FORCE_DAMPING: 0.82,
+    FORCE_MAX_SPEED: 15,
     /* Center node is larger */
     CENTER_SCALE: 1.65,
     CENTER_MAX_RADIUS: 15,
@@ -80,42 +78,17 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     CenteredForceLayout — computes organic hub-spoke positions
+     ForceDirectedLayout — true force-directed graph layout
+     No fixed center, no BFS rings — nodes repel, edges spring,
+     gentle gravity keeps the graph centered.
      ═══════════════════════════════════════════════════════════════ */
-  function CenteredForceLayout() {
-    this.centerId = null;
-    this.positions = {};  // id → {tx, ty}
-    this.rings = {};      // id → graph depth (0=center)
+  function ForceDirectedLayout() {
+    this.centerId = null;   // focus node id (for viewport + visual emphasis)
+    this.positions = {};    // id → {tx, ty}
+    this.rings = {};        // id → 0 for focus, 1 for others (backward compat)
   }
 
-  /* Build adjacency map from edges */
-  CenteredForceLayout.prototype._buildAdjacency = function(nodes, edges) {
-    var adj = {};
-    nodes.forEach(function(n) { adj[n.id] = []; });
-    edges.forEach(function(e) {
-      if (adj[e.source]) adj[e.source].push(e.target);
-      if (adj[e.target]) adj[e.target].push(e.source);
-    });
-    return adj;
-  };
-
-  CenteredForceLayout.prototype._nodeScore = function(node, degree) {
-    return Number(node.weight || 0) * 2 +
-      Number(node.memory_count || 0) * 3 +
-      Number(node.entry_count || 0) +
-      Number(node.degree || 0) +
-      degree * 4;
-  };
-
-  CenteredForceLayout.prototype._layoutRadius = function(node, isCenter) {
-    var w = clamp(Number(node.weight || 0), 0, 20);
-    var mr = clamp(Number(node.memory_count || 0), 0, 15);
-    var radius = CFG.NODE_RADIUS_BASE + Math.sqrt(w) * 0.75 + Math.sqrt(mr) * 0.4;
-    if (isCenter) radius = Math.min(CFG.CENTER_MAX_RADIUS, radius * CFG.CENTER_SCALE);
-    return clamp(radius, CFG.NODE_RADIUS_MIN, isCenter ? CFG.CENTER_MAX_RADIUS : CFG.NODE_RADIUS_MAX);
-  };
-
-  CenteredForceLayout.prototype._hashUnit = function(value, salt) {
+  ForceDirectedLayout.prototype._hashUnit = function(value, salt) {
     var str = String(value) + ":" + String(salt || 0);
     var h = 2166136261;
     for (var i = 0; i < str.length; i++) {
@@ -125,38 +98,16 @@
     return ((h >>> 0) % 100000) / 100000;
   };
 
-  CenteredForceLayout.prototype._seedPosition = function(node, index, count, depth, degree) {
-    if (depth === 0) return { x: 0, y: 0 };
-
-    var disconnected = depth == null || depth > 6;
-    var d = disconnected ? 4 : Math.max(1, depth);
-    var spreadX = disconnected ? 720 : 190 + Math.pow(d, 1.08) * 115;
-    var spreadY = disconnected ? 520 : 140 + Math.pow(d, 1.03) * 96;
-    var centrality = Math.min(0.44, (degree || 0) * 0.035 + Math.sqrt(Number(node.weight || 0)) * 0.035);
-    spreadX *= 1 - centrality;
-    spreadY *= 1 - centrality;
-    if (count <= 3) { spreadX *= 0.72; spreadY *= 0.72; }
-
-    function signedCloud(value, power) {
-      var centered = value - 0.5;
-      var sign = centered < 0 ? -1 : 1;
-      return sign * Math.pow(Math.abs(centered) * 2, power);
-    }
-
-    var x = signedCloud(this._hashUnit(node.id, 31), 1.45) * spreadX;
-    var y = signedCloud(this._hashUnit(node.id, 37), 1.35) * spreadY;
-    var skew = (this._hashUnit(node.type || "other", 43) - 0.5) * 96;
-    var local = (this._hashUnit(node.id, 41) - 0.5) * CFG.FORCE_BRANCH_SPREAD * (1 + d * 0.32);
-    return {
-      x: x + skew + local,
-      y: y - skew * 0.32 + Math.sin((index + 1) * 1.618) * 22,
-    };
+  ForceDirectedLayout.prototype._layoutRadius = function(node) {
+    var w = clamp(Number(node.weight || 0), 0, 20);
+    var mr = clamp(Number(node.memory_count || 0), 0, 15);
+    var radius = CFG.NODE_RADIUS_BASE + Math.sqrt(w) * 0.75 + Math.sqrt(mr) * 0.4;
+    return clamp(radius, CFG.NODE_RADIUS_MIN, CFG.NODE_RADIUS_MAX);
   };
 
-  /* Compute force-directed target positions around a fixed center */
-  CenteredForceLayout.prototype.compute = function(nodes, edges, centerId) {
+  /* Compute force-directed positions — all nodes are free */
+  ForceDirectedLayout.prototype.compute = function(nodes, edges, focusId) {
     var self = this;
-    this.centerId = centerId;
     this.positions = {};
     this.rings = {};
 
@@ -169,66 +120,25 @@
       return;
     }
 
-    var adj = this._buildAdjacency(nodes, edges);
-    var degree = {};
-    nodes.forEach(function(nd) {
-      degree[nd.id] = (adj[nd.id] || []).length;
-    });
-
-    /* Pick center: use provided centerId, or the strongest connected node */
-    var centerNode = null;
-    if (centerId != null) {
-      centerNode = nodes.find(function(nd) { return nd.id === centerId; });
-    }
-    if (!centerNode) {
-      var bestScore = -Infinity;
-      nodes.forEach(function(nd) {
-        var score = self._nodeScore(nd, degree[nd.id] || 0);
-        if (score > bestScore) { bestScore = score; centerNode = nd; }
-      });
-    }
-    if (!centerNode) centerNode = nodes[0];
-    this.centerId = centerNode.id;
-
-    /* BFS from center to assign graph depth. */
-    var visited = {};
-    var queue = [{ id: centerNode.id, depth: 0 }];
-    visited[centerNode.id] = 0;
-
-    while (queue.length > 0) {
-      var curr = queue.shift();
-      this.rings[curr.id] = curr.depth;
-      var neighbors = adj[curr.id] || [];
-      neighbors.forEach(function(nid) {
-        if (!(nid in visited)) {
-          visited[nid] = curr.depth + 1;
-          queue.push({ id: nid, depth: curr.depth + 1 });
-        }
-      });
-    }
-
-    nodes.forEach(function(nd) {
-      if (!(nd.id in self.rings)) self.rings[nd.id] = 7;
-    });
-
-    var indexById = {};
+    /* Seed positions — pseudo-random spiral from node id (deterministic) */
     var sim = nodes.map(function(nd, i) {
-      indexById[nd.id] = i;
-      var depth = self.rings[nd.id];
-      var seed = self._seedPosition(nd, i, n, depth, degree[nd.id] || 0);
+      var angle = self._hashUnit(nd.id, 13) * Math.PI * 2;
+      var dist = Math.sqrt(self._hashUnit(nd.id, 17)) * 180 + 20;
       return {
         id: nd.id,
         node: nd,
-        x: seed.x,
-        y: seed.y,
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
         vx: 0,
         vy: 0,
-        depth: depth,
-        degree: degree[nd.id] || 0,
-        radius: self._layoutRadius(nd, nd.id === centerNode.id),
+        radius: self._layoutRadius(nd),
       };
     });
 
+    var indexById = {};
+    sim.forEach(function(s, i) { indexById[s.id] = i; });
+
+    /* Build edge simulation list */
     var simEdges = [];
     edges.forEach(function(edge) {
       var si = indexById[edge.source];
@@ -245,11 +155,22 @@
       });
     });
 
-    var iterations = n > 260 ? 150 : n > 140 ? 200 : CFG.FORCE_ITERATIONS;
+    /* Mark focus node (treated gently in gravity, not locked) */
+    var focusIndex = focusId != null ? indexById[focusId] : -1;
+    if (focusIndex >= 0) {
+      sim[focusIndex].isFocus = true;
+      this.centerId = focusId;
+    } else {
+      this.centerId = null;
+    }
+
+    /* ── N-body force simulation ── */
+    var iterations = n > 200 ? 300 : n > 100 ? 350 : CFG.FORCE_ITERATIONS;
     for (var step = 0; step < iterations; step++) {
       var alpha = 1 - step / iterations;
-      var cooled = 0.25 + alpha * 0.75;
+      var cooled = 0.3 + alpha * 0.7;
 
+      /* Repulsion between all node pairs with distance-based falloff */
       for (var i = 0; i < sim.length; i++) {
         var a = sim[i];
         for (var j = i + 1; j < sim.length; j++) {
@@ -264,13 +185,24 @@
             distSq = dx * dx + dy * dy;
           }
           var dist = Math.sqrt(distSq);
-          var maxRange = 280 + Math.min(160, n * 1.8);
-          if (dist > maxRange) continue;
+          var effectiveRange = 280 + Math.min(120, n * 1.2);
 
-          var minSep = (a.radius + b.radius) * 2.6 + 11;
-          var repulse = CFG.FORCE_REPULSION * cooled / Math.max(distSq, minSep * minSep * 0.36);
-          repulse *= 1 - dist / maxRange;
-          if (dist < minSep) repulse += (minSep - dist) * 0.18;
+          var minSep = (a.radius + b.radius) * 2.2 + 16;
+          var repulse = CFG.FORCE_REPULSION * cooled / Math.max(distSq, minSep * minSep * 0.25);
+
+          /* Smoother distance falloff - linear instead of sharp cutoff */
+          if (dist < effectiveRange) {
+            var falloff = 1 - (dist / effectiveRange);
+            repulse *= falloff * falloff;
+          } else {
+            repulse *= 0.05;
+          }
+
+          /* Stronger push when nodes are too close */
+          if (dist < minSep) {
+            repulse += (minSep - dist) * 0.35;
+          }
+
           var fx = dx / dist * repulse;
           var fy = dy / dist * repulse;
           a.vx += fx; a.vy += fy;
@@ -278,48 +210,46 @@
         }
       }
 
+      /* Spring attraction along edges with adaptive strength */
       simEdges.forEach(function(edge) {
         var s = sim[edge.source];
         var t = sim[edge.target];
         var dx = t.x - s.x;
         var dy = t.y - s.y;
         var dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-        var depth = Math.min(s.depth || 4, t.depth || 4);
-        var isCenterLink = s.id === centerNode.id || t.id === centerNode.id;
-        var desired = CFG.FORCE_LINK_DISTANCE + Math.min(4, depth) * CFG.FORCE_LINK_DEPTH_GAP + edge.distanceJitter * 82;
-        desired -= Math.min(30, Math.sqrt(edge.weight) * 8);
-        if (isCenterLink) desired = 44 + edge.distanceJitter * 126 - Math.min(22, Math.sqrt(edge.weight) * 6);
-        var force = (dist - desired) * CFG.FORCE_LINK_STRENGTH * edge.confidence * cooled;
-        var fx = dx / dist * force;
-        var fy = dy / dist * force;
+
+        /* Base distance varies by edge weight */
+        var baseDistance = CFG.FORCE_LINK_DISTANCE + edge.distanceJitter * 40;
+        var weightFactor = Math.min(1.5, Math.sqrt(edge.weight || 1) * 0.3);
+        var desired = baseDistance - weightFactor * 15;
+
+        /* Adaptive spring strength - weaker for long edges */
+        var lengthRatio = dist / desired;
+        var adaptiveStrength = CFG.FORCE_LINK_STRENGTH * edge.confidence * cooled;
+        if (lengthRatio > 2) {
+          adaptiveStrength *= 0.5;
+        }
+
+        var force = (dist - desired) * adaptiveStrength;
+        var fx = (dx / dist) * force;
+        var fy = (dy / dist) * force;
         s.vx += fx; s.vy += fy;
         t.vx -= fx; t.vy -= fy;
       });
 
+      /* Gentle centering gravity with mass-based scaling */
       for (var k = 0; k < sim.length; k++) {
         var sn = sim[k];
-        if (sn.id === centerNode.id) {
-          sn.x = 0; sn.y = 0; sn.vx = 0; sn.vy = 0;
-          continue;
-        }
-
-        var d = sn.depth == null ? 7 : sn.depth;
-        var disconnected = d >= 7;
-        var distCenter = Math.sqrt(sn.x * sn.x + sn.y * sn.y) || 0.001;
-        var pull = CFG.FORCE_CENTER_PULL * cooled * (disconnected ? 0.4 : d === 1 ? 0.35 : 1);
-        sn.vx -= sn.x * pull;
-        sn.vy -= sn.y * pull;
-
-        var minCenterDistance = sn.radius + (d === 1 ? 42 : 30);
-        if (distCenter < minCenterDistance) {
-          var push = (minCenterDistance - distCenter) * 0.12 * cooled;
-          sn.vx += sn.x / distCenter * push;
-          sn.vy += sn.y / distCenter * push;
-        }
+        /* Gravity scales with node degree/weight to keep important nodes more central */
+        var massFactor = 1 + Math.sqrt(sn.node.weight || 0) * 0.1 + Math.sqrt(sn.node.degree || 0) * 0.05;
+        var gravity = CFG.FORCE_GRAVITY * cooled / massFactor;
+        if (sn.isFocus) gravity *= 1.8;
+        sn.vx -= sn.x * gravity;
+        sn.vy -= sn.y * gravity;
       }
 
+      /* Damping + position update */
       sim.forEach(function(sn) {
-        if (sn.id === centerNode.id) return;
         sn.vx *= CFG.FORCE_DAMPING;
         sn.vy *= CFG.FORCE_DAMPING;
         var speed = Math.sqrt(sn.vx * sn.vx + sn.vy * sn.vy);
@@ -332,37 +262,22 @@
       });
     }
 
-    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    /* Assign rings: 0 = focus node, 1 = others (for backward compat) */
     sim.forEach(function(sn) {
-      if (sn.id === centerNode.id) return;
-      minX = Math.min(minX, sn.x); maxX = Math.max(maxX, sn.x);
-      minY = Math.min(minY, sn.y); maxY = Math.max(maxY, sn.y);
-    });
-
-    if (Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY)) {
-      var cx = (minX + maxX) / 2;
-      var cy = (minY + maxY) / 2;
-      sim.forEach(function(sn) {
-        if (sn.id === centerNode.id) return;
-        sn.x -= cx * 0.16;
-        sn.y -= cy * 0.16;
-      });
-    }
-
-    sim.forEach(function(sn) {
-      self.positions[sn.id] = { tx: sn.id === centerNode.id ? 0 : sn.x, ty: sn.id === centerNode.id ? 0 : sn.y };
+      self.rings[sn.id] = sn.isFocus ? 0 : 1;
+      self.positions[sn.id] = { tx: sn.x, ty: sn.y };
     });
   };
 
   /* Get target position for a node */
-  CenteredForceLayout.prototype.getTarget = function(nodeId) {
+  ForceDirectedLayout.prototype.getTarget = function(nodeId) {
     var p = this.positions[nodeId];
     return p || { tx: 0, ty: 0 };
   };
 
-  /* Get ring of a node (0=center) */
-  CenteredForceLayout.prototype.getRing = function(nodeId) {
-    return this.rings[nodeId] != null ? this.rings[nodeId] : 7;
+  /* Get ring (0 = focus, 1 = normal) */
+  ForceDirectedLayout.prototype.getRing = function(nodeId) {
+    return this.rings[nodeId] != null ? this.rings[nodeId] : 1;
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -924,7 +839,7 @@
     this._edges = [];
     this._nodeMap = {};
     this._mem2node = {};
-    this._layout = new CenteredForceLayout();
+    this._layout = new ForceDirectedLayout();
     this._animProgress = 1; // 0→1 for position transitions
     this._needsRender = true;
   }
@@ -1047,7 +962,8 @@
         if (floatNode.fixed) continue;
         var home = this._layout.getTarget(floatNode.id);
         var ring = this._layout.getRing(floatNode.id);
-        var amp = ring === 0 ? 1.2 : 2.4 + ring * 0.5;
+        var weight = clamp(Number(floatNode.weight || 0), 0, 20);
+        var amp = ring === 0 ? 1.2 : 2.0 + Math.sqrt(weight) * 0.4;
         var phase = (floatNode.id % 17) * 0.37;
         floatNode.x = lerp(floatNode.x, home.tx + Math.sin(now * 0.65 + phase) * amp, CFG.IDLE_DAMPING);
         floatNode.y = lerp(floatNode.y, home.ty + Math.cos(now * 0.55 + phase) * amp, CFG.IDLE_DAMPING);
