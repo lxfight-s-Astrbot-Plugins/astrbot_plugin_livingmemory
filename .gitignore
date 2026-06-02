@@ -111,3 +111,5 @@ AGENTS.md
 # Local testing
 mock_server.py
 docs/WEBUI_DESIGN.md
+docs/WEBUI_REDESIGN_PLAN.md
+WEBUI_REFACTOR_PLAN.md

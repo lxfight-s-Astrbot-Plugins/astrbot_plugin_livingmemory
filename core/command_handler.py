@@ -11,10 +11,10 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
 from .base.config_manager import ConfigManager
+from .i18n_backend import t, t_list
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .validators.index_validator import IndexValidator
-from .i18n_backend import t, t_list
 
 
 class CommandHandler:
@@ -55,12 +55,21 @@ class CommandHandler:
         action: str, error: Exception, suggestions: list[str] | None = None
     ) -> str:
         """Format user-facing error message with actionable hints."""
-        message = [t("error.format.action_failed", action=action), t("error.format.details", error=error)]
+        message = [
+            t("error.format.action_failed", action=action),
+            t("error.format.details", error=error),
+        ]
         if suggestions:
             message.append("")
             message.append(t("error.format.suggestions"))
             for index, suggestion in enumerate(suggestions, start=1):
-                message.append(t("error.format.suggestion_item", index=index, suggestion=suggestion))
+                message.append(
+                    t(
+                        "error.format.suggestion_item",
+                        index=index,
+                        suggestion=suggestion,
+                    )
+                )
         return "\n".join(message)
 
     @staticmethod
@@ -126,9 +135,7 @@ class CommandHandler:
 
         # 输入验证
         if not query or not query.strip():
-            yield event.plain_result(
-                t("search.query_empty")
-            )
+            yield event.plain_result(t("search.query_empty"))
             return
 
         # 限制k的范围为1-100
@@ -141,9 +148,7 @@ class CommandHandler:
             )
 
             if not results:
-                yield event.plain_result(
-                    t("search.no_results", query=query)
-                )
+                yield event.plain_result(t("search.no_results", query=query))
                 return
 
             message = t("search.header", count=len(results))
@@ -202,9 +207,7 @@ class CommandHandler:
             if success:
                 yield event.plain_result(t("forget.success", id=doc_id))
             else:
-                yield event.plain_result(
-                    t("forget.not_found", id=doc_id)
-                )
+                yield event.plain_result(t("forget.not_found", id=doc_id))
         except Exception as e:
             logger.error(f"删除失败: {e}", exc_info=True)
             yield event.plain_result(
@@ -257,7 +260,9 @@ class CommandHandler:
                         "rebuild_index.partial_notice",
                         ratio=result.get("failure_ratio", 0),
                     )
-                switched_str = t("common.yes") if result.get("switched") else t("common.no")
+                switched_str = (
+                    t("common.yes") if result.get("switched") else t("common.no")
+                )
                 result_msg = t(
                     "rebuild_index.result_template",
                     success=result["processed"],
@@ -378,9 +383,7 @@ class CommandHandler:
             )
 
             if not history_messages:
-                yield event.plain_result(
-                    t("summarize.fetch_failed")
-                )
+                yield event.plain_result(t("summarize.fetch_failed"))
                 return
 
             # 获取 persona_id
@@ -494,15 +497,11 @@ class CommandHandler:
         session_id = event.unified_msg_origin
         try:
             mode_text = t("cleanup.mode_preview") if dry_run else t("cleanup.mode_exec")
-            yield event.plain_result(
-                t("cleanup.starting", mode_text=mode_text)
-            )
+            yield event.plain_result(t("cleanup.starting", mode_text=mode_text))
 
             # 检查 context 是否可用
             if not self.context:
-                yield event.plain_result(
-                    t("cleanup.context_unavailable")
-                )
+                yield event.plain_result(t("cleanup.context_unavailable"))
                 return
 
             # 获取当前对话 ID
@@ -531,9 +530,7 @@ class CommandHandler:
             try:
                 history = json.loads(conversation.history)
             except json.JSONDecodeError:
-                yield event.plain_result(
-                    t("cleanup.parse_failed")
-                )
+                yield event.plain_result(t("cleanup.parse_failed"))
                 return
 
             # 统计信息
@@ -606,7 +603,9 @@ class CommandHandler:
                 )
 
             # 格式化结果
-            notice = t("cleanup.notice_preview") if dry_run else t("cleanup.notice_exec")
+            notice = (
+                t("cleanup.notice_preview") if dry_run else t("cleanup.notice_exec")
+            )
             message = t(
                 "cleanup.result_template",
                 mode_text=mode_text,
@@ -635,4 +634,3 @@ class CommandHandler:
         """处理 /lmem help 命令"""
         message = t("help.text")
         yield event.plain_result(message)
-

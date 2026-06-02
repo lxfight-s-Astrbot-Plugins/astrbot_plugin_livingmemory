@@ -29,8 +29,15 @@ from .base import (
 from .managers import ConversationManager, GraphMemoryManager, MemoryEngine
 
 # 数据模型
-from .models import MemoryEvent, Message, Session
-from .models import ExtractedGraph, GraphEdge, GraphEntry, GraphNode
+from .models import (
+    ExtractedGraph,
+    GraphEdge,
+    GraphEntry,
+    GraphNode,
+    MemoryEvent,
+    Message,
+    Session,
+)
 
 # 处理器
 from .processors import (

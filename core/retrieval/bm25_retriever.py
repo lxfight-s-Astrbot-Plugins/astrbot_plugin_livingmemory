@@ -108,9 +108,7 @@ class BM25Retriever:
         create_sql: str,
     ) -> bool:
         normalized_sql = " ".join(create_sql.lower().replace("\n", " ").split())
-        expected_sql = (
-            "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
-        )
+        expected_sql = "create virtual table documents_fts using fts5(content, doc_id, tokenize='unicode61')"
         if normalized_sql != expected_sql:
             return False
 
@@ -131,7 +129,9 @@ class BM25Retriever:
             metadata: 文档元数据(可选,用于过滤但不索引)
         """
         # 使用TextProcessor预处理文本（异步卸载 jieba 分词到线程池）
-        tokens = await self.text_processor.tokenize_async(content, remove_stopwords=True)
+        tokens = await self.text_processor.tokenize_async(
+            content, remove_stopwords=True
+        )
         processed_content = " ".join(tokens)
 
         async with self._connect() as db:
@@ -315,7 +315,9 @@ class BM25Retriever:
 
         try:
             # 重新处理内容（异步卸载 jieba 分词到线程池）
-            tokens = await self.text_processor.tokenize_async(content, remove_stopwords=True)
+            tokens = await self.text_processor.tokenize_async(
+                content, remove_stopwords=True
+            )
             processed_content = " ".join(tokens)
 
             async with self._connect() as db:

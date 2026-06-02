@@ -3,8 +3,8 @@
 包含文档路、图路、向量检索和 RRF 融合
 """
 
-from .dual_route_retriever import DualRouteRetriever
 from .bm25_retriever import BM25Retriever
+from .dual_route_retriever import DualRouteRetriever
 from .graph_keyword_retriever import GraphKeywordRetriever
 from .graph_retriever import GraphRetriever
 from .graph_vector_retriever import GraphVectorRetriever

@@ -455,9 +455,7 @@ class IndexValidator:
                         await db.commit()
                     processed += len(rows_to_insert)
                 except Exception as batch_error:
-                    logger.warning(
-                        f"BM25 批量写入失败，将逐条重试: {batch_error}"
-                    )
+                    logger.warning(f"BM25 批量写入失败，将逐条重试: {batch_error}")
                     for row_doc_id, processed_content in rows_to_insert:
                         try:
                             async with aiosqlite.connect(self.db_path) as db:
@@ -607,7 +605,9 @@ class IndexValidator:
                 f"failed={len(failed_ids)}"
             )
             try:
-                vectors = await self._embed_batch_with_retry(provider, contents, options)
+                vectors = await self._embed_batch_with_retry(
+                    provider, contents, options
+                )
                 vectors_array = np.asarray(vectors, dtype=np.float32)
                 if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
                     raise ValueError(
@@ -684,7 +684,9 @@ class IndexValidator:
                 f"failed={len(failed_ids)}"
             )
             try:
-                vectors = await self._embed_batch_with_retry(provider, contents, options)
+                vectors = await self._embed_batch_with_retry(
+                    provider, contents, options
+                )
                 vectors_array = np.asarray(vectors, dtype=np.float32)
                 if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
                     raise ValueError(
@@ -903,9 +905,8 @@ class IndexValidator:
                 memory_engine, total, options, progress_callback
             )
             bm25_failed_ids = set(bm25_result["failed_ids"])
-            if (
-                self._failure_ratio(len(bm25_failed_ids), total)
-                > float(options["max_failure_ratio"])
+            if self._failure_ratio(len(bm25_failed_ids), total) > float(
+                options["max_failure_ratio"]
             ):
                 message = (
                     f"BM25 重建失败率过高: {len(bm25_failed_ids)}/{total}。"

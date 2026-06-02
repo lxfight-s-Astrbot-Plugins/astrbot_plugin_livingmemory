@@ -113,9 +113,7 @@ class BackupManager:
         # Update stored version AFTER successful backup
         self.write_current_version()
 
-        logger.info(
-            f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}"
-        )
+        logger.info(f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}")
         return str(backup_dir)
 
     async def backup_if_needed_async(self) -> str | None:

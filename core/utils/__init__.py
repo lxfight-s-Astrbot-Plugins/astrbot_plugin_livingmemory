@@ -368,7 +368,7 @@ def format_memories_for_injection(memories: list) -> str:
             if timestamp:
                 try:
                     dt = datetime.fromtimestamp(validate_timestamp(timestamp))
-                    time_str = dt.strftime('%Y-%m-%d %H:%M')
+                    time_str = dt.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     pass
 
@@ -591,9 +591,7 @@ def format_memories_for_fake_tool_call_deepseek_v4(
     assistant_msg = fake_messages[0] if len(fake_messages) > 0 else {}
     tool_msg = fake_messages[1] if len(fake_messages) > 1 else {}
     tool_calls = (
-        assistant_msg.get("tool_calls", [])
-        if isinstance(assistant_msg, dict)
-        else []
+        assistant_msg.get("tool_calls", []) if isinstance(assistant_msg, dict) else []
     )
     tool_call = tool_calls[0] if tool_calls else {}
     function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
@@ -606,11 +604,7 @@ def format_memories_for_fake_tool_call_deepseek_v4(
     function_args = (
         function.get("arguments", "{}") if isinstance(function, dict) else "{}"
     )
-    tool_result = (
-        tool_msg.get("content", "{}")
-        if isinstance(tool_msg, dict)
-        else "{}"
-    )
+    tool_result = tool_msg.get("content", "{}") if isinstance(tool_msg, dict) else "{}"
 
     return (
         f"{MEMORY_INJECTION_HEADER}\n"

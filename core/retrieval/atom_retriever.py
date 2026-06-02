@@ -82,9 +82,7 @@ class AtomRetriever:
         results.sort(key=lambda r: r.final_score, reverse=True)
         return results[:k]
 
-    async def get_atoms_for_memory(
-        self, parent_memory_id: int
-    ) -> list[MemoryAtom]:
+    async def get_atoms_for_memory(self, parent_memory_id: int) -> list[MemoryAtom]:
         """Return all atoms belonging to a parent memory."""
         return await self.atom_store.get_by_parent(parent_memory_id)
 

@@ -77,9 +77,7 @@ class InjectionAdapter:
 
         config = getattr(provider, "provider_config", {})
         provider_type = str(config.get("type", "")) if isinstance(config, dict) else ""
-        raw_model = (
-            provider.get_model() if hasattr(provider, "get_model") else ""
-        )
+        raw_model = provider.get_model() if hasattr(provider, "get_model") else ""
         model_name = str(raw_model) if raw_model is not None else ""
 
         return provider_type, model_name
@@ -91,7 +89,6 @@ class InjectionAdapter:
         """判断当前 provider 是否命中某条降级规则。"""
         type_match = provider_type in rule.get("provider_types", [])
         model_match = any(
-            pat.lower() in model_name.lower()
-            for pat in rule.get("model_patterns", [])
+            pat.lower() in model_name.lower() for pat in rule.get("model_patterns", [])
         )
         return type_match or model_match

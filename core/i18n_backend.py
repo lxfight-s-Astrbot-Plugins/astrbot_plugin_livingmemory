@@ -2,6 +2,7 @@
 Backend i18n module for bot command responses.
 Loads JSON translation files from core/i18n/ directory.
 """
+
 import json
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def init(language: str = "zh"):
     # Load fallback (zh)
     fallback_path = base / "zh.json"
     try:
-        with open(fallback_path, "r", encoding="utf-8") as f:
+        with open(fallback_path, encoding="utf-8") as f:
             _fallback = json.load(f)
     except Exception as exc:
         logger.error(f"Failed to load fallback i18n zh.json: {exc}")
@@ -33,7 +34,7 @@ def init(language: str = "zh"):
     target_path = base / f"{language}.json"
     if target_path.exists():
         try:
-            with open(target_path, "r", encoding="utf-8") as f:
+            with open(target_path, encoding="utf-8") as f:
                 _translations = json.load(f)
         except Exception as exc:
             logger.error(f"Failed to load i18n {language}.json: {exc}")
