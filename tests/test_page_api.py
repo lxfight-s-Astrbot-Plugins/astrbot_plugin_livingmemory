@@ -166,6 +166,11 @@ class TestResponseHelpers:
         assert "boom" in result["message"]
 
 
+class TestNumberHelpers:
+    def test_importance_to_display_handles_non_numeric_values(self):
+        assert PluginPageApi._importance_to_display("default") == 5.0
+
+
 class TestNormalizeMetadata:
     @pytest.mark.parametrize(
         "raw,expected",
@@ -292,6 +297,32 @@ class TestBuildGraphViewPayload:
         breakdown = result["summary"]["node_type_breakdown"]
         assert breakdown.get("topic") == 2
         assert breakdown.get("person") == 1
+
+    def test_non_numeric_weights_and_importance_do_not_break_sorting(self):
+        snapshot = {
+            "nodes": [
+                {"id": 1, "type": "topic", "weight": "auto", "degree": 1},
+                {"id": 2, "type": "topic", "weight": 0.9, "degree": 0},
+            ],
+            "edges": [],
+            "entries": [],
+            "memories": [
+                {"memory_id": 1, "importance": "default", "entry_count": 1},
+                {"memory_id": 2, "importance": 0.8, "entry_count": 1},
+            ],
+        }
+        stats = {"graph_nodes": 2, "graph_edges": 0, "graph_entries": 0}
+
+        result = PluginPageApi._build_graph_view_payload(
+            snapshot,
+            stats,
+            enabled=True,
+            mode="overview",
+            filters={},
+        )
+
+        assert result["top_nodes"][0]["id"] == 2
+        assert result["top_memories"][0]["memory_id"] == 2
 
 
 class TestGetGraphStore:
@@ -544,6 +575,36 @@ class TestUpdateMemory:
         assert result["status"] == "error"
         assert "不能为空" in result["message"]
 
+    @pytest.mark.asyncio
+    async def test_content_update_uses_default_for_legacy_importance(self, api):
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "content",
+                "value": "new content",
+            }
+        )
+        with _patch_page_request(req):
+            memory = {
+                "id": 1,
+                "text": "old content",
+                "metadata": {
+                    "session_id": "s1",
+                    "persona_id": "p1",
+                    "importance": "default",
+                },
+            }
+            with patch.object(PluginPageApi, "_get_memory_record", return_value=memory):
+                api.plugin.initializer.memory_engine.add_memory = AsyncMock(
+                    return_value=999
+                )
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        assert api.plugin.initializer.memory_engine.add_memory.call_args.kwargs[
+            "importance"
+        ] == 0.5
+
 
 class TestBatchDeleteMemories:
     @pytest.mark.asyncio
@@ -758,11 +819,11 @@ class TestEnsurePluginReady:
 
 
 class TestRouteRegistration:
-    def test_registers_all_eight_routes(self):
+    def test_registers_all_ten_routes(self):
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 8
+        assert len(plugin._api_routes) == 10
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX

@@ -19,6 +19,7 @@ from quart import request
 from astrbot.api import logger
 
 from .managers.backup_manager import BackupManager
+from .utils.number_utils import clamp_float, safe_float
 
 PLUGIN_NAME = "astrbot_plugin_livingmemory"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
@@ -46,6 +47,12 @@ class PluginPageApi:
             "LivingMemory Page memories",
         )
         register(
+            f"{PAGE_API_PREFIX}/memories/detail",
+            self.get_memory_detail,
+            ["GET"],
+            "LivingMemory Page memory detail",
+        )
+        register(
             f"{PAGE_API_PREFIX}/memories/update",
             self.update_memory,
             ["POST"],
@@ -56,6 +63,12 @@ class PluginPageApi:
             self.batch_delete_memories,
             ["POST"],
             "LivingMemory Page batch delete memories",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/batch-update",
+            self.batch_update_memories,
+            ["POST"],
+            "LivingMemory Page batch update memories",
         )
         register(
             f"{PAGE_API_PREFIX}/recall/test",
@@ -91,28 +104,14 @@ class PluginPageApi:
         try:
             stats = await memory_engine.get_statistics()
 
-            # 图统计
+            # Use dedicated COUNT(*) stats so the dashboard shows full graph totals.
             graph_store = self._get_graph_store(memory_engine)
             if graph_store is not None:
                 try:
-                    snapshot = await graph_store.get_graph_snapshot(
-                        session_id=None,
-                        persona_id=None,
-                        limit_memories=1,
-                        limit_entries=1,
-                        limit_nodes=1,
-                        limit_edges=1,
-                    )
-                    summary = (
-                        (snapshot or {}).get("summary", {})
-                        if isinstance(snapshot, dict)
-                        else {}
-                    )
-                    stats["graph_nodes"] = int(summary.get("graph_node_count", 0) or 0)
-                    stats["graph_edges"] = int(summary.get("graph_edge_count", 0) or 0)
-                    stats["graph_entries"] = int(
-                        summary.get("graph_entry_count", 0) or 0
-                    )
+                    entry_stats = await graph_store.get_memory_entry_stats()
+                    stats["graph_nodes"] = entry_stats.get("graph_nodes", 0)
+                    stats["graph_edges"] = entry_stats.get("graph_edges", 0)
+                    stats["graph_entries"] = entry_stats.get("graph_entries", 0)
                 except Exception:
                     stats["graph_nodes"] = 0
                     stats["graph_edges"] = 0
@@ -284,6 +283,67 @@ class PluginPageApi:
             }
         )
 
+    async def get_memory_detail(self):
+        """Return the full detail payload for a single memory."""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+
+        query = request.args
+        try:
+            memory_id = int(query.get("memory_id", ""))
+        except (TypeError, ValueError):
+            return self._error("memory_id 必须是整数")
+
+        memory = await self._get_memory_record(memory_id)
+        if not memory:
+            return self._error("记忆不存在")
+
+        metadata = self._normalize_metadata(memory.get("metadata"))
+
+        # Build a full detail payload for the drawer.
+        detail = {
+            "memory_id": memory.get("id"),
+            "doc_id": memory.get("doc_id"),
+            "text": memory.get("text"),
+            "summary": metadata.get("canonical_summary") or memory.get("text", ""),
+            "created_at": memory.get("created_at"),
+            "updated_at": memory.get("updated_at"),
+            "metadata": metadata,
+            "memory_type": metadata.get("memory_type", "GENERAL"),
+            "importance": clamp_float(metadata.get("importance"), default=0.5),
+            "status": metadata.get("status", "active"),
+            "session_id": metadata.get("session_id"),
+            "persona_id": metadata.get("persona_id"),
+            "key_facts": metadata.get("key_facts", []),
+            "topics": metadata.get("topics", []),
+            "create_time": metadata.get("create_time"),
+            "last_access_time": metadata.get("last_access_time"),
+            "update_history": metadata.get("update_history", []),
+        }
+
+        # Attach a small related graph when graph storage is available.
+        graph_store = self._get_graph_store(ready["memory_engine"])
+        if graph_store is not None:
+            try:
+                subgraph = await graph_store.get_subgraph_for_memories(
+                    [memory_id],
+                    limit_entries=20,
+                    limit_nodes=20,
+                    limit_edges=30,
+                )
+                detail["graph_context"] = {
+                    "nodes": subgraph.get("nodes", []),
+                    "edges": subgraph.get("edges", []),
+                    "entries": subgraph.get("entries", []),
+                }
+            except Exception:
+                detail["graph_context"] = None
+        else:
+            detail["graph_context"] = None
+
+        return self._ok(detail)
+
     async def update_memory(self):
         ready, error = await self._ensure_plugin_ready()
         if error:
@@ -307,20 +367,31 @@ class PluginPageApi:
         if not memory:
             return self._error("记忆不存在")
 
+        current_metadata = self._normalize_metadata(memory.get("metadata"))
+
         if field == "content":
             new_content = str(value).strip()
             if not new_content:
                 return self._error("记忆内容不能为空")
 
-            current_metadata = self._normalize_metadata(memory.get("metadata"))
             session_id = current_metadata.get("session_id")
             persona_id = current_metadata.get("persona_id")
-            importance = float(current_metadata.get("importance", 0.5) or 0.5)
+            importance = clamp_float(current_metadata.get("importance"), default=0.5)
+            updated_at = time.time()
+            update_history = self._append_update_history(
+                current_metadata,
+                field="content",
+                old_value=memory.get("text", ""),
+                new_value=new_content,
+                reason=reason,
+                timestamp=updated_at,
+            )
 
             if reason:
                 current_metadata["update_reason"] = reason
-            current_metadata["updated_at"] = time.time()
+            current_metadata["updated_at"] = updated_at
             current_metadata["previous_content"] = str(memory.get("text", ""))[:100]
+            current_metadata["update_history"] = update_history
 
             new_memory_id = None
             try:
@@ -358,6 +429,8 @@ class PluginPageApi:
             }
 
         updates: dict[str, Any] = {}
+        old_value_for_history: Any
+        new_value_for_history: Any
         if field == "importance":
             try:
                 parsed = float(value)
@@ -370,21 +443,40 @@ class PluginPageApi:
             else:
                 return self._error("重要性必须在 0-1 或 0-10 范围内")
             updates["importance"] = normalized
+            old_value_for_history = self._importance_to_display(
+                current_metadata.get("importance", 0.5)
+            )
+            new_value_for_history = round(normalized * 10.0, 2)
         elif field == "status":
             status_value = str(value).strip()
             if status_value not in {"active", "archived", "deleted"}:
                 return self._error("状态必须是 active、archived 或 deleted")
             updates["metadata"] = {"status": status_value}
+            old_value_for_history = current_metadata.get("status", "active")
+            new_value_for_history = status_value
         elif field == "type":
             type_value = str(value).strip()
             if not type_value:
                 return self._error("类型不能为空")
             updates["metadata"] = {"memory_type": type_value}
+            old_value_for_history = current_metadata.get("memory_type", "GENERAL")
+            new_value_for_history = type_value
         else:
             return self._error(f"不支持编辑字段: {field}")
 
+        updated_at = time.time()
+        updates.setdefault("metadata", {})
+        updates["metadata"]["update_history"] = self._append_update_history(
+            current_metadata,
+            field=field,
+            old_value=old_value_for_history,
+            new_value=new_value_for_history,
+            reason=reason,
+            timestamp=updated_at,
+        )
+        updates["metadata"]["updated_at"] = updated_at
+
         if reason:
-            updates.setdefault("metadata", {})
             updates["metadata"]["update_reason"] = reason
 
         try:
@@ -435,6 +527,81 @@ class PluginPageApi:
             {
                 "deleted_count": deleted_count,
                 "failed_count": failed_count,
+                "total": len(memory_ids),
+                "failed_ids": failed_ids,
+            }
+        )
+
+    async def batch_update_memories(self):
+        """Batch update editable memory fields."""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        memory_engine = ready["memory_engine"]
+
+        payload = await request.get_json(silent=True) or {}
+        memory_ids = payload.get("memory_ids", [])
+        field = str(payload.get("field", "")).strip()
+        value = payload.get("value")
+
+        if not isinstance(memory_ids, list) or not memory_ids:
+            return self._error("需要提供记忆 ID 列表")
+        if not field or value is None:
+            return self._error("需要指定 field 和 value")
+
+        if field not in ("status", "importance", "type"):
+            return self._error(f"批量更新不支持字段: {field}")
+
+        updated_count = 0
+        failed_ids: list[Any] = []
+
+        for raw_id in memory_ids:
+            try:
+                memory_id = int(raw_id)
+            except (TypeError, ValueError):
+                failed_ids.append(raw_id)
+                continue
+
+            try:
+                updates: dict[str, Any] = {}
+                if field == "status":
+                    status_value = str(value).strip()
+                    if status_value not in {"active", "archived", "deleted"}:
+                        failed_ids.append(raw_id)
+                        continue
+                    updates["metadata"] = {"status": status_value}
+                elif field == "importance":
+                    try:
+                        parsed = float(value)
+                    except (TypeError, ValueError):
+                        failed_ids.append(raw_id)
+                        continue
+                    if 0.0 <= parsed <= 1.0:
+                        updates["importance"] = parsed
+                    elif 0.0 <= parsed <= 10.0:
+                        updates["importance"] = parsed / 10.0
+                    else:
+                        failed_ids.append(raw_id)
+                        continue
+                elif field == "type":
+                    type_value = str(value).strip()
+                    if not type_value:
+                        failed_ids.append(raw_id)
+                        continue
+                    updates["metadata"] = {"memory_type": type_value}
+
+                success = await memory_engine.update_memory(memory_id, updates)
+                if success:
+                    updated_count += 1
+                else:
+                    failed_ids.append(raw_id)
+            except Exception:
+                failed_ids.append(raw_id)
+
+        return self._ok(
+            {
+                "updated_count": updated_count,
+                "failed_count": len(failed_ids),
                 "total": len(memory_ids),
                 "failed_ids": failed_ids,
             }
@@ -702,6 +869,7 @@ class PluginPageApi:
                         "score_breakdown": {
                             key: round(float(value), 6)
                             for key, value in (result.score_breakdown or {}).items()
+                            if isinstance(value, (int, float))
                         },
                     }
                 )
@@ -810,6 +978,72 @@ class PluginPageApi:
         return parsed if isinstance(parsed, dict) else {}
 
     @staticmethod
+    def _importance_to_display(value: Any) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = 0.5
+        if parsed <= 1.0:
+            parsed *= 10.0
+        return round(max(0.0, min(10.0, parsed)), 2)
+
+    @classmethod
+    def _append_update_history(
+        cls,
+        metadata: dict[str, Any],
+        *,
+        field: str,
+        old_value: Any,
+        new_value: Any,
+        reason: str,
+        timestamp: float,
+    ) -> list[dict[str, Any]]:
+        raw_history = metadata.get("update_history", [])
+        history = raw_history if isinstance(raw_history, list) else []
+        next_history = [item for item in history[-19:] if isinstance(item, dict)]
+        next_history.append(
+            {
+                "timestamp": timestamp,
+                "field": field,
+                "old_value": cls._history_value(old_value),
+                "new_value": cls._history_value(new_value),
+                "reason": reason,
+                "description": cls._history_description(
+                    field, old_value, new_value, reason
+                ),
+            }
+        )
+        return next_history
+
+    @staticmethod
+    def _history_value(value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)
+
+    @classmethod
+    def _history_description(
+        cls,
+        field: str,
+        old_value: Any,
+        new_value: Any,
+        reason: str,
+    ) -> str:
+        old_text = cls._short_history_text(old_value)
+        new_text = cls._short_history_text(new_value)
+        suffix = f" ({reason})" if reason else ""
+        return f"{field}: {old_text} → {new_text}{suffix}"
+
+    @staticmethod
+    def _short_history_text(value: Any) -> str:
+        text = str(value if value is not None else "")
+        text = " ".join(text.split())
+        return text if len(text) <= 64 else f"{text[:61]}..."
+
+    @staticmethod
     def _ok(data: Any = None) -> dict[str, Any]:
         return {"status": "ok", "data": data}
 
@@ -909,7 +1143,7 @@ class PluginPageApi:
         top_nodes = sorted(
             nodes,
             key=lambda item: (
-                -float(item.get("weight", 0.0)),
+                -safe_float(item.get("weight"), 0.0),
                 -int(item.get("degree", 0)),
                 str(item.get("label", "")),
             ),
@@ -917,11 +1151,11 @@ class PluginPageApi:
         top_memories = sorted(
             memories,
             key=lambda item: (
-                -float((item.get("retrieval") or {}).get("final_score", -1.0)),
+                -safe_float((item.get("retrieval") or {}).get("final_score"), -1.0),
                 -int(item.get("entry_count", 0)),
                 -int(item.get("node_count", 0)),
                 -int(item.get("edge_count", 0)),
-                -float(item.get("importance", 0.0)),
+                -safe_float(item.get("importance"), 0.0),
             ),
         )[:8]
 
