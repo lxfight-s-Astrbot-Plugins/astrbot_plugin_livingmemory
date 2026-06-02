@@ -16,6 +16,8 @@
       keyword: "",
       session: "",
       status: "all",
+      sortField: null,
+      sortOrder: "desc",
     },
     selectedMemory: null,
     isEditing: false,
@@ -740,6 +742,10 @@
     if (state.memory.session) params.set("session_id", state.memory.session);
     if (state.memory.keyword) params.set("keyword", state.memory.keyword);
     if (state.memory.status && state.memory.status !== "all") params.set("status", state.memory.status);
+    if (state.memory.sortField) {
+      params.set("sort", state.memory.sortField);
+      params.set("order", state.memory.sortOrder);
+    }
 
     try {
       var data = unwrapApiData(await apiRequest("memories?" + params.toString())) || {};
@@ -770,6 +776,7 @@
       });
 
       renderMemoriesVirtual({ resetScroll: true });
+      updateSortIndicators();
       updateMemoryPagination();
       updateBatchBar();
       syncSelectAllCheckbox();
@@ -837,6 +844,15 @@
     tbody.innerHTML = '<tr><td colspan="7" class="table-empty">' + window.t("table.noData") + '</td></tr>';
     tbody.style.paddingTop = "0";
     tbody.style.paddingBottom = "0";
+  }
+
+  function updateSortIndicators() {
+    document.querySelectorAll("#memories-table th.sortable").forEach(function(th) {
+      th.classList.remove("asc", "desc");
+      if (state.memory.sortField && th.dataset.sort === state.memory.sortField) {
+        th.classList.add(state.memory.sortOrder);
+      }
+    });
   }
 
   function getMemoryItemByKey(key) {
@@ -1022,6 +1038,26 @@
       state.memory.selected.clear();
       renderMemoriesVirtual();
       updateBatchBar();
+    });
+
+    document.querySelectorAll("#memories-table th.sortable").forEach(function(th) {
+      th.addEventListener("click", function() {
+        var field = this.dataset.sort;
+        if (state.memory.sortField === field) {
+          if (state.memory.sortOrder === "desc") {
+            state.memory.sortOrder = "asc";
+          } else {
+            state.memory.sortField = null;
+            state.memory.sortOrder = "desc";
+          }
+        } else {
+          state.memory.sortField = field;
+          state.memory.sortOrder = "desc";
+        }
+        state.memory.page = 1;
+        fetchMemories();
+        updateSortIndicators();
+      });
     });
   }
 
