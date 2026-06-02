@@ -30,8 +30,8 @@
   }
 
   const NODE_TYPE_COLORS = {
-    topic: "#7950f2", person: "#20c997", fact: "#fcc419",
-    summary: "#f06595", other: "#909296",
+    topic: "#7c6fca", person: "#2f9e8b", fact: "#c99a16",
+    summary: "#c8648d", other: "#8b949e",
   };
 
   /* ================================================================
@@ -231,6 +231,18 @@
 
     var snapshot = payload.snapshot || {};
     var hasGraphData = Boolean((snapshot.nodes || []).length);
+    var shouldFocusSelection = hasGraphData &&
+      focusSelection !== false &&
+      payload.mode !== "overview";
+
+    if (!shouldFocusSelection) {
+      state.selectedNodeId = null;
+      state.selectedMemoryId = null;
+      if (state.isGraphReady && window.Graph2D) {
+        window.Graph2D.selection = null;
+        if (window.Graph2D.renderer) window.Graph2D.renderer._selection = null;
+      }
+    }
 
     /* Delegate to Graph2D renderer */
     if (state.isGraphReady) {
@@ -239,7 +251,7 @@
     }
 
     /* Auto-select based on payload mode */
-    if (hasGraphData && focusSelection !== false) {
+    if (shouldFocusSelection) {
       ensureSelection(payload);
     } else if (!hasGraphData) {
       state.selectedNodeId = null;

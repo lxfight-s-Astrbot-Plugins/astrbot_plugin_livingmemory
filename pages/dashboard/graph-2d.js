@@ -8,20 +8,20 @@
 
   /* ── Configuration ─────────────────────────────────────────── */
   const CFG = {
-    NODE_RADIUS_MIN: 24,
-    NODE_RADIUS_MAX: 50,
-    NODE_RADIUS_BASE: 16,
-    NODE_FONT_SIZE: 13,
-    NODE_META_SIZE: 10,
-    EDGE_WIDTH_DEFAULT: 1.0,
-    EDGE_WIDTH_ACTIVE: 2.0,
-    EDGE_WIDTH_HIGHLIGHT: 2.6,
-    EDGE_OPACITY_DEFAULT: 0.25,
-    EDGE_OPACITY_ACTIVE: 0.5,
-    EDGE_OPACITY_HIGHLIGHT: 0.7,
-    PARTICLE_COUNT_DEFAULT: 1,
-    PARTICLE_COUNT_ACTIVE: 3,
-    PARTICLE_COUNT_HIGHLIGHT: 5,
+    NODE_RADIUS_MIN: 4,
+    NODE_RADIUS_MAX: 10,
+    NODE_RADIUS_BASE: 4,
+    NODE_FONT_SIZE: 11,
+    NODE_META_SIZE: 9,
+    EDGE_WIDTH_DEFAULT: 0.7,
+    EDGE_WIDTH_ACTIVE: 1.1,
+    EDGE_WIDTH_HIGHLIGHT: 1.7,
+    EDGE_OPACITY_DEFAULT: 0.2,
+    EDGE_OPACITY_ACTIVE: 0.44,
+    EDGE_OPACITY_HIGHLIGHT: 0.76,
+    PARTICLE_COUNT_DEFAULT: 0,
+    PARTICLE_COUNT_ACTIVE: 0,
+    PARTICLE_COUNT_HIGHLIGHT: 0,
     PARTICLE_SPEED: 0.18,
     PARTICLE_SIZE: 2.0,
     /* Radial layout */
@@ -30,8 +30,8 @@
     RING3_RADIUS: 440,
     RING_GAP: 10,
     /* Center node is larger */
-    CENTER_SCALE: 1.5,
-    CENTER_MAX_RADIUS: 66,
+    CENTER_SCALE: 1.65,
+    CENTER_MAX_RADIUS: 15,
     /* Animation */
     ANIM_SPEED: 0.075,
     IDLE_DAMPING: 0.05,
@@ -43,8 +43,8 @@
   };
 
   const TYPE_COLORS = {
-    topic: "#7950f2", person: "#20c997", fact: "#fcc419",
-    summary: "#f06595", other: "#909296",
+    topic: "#7c6fca", person: "#2f9e8b", fact: "#c99a16",
+    summary: "#c8648d", other: "#8b949e",
   };
 
   /* ── CSS helpers ───────────────────────────────────────────── */
@@ -267,35 +267,21 @@
 
   Renderer.prototype.drawBackground = function(dark) {
     var ctx = this.ctx;
-    var step = 32 * this.viewport.scale;
-    if (step < 18) step = 18;
+    var step = clamp(30 * this.viewport.scale, 22, 42);
     var ox = ((this.viewport.ox * this.viewport.scale) % step + step) % step;
     var oy = ((this.viewport.oy * this.viewport.scale) % step + step) % step;
 
     ctx.save();
-    ctx.fillStyle = themeColor("--bg-card", dark ? "#17191d" : "#ffffff");
+    ctx.fillStyle = dark ? "#202126" : themeColor("--bg-card", "#ffffff");
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.strokeStyle = dark ? "rgba(92,95,102,0.18)" : "rgba(173,181,189,0.22)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
+    ctx.fillStyle = dark ? "rgba(144,146,150,0.12)" : "rgba(108,117,125,0.13)";
     for (var x = ox; x <= this.width; x += step) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, this.height);
+      for (var y = oy; y <= this.height; y += step) {
+        ctx.beginPath();
+        ctx.arc(x, y, 0.75, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
-    for (var y = oy; y <= this.height; y += step) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(this.width, y);
-    }
-    ctx.stroke();
-
-    var vignette = ctx.createRadialGradient(
-      this.width / 2, this.height / 2, Math.min(this.width, this.height) * 0.12,
-      this.width / 2, this.height / 2, Math.max(this.width, this.height) * 0.72
-    );
-    vignette.addColorStop(0, dark ? "rgba(116,143,252,0.06)" : "rgba(76,110,245,0.05)");
-    vignette.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, this.width, this.height);
     ctx.restore();
   };
 
@@ -316,11 +302,11 @@
   Renderer.prototype.nodeWorldRadius = function(nodeData, isCenter) {
     var w = clamp(Number(nodeData.weight || 0), 0, 20);
     var mr = clamp(Number(nodeData.memory_count || 0), 0, 15);
-    var r = CFG.NODE_RADIUS_BASE + w * 1.6 + mr * 0.6;
+    var r = CFG.NODE_RADIUS_BASE + Math.sqrt(w) * 0.75 + Math.sqrt(mr) * 0.4;
     if (isCenter) {
       r = Math.min(CFG.CENTER_MAX_RADIUS, r * CFG.CENTER_SCALE);
     }
-    if (nodeData.isSelected) r += 3;
+    if (nodeData.isSelected) r += 1.5;
     return clamp(r, CFG.NODE_RADIUS_MIN, isCenter ? CFG.CENTER_MAX_RADIUS : CFG.NODE_RADIUS_MAX);
   };
 
@@ -381,9 +367,10 @@
       var ssp = this.worldToScreen(sAnim.x, sAnim.y);
       var tsp = this.worldToScreen(tAnim.x, tAnim.y);
 
-      var isActive = highlightNodes.size === 0 || (highlightNodes.has(edge.source) && highlightNodes.has(edge.target));
+      var hasFocus = highlightNodes.size > 0 || highlightEdges.size > 0;
+      var isActive = !hasFocus || (highlightNodes.has(edge.source) && highlightNodes.has(edge.target));
       var isMemHl = highlightEdges.has(edge.id);
-      var isMuted = (highlightNodes.size > 0 || highlightEdges.size > 0) && !isActive && !isMemHl;
+      var isMuted = hasFocus && !isActive && !isMemHl;
 
       var de = {
         id: edge.id, sx: ssp.x, sy: ssp.y, tx: tsp.x, ty: tsp.y,
@@ -391,7 +378,7 @@
         relationType: edge.relation_type || "related",
         memoryId: edge.memory_id, weight: edge.weight || 1,
         isActive: isActive, isHighlighted: isMemHl,
-        isMuted: isMuted,
+        isMuted: isMuted, hasFocus: hasFocus,
         isHovered: edge.id === hoverId,
         color: edge.__color || TYPE_COLORS.other,
       };
@@ -425,13 +412,14 @@
       var isCenter = centerId != null && nd.id === centerId;
       var isSel = nd.id === selNodeId;
       var isHl = highlightNodes.has(nd.id);
-      var isMuted = (highlightNodes.size > 0 || highlightEdges.size > 0) && !isHl && !isSel;
+      var hasNodeFocus = highlightNodes.size > 0 || highlightEdges.size > 0;
+      var isMuted = hasNodeFocus && !isHl && !isSel;
       var sr = this.nodeScreenRadius(nd, isCenter);
 
       var drawInfo = {
         id: nd.id, sx: sp.x, sy: sp.y, sr: sr,
         isSelected: isSel, isHighlighted: isHl, isMuted: isMuted,
-        isHovered: nd.id === hoverId, isCenter: isCenter,
+        isHovered: nd.id === hoverId, isCenter: isCenter, hasFocus: hasNodeFocus,
         type: nd.type || "other", label: nd.label || "Unnamed",
         memoryCount: nd.memory_count || 0, degree: nd.degree || 0,
         color: TYPE_COLORS[nd.type] || TYPE_COLORS.other, fixed: nd.fixed,
@@ -439,10 +427,10 @@
       this._drawnNodes.push(drawInfo);
 
       if (drawInfo.isMuted && !drawInfo.isHovered) {
-        ctx.globalAlpha = 0.18;
+        ctx.globalAlpha = 0.22;
         ctx.beginPath();
-        ctx.arc(drawInfo.sx, drawInfo.sy, 2.5 * scale, 0, Math.PI * 2);
-        ctx.fillStyle = drawInfo.color;
+        ctx.arc(drawInfo.sx, drawInfo.sy, Math.max(2, drawInfo.sr * 0.62), 0, Math.PI * 2);
+        ctx.fillStyle = dark ? "#5c6370" : "#c7ccd4";
         ctx.fill();
         ctx.globalAlpha = 1;
         continue;
@@ -455,21 +443,20 @@
   /* Draw a single edge as a straight link */
   Renderer.prototype._drawEdge = function(ctx, de, dark) {
     var opacity = de.isHighlighted ? CFG.EDGE_OPACITY_HIGHLIGHT
-      : de.isActive ? CFG.EDGE_OPACITY_ACTIVE : CFG.EDGE_OPACITY_DEFAULT;
+      : de.hasFocus && de.isActive ? CFG.EDGE_OPACITY_ACTIVE : CFG.EDGE_OPACITY_DEFAULT;
     var width = de.isHighlighted ? CFG.EDGE_WIDTH_HIGHLIGHT
-      : de.isActive ? CFG.EDGE_WIDTH_ACTIVE : CFG.EDGE_WIDTH_DEFAULT;
+      : de.hasFocus && de.isActive ? CFG.EDGE_WIDTH_ACTIVE : CFG.EDGE_WIDTH_DEFAULT;
 
     if (de.isMuted) opacity *= 0.35;
 
     ctx.beginPath();
     ctx.moveTo(de.sx, de.sy);
     ctx.lineTo(de.tx, de.ty);
-    var stroke = ctx.createLinearGradient(de.sx, de.sy, de.tx, de.ty);
-    stroke.addColorStop(0, hexToRgba(de.color, opacity * 0.35));
-    stroke.addColorStop(0.5, hexToRgba(de.color, opacity));
-    stroke.addColorStop(1, hexToRgba(de.color, opacity * 0.35));
-    ctx.strokeStyle = stroke;
+    ctx.strokeStyle = de.isHighlighted || (de.hasFocus && de.isActive)
+      ? hexToRgba(de.color, opacity)
+      : dark ? "rgba(150,157,168," + opacity + ")" : "rgba(91,103,120," + opacity + ")";
     ctx.lineWidth = width;
+    ctx.lineCap = "round";
     ctx.stroke();
   };
 
@@ -477,6 +464,7 @@
     if (!de.isActive && !de.isHighlighted) return;
     var count = de.isHighlighted ? CFG.PARTICLE_COUNT_HIGHLIGHT
       : de.isActive ? CFG.PARTICLE_COUNT_ACTIVE : CFG.PARTICLE_COUNT_DEFAULT;
+    if (count <= 0) return;
 
     var key = de.id;
     if (!(key in this._particleOffsets)) this._particleOffsets[key] = Math.random();
@@ -497,87 +485,50 @@
     var x = dn.sx, y = dn.sy, r = dn.sr;
 
     ctx.save();
-    ctx.globalAlpha = dn.isMuted ? 0.3 : 1;
+    ctx.globalAlpha = dn.isMuted ? 0.26 : 1;
 
-    if (dn.isCenter && !dn.isMuted) {
-      ctx.shadowColor = hexToRgba(dn.color, 0.25);
-      ctx.shadowBlur = 22 * scale;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    } else {
-      ctx.shadowColor = dark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.06)";
-      ctx.shadowBlur = dn.isSelected ? 16 : dn.isHovered ? 10 : 5;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 2;
-    }
-
-    var outerRing = r + (dn.isSelected ? 6 : dn.isHovered ? 4 : dn.isCenter ? 5 : 0) * scale;
-    if (outerRing > r) {
+    var halo = (dn.isSelected ? 7 : dn.isHovered ? 5 : dn.isCenter ? 4 : 0) * scale;
+    if (halo > 0 && !dn.isMuted) {
       ctx.beginPath();
-      ctx.arc(x, y, outerRing, 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(dn.color, dn.isSelected ? 0.16 : 0.1);
+      ctx.arc(x, y, r + halo, 0, Math.PI * 2);
+      ctx.fillStyle = hexToRgba(dn.color, dn.isSelected ? 0.14 : 0.08);
       ctx.fill();
     }
 
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    var fill = ctx.createRadialGradient(x - r * 0.35, y - r * 0.42, r * 0.1, x, y, r);
-    if (dn.isCenter) {
-      fill.addColorStop(0, hexToRgba(dn.color, dark ? 0.46 : 0.22));
-      fill.addColorStop(0.58, dark ? "#252832" : "#ffffff");
-      fill.addColorStop(1, hexToRgba(dn.color, dark ? 0.18 : 0.1));
-    } else {
-      fill.addColorStop(0, hexToRgba(dn.color, dark ? 0.18 : 0.1));
-      fill.addColorStop(0.62, dark ? "#25272e" : "#ffffff");
-      fill.addColorStop(1, dark ? "#1f2229" : "#f8fafc");
-    }
-    ctx.fillStyle = fill;
+    ctx.fillStyle = dn.isMuted ? (dark ? "#5c6370" : "#c7ccd4") : dn.color;
     ctx.fill();
 
-    ctx.shadowColor = "transparent";
-    ctx.lineWidth = dn.isCenter ? 2.5 : dn.isSelected ? 2.2 : dn.isHovered ? 1.6 : 1;
-    if (dn.isCenter) {
-      ctx.strokeStyle = dn.color;
-    } else if (dn.isSelected) {
-      ctx.strokeStyle = dn.color;
-    } else if (dn.isHovered) {
-      ctx.strokeStyle = hexToRgba(dn.color, 0.55);
-    } else {
-      ctx.strokeStyle = dark ? "#373a40" : "#e9ecef";
+    ctx.lineWidth = dn.isSelected ? 2 : dn.isHovered || dn.isCenter ? 1.5 : 1;
+    ctx.strokeStyle = dn.isSelected || dn.isHovered || dn.isCenter
+      ? (dn.isMuted ? (dark ? "#6f7683" : "#b9c0ca") : dn.color)
+      : dark ? "#202126" : "#ffffff";
+    ctx.stroke();
+
+    var labelVisible = dn.isHovered || dn.isSelected || dn.isCenter ||
+      (!dn.hasFocus && scale > 1.05 && dn.degree >= 2);
+    if (!labelVisible || dn.isMuted) {
+      ctx.restore();
+      return;
     }
-    ctx.stroke();
 
-    var dotR = Math.max(3, r * 0.11);
-    ctx.beginPath();
-    ctx.arc(x + r * 0.42, y - r * 0.42, dotR, 0, Math.PI * 2);
-    ctx.fillStyle = dn.color;
-    ctx.fill();
-    ctx.lineWidth = Math.max(1, 1.5 * scale);
-    ctx.strokeStyle = dark ? "#16181d" : "#ffffff";
-    ctx.stroke();
-
-    var fontSize = Math.max(10, dn.isCenter ? CFG.NODE_FONT_SIZE * 1.3 * scale : CFG.NODE_FONT_SIZE * scale);
-    ctx.fillStyle = dark ? "#f1f3f5" : "#1f2937";
-    ctx.font = (dn.isCenter ? "700 " : "600 ") + fontSize + "px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.textAlign = "center";
+    var fontSize = Math.max(10, CFG.NODE_FONT_SIZE * scale);
+    ctx.fillStyle = dark ? "#e9ecef" : "#2f343a";
+    ctx.font = (dn.isSelected || dn.isCenter ? "600 " : "500 ") + fontSize + "px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    var maxChars = dn.isCenter ? 22 : 18;
+    var maxChars = dn.isCenter ? 28 : 24;
     var label = dn.label.length > maxChars ? dn.label.substring(0, maxChars - 1) + "…" : dn.label;
-    ctx.fillText(label, x, y - 2 * scale);
+    var labelX = x + r + 7 * scale;
+    ctx.fillText(label, labelX, y);
 
-    var metaFs = Math.max(8, CFG.NODE_META_SIZE * scale);
-    ctx.fillStyle = dark ? "#9ca3af" : "#6b7280";
-    ctx.font = metaFs + "px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(dn.memoryCount + "M · " + dn.degree + "°", x, y + 8 * scale);
-
-    if (dn.isHovered && !dn.isSelected) {
-      ctx.beginPath();
-      ctx.arc(x, y, r + 5 * scale, 0, Math.PI * 2);
-      ctx.strokeStyle = hexToRgba(dn.color, 0.32);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    if (dn.isHovered || dn.isSelected) {
+      var metaFs = Math.max(8, CFG.NODE_META_SIZE * scale);
+      ctx.fillStyle = dark ? "#a6abb4" : "#6b7280";
+      ctx.font = metaFs + "px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(dn.memoryCount + "M / " + dn.degree + " links", labelX, y + 8 * scale);
     }
 
     ctx.restore();
@@ -1131,7 +1082,7 @@
   };
 
   function relationColor(type) {
-    var palette = ["#38bdf8", "#818cf8", "#f59e0b", "#10b981", "#f472b6", "#22d3ee", "#fb7185", "#a78bfa"];
+    var palette = ["#8792a2", "#6f7f96", "#8a7b65", "#74806c", "#8a7181", "#6f8388"];
     var h = String(type || "related").split("").reduce(function(a, c) { return a * 31 + c.charCodeAt(0); }, 7);
     return palette[Math.abs(h) % palette.length];
   }

@@ -38,11 +38,11 @@
   --danger-hover: #e03131;
 
   /* Graph Node Colors */
-  --node-topic: #7950f2;
-  --node-person: #20c997;
-  --node-fact: #fcc419;
-  --node-summary: #f06595;
-  --node-other: #909296;
+  --node-topic: #7c6fca;
+  --node-person: #2f9e8b;
+  --node-fact: #c99a16;
+  --node-summary: #c8648d;
+  --node-other: #8b949e;
 
   /* Spacing */
   --space-1: 4px;
@@ -311,7 +311,8 @@ body {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .page-actions {
@@ -859,15 +860,12 @@ body {
 .graph-canvas-container {
   position: relative;
   flex: 1;
-  background:
-    radial-gradient(circle at 18% 18%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 28%),
-    radial-gradient(circle at 78% 72%, color-mix(in srgb, var(--success) 8%, transparent), transparent 32%),
-    var(--bg-card);
-  border: 1px solid color-mix(in srgb, var(--border-light) 70%, var(--accent));
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   overflow: hidden;
   min-height: 400px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), var(--shadow-sm);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), var(--shadow-xs);
 }
 
 .graph-canvas-container .graph-canvas {
@@ -888,7 +886,7 @@ body {
   transform: translate(-50%, -50%);
   font-size: 13px;
   color: var(--text-tertiary);
-  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
@@ -926,9 +924,8 @@ body {
   color: var(--text-secondary);
   padding: 3px 9px;
   border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--bg-card) 82%, var(--bg-hover));
-  border: 1px solid color-mix(in srgb, var(--border-light) 78%, var(--accent));
-  box-shadow: var(--shadow-xs);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
 }
 
 .legend-chip .dot {
@@ -1961,6 +1958,28 @@ body {
 
   .page-body {
     padding: var(--space-4);
+  }
+
+  .page-header {
+    height: auto;
+    min-height: var(--header-height);
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .page-title {
+    min-width: max-content;
+  }
+
+  .page-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .page-actions .input {
+    min-width: 0;
+    flex: 1 1 160px;
   }
 
   .stat-pills {
