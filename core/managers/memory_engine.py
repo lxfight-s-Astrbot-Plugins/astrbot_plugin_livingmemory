@@ -2167,6 +2167,10 @@ class MemoryEngine:
             status_breakdown = {"active": 0, "archived": 0, "deleted": 0}
             importance_sum = 0
             importance_count = 0
+            importance_distribution = {
+                "0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0,
+                "5-6": 0, "6-7": 0, "7-8": 0, "8-9": 0, "9-10": 0,
+            }
             oldest_time = None
             newest_time = None
 
@@ -2209,8 +2213,17 @@ class MemoryEngine:
                     # 统计重要性
                     importance = metadata.get("importance")
                     if importance is not None:
-                        importance_sum += clamp_float(importance, default=0.5)
+                        clamped = clamp_float(importance, default=0.5)
+                        importance_sum += clamped
                         importance_count += 1
+                        # 分桶统计 (0-10 归一化)
+                        display_importance = clamped * 10 if clamped <= 1 else clamped
+                        bucket_idx = min(9, max(0, int(display_importance)))
+                        bucket_keys = [
+                            "0-1", "1-2", "2-3", "3-4", "4-5",
+                            "5-6", "6-7", "7-8", "8-9", "9-10",
+                        ]
+                        importance_distribution[bucket_keys[bucket_idx]] += 1
 
                     # 统计时间
                     create_time = metadata.get("create_time")
@@ -2229,6 +2242,7 @@ class MemoryEngine:
             stats["avg_importance"] = (
                 importance_sum / importance_count if importance_count > 0 else 0.0
             )
+            stats["importance_distribution"] = importance_distribution
             stats["oldest_memory"] = oldest_time
             stats["newest_memory"] = newest_time
             if self.graph_store is not None:
