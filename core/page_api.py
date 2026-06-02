@@ -951,7 +951,8 @@ class PluginPageApi:
 
         try:
             cursor = await memory_engine.db_connection.execute(
-                "SELECT id, text, metadata FROM documents WHERE id = ?",
+                "SELECT id, doc_id, text, metadata, created_at, updated_at "
+                "FROM documents WHERE id = ?",
                 (memory_id,),
             )
             row = await cursor.fetchone()
@@ -963,8 +964,11 @@ class PluginPageApi:
 
         return {
             "id": row[0],
-            "text": row[1],
-            "metadata": self._normalize_metadata(row[2]),
+            "doc_id": row[1],
+            "text": row[2],
+            "metadata": self._normalize_metadata(row[3]),
+            "created_at": row[4],
+            "updated_at": row[5],
         }
 
     @staticmethod
