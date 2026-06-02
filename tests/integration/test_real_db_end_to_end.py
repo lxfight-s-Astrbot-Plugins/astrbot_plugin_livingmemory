@@ -369,9 +369,9 @@ async def test_recall_injection_with_real_database(real_db_stack):
     )
 
     await event_handler.handle_memory_recall(event, req)
-    assert len(req.extra_user_content_parts) == 1
-    assert "<RAG-Faiss-Memory>" in req.extra_user_content_parts[0].text
-    assert "headphones" in req.extra_user_content_parts[0].text.lower()
+    # 记忆已通过 req.prompt 字符串拼接方式注入
+    assert "<RAG-Faiss-Memory>" in req.prompt
+    assert "headphones" in req.prompt.lower()
 
 
 @pytest.mark.asyncio

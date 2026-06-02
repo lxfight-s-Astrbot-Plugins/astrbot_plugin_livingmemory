@@ -116,7 +116,7 @@ async def test_message_dedup_cache_works(handler):
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_injects_extra_user_content(handler, memory_engine):
-    """extra_user_content 注入方式：记忆应追加到 extra_user_content_parts 并标记为临时消息。"""
+    """extra_user_content 注入方式：记忆应追加到 req.prompt（字符串拼接方式）。"""
     event = _make_event(group=False)
     req = _make_req("query text")
     recalled = Mock(content="mem1", final_score=0.7, metadata={"importance": 0.9})
@@ -130,10 +130,9 @@ async def test_handle_memory_recall_injects_extra_user_content(handler, memory_e
         await handler.handle_memory_recall(event, req)
 
     memory_engine.search_memories.assert_awaited_once()
-    assert len(req.extra_user_content_parts) == 1
-    text_part = req.extra_user_content_parts[0]
-    assert "<RAG-Faiss-Memory>" in text_part.text
-    assert getattr(text_part, "_no_save", False) is True
+    # 记忆已通过 req.prompt 字符串拼接方式注入
+    assert "<RAG-Faiss-Memory>" in req.prompt
+    assert "mem1" in req.prompt
     # system_prompt 不应被修改
     assert req.system_prompt == ""
 
@@ -1274,6 +1273,13 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
         conversation_manager=Mock(),
     )
     h.conversation_manager.add_message_from_event = AsyncMock()
+    # 设置 store mock 以支持 _enforce_message_limit 中的 await 调用
+    h.conversation_manager.store = Mock()
+    h.conversation_manager.store.get_message_count = AsyncMock(return_value=12)
+    h.conversation_manager.store.connection = Mock()
+    h.conversation_manager.get_session_metadata = AsyncMock(return_value=0)
+    h.conversation_manager.update_session_metadata = AsyncMock()
+    h.conversation_manager.invalidate_cache = AsyncMock()
 
     recalled = Mock(
         content="mem_fallback", final_score=0.8, metadata={"importance": 0.9}
@@ -1290,11 +1296,10 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
         get_persona.return_value = "persona_1"
         await h.handle_memory_recall(event, req)
 
-    # 应注入到 extra_user_content_parts 而非 system_prompt
+    # system_prompt 已废弃，应自动回退到 extra_user_content（注入到 req.prompt）
     assert req.system_prompt == ""
-    assert len(req.extra_user_content_parts) == 1
-    assert "mem_fallback" in req.extra_user_content_parts[0].text
-    assert getattr(req.extra_user_content_parts[0], "_no_save", False) is True
+    assert "<RAG-Faiss-Memory>" in req.prompt
+    assert "mem_fallback" in req.prompt
 
 
 # ==================== 上下文扩展测试 ====================
@@ -1307,6 +1312,24 @@ async def test_context_expansion_enriches_query(
     """启用 inject_with_recent_context 时，查询应拼接历史消息上下文。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+
+    cm_mock = Mock()
+    cm_mock.add_message_from_event = AsyncMock()
+    # 设置 store mock 以支持 _enforce_message_limit 中的 await 调用
+    cm_mock.store = Mock()
+    cm_mock.store.get_message_count = AsyncMock(return_value=12)
+    cm_mock.store.connection = Mock()
+    cm_mock.get_session_metadata = AsyncMock(return_value=0)
+    cm_mock.update_session_metadata = AsyncMock()
+    cm_mock.invalidate_cache = AsyncMock()
+    # 模拟返回 3 条消息（最新在前）: [当前消息, bot 回复, 用户上条]
+    cm_mock.get_context = AsyncMock(
+        return_value=[
+            {"content": "当前用户消息"},
+            {"content": "Bot 的上一条回复"},
+            {"content": "用户之前说的事情"},
+        ]
+    )
 
     h = EventHandler(
         context=Mock(),
@@ -1323,17 +1346,7 @@ async def test_context_expansion_enriches_query(
         ),
         memory_engine=memory_engine,
         memory_processor=Mock(),
-        conversation_manager=Mock(),
-    )
-    h.conversation_manager.add_message_from_event = AsyncMock()
-
-    # 模拟返回 3 条消息（最新在前）: [当前消息, bot 回复, 用户上条]
-    h.conversation_manager.get_context = AsyncMock(
-        return_value=[
-            {"content": "当前用户消息"},
-            {"content": "Bot 的上一条回复"},
-            {"content": "用户之前说的事情"},
-        ]
+        conversation_manager=cm_mock,
     )
 
     recalled = Mock(

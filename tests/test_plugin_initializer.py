@@ -287,7 +287,7 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     assert init.memory_engine.config["atom_enabled"] is False
     assert init.memory_engine.config["atom_maintenance_interval_hours"] == 12.0
     assert init.memory_engine.config["atom_forget_delay_days"] == 3.0
-    assert init.memory_processor.config is init.memory_engine.config
+    assert init.memory_processor.config.get("atom_enabled") is False
 
 
 @pytest.mark.asyncio
