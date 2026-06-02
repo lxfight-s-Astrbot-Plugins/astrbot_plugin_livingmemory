@@ -7,6 +7,31 @@
 
 ## [Unreleased]
 
+## [2.3.4] - 2026-06-02
+
+### 修复
+- **#166 上下文压缩器 JSON 序列化崩溃**: 修复 `Object of type TextPart is not JSON serializable` 错误
+  - 根本原因：插件通过 `extra_user_content_parts` 注入的 `TextPart` 对象在上下文压缩时被 `json.dumps` 调用，Pydantic 模型无法序列化
+  - 修复方案：改为 `req.prompt` 字符串拼接注入，避免创建不可序列化的 `ContentPart` 对象
+- **系统概览页重要性分布图始终为空**: `get_statistics()` 遍历了全部文档却未对重要性分桶，现在在批次处理循环中按 0-10 分 10 档统计
+- **系统概览页原子计数始终为 0**: `AtomStore` 缺少 `count_atoms()` 方法导致 `AttributeError` 被静默吞掉，现已新增该方法
+- **系统概览页原子类型分布图始终为空**: 新增 `AtomStore.count_by_type()` 方法（SQL GROUP BY atom_type），修复 per-type 统计缺失
+- **系统概览页 atom_breakdown 已接入**: `page_api.get_stats` 现在正确调用 `atom_store.count_by_type()` 填充类型分布数据
+- **WebUI 记忆列表创建时间列始终显示 "--"**: 当 `metadata.create_time` 缺失时前端会忽略 SQL 层的 `created_at` 列，现增加 fallback
+- **WebUI 记忆编辑静默失败**: 状态/类型/重要性的编辑操作未检查 API 响应是否成功，失败时仍弹成功 toast，现已用 `unwrapApiData()` 包装错误检测
+- **知识图谱页 Graph2D 未初始化时崩溃**: `renderPayload` 中 `window.Graph2D.selectNode/selectMemory` 缺少 `state.isGraphReady` 守卫
+- **召回测试结果点击无效**: 当召回的記憶不在当前记忆列表分页中时，点击无任何反馈，现已添加 API 回退直接拉取記憶详情
+- **知识图谱节点详情面板类型字段丢失**: 图谱記憶对象使用 `memory_type` 字段名，前端错误使用了 `memory.type`
+- **备份管理器版本号不匹配**: `PLUGIN_VERSION` 为 2.3.1 但 `metadata.yaml` 为 2.3.3，导致每次启动错误触发版本变更备份
+- **`datetime.utcnow()` 弃用警告**: 迁移 `db_migration.py` 中 3 处调用为 `datetime.now(timezone.utc)`
+- **记忆详情 fallback SQL 查询缺少列**: `_get_memory_record` 回退查询未选取 `doc_id`、`created_at`、`updated_at`
+- **配置项 `enable_full_group_capture` 缺失**: `_conf_schema.json` 中未暴露该字段，用户无法在 WebUI 配置
+
+### 变更
+- **配置描述更新**: `injection_method` 提示移除关于"不影响前缀缓存"的不准确描述（#166 修复后改为字符串注入）
+- `page_api.update_memory` 统一使用 `self._ok()` 返回格式
+- 更新 11 个测试文件以匹配新的 `req.prompt` 注入行为和 `_enforce_message_limit` mock 规范
+
 ## [2.3.3] - 2026-06-02
 
 ### 修复

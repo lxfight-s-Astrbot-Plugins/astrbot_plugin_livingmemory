@@ -17,7 +17,7 @@ from astrbot.api import logger
 
 # Match metadata.yaml — single source of truth for the plugin version.
 # Keep in sync with the @register decorator in main.py.
-PLUGIN_VERSION = "2.3.3"
+PLUGIN_VERSION = "2.3.4"
 
 _VERSION_FILE = ".plugin_version"
 _BACKUP_INFO_FILE = "backup_info.json"
