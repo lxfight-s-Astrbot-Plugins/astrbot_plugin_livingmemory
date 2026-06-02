@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-06-02
+
+### 修复
+- **WebUI 删除功能无效**: 修复因 AstrBot Dashboard iframe sandbox 缺少 `allow-modals` 导致 `window.confirm()` 被浏览器静默阻止、删除操作无法执行的问题
+  - 用自定义 DOM 确认对话框（渲染在 peek 面板内）替代浏览器原生 `window.confirm()`
+  - 支持确定/取消/ESC/遮罩点击关闭，取消时自动恢复记忆详情视图
+
 ## [2.3.2] - 2026-06-02
 
 ### 新增
