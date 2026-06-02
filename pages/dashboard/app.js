@@ -154,6 +154,76 @@
     toastTimer = setTimeout(function() { el.classList.remove("visible"); }, 2500);
   }
 
+  /* ── Custom Confirm Dialog (renders inside peek panel, avoids sandbox + z-index issues) ── */
+  var _confirmResolve = null;
+  var _prevPeekContent = null;
+
+  function showConfirmDialog(title, message) {
+    return new Promise(function(resolve) {
+      if (_confirmResolve) {
+        _confirmResolve(false);
+        _confirmResolve = null;
+      }
+      _confirmResolve = resolve;
+
+      /* Save current peek content so we can restore on cancel */
+      var peekBody = document.getElementById("peek-body");
+      if (peekBody && !_prevPeekContent) {
+        _prevPeekContent = peekBody.innerHTML;
+      }
+
+      /* Make sure peek panel is open and wide */
+      var panel = document.getElementById("peek-panel");
+      if (panel) {
+        panel.classList.add("visible", "wide");
+      }
+      var peekOverlay = document.getElementById("peek-overlay");
+      if (peekOverlay) {
+        peekOverlay.classList.add("visible");
+      }
+
+      /* Render confirm view inside peek */
+      document.getElementById("peek-badge").innerHTML = "";
+      document.getElementById("peek-title").textContent = title || window.t("delete.confirmTitle");
+
+      var html = "";
+      html += '<div class="peek-section" style="text-align:center;padding:var(--space-8) var(--space-6)">';
+      html += '<p style="white-space:pre-line;font-size:14px;color:var(--text-secondary);margin-bottom:var(--space-6)">' + esc(message || "") + '</p>';
+      html += '<div style="display:flex;gap:var(--space-4);justify-content:center">';
+      html += '<button class="btn btn-secondary" id="confirm-cancel-btn">' + window.t("common.cancel") + '</button>';
+      html += '<button class="btn btn-danger" id="confirm-ok-btn">' + window.t("common.confirm") + '</button>';
+      html += '</div></div>';
+
+      if (peekBody) peekBody.innerHTML = html;
+
+      /* Bind buttons */
+      var okBtn = document.getElementById("confirm-ok-btn");
+      var cancelBtn = document.getElementById("confirm-cancel-btn");
+      if (okBtn) okBtn.addEventListener("click", function() { _closeConfirmDialog(true); });
+      if (cancelBtn) cancelBtn.addEventListener("click", function() { _closeConfirmDialog(false); });
+    });
+  }
+
+  function _closeConfirmDialog(result) {
+    var peekBody = document.getElementById("peek-body");
+    /* Restore previous content if cancelled */
+    if (!result && _prevPeekContent && peekBody) {
+      peekBody.innerHTML = _prevPeekContent;
+      /* Re-bind detail view buttons */
+      if (state._detailCache && !state.isEditing) {
+        renderMemoryDetailView(state._detailCache);
+      }
+    }
+    _prevPeekContent = null;
+
+    if (_confirmResolve) {
+      _confirmResolve(!!result);
+      _confirmResolve = null;
+    }
+  }
+
+  /* No init needed — buttons are bound fresh each time in showConfirmDialog */
+
   /* ================================================================
      Sidebar / Routing
      ================================================================ */
@@ -239,6 +309,10 @@
   }
 
   function closePeek() {
+    /* If a confirm dialog is pending, cancel it first */
+    if (_confirmResolve) {
+      _closeConfirmDialog(false);
+    }
     var panel = document.getElementById("peek-panel");
     panel.classList.remove("visible", "wide");
     document.getElementById("peek-overlay").classList.remove("visible");
@@ -888,7 +962,11 @@
 
   async function deleteSingleMemory(id) {
     if (!id) return;
-    if (!window.confirm(window.t("delete.confirmMsg", 1))) {
+    var confirmed = await showConfirmDialog(
+      window.t("delete.confirmTitle"),
+      window.t("delete.confirmMsg", 1)
+    );
+    if (!confirmed) {
       showToast(window.t("delete.cancelled"));
       return;
     }
@@ -910,7 +988,11 @@
       if (!isNaN(id)) ids.push(id);
     });
     if (!ids.length) return;
-    if (!window.confirm(window.t("delete.confirmMsg", ids.length))) {
+    var confirmed = await showConfirmDialog(
+      window.t("delete.confirmTitle"),
+      window.t("delete.confirmMsg", ids.length)
+    );
+    if (!confirmed) {
       showToast(window.t("delete.cancelled"));
       return;
     }
