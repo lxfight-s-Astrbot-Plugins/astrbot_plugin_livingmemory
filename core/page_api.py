@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -93,6 +95,18 @@ class PluginPageApi:
             self.list_backups,
             ["GET"],
             "LivingMemory Page backup list",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/theme",
+            self.get_theme,
+            ["GET"],
+            "LivingMemory Page theme preference",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/theme",
+            self.set_theme,
+            ["POST"],
+            "LivingMemory Page set theme preference",
         )
 
     async def get_stats(self):
@@ -1202,3 +1216,80 @@ class PluginPageApi:
             return self._ok({"backups": [], "total": 0})
         backups = BackupManager.list_backups(data_dir)
         return self._ok({"backups": backups, "total": len(backups)})
+
+    # ------------------------------------------------------------------
+    # Theme preference
+    # ------------------------------------------------------------------
+
+    async def _load_user_prefs(self) -> dict[str, Any]:
+        """Load user preferences from JSON file in data_dir."""
+        data_dir = (
+            self.plugin.initializer.data_dir
+            if self.plugin.initializer
+            else ""
+        )
+        if not data_dir:
+            return {}
+        prefs_file = Path(data_dir) / "user_prefs.json"
+        if not prefs_file.exists():
+            return {}
+        try:
+            try:
+                import aiofiles
+            except ImportError:
+                content = await asyncio.to_thread(
+                    prefs_file.read_text,
+                    encoding="utf-8",
+                )
+            else:
+                async with aiofiles.open(prefs_file, encoding="utf-8") as f:
+                    content = await f.read()
+            return json.loads(content)
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    async def _save_user_prefs(self, prefs: dict[str, Any]) -> None:
+        """Save user preferences to JSON file in data_dir."""
+        data_dir = (
+            self.plugin.initializer.data_dir
+            if self.plugin.initializer
+            else ""
+        )
+        if not data_dir:
+            return
+        data_dir_path = Path(data_dir)
+        try:
+            data_dir_path.mkdir(parents=True, exist_ok=True)
+            prefs_file = data_dir_path / "user_prefs.json"
+            content = json.dumps(prefs, ensure_ascii=False)
+            try:
+                import aiofiles
+            except ImportError:
+                await asyncio.to_thread(
+                    prefs_file.write_text,
+                    content,
+                    encoding="utf-8",
+                )
+            else:
+                async with aiofiles.open(
+                    prefs_file, "w", encoding="utf-8"
+                ) as f:
+                    await f.write(content)
+        except OSError as e:
+            logger.error(f"[PageAPI] 保存用户偏好失败: {e}")
+
+    async def get_theme(self):
+        """Return the user's saved theme preference."""
+        prefs = await self._load_user_prefs()
+        return self._ok({"theme": prefs.get("theme")})
+
+    async def set_theme(self):
+        """Save the user's theme preference."""
+        payload = await request.get_json(silent=True) or {}
+        theme = str(payload.get("theme", "")).strip()
+        if theme not in ("dark", "light"):
+            return self._error("主题必须是 dark 或 light")
+        prefs = await self._load_user_prefs()
+        prefs["theme"] = theme
+        await self._save_user_prefs(prefs)
+        return self._ok({"theme": theme})

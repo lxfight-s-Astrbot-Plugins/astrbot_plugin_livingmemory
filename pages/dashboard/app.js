@@ -26,6 +26,8 @@
     pendingSearch: null,
   };
 
+  var _userThemeSet = false;
+
   /* ================================================================
      Bridge Helpers
      ================================================================ */
@@ -90,10 +92,21 @@
   /* ================================================================
      Theme
      ================================================================ */
-  function readTheme() {
+  async function readTheme() {
+    try {
+      var resp = await apiRequest("theme");
+      var data = unwrapApiData(resp);
+      if (data && (data.theme === "dark" || data.theme === "light")) {
+        _userThemeSet = true;
+        return data.theme;
+      }
+    } catch (_) {}
     try {
       var stored = localStorage.getItem("lmem_theme");
-      if (stored) return stored;
+      if (stored) {
+        _userThemeSet = true;
+        return stored;
+      }
     } catch (_) {}
     try {
       var bridge = window.AstrBotPluginPage;
@@ -121,6 +134,8 @@
     var current = document.documentElement.getAttribute("data-theme") || "light";
     var next = current === "light" ? "dark" : "light";
     applyTheme(next);
+    _userThemeSet = true;
+    apiRequest("theme", {method: "POST", body: {theme: next}}).catch(function(){});
     try { localStorage.setItem("lmem_theme", next); } catch (_) {}
     showToast(window.t(next === "dark" ? "theme.darkToast" : "theme.lightToast"));
   }
@@ -131,9 +146,7 @@
       if (!bridge || typeof bridge.onContext !== "function") return;
       bridge.onContext(function(ctx) {
         if (!ctx || typeof ctx.isDark !== "boolean") return;
-        try {
-          if (localStorage.getItem("lmem_theme")) return;
-        } catch (_) {}
+        if (_userThemeSet) return;
         var t = ctx.isDark ? "dark" : "light";
         if (t !== (document.documentElement.getAttribute("data-theme") || "light")) {
           applyTheme(t);
@@ -1241,7 +1254,8 @@
      Init
      ================================================================ */
   async function init() {
-    applyTheme(readTheme());
+    var theme = await readTheme();
+    applyTheme(theme);
     listenBridgeTheme();
 
     var bridge = window.AstrBotPluginPage;
