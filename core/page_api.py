@@ -418,15 +418,14 @@ class PluginPageApi:
                 logger.error(f"[PageAPI] 更新记忆内容失败: {exc}", exc_info=True)
                 return self._error(str(exc))
 
-            return {
-                "status": "ok",
-                "data": {
+            return self._ok(
+                {
                     "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
                     "old_memory_id": memory_id,
                     "new_memory_id": new_memory_id,
                     "field": field,
-                },
-            }
+                }
+            )
 
         updates: dict[str, Any] = {}
         old_value_for_history: Any
@@ -488,14 +487,13 @@ class PluginPageApi:
         if not success:
             return self._error("更新失败")
 
-        return {
-            "status": "ok",
-            "data": {
+        return self._ok(
+            {
                 "message": f"记忆 {memory_id} 的 {field} 已更新",
                 "memory_id": memory_id,
                 "field": field,
-            },
-        }
+            }
+        )
 
     async def batch_delete_memories(self):
         ready, error = await self._ensure_plugin_ready()
