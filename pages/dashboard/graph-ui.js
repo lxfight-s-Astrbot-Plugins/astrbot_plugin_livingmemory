@@ -346,7 +346,7 @@
         memory_id: memoryId,
         summary: memory.summary || memory.content || "",
         content: memory.content || memory.summary || "",
-        memory_type: memory.type || "",
+        memory_type: memory.memory_type || "",
         importance: memory.importance,
         status: memory.status || "active",
         raw: memory,
