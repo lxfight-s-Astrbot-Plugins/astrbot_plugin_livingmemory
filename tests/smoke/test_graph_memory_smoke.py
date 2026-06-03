@@ -186,9 +186,9 @@ async def test_smoke_event_recall_injects_memory_into_prompt(tmp_path: Path):
             get_persona.return_value = PERSONA_ID
             await handler.handle_memory_recall(_make_event("alice"), req)
 
-        # 记忆已通过 req.prompt 字符串拼接方式注入
-        assert "<RAG-Faiss-Memory>" in req.prompt
-        assert "project sync record" in req.prompt
+        assert len(req.extra_user_content_parts) == 1
+        assert "<RAG-Faiss-Memory>" in req.extra_user_content_parts[0].text
+        assert "project sync record" in req.extra_user_content_parts[0].text
         conversation_manager.add_message_from_event.assert_awaited_once()
     finally:
         await _settle_background_tasks()

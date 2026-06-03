@@ -116,7 +116,7 @@ async def test_message_dedup_cache_works(handler):
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_injects_extra_user_content(handler, memory_engine):
-    """extra_user_content 注入方式：记忆应追加到 req.prompt（字符串拼接方式）。"""
+    """extra_user_content 注入方式：记忆应追加到 extra_user_content_parts 并标记为临时消息。"""
     event = _make_event(group=False)
     req = _make_req("query text")
     recalled = Mock(content="mem1", final_score=0.7, metadata={"importance": 0.9})
@@ -130,9 +130,10 @@ async def test_handle_memory_recall_injects_extra_user_content(handler, memory_e
         await handler.handle_memory_recall(event, req)
 
     memory_engine.search_memories.assert_awaited_once()
-    # 记忆已通过 req.prompt 字符串拼接方式注入
-    assert "<RAG-Faiss-Memory>" in req.prompt
-    assert "mem1" in req.prompt
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
     # system_prompt 不应被修改
     assert req.system_prompt == ""
 
@@ -1296,10 +1297,11 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
         get_persona.return_value = "persona_1"
         await h.handle_memory_recall(event, req)
 
-    # system_prompt 已废弃，应自动回退到 extra_user_content（注入到 req.prompt）
+    # system_prompt 已废弃，应自动回退到 extra_user_content（注入到 extra_user_content_parts）
     assert req.system_prompt == ""
-    assert "<RAG-Faiss-Memory>" in req.prompt
-    assert "mem_fallback" in req.prompt
+    assert len(req.extra_user_content_parts) == 1
+    assert "mem_fallback" in req.extra_user_content_parts[0].text
+    assert getattr(req.extra_user_content_parts[0], "_no_save", False) is True
 
 
 # ==================== 上下文扩展测试 ====================
