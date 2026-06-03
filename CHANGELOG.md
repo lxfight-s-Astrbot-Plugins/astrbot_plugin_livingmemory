@@ -10,9 +10,7 @@
 ## [2.3.4] - 2026-06-02
 
 ### 修复
-- **#166 上下文压缩器 JSON 序列化崩溃**: 修复 `Object of type TextPart is not JSON serializable` 错误
-  - 根本原因：插件通过 `extra_user_content_parts` 注入的 `TextPart` 对象在上下文压缩时被 `json.dumps` 调用，Pydantic 模型无法序列化
-  - 修复方案：改为 `req.prompt` 字符串拼接注入，避免创建不可序列化的 `ContentPart` 对象
+- **#166 排查确认**: TextPart 序列化崩溃非 LivingMemory 导致，而是其他插件（如 llmperception）注入 TextPart 引起。`mark_as_temp()` 标记的 TextPart 在 `dump_messages_with_checkpoints()` 中被过滤不落地，不会进入上下文压缩器。保持原有 `extra_user_content_parts` + `TextPart.mark_as_temp()` 注入方式不变。
 - **系统概览页重要性分布图始终为空**: `get_statistics()` 遍历了全部文档却未对重要性分桶，现在在批次处理循环中按 0-10 分 10 档统计
 - **系统概览页原子计数始终为 0**: `AtomStore` 缺少 `count_atoms()` 方法导致 `AttributeError` 被静默吞掉，现已新增该方法
 - **系统概览页原子类型分布图始终为空**: 新增 `AtomStore.count_by_type()` 方法（SQL GROUP BY atom_type），修复 per-type 统计缺失
@@ -28,9 +26,8 @@
 - **配置项 `enable_full_group_capture` 缺失**: `_conf_schema.json` 中未暴露该字段，用户无法在 WebUI 配置
 
 ### 变更
-- **配置描述更新**: `injection_method` 提示移除关于"不影响前缀缓存"的不准确描述（#166 修复后改为字符串注入）
 - `page_api.update_memory` 统一使用 `self._ok()` 返回格式
-- 更新 11 个测试文件以匹配新的 `req.prompt` 注入行为和 `_enforce_message_limit` mock 规范
+- 更新测试文件以匹配注入行为变更
 
 ## [2.3.3] - 2026-06-02
 
