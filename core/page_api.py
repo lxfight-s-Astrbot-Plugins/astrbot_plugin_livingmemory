@@ -240,30 +240,28 @@ class PluginPageApi:
 
         where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-        if sort_field == "importance":
-            sort_expr = (
+        sort_exprs = {
+            "importance": (
                 "COALESCE("
                 "CASE WHEN json_valid(metadata) "
                 "THEN CAST(json_extract(metadata, '$.importance') AS REAL) END,"
                 "5)"
-            )
-        elif sort_field == "id":
-            sort_expr = "CAST(id AS REAL)"
-        elif sort_field == "created_at":
-            sort_expr = (
-                "COALESCE("
-                "CASE WHEN json_valid(metadata) "
-                "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
-                "0)"
-            )
-        else:
-            sort_expr = (
-                "COALESCE("
-                "CASE WHEN json_valid(metadata) "
-                "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
-                "0)"
-            )
+            ),
+            "id": "CAST(id AS INTEGER)",
+        }
+
+        if sort_field is None:
             sort_order = "desc"
+
+        sort_expr = sort_exprs.get(
+            sort_field,
+            (
+                "COALESCE("
+                "CASE WHEN json_valid(metadata) "
+                "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
+                "0)"
+            ),
+        )
 
         order_sql = "ASC" if sort_order == "asc" else "DESC"
 
