@@ -56,7 +56,7 @@ class RecallEngineConfig(BaseModel):
         default="extra_user_content",
         description=(
             "记忆注入方式: "
-            "extra_user_content(推荐，追加到用户消息末尾), "
+            "extra_user_content(推荐，临时消息追加到用户消息末尾，不影响前缀缓存且不污染对话历史), "
             "user_message_before(用户消息前), "
             "user_message_after(用户消息后), "
             "fake_tool_call(伪造工具调用), "

@@ -355,12 +355,13 @@ class EventHandler:
                                 f"{len(recalled_memories)} 条记忆"
                             )
                     else:
-                        # extra_user_content（推荐）：
-                        # 由于 AstrBot 上下文压缩器在反序列化 ContentPart 后
-                        # json.dumps 无法序列化 TextPart 对象（TypeError），
-                        # 此处改为直接追加到 req.prompt 以规避框架问题。
-                        # 参见: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/166
-                        req.prompt = (req.prompt or "") + "\n\n" + memory_str
+                        # extra_user_content（推荐）：追加到用户消息末尾，
+                        # 不影响前缀缓存且 mark_as_temp 后不污染对话历史
+                        from astrbot.core.agent.message import TextPart
+
+                        req.extra_user_content_parts.append(
+                            TextPart(text=memory_str).mark_as_temp()
+                        )
                         logger.info(
                             f"[{session_id}] 成功向用户消息末尾注入 "
                             f"{len(recalled_memories)} 条记忆"
