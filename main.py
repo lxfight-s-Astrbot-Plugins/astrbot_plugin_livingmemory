@@ -94,7 +94,7 @@ class LivingMemoryPlugin(Star):
         self.context = context
 
         # 获取插件数据目录
-        data_dir = str(StarTools.get_data_dir())
+        data_dir = str(StarTools.get_data_dir("astrbot_plugin_livingmemory"))
 
         # 版本变更时自动备份数据（延迟到异步初始化阶段执行，避免 __init__ 中同步 I/O 阻塞）
         self._backup_manager = BackupManager(data_dir)
