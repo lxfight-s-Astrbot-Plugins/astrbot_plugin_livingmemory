@@ -5,15 +5,13 @@ main.py - LivingMemory 插件主文件
 
 import asyncio
 import re
-import weakref
 from collections.abc import AsyncGenerator
 from importlib import metadata as importlib_metadata
 from typing import Any
 
-from astrbot.api import logger, sp
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
-from astrbot.api.event.filter import CustomFilter, PermissionType, permission_type
-from astrbot.api.platform import MessageType
+from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
 
@@ -23,13 +21,16 @@ from .core.event_handler import EventHandler
 from .core.i18n_backend import init as i18n_init
 from .core.i18n_backend import t
 from .core.managers.backup_manager import BackupManager
+from .core.passive_group_capture import PassiveGroupCaptureFilter
+from .core.passive_group_capture import get_active_plugin
+from .core.passive_group_capture import is_plugin_enabled_for_session
+from .core.passive_group_capture import is_session_enabled
+from .core.passive_group_capture import set_active_plugin
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import MemoryMemorizeTool, MemorySearchTool
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
 _ASTRBOT_DISTRIBUTION_NAMES = ("AstrBot", "astrbot")
-_SESSION_PLUGIN_NAMES = ("LivingMemory", "astrbot_plugin_livingmemory")
-_ACTIVE_PLUGIN_REF: weakref.ReferenceType | None = None
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
@@ -83,90 +84,6 @@ elif _version_lt(_CURRENT_ASTRBOT_VERSION, _MIN_ASTRBOT_VERSION):
     )
 
 
-def _set_active_plugin(plugin) -> None:
-    """Track the active plugin instance for passive filter side effects."""
-    global _ACTIVE_PLUGIN_REF
-    _ACTIVE_PLUGIN_REF = weakref.ref(plugin) if plugin is not None else None
-
-
-def _get_active_plugin():
-    if _ACTIVE_PLUGIN_REF is None:
-        return None
-    return _ACTIVE_PLUGIN_REF()
-
-
-class PassiveGroupCaptureFilter(CustomFilter):
-    """Schedule group-message capture without waking AstrBot's message pipeline."""
-
-    def __init__(self, raise_error: bool = True, plugin=None, **kwargs) -> None:
-        if not isinstance(raise_error, bool) and plugin is None:
-            plugin = raise_error
-            raise_error = True
-        super().__init__(raise_error=raise_error, **kwargs)
-        self._plugin_ref = weakref.ref(plugin) if plugin is not None else None
-
-    def _get_plugin(self):
-        if self._plugin_ref is not None:
-            return self._plugin_ref()
-        return _get_active_plugin()
-
-    @staticmethod
-    def _passes_global_whitelist(event: AstrMessageEvent, cfg) -> bool:
-        platform_settings = (
-            cfg.get("platform_settings", {}) if isinstance(cfg, dict) else {}
-        )
-        if not platform_settings.get("enable_id_white_list", False):
-            return True
-
-        whitelist = [
-            str(item).strip()
-            for item in platform_settings.get("id_whitelist", [])
-            if str(item).strip()
-        ]
-        if not whitelist or event.get_platform_name() == "webchat":
-            return True
-
-        if platform_settings.get("wl_ignore_admin_on_group", False):
-            try:
-                if (
-                    getattr(event, "role", None) == "admin"
-                    and event.get_message_type() == MessageType.GROUP_MESSAGE
-                ):
-                    return True
-            except Exception:
-                pass
-
-        try:
-            group_id = str(event.get_group_id()).strip()
-        except Exception:
-            group_id = ""
-
-        return event.unified_msg_origin in whitelist or group_id in whitelist
-
-    def filter(self, event: AstrMessageEvent, cfg) -> bool:
-        plugin = self._get_plugin()
-        if not plugin or getattr(plugin, "_terminating", False) is True:
-            return False
-        if not plugin.initializer.is_initialized:
-            return False
-        if not plugin.config_manager.get(
-            "session_manager.enable_full_group_capture", True
-        ):
-            return False
-        try:
-            if event.get_message_type() != MessageType.GROUP_MESSAGE:
-                return False
-        except Exception as exc:
-            logger.debug(f"LivingMemory 被动群消息捕获类型检查失败: {exc}")
-            return False
-
-        if not self._passes_global_whitelist(event, cfg):
-            return False
-
-        plugin._schedule_passive_group_capture(event)
-        return False
-
-
 @register(
     "LivingMemory",
     "lxfight",
@@ -207,7 +124,7 @@ class LivingMemoryPlugin(Star):
         self._terminating = False
 
         self.page_api = None
-        _set_active_plugin(self)
+        set_active_plugin(self)
 
         self._register_official_page_api_if_available()
 
@@ -343,56 +260,15 @@ class LivingMemoryPlugin(Star):
             return
         self._create_tracked_task(self._run_passive_group_capture(event))
 
-    async def _is_session_enabled(self, session_id: str) -> bool:
-        """Mirror AstrBot's session-level shutdown check for passive capture."""
-        try:
-            session_services = await sp.get_async(
-                scope="umo",
-                scope_id=session_id,
-                key="session_service_config",
-                default={},
-            )
-        except Exception as exc:
-            logger.debug(f"[{session_id}] 读取会话总开关失败，默认允许捕获: {exc}")
-            return True
-
-        if not isinstance(session_services, dict):
-            return True
-        session_enabled = session_services.get("session_enabled")
-        return True if session_enabled is None else bool(session_enabled)
-
-    async def _is_enabled_for_session(self, session_id: str) -> bool:
-        """Mirror AstrBot session-level plugin disable checks for passive capture."""
-        try:
-            session_plugin_config = await sp.get_async(
-                scope="umo",
-                scope_id=session_id,
-                key="session_plugin_config",
-                default={},
-            )
-        except Exception as exc:
-            logger.debug(f"[{session_id}] 读取会话插件开关失败，默认允许捕获: {exc}")
-            return True
-
-        if not isinstance(session_plugin_config, dict):
-            return True
-        session_config = session_plugin_config.get(session_id, {})
-        if not isinstance(session_config, dict):
-            return True
-        disabled_plugins = session_config.get("disabled_plugins", [])
-        if not isinstance(disabled_plugins, list):
-            return True
-        return not any(name in disabled_plugins for name in _SESSION_PLUGIN_NAMES)
-
     async def _run_passive_group_capture(self, event: AstrMessageEvent) -> None:
         try:
-            if not await self._is_session_enabled(event.unified_msg_origin):
+            if not await is_session_enabled(event.unified_msg_origin):
                 logger.debug(
                     f"[{event.unified_msg_origin}] 当前会话已关闭，"
                     "跳过被动群聊消息捕获"
                 )
                 return
-            if not await self._is_enabled_for_session(event.unified_msg_origin):
+            if not await is_plugin_enabled_for_session(event.unified_msg_origin):
                 logger.debug(
                     f"[{event.unified_msg_origin}] LivingMemory 已在当前会话禁用，"
                     "跳过被动群聊消息捕获"
@@ -695,8 +571,8 @@ class LivingMemoryPlugin(Star):
         """Cleanup logic when plugin stops"""
         logger.info("LivingMemory 插件正在停止...")
         self._terminating = True
-        if _get_active_plugin() is self:
-            _set_active_plugin(None)
+        if get_active_plugin() is self:
+            set_active_plugin(None)
 
         # 取消所有后台任务
         if self._background_tasks:

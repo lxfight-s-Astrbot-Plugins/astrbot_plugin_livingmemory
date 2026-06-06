@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from astrbot.api.platform import MessageType
 
-from astrbot_plugin_livingmemory.main import PassiveGroupCaptureFilter
+from astrbot_plugin_livingmemory.core.passive_group_capture import (
+    PassiveGroupCaptureFilter,
+    is_plugin_enabled_for_session,
+    is_session_enabled,
+)
 
 
 class AlwaysPassFilter:
@@ -155,11 +159,13 @@ def test_passive_group_capture_filter_allows_whitelisted_group():
 
 
 def test_passive_group_capture_filter_real_registration_constructor_uses_active_plugin():
-    from astrbot_plugin_livingmemory.main import _set_active_plugin
+    from astrbot_plugin_livingmemory.core.passive_group_capture import (
+        set_active_plugin,
+    )
 
     plugin = _make_plugin()
     event = _make_event()
-    _set_active_plugin(plugin)
+    set_active_plugin(plugin)
     try:
         filter_ = PassiveGroupCaptureFilter(False)
 
@@ -167,21 +173,13 @@ def test_passive_group_capture_filter_real_registration_constructor_uses_active_
         assert _simulate_waking_check([filter_], event) is False
         plugin._schedule_passive_group_capture.assert_called_once_with(event)
     finally:
-        _set_active_plugin(None)
+        set_active_plugin(None)
 
 
 @pytest.mark.asyncio
 async def test_passive_group_capture_skips_session_disabled_plugin():
-    from astrbot_plugin_livingmemory.main import LivingMemoryPlugin
-
-    plugin = Mock(spec=LivingMemoryPlugin)
-    plugin._is_enabled_for_session = LivingMemoryPlugin._is_enabled_for_session.__get__(
-        plugin,
-        LivingMemoryPlugin,
-    )
-
     with patch(
-        "astrbot_plugin_livingmemory.main.sp.get_async",
+        "astrbot_plugin_livingmemory.core.passive_group_capture.sp.get_async",
         new=AsyncMock(
             return_value={
                 "aiocqhttp:GroupMessage:group-1": {
@@ -191,46 +189,29 @@ async def test_passive_group_capture_skips_session_disabled_plugin():
         ),
     ):
         assert (
-            await plugin._is_enabled_for_session("aiocqhttp:GroupMessage:group-1")
+            await is_plugin_enabled_for_session("aiocqhttp:GroupMessage:group-1")
             is False
         )
 
 
 @pytest.mark.asyncio
 async def test_passive_group_capture_skips_disabled_session():
-    from astrbot_plugin_livingmemory.main import LivingMemoryPlugin
-
-    plugin = Mock(spec=LivingMemoryPlugin)
-    plugin._is_session_enabled = LivingMemoryPlugin._is_session_enabled.__get__(
-        plugin,
-        LivingMemoryPlugin,
-    )
-
     with patch(
-        "astrbot_plugin_livingmemory.main.sp.get_async",
+        "astrbot_plugin_livingmemory.core.passive_group_capture.sp.get_async",
         new=AsyncMock(return_value={"session_enabled": False}),
     ):
         assert (
-            await plugin._is_session_enabled("aiocqhttp:GroupMessage:group-1")
-            is False
+            await is_session_enabled("aiocqhttp:GroupMessage:group-1") is False
         )
 
 
 @pytest.mark.asyncio
 async def test_passive_group_capture_allows_session_without_disable():
-    from astrbot_plugin_livingmemory.main import LivingMemoryPlugin
-
-    plugin = Mock(spec=LivingMemoryPlugin)
-    plugin._is_enabled_for_session = LivingMemoryPlugin._is_enabled_for_session.__get__(
-        plugin,
-        LivingMemoryPlugin,
-    )
-
     with patch(
-        "astrbot_plugin_livingmemory.main.sp.get_async",
+        "astrbot_plugin_livingmemory.core.passive_group_capture.sp.get_async",
         new=AsyncMock(return_value={}),
     ):
         assert (
-            await plugin._is_enabled_for_session("aiocqhttp:GroupMessage:group-1")
+            await is_plugin_enabled_for_session("aiocqhttp:GroupMessage:group-1")
             is True
         )
