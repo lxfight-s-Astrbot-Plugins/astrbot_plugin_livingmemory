@@ -47,7 +47,7 @@ class _TestEvent:
 
 async def _build_plugin(monkeypatch, tmp_path, config: dict | None = None):
     monkeypatch.setattr(plugin_main, "PluginInitializer", _FakeInitializer)
-    monkeypatch.setattr(plugin_main.StarTools, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(plugin_main.StarTools, "get_data_dir", lambda plugin_name: tmp_path)
     plugin = plugin_main.LivingMemoryPlugin(context=Mock(), config=config or {})
     # Flush startup task callback queue to keep task set stable in assertions.
     await asyncio.sleep(0)
