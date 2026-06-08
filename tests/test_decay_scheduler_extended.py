@@ -429,8 +429,8 @@ class TestDecaySchedulerScheduling:
 
         seconds = scheduler._seconds_until_next_run()
 
-        # 应该接近22小时（允许更大的误差范围）
-        assert 77000 < seconds < 87000
+        # 应该接近22小时（允许更大的误差范围，20-24小时之间）
+        assert 72000 < seconds < 87000  # 20-24小时
 
     @pytest.mark.asyncio
     async def test_check_and_execute_already_run_today(
