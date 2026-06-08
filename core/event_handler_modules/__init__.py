@@ -1,8 +1,7 @@
 """
-Event Handler Modules Package
-
-This package contains the modularized components of the EventHandler class.
-Each module handles a specific aspect of event processing.
+EventHandler 模块化子模块
 """
 
-# Exports will be added as we create modules
+from .message_utils import MessageUtils
+
+__all__ = ["MessageUtils"]

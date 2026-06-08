@@ -149,6 +149,6 @@ async def test_extract_message_content_skips_unknown_components() -> None:
     unknown = Mock(type="sticker")
     event.get_messages = Mock(return_value=[Plain("hello"), unknown])
 
-    content = await handler._extract_message_content(event)
+    content = await handler._message_utils.extract_message_content(event)
 
     assert content == "hello"
