@@ -20,7 +20,7 @@ from .base.constants import (
     MEMORY_INJECTION_FOOTER,
     MEMORY_INJECTION_HEADER,
 )
-from .event_handler_modules import MessageUtils
+from .event_handler_modules import GroupCapture, MessageUtils
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
@@ -67,8 +67,11 @@ class EventHandler:
         self.memory_processor = memory_processor
         self.conversation_manager = conversation_manager
 
-        # 初始化 MessageUtils
+        # 初始化子模块
         self._message_utils = MessageUtils(config_manager, conversation_manager)
+        self._group_capture = GroupCapture(
+            config_manager, conversation_manager, self._message_utils
+        )
 
         # 后台存储任务跟踪
         self._storage_tasks: set[asyncio.Task] = set()
@@ -79,64 +82,7 @@ class EventHandler:
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
         """Capture all group messages for memory storage"""
-        # 检查配置
-        if not self.config_manager.get(
-            "session_manager.enable_full_group_capture", True
-        ):
-            return
-
-        # 只处理群聊消息
-        if event.get_message_type() != MessageType.GROUP_MESSAGE:
-            return
-
-        # 群聊中 Bot 自己的消息由 handle_memory_reflection 负责写入，此处跳过
-        # 避免 platform echo 导致 assistant 响应被写入两次
-        if event.get_sender_id() == event.get_self_id():
-            return
-
-        try:
-            session_id = event.unified_msg_origin
-
-            # 检测异常session_id
-            if session_id and (
-                "Error:" in session_id or "error:" in session_id.lower()
-            ):
-                logger.warning(
-                    f"检测到异常的session_id: {session_id}。"
-                    f"这可能是平台适配器初始化问题，建议检查平台配置。"
-                )
-
-            # 获取消息内容
-            content = await self._message_utils.extract_message_content(event)
-            dedup_key = await self._message_utils.build_dedup_key(event, session_id, content)
-
-            # 消息去重
-            if dedup_key and await self._message_utils.is_duplicate_message(dedup_key):
-                logger.debug(f"[{session_id}] 消息已存在,跳过: dedup_key={dedup_key}")
-                return
-
-            # 存储消息到数据库（群聊用户消息，role 固定为 user）
-            await self.conversation_manager.add_message_from_event(
-                event=event,
-                role="user",
-                content=content,
-            )
-            if dedup_key:
-                await self._message_utils.mark_message_processed(dedup_key)
-
-            # 执行消息数量上限控制
-            await self._message_utils.enforce_message_limit(session_id)
-
-            logger.debug(
-                f"[{session_id}] 捕获群聊消息: "
-                f"sender={event.get_sender_name()}({event.get_sender_id()}), "
-                f"content={content[:50]}..."
-            )
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error(f"处理群聊全量消息时发生错误: {e}", exc_info=True)
+        await self._group_capture.handle_all_group_messages(event)
 
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """Query and inject long-term memory before LLM request"""
