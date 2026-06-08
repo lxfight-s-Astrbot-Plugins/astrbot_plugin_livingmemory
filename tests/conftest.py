@@ -91,6 +91,19 @@ def _install_astrbot_stubs() -> None:
         def platform_adapter_type(self, *args, **kwargs):
             return lambda func: func
 
+        def custom_filter(self, *args, **kwargs):
+            return lambda func: func
+
+        def command_group(self, *args, **kwargs):
+            class _CommandGroup:
+                def __call__(self, func):
+                    return self
+
+                def command(self, *cmd_args, **cmd_kwargs):
+                    return lambda func: func
+
+            return _CommandGroup()
+
     class AstrMessageEvent:
         pass
 
@@ -152,11 +165,30 @@ def _install_astrbot_stubs() -> None:
         def __class_getitem__(cls, item):
             return cls
 
+    class TextPart:
+        def __init__(self, text=""):
+            self.text = text
+            self._no_save = False
+
+        def mark_as_temp(self):
+            self._no_save = True
+            return self
+
+        def model_dump_for_context(self):
+            return {"type": "text", "text": self.text}
+
     class AstrAgentContext:
         pass
 
     class AstrBotConfig:
         pass
+
+    class CustomFilter:
+        def __init__(self, raise_error: bool = True, **kwargs):
+            self.raise_error = raise_error
+
+        def filter(self, event, cfg):
+            return True
 
     class EmbeddingProvider:
         pass
@@ -234,6 +266,9 @@ def _install_astrbot_stubs() -> None:
     class PermissionType(Enum):
         ADMIN = "admin"
 
+    class PlatformAdapterType(Enum):
+        ALL = "all"
+
     def permission_type(*args, **kwargs):
         return lambda func: func
 
@@ -253,8 +288,11 @@ def _install_astrbot_stubs() -> None:
     event_mod.AstrMessageEvent = AstrMessageEvent
     event_mod.MessageEventResult = MessageEventResult
     event_mod.filter = _Filter()
+    event_mod.filter.PlatformAdapterType = PlatformAdapterType
 
     event_filter_mod = types.ModuleType("astrbot.api.event.filter")
+    event_filter_mod.CustomFilter = CustomFilter
+    event_filter_mod.PlatformAdapterType = PlatformAdapterType
     event_filter_mod.PermissionType = PermissionType
     event_filter_mod.permission_type = permission_type
 
@@ -282,6 +320,8 @@ def _install_astrbot_stubs() -> None:
     core_faiss_vec_mod.FaissVecDB = FaissVecDB
 
     core_agent_mod = _package("astrbot.core.agent")
+    core_agent_message_mod = types.ModuleType("astrbot.core.agent.message")
+    core_agent_message_mod.TextPart = TextPart
     core_agent_tool_mod = types.ModuleType("astrbot.core.agent.tool")
     core_agent_tool_mod.FunctionTool = FunctionTool
     core_agent_tool_mod.ToolSet = ToolSet
@@ -342,6 +382,7 @@ def _install_astrbot_stubs() -> None:
             "astrbot.core.db.vec_db.faiss_impl": core_faiss_pkg_mod,
             "astrbot.core.db.vec_db.faiss_impl.vec_db": core_faiss_vec_mod,
             "astrbot.core.agent": core_agent_mod,
+            "astrbot.core.agent.message": core_agent_message_mod,
             "astrbot.core.agent.tool": core_agent_tool_mod,
             "astrbot.core.agent.tool_executor": core_agent_executor_mod,
             "astrbot.core.agent.run_context": core_agent_run_context_mod,
@@ -380,6 +421,7 @@ def _install_astrbot_stubs() -> None:
     core_db_mod.vec_db = core_vec_db_mod
     core_vec_db_mod.faiss_impl = core_faiss_pkg_mod
     core_faiss_pkg_mod.vec_db = core_faiss_vec_mod
+    core_agent_mod.message = core_agent_message_mod
     core_agent_mod.tool = core_agent_tool_mod
     core_agent_mod.tool_executor = core_agent_executor_mod
     core_agent_mod.run_context = core_agent_run_context_mod

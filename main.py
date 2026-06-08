@@ -21,6 +21,11 @@ from .core.event_handler import EventHandler
 from .core.i18n_backend import init as i18n_init
 from .core.i18n_backend import t
 from .core.managers.backup_manager import BackupManager
+from .core.passive_group_capture import PassiveGroupCaptureFilter
+from .core.passive_group_capture import get_active_plugin
+from .core.passive_group_capture import is_plugin_enabled_for_session
+from .core.passive_group_capture import is_session_enabled
+from .core.passive_group_capture import set_active_plugin
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import MemoryMemorizeTool, MemorySearchTool
 
@@ -119,6 +124,7 @@ class LivingMemoryPlugin(Star):
         self._terminating = False
 
         self.page_api = None
+        set_active_plugin(self)
 
         self._register_official_page_api_if_available()
 
@@ -248,6 +254,37 @@ class LivingMemoryPlugin(Star):
         # 若用户中途修改 agent_tools 开关，需要重载插件才能生效。
         self._llm_tools_registered = True
 
+    def _schedule_passive_group_capture(self, event: AstrMessageEvent) -> None:
+        """Schedule full group capture from a filter without waking the message."""
+        if self._terminating or not self.initializer.is_initialized:
+            return
+        self._create_tracked_task(self._run_passive_group_capture(event))
+
+    async def _run_passive_group_capture(self, event: AstrMessageEvent) -> None:
+        try:
+            if not await is_session_enabled(event.unified_msg_origin):
+                logger.debug(
+                    f"[{event.unified_msg_origin}] 当前会话已关闭，"
+                    "跳过被动群聊消息捕获"
+                )
+                return
+            if not await is_plugin_enabled_for_session(event.unified_msg_origin):
+                logger.debug(
+                    f"[{event.unified_msg_origin}] LivingMemory 已在当前会话禁用，"
+                    "跳过被动群聊消息捕获"
+                )
+                return
+            if not await self._ensure_runtime_components():
+                logger.debug("插件组件未就绪，跳过被动群聊消息捕获")
+                return
+            if not self.event_handler:
+                return
+            await self.event_handler.handle_all_group_messages(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"被动群聊消息捕获失败: {e}", exc_info=True)
+
     async def _ensure_plugin_ready(self) -> tuple[bool, str]:
         """确保插件已完成初始化并且运行期组件可用"""
         if not await self.initializer.ensure_initialized():
@@ -283,20 +320,12 @@ class LivingMemoryPlugin(Star):
 
     # ==================== 事件钩子 ====================
 
-    @filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
+    @filter.custom_filter(PassiveGroupCaptureFilter, False)
     async def handle_all_group_messages(self, event: AstrMessageEvent):
-        """[Event Hook] Capture all group messages for memory storage"""
-        if not self.initializer.is_initialized:
-            return
-
-        if not await self._ensure_runtime_components():
-            logger.debug("插件组件未就绪，跳过群聊消息捕获")
-            return
-
-        if not self.event_handler:
-            return
-
-        await self.event_handler.handle_all_group_messages(event)
+        """[Passive Filter Hook] Capture group messages without waking AstrBot."""
+        # PassiveGroupCaptureFilter schedules the capture task and always returns
+        # False, so AstrBot will not invoke this handler or mark the event as wake.
+        return
 
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -542,6 +571,8 @@ class LivingMemoryPlugin(Star):
         """Cleanup logic when plugin stops"""
         logger.info("LivingMemory 插件正在停止...")
         self._terminating = True
+        if get_active_plugin() is self:
+            set_active_plugin(None)
 
         # 取消所有后台任务
         if self._background_tasks:
