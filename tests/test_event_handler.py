@@ -25,6 +25,7 @@ def memory_processor():
     processor.process_conversation = AsyncMock(
         return_value=("summary", {"topics": ["t1"]}, 0.6)
     )
+    processor.classify_atoms_from_metadata = Mock(return_value=[])
     return processor
 
 
@@ -109,9 +110,9 @@ def _make_event(group: bool = False):
 @pytest.mark.asyncio
 async def test_message_dedup_cache_works(handler):
     key = "id:123"
-    assert await handler._is_duplicate_message(key) is False
-    await handler._mark_message_processed(key)
-    assert await handler._is_duplicate_message(key) is True
+    assert await handler._message_utils.is_duplicate_message(key) is False
+    await handler._message_utils.mark_message_processed(key)
+    assert await handler._message_utils.is_duplicate_message(key) is True
 
 
 @pytest.mark.asyncio
@@ -163,7 +164,7 @@ async def test_handle_memory_reflection_triggers_storage_task(
     resp = _make_resp("assistant answer")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -214,7 +215,7 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
     conversation_manager.get_session_metadata = AsyncMock(return_value=80)
     conversation_manager.store.trim_session_messages = AsyncMock(return_value=20)
 
-    await handler._enforce_message_limit("test:private:sid-1")
+    await handler._message_utils.enforce_message_limit("test:private:sid-1")
 
     conversation_manager.store.trim_session_messages.assert_awaited_once_with(
         "test:private:sid-1", 20
@@ -403,7 +404,7 @@ async def test_storage_task_writes_source_window(
 
     memory_engine.add_memory = AsyncMock(side_effect=_capture_add_memory)
 
-    await handler._storage_task(
+    await handler._memory_reflection._storage_task(
         session_id="s1",
         history_messages=messages,
         persona_id="p1",
@@ -444,7 +445,7 @@ async def test_storage_task_skips_when_already_summarized(
         )
     ]
 
-    await handler._storage_task(
+    await handler._memory_reflection._storage_task(
         session_id="s1",
         history_messages=messages,
         persona_id=None,
@@ -759,7 +760,7 @@ async def test_remove_fake_tool_call_from_context(handler):
         {"role": "user", "content": "最近怎么样"},
     ]
 
-    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+    removed = handler._memory_recall._remove_fake_tool_call_from_context(req, "test-session")
 
     # 应删除 2 条伪造消息
     assert removed == 2
@@ -798,7 +799,7 @@ async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
         },
     ]
 
-    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+    removed = handler._memory_recall._remove_fake_tool_call_from_context(req, "test-session")
 
     # 不应删除任何消息
     assert removed == 0
