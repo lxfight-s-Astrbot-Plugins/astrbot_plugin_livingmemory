@@ -759,7 +759,7 @@ async def test_remove_fake_tool_call_from_context(handler):
         {"role": "user", "content": "最近怎么样"},
     ]
 
-    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+    removed = handler._memory_recall._remove_fake_tool_call_from_context(req, "test-session")
 
     # 应删除 2 条伪造消息
     assert removed == 2
@@ -798,7 +798,7 @@ async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
         },
     ]
 
-    removed = handler._remove_fake_tool_call_from_context(req, "test-session")
+    removed = handler._memory_recall._remove_fake_tool_call_from_context(req, "test-session")
 
     # 不应删除任何消息
     assert removed == 0
