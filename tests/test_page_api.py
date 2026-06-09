@@ -121,17 +121,27 @@ def _mock_page_request(**overrides):
 def _patch_page_request(req: MagicMock):
     """Temporarily replace ``page_api.request`` with *req*."""
     import astrbot_plugin_livingmemory.core.page_api as mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler as memory_mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.recall_handler as recall_mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.graph_handler as graph_mod
 
-    ns = vars(mod)
-    old = ns.get("request")
-    ns["request"] = req
+    # Patch all modules that use request
+    modules = [mod, memory_mod, recall_mod, graph_mod]
+    old_values = []
+
+    for module in modules:
+        ns = vars(module)
+        old_values.append((ns, ns.get("request")))
+        ns["request"] = req
+
     try:
         yield
     finally:
-        if old is not None:
-            ns["request"] = old
-        else:
-            ns.pop("request", None)
+        for ns, old in old_values:
+            if old is not None:
+                ns["request"] = old
+            else:
+                ns.pop("request", None)
 
 
 # Alias for brevity in tests
@@ -149,26 +159,41 @@ def _qp(req=None, **kw):
 
 class TestResponseHelpers:
     def test_ok_returns_status_format(self):
-        result = PluginPageApi._ok({"items": [1, 2]})
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        result = utils.ok({"items": [1, 2]})
         assert result == {"status": "ok", "data": {"items": [1, 2]}}
 
     def test_ok_defaults_to_none_data(self):
-        result = PluginPageApi._ok()
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        result = utils.ok()
         assert result == {"status": "ok", "data": None}
 
     def test_error_returns_status_format(self):
-        result = PluginPageApi._error("something went wrong")
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        result = utils.error("something went wrong")
         assert result == {"status": "error", "message": "something went wrong"}
 
     def test_error_converts_non_string(self):
-        result = PluginPageApi._error(ValueError("boom"))
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        result = utils.error(ValueError("boom"))
         assert result["status"] == "error"
         assert "boom" in result["message"]
 
 
 class TestNumberHelpers:
     def test_importance_to_display_handles_non_numeric_values(self):
-        assert PluginPageApi._importance_to_display("default") == 5.0
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        assert utils.importance_to_display("default") == 5.0
 
 
 class TestNormalizeMetadata:
@@ -185,43 +210,67 @@ class TestNormalizeMetadata:
         ],
     )
     def test_normalize_metadata(self, raw, expected):
-        assert PluginPageApi._normalize_metadata(raw) == expected
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        assert utils.normalize_metadata(raw) == expected
 
 
 class TestTokenizeGraphQuery:
     def test_empty_query(self):
-        assert PluginPageApi._tokenize_graph_query("") == []
-        assert PluginPageApi._tokenize_graph_query("   ") == []
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        assert utils.tokenize_graph_query("") == []
+        assert utils.tokenize_graph_query("   ") == []
 
     def test_english_query(self):
-        tokens = PluginPageApi._tokenize_graph_query("machine learning")
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        tokens = utils.tokenize_graph_query("machine learning")
         assert "machine" in tokens
         assert "learning" in tokens
 
     def test_chinese_query(self):
-        tokens = PluginPageApi._tokenize_graph_query("人工智能发展")
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        tokens = utils.tokenize_graph_query("人工智能发展")
         assert len(tokens) >= 1
 
     def test_short_tokens_filtered(self):
-        tokens = PluginPageApi._tokenize_graph_query("a b c d")
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        tokens = utils.tokenize_graph_query("a b c d")
         assert all(len(t) >= 2 for t in tokens)
 
     def test_caps_returns_at_most_12(self):
-        tokens = PluginPageApi._tokenize_graph_query(
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        tokens = utils.tokenize_graph_query(
             "a b c d e f g h i j k l m n o p q r s t u v w x y z"
         )
         assert len(tokens) <= 12
 
     def test_mixed_chinese_english(self):
-        tokens = PluginPageApi._tokenize_graph_query("AI and 机器学习")
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        tokens = utils.tokenize_graph_query("AI and 机器学习")
         assert len(tokens) >= 1
 
 
 class TestBuildGraphViewPayload:
     def test_basic_structure(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         snapshot = {"nodes": [], "edges": [], "entries": [], "memories": []}
         stats = {"graph_nodes": 0, "graph_edges": 0, "graph_entries": 0}
-        result = PluginPageApi._build_graph_view_payload(
+        result = utils.build_graph_view_payload(
             snapshot,
             stats,
             enabled=True,
@@ -235,6 +284,9 @@ class TestBuildGraphViewPayload:
         assert "retrieval" in result
 
     def test_nodes_get_highlighted(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         snapshot = {
             "nodes": [
                 {"id": 1, "type": "topic", "weight": 0.8, "degree": 3, "label": "AI"}
@@ -244,7 +296,7 @@ class TestBuildGraphViewPayload:
             "memories": [],
         }
         stats = {"graph_nodes": 1, "graph_edges": 0, "graph_entries": 0}
-        result = PluginPageApi._build_graph_view_payload(
+        result = utils.build_graph_view_payload(
             snapshot,
             stats,
             enabled=True,
@@ -255,6 +307,9 @@ class TestBuildGraphViewPayload:
         assert result["snapshot"]["nodes"][0]["highlighted"] is True
 
     def test_top_nodes_sorted_by_weight(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         snapshot = {
             "nodes": [
                 {"id": 1, "type": "topic", "weight": 0.3, "degree": 1, "label": "B"},
@@ -265,7 +320,7 @@ class TestBuildGraphViewPayload:
             "memories": [],
         }
         stats = {"graph_nodes": 2, "graph_edges": 0, "graph_entries": 0}
-        result = PluginPageApi._build_graph_view_payload(
+        result = utils.build_graph_view_payload(
             snapshot,
             stats,
             enabled=True,
@@ -276,6 +331,9 @@ class TestBuildGraphViewPayload:
         assert top[0]["id"] == 2  # higher weight first
 
     def test_node_type_breakdown(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         snapshot = {
             "nodes": [
                 {"id": 1, "type": "topic"},
@@ -287,7 +345,7 @@ class TestBuildGraphViewPayload:
             "memories": [],
         }
         stats = {"graph_nodes": 3, "graph_edges": 0, "graph_entries": 0}
-        result = PluginPageApi._build_graph_view_payload(
+        result = utils.build_graph_view_payload(
             snapshot,
             stats,
             enabled=True,
@@ -299,6 +357,9 @@ class TestBuildGraphViewPayload:
         assert breakdown.get("person") == 1
 
     def test_non_numeric_weights_and_importance_do_not_break_sorting(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         snapshot = {
             "nodes": [
                 {"id": 1, "type": "topic", "weight": "auto", "degree": 1},
@@ -313,7 +374,7 @@ class TestBuildGraphViewPayload:
         }
         stats = {"graph_nodes": 2, "graph_edges": 0, "graph_entries": 0}
 
-        result = PluginPageApi._build_graph_view_payload(
+        result = utils.build_graph_view_payload(
             snapshot,
             stats,
             enabled=True,
@@ -327,14 +388,20 @@ class TestBuildGraphViewPayload:
 
 class TestGetGraphStore:
     def test_returns_graph_store_attribute(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         engine = FakeMemoryEngine()
         engine.graph_store = object()
-        assert PluginPageApi._get_graph_store(engine) is engine.graph_store
+        assert utils.get_graph_store(engine) is engine.graph_store
 
     def test_returns_none_when_no_graph_store(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
         engine = FakeMemoryEngine()
         engine.graph_store = None
-        assert PluginPageApi._get_graph_store(engine) is None
+        assert utils.get_graph_store(engine) is None
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +483,7 @@ class TestListMemories:
         )
         with _patch_page_request(req):
             with patch(
-                "astrbot_plugin_livingmemory.core.page_api.aiosqlite"
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.aiosqlite"
             ) as mock_sqlite:
                 mock_conn = AsyncMock()
                 mock_conn.execute.return_value = mock_conn
@@ -474,9 +541,8 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch.object(
-                PluginPageApi,
-                "_get_memory_record",
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -493,9 +559,8 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch.object(
-                PluginPageApi,
-                "_get_memory_record",
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -512,9 +577,8 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch.object(
-                PluginPageApi,
-                "_get_memory_record",
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -531,9 +595,8 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch.object(
-                PluginPageApi,
-                "_get_memory_record",
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -550,7 +613,7 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch.object(PluginPageApi, "_get_memory_record", return_value=None):
+            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=None):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "不存在" in result["message"]
@@ -570,7 +633,7 @@ class TestUpdateMemory:
                 "text": "hello",
                 "metadata": {"session_id": "s1", "persona_id": "p1", "importance": 0.5},
             }
-            with patch.object(PluginPageApi, "_get_memory_record", return_value=memory):
+            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=memory):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "不能为空" in result["message"]
@@ -594,7 +657,7 @@ class TestUpdateMemory:
                     "importance": "default",
                 },
             }
-            with patch.object(PluginPageApi, "_get_memory_record", return_value=memory):
+            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=memory):
                 api.plugin.initializer.memory_engine.add_memory = AsyncMock(
                     return_value=999
                 )
@@ -775,7 +838,7 @@ class TestListBackups:
     @pytest.mark.asyncio
     async def test_with_backup_dir(self, api):
         with patch(
-            "astrbot_plugin_livingmemory.core.page_api.BackupManager.list_backups",
+            "astrbot_plugin_livingmemory.core.managers.backup_manager.BackupManager.list_backups",
             return_value=[],
         ):
             result = await api.list_backups()
