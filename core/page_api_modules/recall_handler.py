@@ -47,7 +47,7 @@ class RecallHandler:
         except (TypeError, ValueError):
             return self.utils.error("k 必须是整数")
 
-        session_id = payload.get("session_id")
+        session_id = self.utils.optional_text(payload.get("session_id"))
 
         try:
             start_time = time.time()

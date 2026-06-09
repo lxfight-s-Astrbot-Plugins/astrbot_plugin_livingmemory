@@ -34,6 +34,8 @@ class MemoryHandler:
             - session_id: 会话ID过滤
             - keyword: 关键词搜索（支持ID或文本）
             - status: 状态过滤（all/active/archived）
+            - type: 记忆类型过滤（all/GENERAL/FACT/PREFERENCE/...）
+            - sort: 排序方式（created_desc/created_asc/updated_desc/...）
             - page: 页码（默认1）
             - page_size: 每页数量（默认20，最大500）
 
@@ -41,9 +43,13 @@ class MemoryHandler:
             包含记忆列表和分页信息的字典
         """
         query = request.args
-        session_id = str(query.get("session_id", "")).strip() or None
+        session_id = self.utils.optional_text(query.get("session_id"))
         keyword = str(query.get("keyword", "")).strip()
         status_filter = str(query.get("status", "all")).strip().lower() or "all"
+        type_filter = self.utils.optional_text(query.get("type"))
+        if type_filter and type_filter.lower() == "all":
+            type_filter = None
+        sort_key = str(query.get("sort", "created_desc")).strip().lower()
 
         try:
             page = max(1, int(query.get("page", 1)))
@@ -58,6 +64,13 @@ class MemoryHandler:
         offset = (page - 1) * page_size
         where_clauses: list[str] = []
         params: list[Any] = []
+        type_expr = (
+            "UPPER(COALESCE("
+            "CASE WHEN json_valid(metadata) "
+            "THEN json_extract(metadata, '$.memory_type') END,"
+            "'GENERAL'"
+            "))"
+        )
 
         if session_id:
             where_clauses.append(
@@ -75,6 +88,10 @@ class MemoryHandler:
                 ") = ?"
             )
             params.append(status_filter)
+
+        if type_filter:
+            where_clauses.append(f"{type_expr} = ?")
+            params.append(type_filter.upper())
 
         if keyword:
             keyword_like = f"%{keyword}%"
@@ -97,12 +114,46 @@ class MemoryHandler:
                 params.extend([keyword_like, keyword_like])
 
         where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-        sort_expr = (
+        created_expr = (
             "COALESCE("
             "CASE WHEN json_valid(metadata) "
             "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
             "0)"
         )
+        updated_expr = (
+            "COALESCE("
+            "CASE WHEN json_valid(metadata) "
+            "THEN CAST(json_extract(metadata, '$.updated_at') AS REAL) END,"
+            "CASE WHEN json_valid(metadata) "
+            "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
+            "0)"
+        )
+        importance_raw_expr = (
+            "COALESCE("
+            "CASE WHEN json_valid(metadata) "
+            "THEN CAST(json_extract(metadata, '$.importance') AS REAL) END,"
+            "0.5)"
+        )
+        importance_expr = (
+            f"CASE WHEN {importance_raw_expr} <= 1.0 "
+            f"THEN {importance_raw_expr} * 10.0 ELSE {importance_raw_expr} END"
+        )
+        sort_options = {
+            "created_desc": f"{created_expr} DESC, id DESC",
+            "created_asc": f"{created_expr} ASC, id ASC",
+            "updated_desc": f"{updated_expr} DESC, id DESC",
+            "updated_asc": f"{updated_expr} ASC, id ASC",
+            "importance_desc": f"{importance_expr} DESC, id DESC",
+            "importance_asc": f"{importance_expr} ASC, id ASC",
+            "type_asc": f"{type_expr} ASC, id DESC",
+            "type_desc": f"{type_expr} DESC, id DESC",
+            "id_desc": "id DESC",
+            "id_asc": "id ASC",
+        }
+        sort_expr = sort_options.get(sort_key)
+        if sort_expr is None:
+            sort_key = "created_desc"
+            sort_expr = sort_options[sort_key]
 
         try:
             async with aiosqlite.connect(db_path) as db:
@@ -120,7 +171,7 @@ class MemoryHandler:
                     SELECT id, doc_id, text, metadata, created_at, updated_at
                     FROM documents
                     {where_clause}
-                    ORDER BY {sort_expr} DESC, id DESC
+                    ORDER BY {sort_expr}
                     LIMIT ? OFFSET ?
                     """,
                     (*params, page_size, offset),
@@ -150,6 +201,13 @@ class MemoryHandler:
                 "page": page,
                 "page_size": page_size,
                 "has_more": (offset + page_size) < total,
+                "filters": {
+                    "session_id": session_id,
+                    "keyword": keyword,
+                    "status": status_filter,
+                    "type": type_filter,
+                },
+                "sort": sort_key,
             }
         )
 
@@ -554,4 +612,3 @@ class MemoryHandler:
         except Exception as exc:
             logger.error(f"[PageAPI] 获取记忆记录失败: {exc}", exc_info=True)
             return None
-
