@@ -25,7 +25,7 @@ def memory_processor():
     processor.process_conversation = AsyncMock(
         return_value=("summary", {"topics": ["t1"]}, 0.6)
     )
-    processor.process_and_store_memories = AsyncMock()
+    processor.classify_atoms_from_metadata = Mock(return_value=[])
     return processor
 
 
@@ -158,7 +158,7 @@ async def test_handle_memory_recall_stores_private_user_message(
 
 @pytest.mark.asyncio
 async def test_handle_memory_reflection_triggers_storage_task(
-    handler, conversation_manager, memory_processor
+    handler, conversation_manager, memory_engine
 ):
     event = _make_event(group=False)
     resp = _make_resp("assistant answer")
@@ -173,7 +173,7 @@ async def test_handle_memory_reflection_triggers_storage_task(
         await handler.shutdown()
 
     assert conversation_manager.get_messages_range.await_count >= 1
-    assert memory_processor.process_and_store_memories.await_count >= 1
+    assert memory_engine.add_memory.await_count >= 1
 
 
 @pytest.mark.asyncio
@@ -364,9 +364,9 @@ async def test_handle_memory_recall_injection_user_message_after(
 
 @pytest.mark.asyncio
 async def test_storage_task_writes_source_window(
-    handler, conversation_manager, memory_processor
+    handler, conversation_manager, memory_engine
 ):
-    """_storage_task 应调用 process_and_store_memories 处理记忆。"""
+    """_storage_task 应在 metadata 中写入 source_window 字段。"""
     from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 
     messages = [
@@ -394,6 +394,16 @@ async def test_storage_task_writes_source_window(
         ),
     ]
 
+    captured_metadata = {}
+
+    async def _capture_add_memory(
+        content, session_id, persona_id, importance, metadata, atoms=None, **kwargs
+    ):
+        captured_metadata.update(metadata)
+        return 1
+
+    memory_engine.add_memory = AsyncMock(side_effect=_capture_add_memory)
+
     await handler._memory_reflection._storage_task(
         session_id="s1",
         history_messages=messages,
@@ -403,12 +413,12 @@ async def test_storage_task_writes_source_window(
         retry_count=0,
     )
 
-    # 验证 process_and_store_memories 被正确调用
-    memory_processor.process_and_store_memories.assert_awaited_once()
-    call_args = memory_processor.process_and_store_memories.call_args
-    assert call_args.kwargs["session_id"] == "s1"
-    assert call_args.kwargs["persona_id"] == "p1"
-    assert len(call_args.kwargs["history_messages"]) == 2
+    assert "source_window" in captured_metadata
+    sw = captured_metadata["source_window"]
+    assert sw["session_id"] == "s1"
+    assert sw["start_index"] == 0
+    assert sw["end_index"] == 2
+    assert sw["message_count"] == 2
 
 
 @pytest.mark.asyncio

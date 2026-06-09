@@ -311,36 +311,150 @@ class MemoryReflection:
         retry_count: int,
     ):
         """后台存储任务"""
-        try:
-            await self.memory_processor.process_and_store_memories(
-                session_id=session_id,
-                history_messages=history_messages,
-                persona_id=persona_id,
-            )
+        from ..utils import OperationContext
 
-            # 更新总结位置
-            await self.conversation_manager.update_session_metadata(
-                session_id, "last_summarized_index", end_index
-            )
-
-            # 清除待处理的失败总结记录（如果有）
-            if retry_count > 0:
-                try:
-                    await self.conversation_manager.update_session_metadata(
-                        session_id, "pending_summary", None
+        async with OperationContext("记忆存储", session_id):
+            try:
+                # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
+                current_summarized = (
+                    await self.conversation_manager.get_session_metadata(
+                        session_id, "last_summarized_index", 0
                     )
-                except Exception:
+                )
+                try:
+                    summarized_index = int(current_summarized)
+                except (TypeError, ValueError):
+                    summarized_index = 0
+
+                if summarized_index >= end_index:
+                    logger.info(
+                        f"[{session_id}] 检测到过期总结任务，跳过: "
+                        f"current={summarized_index}, target_end={end_index}"
+                    )
+                    return
+
+                # 判断是否为群聊
+                is_group_chat = bool(
+                    history_messages[0].group_id if history_messages else False
+                )
+                # 备用判断：从 session_id 解析（防御性编程）
+                if not is_group_chat and "GroupMessage" in session_id:
+                    is_group_chat = True
+
+                logger.info(
+                    f"[{session_id}] 开始处理记忆，类型={'群聊' if is_group_chat else '私聊'}, "
+                    f"范围=[{start_index}:{end_index}], 重试次数={retry_count}, "
+                    f"当前人格={persona_id or '未设置'}"
+                )
+
+                # 使用 MemoryProcessor 处理对话历史
+                if not self.memory_processor:
+                    logger.error(f"[{session_id}] MemoryProcessor 未初始化，记录待重试")
+                    await self._record_pending_summary(
+                        session_id, start_index, end_index, retry_count
+                    )
+                    return
+
+                try:
+                    logger.info(
+                        f"[{session_id}] 调用 MemoryProcessor 处理 {len(history_messages)} 条消息"
+                    )
+                    (
+                        content,
+                        metadata,
+                        importance,
+                    ) = await self.memory_processor.process_conversation(
+                        messages=history_messages,
+                        is_group_chat=is_group_chat,
+                        persona_id=persona_id,
+                    )
+
+                    atoms = self.memory_processor.classify_atoms_from_metadata(
+                        metadata=metadata,
+                        parent_importance=importance,
+                        session_id=session_id,
+                        persona_id=persona_id,
+                    )
+
+                    # 补充 source_window 元数据，记录本次总结的消息范围
+                    metadata["source_window"] = {
+                        "session_id": session_id,
+                        "start_index": start_index,
+                        "end_index": end_index,
+                        "message_count": end_index - start_index,
+                    }
+
+                    logger.info(
+                        f"[{session_id}] 已使用LLM生成结构化记忆, "
+                        f"主题={metadata.get('topics', [])}, "
+                        f"重要性={importance:.2f}"
+                    )
+
+                except Exception as e:
+                    # LLM处理失败，记录待重试信息
                     logger.error(
-                        f"[{session_id}] 重试元数据更新仍然失败，"
-                        "可能出现重复总结。",
+                        f"[{session_id}] LLM处理失败 (重试 {retry_count + 1}/3): {e}",
                         exc_info=True,
                     )
+                    await self._record_pending_summary(
+                        session_id, start_index, end_index, retry_count
+                    )
+                    return
 
-        except Exception as e:
-            logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
-            await self._record_pending_summary(
-                session_id, start_index, end_index, retry_count
-            )
+                # 正常流程：添加到记忆引擎
+                if self.memory_engine:
+                    await self.memory_engine.add_memory(
+                        content=content,
+                        session_id=session_id,
+                        persona_id=persona_id,
+                        importance=importance,
+                        metadata=metadata,
+                        atoms=atoms,
+                    )
+
+                    logger.info(
+                        f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
+                    )
+
+                # 成功：更新已总结的位置，清除待处理记录
+                if self.conversation_manager:
+                    try:
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "last_summarized_index", end_index
+                        )
+                        await self.conversation_manager.update_session_metadata(
+                            session_id, "pending_summary", None
+                        )
+                        logger.info(
+                            f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
+                        )
+                    except Exception as meta_err:
+                        logger.error(
+                            f"[{session_id}] 记忆已存储但元数据更新失败: {meta_err}。"
+                            "下次触发时将跳过本段消息，避免重复总结。",
+                            exc_info=True,
+                        )
+                        # Advance the index anyway to prevent re-processing the
+                        # same message range (memory is already stored durably).
+                        try:
+                            await self.conversation_manager.update_session_metadata(
+                                session_id, "last_summarized_index", end_index
+                            )
+                            await self.conversation_manager.update_session_metadata(
+                                session_id, "pending_summary", None
+                            )
+                        except Exception:
+                            logger.error(
+                                f"[{session_id}] 重试元数据更新仍然失败，"
+                                "可能出现重复总结。",
+                                exc_info=True,
+                            )
+
+            except Exception as e:
+                logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
+                await self._record_pending_summary(
+                    session_id, start_index, end_index, retry_count
+                )
 
     async def _record_pending_summary(
         self,
