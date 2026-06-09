@@ -3,6 +3,7 @@
 (() => {
   const LANG_KEY = "lmem_lang";
   const SUPPORTED = ["zh", "en", "ru"];
+  let urlLanguageOverride = false;
 
   const MSG = {
     /* ---- Common ---- */
@@ -68,10 +69,16 @@
     "filter.statusActive":{ zh: "活跃", en: "Active", ru: "Активно" },
     "filter.statusArchived":{ zh: "已归档", en: "Archived", ru: "Архив" },
     "filter.statusDeleted":{ zh: "已删除", en: "Deleted", ru: "Удалено" },
+    "filter.typeAll":     { zh: "全部类型", en: "All Types", ru: "Все типы" },
     "filter.apply":       { zh: "筛选", en: "Filter", ru: "Фильтр" },
-    "filter.selectAll":   { zh: "全选", en: "Select All", ru: "Выбрать все" },
-    "filter.deleteSelected":{ zh: "删除选中", en: "Delete Selected", ru: "Удалить выбранное" },
-    "filter.selectedCount":{ zh: "已选择 {0} 条", en: "{0} selected", ru: "Выбрано {0}" },
+
+    /* ---- Sort ---- */
+    "sort.createdDesc":   { zh: "最新创建", en: "Newest first", ru: "Сначала новые" },
+    "sort.createdAsc":    { zh: "最早创建", en: "Oldest first", ru: "Сначала старые" },
+    "sort.updatedDesc":   { zh: "最近更新", en: "Recently updated", ru: "Недавно обновлено" },
+    "sort.importanceDesc":{ zh: "重要性高到低", en: "Importance high to low", ru: "Важность по убыванию" },
+    "sort.importanceAsc": { zh: "重要性低到高", en: "Importance low to high", ru: "Важность по возрастанию" },
+    "sort.typeAsc":       { zh: "类型 A-Z", en: "Type A-Z", ru: "Тип A-Z" },
 
     /* ---- Table ---- */
     "table.id":           { zh: "记忆 ID", en: "Memory ID", ru: "ID памяти" },
@@ -88,8 +95,6 @@
     "table.noData":       { zh: "暂无数据", en: "No data", ru: "Нет данных" },
     "table.na":           { zh: "--", en: "--", ru: "--" },
     "table.updated":      { zh: "更新于 {0}", en: "Updated {0}", ru: "Обновлено {0}" },
-    "table.selectPage":   { zh: "选择当前页", en: "Select page", ru: "Выбрать страницу" },
-    "table.selectMemory": { zh: "选择记忆 #{0}", en: "Select memory #{0}", ru: "Выбрать память #{0}" },
 
     /* ---- Pagination ---- */
     "pagination.prev":    { zh: "上一页", en: "Previous", ru: "Пред." },
@@ -118,6 +123,7 @@
     /* ---- Archive ---- */
     "archive.success":    { zh: "已归档 {0} 条记忆", en: "Archived {0} memories", ru: "Архивировано {0} записей" },
     "archive.fail":       { zh: "归档失败", en: "Archive failed", ru: "Ошибка архивации" },
+    "archive.error":      { zh: "归档失败", en: "Archive failed", ru: "Ошибка архивации" },
 
     /* ---- Detail Drawer ---- */
     "detail.title":       { zh: "记忆详情", en: "Memory Detail", ru: "Детали памяти" },
@@ -164,6 +170,17 @@
     "status.active":      { zh: "活跃", en: "Active", ru: "Активно" },
     "status.archived":    { zh: "已归档", en: "Archived", ru: "Архив" },
     "status.deleted":     { zh: "已删除", en: "Deleted", ru: "Удалено" },
+
+    /* ---- Type labels ---- */
+    "type.general":       { zh: "通用", en: "General", ru: "Общее" },
+    "type.fact":          { zh: "事实", en: "Fact", ru: "Факт" },
+    "type.factual":       { zh: "事实", en: "Factual", ru: "Факт" },
+    "type.preference":    { zh: "偏好", en: "Preference", ru: "Предпочтение" },
+    "type.event":         { zh: "事件", en: "Event", ru: "Событие" },
+    "type.episodic":      { zh: "事件", en: "Episodic", ru: "Эпизод" },
+    "type.relational":    { zh: "关系", en: "Relational", ru: "Связь" },
+    "type.planned":       { zh: "计划", en: "Planned", ru: "План" },
+    "type.opinion":       { zh: "观点", en: "Opinion", ru: "Мнение" },
 
     /* ---- Graph Hero ---- */
     "graph.kicker":       { zh: "Graph Memory Explorer", en: "Graph Memory Explorer", ru: "Graph Memory Explorer" },
@@ -259,6 +276,7 @@
     "graph.focusEmpty":   { zh: "请输入要定位的记忆 ID。", en: "Please enter a memory ID to focus.", ru: "Введите ID памяти для фокуса." },
     "graph.focusNotInt":  { zh: "记忆 ID 必须是整数。", en: "Memory ID must be an integer.", ru: "ID памяти должен быть целым числом." },
     "graph.focusFail":    { zh: "定位记忆失败", en: "Memory focus failed", ru: "Ошибка фокуса памяти" },
+    "graph.statsFailed":  { zh: "获取图谱统计失败", en: "Failed to fetch graph stats", ru: "Не удалось получить статистику графа" },
 
     /* ---- Graph Legend ---- */
     "graph.legendEmpty":  { zh: "暂无图谱连接", en: "No graph connections", ru: "Нет соединений в графе" },
@@ -316,10 +334,14 @@
     "recall.time":        { zh: "查询耗时", en: "Query Time", ru: "Время запроса" },
     "recall.empty":       { zh: "暂无召回结果 · 请输入查询内容并执行召回", en: "No results · Enter a query and run recall", ru: "Нет результатов · Введите запрос и запустите поиск" },
     "recall.noMatch":     { zh: "未找到匹配的记忆", en: "No matching memories found", ru: "Совпадений не найдено" },
+    "recall.noResults":   { zh: "未找到匹配的记忆", en: "No matching memories found", ru: "Совпадений не найдено" },
     "recall.enterQuery":  { zh: "请输入查询内容", en: "Please enter a query", ru: "Введите запрос" },
+    "recall.queryRequired":{ zh: "请输入查询内容", en: "Please enter a query", ru: "Введите запрос" },
     "recall.searching":   { zh: "执行中...", en: "Running...", ru: "Поиск..." },
     "recall.successToast":{ zh: "成功召回 {0} 条记忆", en: "Recalled {0} memories", ru: "Найдено {0} памятей" },
     "recall.fail":        { zh: "召回失败", en: "Recall failed", ru: "Ошибка поиска" },
+    "recall.testFailed":  { zh: "召回测试失败", en: "Recall test failed", ru: "Ошибка теста поиска" },
+    "recall.timeElapsed": { zh: "耗时 {0} 秒", en: "{0}s elapsed", ru: "Затрачено {0} с" },
 
     /* ---- Recall Results Metadata ---- */
     "recall.resultId":    { zh: "记忆 ID:", en: "Memory ID:", ru: "ID памяти:" },
@@ -351,13 +373,24 @@
     "system.activeSessions":{ zh: "活跃会话", en: "Active Sessions", ru: "Активные сессии" },
     "system.versionBackups":{ zh: "版本备份", en: "Version Backups", ru: "Резервные копии" },
     "system.noActiveSessions":{ zh: "暂无活跃会话", en: "No active sessions", ru: "Нет активных сессий" },
+    "system.noSessions":  { zh: "暂无会话", en: "No sessions", ru: "Нет сессий" },
     "system.noBackups":   { zh: "暂无备份", en: "No backups", ru: "Нет резервных копий" },
-    "system.files":       { zh: "{0} 个文件", en: "{0} files", ru: "{0} файлов" },
+    "system.noAtoms":     { zh: "暂无原子数据", en: "No atom data", ru: "Нет данных атомов" },
+    "system.files":       { zh: "个文件", en: "files", ru: "файлов" },
+    "system.messages":    { zh: "条消息", en: "messages", ru: "сообщений" },
+    "system.lastActive":  { zh: "最后活跃", en: "Last active", ru: "Посл. активность" },
+    "system.fetchFailed": { zh: "获取系统数据失败", en: "Failed to fetch system data", ru: "Не удалось получить данные системы" },
     "system.atomFactual": { zh: "事实", en: "Factual", ru: "Фактическая" },
     "system.atomEpisodic":{ zh: "事件", en: "Episodic", ru: "Эпизодическая" },
     "system.atomPreference":{ zh: "偏好", en: "Preference", ru: "Предпочтения" },
     "system.atomRelational":{ zh: "关系", en: "Relational", ru: "Связи" },
     "system.atomPlanned": { zh: "计划", en: "Planned", ru: "Планы" },
+
+    /* ---- Atom labels ---- */
+    "atom.entity":        { zh: "实体", en: "Entity", ru: "Сущность" },
+    "atom.event":         { zh: "事件", en: "Event", ru: "Событие" },
+    "atom.preference":    { zh: "偏好", en: "Preference", ru: "Предпочтение" },
+    "atom.topic":         { zh: "主题", en: "Topic", ru: "Тема" },
 
     /* ---- Memory Detail ---- */
     "detail.viewTitle":   { zh: "记忆详情", en: "Memory Detail", ru: "Детали памяти" },
@@ -392,6 +425,12 @@
     "detail.nodeEntries": { zh: "条目", en: "Entries", ru: "Записи" },
     "detail.nodeWeight":  { zh: "权重", en: "Weight", ru: "Вес" },
 
+    /* ---- Confirm dialog ---- */
+    "confirm.deleteTitle":{ zh: "确认删除？", en: "Confirm delete?", ru: "Подтвердить удаление?" },
+    "confirm.deleteMessage":{ zh: "即将删除记忆 #{0}。此操作无法撤销。", en: "Memory #{0} will be deleted. This cannot be undone.", ru: "Память #{0} будет удалена. Это необратимо." },
+    "memory.deleted":     { zh: "记忆已删除", en: "Memory deleted", ru: "Память удалена" },
+    "memory.deleteFailed":{ zh: "删除记忆失败", en: "Failed to delete memory", ru: "Не удалось удалить память" },
+
     /* ---- Graph 2D ---- */
     "graph2d.noData":     { zh: "暂无图谱数据", en: "No graph data available", ru: "Нет данных графа" },
     "graph2d.loading":    { zh: "加载图谱中...", en: "Loading graph...", ru: "Загрузка графа..." },
@@ -416,30 +455,28 @@
   }
 
   function detectLanguage() {
-    // 1. Bridge context (AstrBot dashboard locale — highest priority)
-    const bridgeLocale = getBridgeLocale();
-    if (bridgeLocale) return bridgeLocale;
-
-    // 2. URL param (override)
     try {
       const params = new URLSearchParams(window.location.search);
       const langParam = params.get("lang");
-      if (langParam && SUPPORTED.includes(langParam)) return langParam;
+      if (langParam && SUPPORTED.includes(langParam)) {
+        urlLanguageOverride = true;
+        return langParam;
+      }
     } catch (_) { /* ignore */ }
 
-    // 3. localStorage
     try {
       const stored = localStorage.getItem(LANG_KEY);
       if (stored && SUPPORTED.includes(stored)) return stored;
     } catch (_) { /* ignore */ }
 
-    // 4. navigator
+    const bridgeLocale = getBridgeLocale();
+    if (bridgeLocale) return bridgeLocale;
+
     try {
       const nav = (navigator.language || "").split("-")[0];
       if (SUPPORTED.includes(nav)) return nav;
     } catch (_) { /* ignore */ }
 
-    // 5. default
     return "zh";
   }
 
@@ -450,8 +487,12 @@
       bridge.onContext(function (ctx) {
         if (!ctx || !ctx.locale) return;
         const lang = String(ctx.locale).split("-")[0];
-        if (SUPPORTED.includes(lang) && lang !== currentLang) {
-          window.setLanguage(lang);
+        let hasLocalOverride = false;
+        try {
+          hasLocalOverride = SUPPORTED.includes(localStorage.getItem(LANG_KEY));
+        } catch (_) { /* ignore */ }
+        if (!urlLanguageOverride && !hasLocalOverride && SUPPORTED.includes(lang) && lang !== currentLang) {
+          window.setLanguage(lang, { persist: false, source: "bridge" });
         }
       });
     } catch (_) { /* ignore */ }
@@ -470,13 +511,15 @@
     return template;
   };
 
-  window.setLanguage = function (lang) {
+  window.setLanguage = function (lang, options = {}) {
     if (!SUPPORTED.includes(lang)) return;
     currentLang = lang;
-    try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* ignore */ }
+    if (options.persist !== false) {
+      try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* ignore */ }
+    }
     document.documentElement.setAttribute("lang", lang === "zh" ? "zh-CN" : lang === "ru" ? "ru" : "en");
     applyI18n();
-    window.dispatchEvent(new CustomEvent("languagechange", { detail: { lang } }));
+    window.dispatchEvent(new CustomEvent("languagechange", { detail: { lang, source: options.source || "local" } }));
   };
 
   window.getLanguage = function () {

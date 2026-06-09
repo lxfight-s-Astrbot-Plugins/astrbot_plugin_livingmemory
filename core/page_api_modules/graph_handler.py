@@ -24,6 +24,21 @@ class GraphHandler:
         """
         self.utils = utils
 
+    @staticmethod
+    def _add_memory_id(
+        memory_ids: list[int],
+        seen_memory_ids: set[int],
+        value: Any,
+    ) -> int | None:
+        try:
+            memory_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        if memory_id not in seen_memory_ids:
+            seen_memory_ids.add(memory_id)
+            memory_ids.append(memory_id)
+        return memory_id
+
     async def get_graph_overview(self, memory_engine) -> dict[str, Any]:
         """
         获取图谱概览
@@ -40,8 +55,8 @@ class GraphHandler:
             包含图谱快照和统计的字典
         """
         args = request.args
-        session_id = str(args.get("session_id", "")).strip() or None
-        persona_id = str(args.get("persona_id", "")).strip() or None
+        session_id = self.utils.optional_text(args.get("session_id"))
+        persona_id = self.utils.optional_text(args.get("persona_id"))
 
         try:
             limit_memories = max(1, min(int(args.get("limit_memories", 12)), 24))
@@ -122,8 +137,8 @@ class GraphHandler:
         """
         payload = await request.get_json(silent=True) or {}
         query_text = str(payload.get("query", "")).strip()
-        session_id = str(payload.get("session_id", "")).strip() or None
-        persona_id = str(payload.get("persona_id", "")).strip() or None
+        session_id = self.utils.optional_text(payload.get("session_id"))
+        persona_id = self.utils.optional_text(payload.get("persona_id"))
         memory_id_raw = payload.get("memory_id")
 
         try:
@@ -219,30 +234,39 @@ class GraphHandler:
             matched_memory_ids: list[int] = []
             seen_memory_ids: set[int] = set()
             for result in search_results:
-                memory_id = int(result.doc_id)
-                if memory_id not in seen_memory_ids:
-                    seen_memory_ids.add(memory_id)
-                    matched_memory_ids.append(memory_id)
+                memory_id = self._add_memory_id(
+                    matched_memory_ids,
+                    seen_memory_ids,
+                    result.doc_id,
+                )
+                if memory_id is None:
+                    continue
                 retrieval_items.append(
                     {
                         "memory_id": memory_id,
                         "content": result.content,
                         "metadata": result.metadata,
                         "final_score": round(float(result.final_score), 6),
-                        "rrf_score": round(float(result.rrf_score), 6),
+                        "rrf_score": (
+                            round(float(result.rrf_score), 6)
+                            if getattr(result, "rrf_score", None) is not None
+                            else None
+                        ),
                         "bm25_score": (
                             round(float(result.bm25_score), 6)
-                            if result.bm25_score is not None
+                            if getattr(result, "bm25_score", None) is not None
                             else None
                         ),
                         "vector_score": (
                             round(float(result.vector_score), 6)
-                            if result.vector_score is not None
+                            if getattr(result, "vector_score", None) is not None
                             else None
                         ),
                         "score_breakdown": {
                             key: round(float(value), 6)
-                            for key, value in (result.score_breakdown or {}).items()
+                            for key, value in (
+                                getattr(result, "score_breakdown", None) or {}
+                            ).items()
                             if isinstance(value, (int, float))
                         },
                     }
@@ -265,10 +289,36 @@ class GraphHandler:
                     persona_id=persona_id,
                 )
                 for hit in node_entry_hits:
-                    memory_id = int(hit["source_memory_id"])
-                    if memory_id not in seen_memory_ids:
-                        seen_memory_ids.add(memory_id)
-                        matched_memory_ids.append(memory_id)
+                    memory_id = self._add_memory_id(
+                        matched_memory_ids,
+                        seen_memory_ids,
+                        hit.get("source_memory_id"),
+                    )
+                    if memory_id is None:
+                        continue
+                    if not any(
+                        item.get("memory_id") == memory_id for item in retrieval_items
+                    ):
+                        retrieval_items.append(
+                            {
+                                "memory_id": memory_id,
+                                "content": hit.get("content", ""),
+                                "metadata": hit.get("metadata") or {},
+                                "final_score": round(float(hit.get("score", 0.0)), 6),
+                                "rrf_score": None,
+                                "bm25_score": None,
+                                "vector_score": None,
+                                "score_breakdown": {
+                                    "graph_node": round(
+                                        float(hit.get("score", 0.0)),
+                                        6,
+                                    ),
+                                },
+                                "source": "graph_node",
+                                "entry_id": hit.get("entry_id"),
+                                "matched_node_ids": matched_node_ids,
+                            }
+                        )
 
             snapshot = await graph_store.get_subgraph_for_memories(
                 matched_memory_ids[:limit_memories],
@@ -285,6 +335,7 @@ class GraphHandler:
                     query=query_text,
                     retrieval_items=retrieval_items,
                     matched_node_ids=matched_node_ids,
+                    matched_memory_ids=matched_memory_ids,
                     filters={
                         "session_id": session_id,
                         "persona_id": persona_id,

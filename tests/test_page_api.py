@@ -4,12 +4,14 @@ Tests for PluginPageApi — WebUI REST API endpoints and helpers.
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.page_api import (
     PAGE_API_PREFIX,
@@ -121,9 +123,9 @@ def _mock_page_request(**overrides):
 def _patch_page_request(req: MagicMock):
     """Temporarily replace ``page_api.request`` with *req*."""
     import astrbot_plugin_livingmemory.core.page_api as mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.graph_handler as graph_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler as memory_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.recall_handler as recall_mod
-    import astrbot_plugin_livingmemory.core.page_api_modules.graph_handler as graph_mod
 
     # Patch all modules that use request
     modules = [mod, memory_mod, recall_mod, graph_mod]
@@ -194,6 +196,26 @@ class TestNumberHelpers:
 
         utils = PageApiUtils()
         assert utils.importance_to_display("default") == 5.0
+
+
+class TestOptionalText:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (None, None),
+            ("", None),
+            ("   ", None),
+            ("None", None),
+            ("null", None),
+            ("undefined", None),
+            (" s1 ", "s1"),
+        ],
+    )
+    def test_optional_filter_values(self, raw, expected):
+        from astrbot_plugin_livingmemory.core.page_api_modules import PageApiUtils
+
+        utils = PageApiUtils()
+        assert utils.optional_text(raw) == expected
 
 
 class TestNormalizeMetadata:
@@ -498,6 +520,82 @@ class TestListMemories:
         assert result["data"]["items"] == []
 
     @pytest.mark.asyncio
+    async def test_type_filter_and_sort_are_applied_in_sql(self, api, tmp_path):
+        db_path = tmp_path / "memories.db"
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE documents (
+                    id INTEGER PRIMARY KEY,
+                    doc_id TEXT,
+                    text TEXT,
+                    metadata TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+            rows = [
+                (
+                    1,
+                    "1",
+                    "low preference",
+                    {"memory_type": "PREFERENCE", "importance": 0.3, "create_time": 10},
+                ),
+                (
+                    2,
+                    "2",
+                    "high preference",
+                    {"memory_type": "PREFERENCE", "importance": 0.9, "create_time": 20},
+                ),
+                (
+                    3,
+                    "3",
+                    "other fact",
+                    {"memory_type": "FACT", "importance": 1.0, "create_time": 30},
+                ),
+            ]
+            for memory_id, doc_id, text, metadata in rows:
+                await db.execute(
+                    """
+                    INSERT INTO documents
+                        (id, doc_id, text, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        memory_id,
+                        doc_id,
+                        text,
+                        json.dumps(metadata),
+                        "created",
+                        "updated",
+                    ),
+                )
+            await db.commit()
+
+        api.plugin.initializer.memory_engine.db_path = str(db_path)
+        req = _mock_page_request(
+            args={
+                "page": "1",
+                "page_size": "20",
+                "session_id": "",
+                "keyword": "",
+                "status": "all",
+                "type": "PREFERENCE",
+                "sort": "importance_desc",
+            }
+        )
+
+        with _patch_page_request(req):
+            result = await api.list_memories()
+
+        assert result["status"] == "ok"
+        assert result["data"]["total"] == 2
+        assert result["data"]["filters"]["type"] == "PREFERENCE"
+        assert result["data"]["sort"] == "importance_desc"
+        assert [item["id"] for item in result["data"]["items"]] == [2, 1]
+
+    @pytest.mark.asyncio
     async def test_plugin_not_ready(self, api_not_ready):
         req = _mock_page_request()
         with _patch_page_request(req):
@@ -613,7 +711,10 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=None):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=None,
+            ):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "不存在" in result["message"]
@@ -633,7 +734,10 @@ class TestUpdateMemory:
                 "text": "hello",
                 "metadata": {"session_id": "s1", "persona_id": "p1", "importance": 0.5},
             }
-            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=memory):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=memory,
+            ):
                 result = await api.update_memory()
         assert result["status"] == "error"
         assert "不能为空" in result["message"]
@@ -657,16 +761,22 @@ class TestUpdateMemory:
                     "importance": "default",
                 },
             }
-            with patch("astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record", return_value=memory):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=memory,
+            ):
                 api.plugin.initializer.memory_engine.add_memory = AsyncMock(
                     return_value=999
                 )
                 result = await api.update_memory()
 
         assert result["status"] == "ok"
-        assert api.plugin.initializer.memory_engine.add_memory.call_args.kwargs[
-            "importance"
-        ] == 0.5
+        assert (
+            api.plugin.initializer.memory_engine.add_memory.call_args.kwargs[
+                "importance"
+            ]
+            == 0.5
+        )
 
 
 class TestBatchDeleteMemories:
@@ -818,6 +928,100 @@ class TestGraphEndpoints:
             result = await api.query_graph()
         assert result["status"] == "ok"
         assert result["data"]["enabled"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("session_filter", [None, "None"])
+    async def test_query_expands_node_hits_without_text_recall(self, session_filter):
+        snapshot = {
+            "nodes": [
+                {
+                    "id": 56,
+                    "type": "person",
+                    "weight": 1.0,
+                    "degree": 0,
+                    "label": "luna",
+                }
+            ],
+            "edges": [],
+            "entries": [
+                {
+                    "id": 501,
+                    "memory_id": 123,
+                    "entry_type": "summary",
+                    "relation_type": "mentions",
+                    "content": "Luna appears in this memory",
+                    "metadata": {"session_id": "s1"},
+                    "node_ids": [56],
+                }
+            ],
+            "memories": [
+                {
+                    "memory_id": 123,
+                    "summary": "Luna appears in this memory",
+                    "importance": 0.7,
+                    "entry_count": 1,
+                    "node_count": 1,
+                    "edge_count": 0,
+                }
+            ],
+        }
+        graph_store = SimpleNamespace(
+            search_nodes_by_tokens=AsyncMock(
+                return_value=[
+                    {
+                        "id": 56,
+                        "node_key": "person:luna",
+                        "node_type": "person",
+                        "node_value": "luna",
+                        "canonical_value": "luna",
+                        "metadata": {},
+                    }
+                ]
+            ),
+            get_entries_for_node_ids=AsyncMock(
+                return_value=[
+                    {
+                        "entry_id": 501,
+                        "source_memory_id": 123,
+                        "content": "Luna appears in this memory",
+                        "metadata": {"session_id": "s1"},
+                        "score": 0.85,
+                    }
+                ]
+            ),
+            get_subgraph_for_memories=AsyncMock(return_value=snapshot),
+        )
+        engine = FakeMemoryEngine(graph_store=graph_store)
+        engine.search_memories = AsyncMock(return_value=[])
+        api = PluginPageApi(FakePlugin(memory_engine=engine))
+        req = _mock_page_request(
+            get_json={
+                "query": "luna",
+                "session_id": session_filter,
+                "persona_id": "undefined",
+            }
+        )
+
+        with _patch_page_request(req):
+            result = await api.query_graph()
+
+        assert result["status"] == "ok"
+        data = result["data"]
+        assert data["filters"]["session_id"] is None
+        assert data["filters"]["persona_id"] is None
+        assert data["matched_node_ids"] == [56]
+        assert data["matched_memory_ids"] == [123]
+        assert data["summary"]["visible_node_count"] == 1
+        assert data["snapshot"]["nodes"][0]["highlighted"] is True
+        assert data["retrieval"]["items"][0]["source"] == "graph_node"
+        engine.search_memories.assert_awaited_once()
+        assert engine.search_memories.call_args.kwargs["session_id"] is None
+        graph_store.get_entries_for_node_ids.assert_awaited_once()
+        assert (
+            graph_store.get_entries_for_node_ids.call_args.kwargs["session_id"] is None
+        )
+        graph_store.get_subgraph_for_memories.assert_awaited_once()
+        assert graph_store.get_subgraph_for_memories.call_args.args[0] == [123]
 
 
 class TestListBackups:

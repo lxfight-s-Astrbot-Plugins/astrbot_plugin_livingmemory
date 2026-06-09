@@ -23,6 +23,16 @@ class PageApiUtils:
         return {"status": "error", "message": str(message)}
 
     @staticmethod
+    def optional_text(value: Any) -> str | None:
+        """Normalize optional request text without preserving empty sentinel values."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "null", "undefined"}:
+            return None
+        return text
+
+    @staticmethod
     def normalize_metadata(metadata: Any) -> dict[str, Any]:
         """规范化 metadata 为字典格式"""
         if isinstance(metadata, dict):
@@ -167,6 +177,7 @@ class PageApiUtils:
         memory_id: int | None = None,
         retrieval_items: list[dict[str, Any]] | None = None,
         matched_node_ids: list[int] | None = None,
+        matched_memory_ids: list[int] | None = None,
         filters: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
@@ -183,6 +194,7 @@ class PageApiUtils:
         memories = [dict(item) for item in snapshot.get("memories", [])]
         retrieval_items = [dict(item) for item in (retrieval_items or [])]
         matched_node_ids = [int(item) for item in (matched_node_ids or [])]
+        matched_memory_ids = [int(item) for item in (matched_memory_ids or [])]
         matched_node_id_set = set(matched_node_ids)
         retrieval_lookup = {
             int(item["memory_id"]): item
@@ -252,7 +264,8 @@ class PageApiUtils:
             "filters": filters or {},
             "summary": summary,
             "matched_node_ids": matched_node_ids,
-            "matched_memory_ids": [item["memory_id"] for item in retrieval_items],
+            "matched_memory_ids": matched_memory_ids
+            or [item["memory_id"] for item in retrieval_items],
             "top_nodes": top_nodes,
             "top_memories": top_memories,
             "retrieval": {

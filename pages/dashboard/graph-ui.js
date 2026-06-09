@@ -38,7 +38,16 @@
      Bridge helpers
      ================================================================ */
   function buildEndpoint(path) {
-    return ("page/" + String(path).replace(/^\/+/, "")).replace(/\/+/g, "/");
+    var cleanPath = String(path).replace(/^\/+/, "");
+    if (cleanPath.startsWith("page/")) return cleanPath;
+    return ("page/" + cleanPath).replace(/\/+/g, "/");
+  }
+
+  function numericId(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && !value.trim()) return null;
+    var id = Number(value);
+    return Number.isFinite(id) ? id : null;
   }
 
   async function requestGraph(path, options) {
@@ -151,6 +160,13 @@
     };
   }
 
+  function addOptionalFilter(body, key, value) {
+    if (value !== null && value !== undefined && String(value).trim()) {
+      body[key] = String(value).trim();
+    }
+    return body;
+  }
+
   async function fetchOverview() {
     setLoading(true);
     try {
@@ -176,9 +192,10 @@
     setLoading(true);
     try {
       var filters = getFilters();
+      var body = addOptionalFilter({ query: query }, "session_id", filters.session_id);
       var payload = await requestGraph("/graph/query", {
         method: "POST",
-        body: { query: query, session_id: filters.session_id },
+        body: body,
       });
       renderPayload(payload, true);
     } catch (e) {
@@ -197,9 +214,10 @@
     setLoading(true);
     try {
       var filters = getFilters();
+      var body = addOptionalFilter({ memory_id: memoryId }, "session_id", filters.session_id);
       var payload = await requestGraph("/graph/query", {
         method: "POST",
-        body: { memory_id: memoryId, session_id: filters.session_id },
+        body: body,
       });
       renderPayload(payload, true);
     } catch (e) {
@@ -276,11 +294,17 @@
      Selection Logic
      ================================================================ */
   function ensureSelection(payload) {
-    if (state.graphIndex && state.graphIndex.nodeMap.has(state.selectedNodeId)) {
-      state.selectedMemoryId = null; return;
+    var selectedNodeId = numericId(state.selectedNodeId);
+    if (state.graphIndex && selectedNodeId !== null && state.graphIndex.nodeMap.has(selectedNodeId)) {
+      state.selectedNodeId = selectedNodeId;
+      state.selectedMemoryId = null;
+      return;
     }
-    if (state.graphIndex && state.graphIndex.memoryMap.has(state.selectedMemoryId)) {
-      state.selectedNodeId = null; return;
+    var selectedMemoryId = numericId(state.selectedMemoryId);
+    if (state.graphIndex && selectedMemoryId !== null && state.graphIndex.memoryMap.has(selectedMemoryId)) {
+      state.selectedNodeId = null;
+      state.selectedMemoryId = selectedMemoryId;
+      return;
     }
 
     state.selectedNodeId = null;
@@ -288,23 +312,32 @@
 
     var matchedNodeIds = payload.matched_node_ids || [];
     var firstNode = matchedNodeIds.find(function(id) {
-      return state.graphIndex && state.graphIndex.nodeMap.has(id);
+      var nodeId = numericId(id);
+      return nodeId !== null && state.graphIndex && state.graphIndex.nodeMap.has(nodeId);
     });
-    if (firstNode !== undefined) { state.selectedNodeId = firstNode; return; }
+    if (firstNode !== undefined) {
+      state.selectedNodeId = numericId(firstNode);
+      return;
+    }
 
     var firstRetrieved = payload.retrieval && payload.retrieval.items && payload.retrieval.items[0];
-    if (firstRetrieved && state.graphIndex && state.graphIndex.memoryMap.has(firstRetrieved.memory_id)) {
-      state.selectedMemoryId = firstRetrieved.memory_id; return;
+    var firstRetrievedId = firstRetrieved ? numericId(firstRetrieved.memory_id) : null;
+    if (firstRetrievedId !== null && state.graphIndex && state.graphIndex.memoryMap.has(firstRetrievedId)) {
+      state.selectedMemoryId = firstRetrievedId;
+      return;
     }
 
     var topNodes = payload.top_nodes || [];
-    if (topNodes.length && state.graphIndex && state.graphIndex.nodeMap.has(topNodes[0].id)) {
-      state.selectedNodeId = topNodes[0].id; return;
+    var topNodeId = topNodes.length ? numericId(topNodes[0].id) : null;
+    if (topNodeId !== null && state.graphIndex && state.graphIndex.nodeMap.has(topNodeId)) {
+      state.selectedNodeId = topNodeId;
+      return;
     }
 
     var snapMemories = (payload.snapshot && payload.snapshot.memories) || [];
-    if (snapMemories.length && state.graphIndex && state.graphIndex.memoryMap.has(snapMemories[0].memory_id)) {
-      state.selectedMemoryId = snapMemories[0].memory_id;
+    var snapMemoryId = snapMemories.length ? numericId(snapMemories[0].memory_id) : null;
+    if (snapMemoryId !== null && state.graphIndex && state.graphIndex.memoryMap.has(snapMemoryId)) {
+      state.selectedMemoryId = snapMemoryId;
     }
   }
 
@@ -317,6 +350,8 @@
   }
 
   function selectNode(nodeId, focusCamera) {
+    nodeId = numericId(nodeId);
+    if (nodeId === null) return;
     if (!state.graphIndex || !state.graphIndex.nodeMap.has(nodeId)) return;
     state.selectedNodeId = nodeId;
     state.selectedMemoryId = null;
@@ -331,6 +366,8 @@
   }
 
   function selectMemory(memoryId) {
+    memoryId = numericId(memoryId);
+    if (memoryId === null) return;
     if (!state.graphIndex || !state.graphIndex.memoryMap.has(memoryId)) return;
     state.selectedMemoryId = memoryId;
     state.selectedNodeId = null;
