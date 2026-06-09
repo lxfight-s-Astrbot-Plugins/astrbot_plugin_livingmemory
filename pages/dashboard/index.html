@@ -124,6 +124,26 @@
                 <option value="archived" data-i18n="filter.statusArchived">Archived</option>
                 <option value="deleted" data-i18n="filter.statusDeleted">Deleted</option>
               </select>
+              <select id="mem-type" class="select input">
+                <option value="all" data-i18n="filter.typeAll">All Types</option>
+                <option value="GENERAL" data-i18n="type.general">General</option>
+                <option value="FACT" data-i18n="type.fact">Fact</option>
+                <option value="EVENT" data-i18n="type.event">Event</option>
+                <option value="PREFERENCE" data-i18n="type.preference">Preference</option>
+                <option value="OPINION" data-i18n="type.opinion">Opinion</option>
+                <option value="FACTUAL" data-i18n="type.factual">Factual</option>
+                <option value="EPISODIC" data-i18n="type.episodic">Episodic</option>
+                <option value="RELATIONAL" data-i18n="type.relational">Relational</option>
+                <option value="PLANNED" data-i18n="type.planned">Planned</option>
+              </select>
+              <select id="mem-sort" class="select input">
+                <option value="created_desc" data-i18n="sort.createdDesc">Newest first</option>
+                <option value="created_asc" data-i18n="sort.createdAsc">Oldest first</option>
+                <option value="updated_desc" data-i18n="sort.updatedDesc">Recently updated</option>
+                <option value="importance_desc" data-i18n="sort.importanceDesc">Importance high to low</option>
+                <option value="importance_asc" data-i18n="sort.importanceAsc">Importance low to high</option>
+                <option value="type_asc" data-i18n="sort.typeAsc">Type A-Z</option>
+              </select>
               <select id="mem-page-size" class="select input" style="width:auto">
                 <option value="20" data-i18n="common.perPage20">20 per page</option>
                 <option value="50" data-i18n="common.perPage50">50 per page</option>
@@ -135,7 +155,6 @@
               <table class="data-table" id="memories-table">
                 <thead>
                   <tr>
-                    <th class="cell-check"><input type="checkbox" id="mem-select-page" data-i18n-aria="table.selectPage" aria-label="Select page" /></th>
                     <th class="cell-id" data-i18n="table.id">ID</th>
                     <th class="cell-summary" data-i18n="table.summary">Summary</th>
                     <th class="cell-type" data-i18n="table.type">Type</th>
@@ -145,7 +164,7 @@
                   </tr>
                 </thead>
                 <tbody id="memories-body">
-                  <tr><td colspan="7" class="table-empty" data-i18n="table.noData">No data</td></tr>
+                  <tr><td colspan="6" class="table-empty" data-i18n="table.noData">No data</td></tr>
                 </tbody>
               </table>
               </div>
@@ -157,15 +176,6 @@
                 </div>
               </div>
             </div>
-          </div>
-          <!-- Batch Action Bar -->
-          <div class="batch-bar" id="batch-bar">
-            <span class="batch-bar-count" id="batch-count">0 selected</span>
-            <div class="batch-bar-actions">
-              <button class="btn btn-sm btn-secondary" id="batch-archive" data-i18n="edit.statusArchived">Archive</button>
-              <button class="btn btn-sm btn-danger" id="batch-delete" data-i18n="filter.deleteSelected">Delete</button>
-            </div>
-            <button class="btn btn-sm btn-ghost" id="batch-clear" data-i18n="common.clear">Clear</button>
           </div>
         </section>
 
@@ -308,6 +318,6 @@
 
     <script src="./graph-2d.js"></script>
     <script src="./graph-ui.js"></script>
-    <script src="./app.js"></script>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
