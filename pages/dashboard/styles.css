@@ -604,6 +604,29 @@ body {
   white-space: nowrap;
 }
 
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.data-table th.sortable:hover {
+  color: var(--accent);
+}
+.data-table th.sortable::after {
+  content: "";
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.3;
+}
+.data-table th.sortable.asc::after {
+  content: "▲";
+  opacity: 1;
+}
+.data-table th.sortable.desc::after {
+  content: "▼";
+  opacity: 1;
+}
+
 .data-table td {
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-light);
@@ -1167,6 +1190,7 @@ body {
   margin-top: var(--space-1);
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1576,6 +1600,7 @@ body {
   line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin-bottom: var(--space-3);

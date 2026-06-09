@@ -185,6 +185,18 @@ class PluginPageApi:
         except (TypeError, ValueError):
             return self._error("分页参数无效")
 
+        sort_field_raw = query.get("sort")
+        sort_field = str(sort_field_raw).strip().lower() if sort_field_raw else None
+        sort_order = str(query.get("order", "desc")).strip().lower()
+
+        ALLOWED_SORT_FIELDS = {"id", "created_at", "importance"}
+        ALLOWED_SORT_ORDERS = {"asc", "desc"}
+
+        if sort_field not in ALLOWED_SORT_FIELDS:
+            sort_field = None
+        if sort_order not in ALLOWED_SORT_ORDERS:
+            sort_order = "desc"
+
         db_path = getattr(memory_engine, "db_path", None)
         if not db_path:
             return self._error("MemoryEngine db_path unavailable")
@@ -231,12 +243,31 @@ class PluginPageApi:
                 params.extend([keyword_like, keyword_like])
 
         where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-        sort_expr = (
-            "COALESCE("
-            "CASE WHEN json_valid(metadata) "
-            "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
-            "0)"
+
+        sort_exprs = {
+            "importance": (
+                "COALESCE("
+                "CASE WHEN json_valid(metadata) "
+                "THEN CAST(json_extract(metadata, '$.importance') AS REAL) END,"
+                "5)"
+            ),
+            "id": "CAST(id AS INTEGER)",
+        }
+
+        if sort_field is None:
+            sort_order = "desc"
+
+        sort_expr = sort_exprs.get(
+            sort_field,
+            (
+                "COALESCE("
+                "CASE WHEN json_valid(metadata) "
+                "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
+                "0)"
+            ),
         )
+
+        order_sql = "ASC" if sort_order == "asc" else "DESC"
 
         try:
             async with aiosqlite.connect(db_path) as db:
@@ -254,7 +285,7 @@ class PluginPageApi:
                     SELECT id, doc_id, text, metadata, created_at, updated_at
                     FROM documents
                     {where_clause}
-                    ORDER BY {sort_expr} DESC, id DESC
+                    ORDER BY {sort_expr} {order_sql}, id {order_sql}
                     LIMIT ? OFFSET ?
                     """,
                     (*params, page_size, offset),
