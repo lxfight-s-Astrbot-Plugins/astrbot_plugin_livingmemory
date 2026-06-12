@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
+  <title id="title">Dual route retrieval flow</title>
+  <desc id="desc">A query is sent to document keyword retrieval, document vector retrieval, graph keyword retrieval, and graph vector retrieval. Results are fused with RRF and lifecycle scores.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#52656f"/>
+    </marker>
+    <style>
+      .bg{fill:#f8fbfb}
+      .query{fill:#20343b;rx:14}
+      .doc{fill:#e9f5f7;stroke:#5e9eab;stroke-width:2;rx:14}
+      .graph{fill:#f0f7eb;stroke:#7ea05c;stroke-width:2;rx:14}
+      .fuse{fill:#fff5e8;stroke:#d39a5e;stroke-width:2;rx:14}
+      .result{fill:#f9eeee;stroke:#c46f62;stroke-width:2;rx:14}
+      .text{font:700 18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#20343b}
+      .textLight{font:700 18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#fff}
+      .small{font:500 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#52656f}
+      .line{stroke:#52656f;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1120" height="520" rx="24"/>
+  <rect class="query" x="52" y="214" width="178" height="92"/>
+  <text class="textLight" x="99" y="252">User Query</text>
+  <text class="small" x="84" y="280" fill="#d7e6ea">current message</text>
+  <rect class="doc" x="310" y="72" width="220" height="90"/>
+  <text class="text" x="366" y="110">BM25 Route</text>
+  <text class="small" x="352" y="138">sparse document match</text>
+  <rect class="doc" x="310" y="188" width="220" height="90"/>
+  <text class="text" x="357" y="226">Vector Route</text>
+  <text class="small" x="350" y="254">semantic document match</text>
+  <rect class="graph" x="310" y="304" width="220" height="90"/>
+  <text class="text" x="344" y="342">Graph Keyword</text>
+  <text class="small" x="350" y="370">entity and relation match</text>
+  <rect class="graph" x="310" y="420" width="220" height="70"/>
+  <text class="text" x="355" y="462">Graph Vector</text>
+  <rect class="fuse" x="622" y="156" width="224" height="120"/>
+  <text class="text" x="682" y="200">RRF Fusion</text>
+  <text class="small" x="660" y="228">rank merge across routes</text>
+  <text class="small" x="662" y="252">importance and recency</text>
+  <rect class="result" x="916" y="184" width="158" height="92"/>
+  <text class="text" x="959" y="223">Memory</text>
+  <text class="small" x="950" y="251">prompt or tool result</text>
+  <path class="line" d="M230 260 C270 260 270 117 310 117"/>
+  <path class="line" d="M230 260 C270 260 270 233 310 233"/>
+  <path class="line" d="M230 260 C270 260 270 349 310 349"/>
+  <path class="line" d="M230 260 C270 260 270 455 310 455"/>
+  <path class="line" d="M530 117 C590 117 590 190 622 190"/>
+  <path class="line" d="M530 233 L622 216"/>
+  <path class="line" d="M530 349 C590 349 590 245 622 245"/>
+  <path class="line" d="M530 455 C620 455 600 270 622 258"/>
+  <path class="line" d="M846 216 L916 230"/>
+</svg>

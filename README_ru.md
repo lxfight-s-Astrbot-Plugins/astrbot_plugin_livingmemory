@@ -9,8 +9,15 @@
 <p align="center">
   <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><img src="https://img.shields.io/github/v/release/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?color=76bad9" alt="Релиз"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"></a>
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/"><img src="https://img.shields.io/badge/docs-English%20%7C%20中文-3d7f8f" alt="Documentation"></a>
   <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/stargazers"><img src="https://img.shields.io/github/stars/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?style=social" alt="Звёзды"></a>
   <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-red" alt="Лицензия AGPLv3"></a>
+</p>
+
+<p align="center">
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/">English Documentation</a>
+  ·
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/">中文文档</a>
 </p>
 
 ---
@@ -155,9 +162,8 @@ pytest --cov=core tests/
 
 ### Документация
 
-- [API-документация](docs/API_ru.md): Подробный API-справочник
-- [Документация по архитектуре](docs/ARCHITECTURE_ru.md): Описание системной архитектуры
-- [Руководство разработчика](docs/DEVELOPMENT_ru.md): Руководство по разработке и внесению вклада
+- [English Documentation](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/): Quick start, features, WebUI usage, architecture, and docs deployment.
+- [中文文档](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/): Chinese documentation site.
 
 ---
 

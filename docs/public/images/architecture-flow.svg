@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-labelledby="title desc">
+  <title id="title">LivingMemory architecture flow</title>
+  <desc id="desc">Message events pass through capture, recall, reflection, storage, retrieval, and management layers.</desc>
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#e7f7f9"/>
+      <stop offset="1" stop-color="#f8f2e8"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#55707a"/>
+    </marker>
+    <style>
+      .bg{fill:url(#g1)}
+      .box{fill:#fff;stroke:#86a6ad;stroke-width:2;rx:14}
+      .box2{fill:#f7fbfc;stroke:#78a77b;stroke-width:2;rx:14}
+      .store{fill:#fff9f0;stroke:#d49a5c;stroke-width:2;rx:14}
+      .title{font:700 24px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#20343b}
+      .text{font:600 18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#263b42}
+      .small{font:500 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#55707a}
+      .line{stroke:#55707a;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1120" height="560" rx="24"/>
+  <text class="title" x="42" y="56">LivingMemory Runtime Map</text>
+  <rect class="box" x="42" y="100" width="188" height="100"/>
+  <text class="text" x="80" y="143">AstrBot Event</text>
+  <text class="small" x="72" y="170">message / provider hook</text>
+  <rect class="box2" x="286" y="72" width="218" height="100"/>
+  <text class="text" x="329" y="115">Recall Pipeline</text>
+  <text class="small" x="326" y="142">retrieve before LLM call</text>
+  <rect class="box2" x="286" y="214" width="218" height="100"/>
+  <text class="text" x="323" y="257">Reflection Pipeline</text>
+  <text class="small" x="320" y="284">summarize after response</text>
+  <rect class="store" x="560" y="72" width="212" height="100"/>
+  <text class="text" x="620" y="115">Memory Engine</text>
+  <text class="small" x="609" y="142">hybrid and graph recall</text>
+  <rect class="store" x="560" y="214" width="212" height="100"/>
+  <text class="text" x="618" y="257">Storage Layer</text>
+  <text class="small" x="596" y="284">SQLite, FAISS, BM25, FTS</text>
+  <rect class="box" x="828" y="72" width="238" height="100"/>
+  <text class="text" x="876" y="115">Agent Tools</text>
+  <text class="small" x="867" y="142">recall and memorize on demand</text>
+  <rect class="box" x="828" y="214" width="238" height="100"/>
+  <text class="text" x="878" y="257">Plugin Pages</text>
+  <text class="small" x="874" y="284">dashboard and graph explorer</text>
+  <rect class="store" x="250" y="390" width="620" height="100"/>
+  <text class="text" x="452" y="433">Lifecycle Services</text>
+  <text class="small" x="362" y="460">decay, atom reinforcement, cleanup, backup, index validation</text>
+  <path class="line" d="M230 150 C252 150 260 122 286 122"/>
+  <path class="line" d="M230 150 C255 150 258 264 286 264"/>
+  <path class="line" d="M504 122 L560 122"/>
+  <path class="line" d="M504 264 L560 264"/>
+  <path class="line" d="M666 172 L666 214"/>
+  <path class="line" d="M772 122 L828 122"/>
+  <path class="line" d="M772 264 L828 264"/>
+  <path class="line" d="M666 314 C666 354 580 350 580 390"/>
+  <path class="line" d="M948 314 C948 376 870 384 820 400"/>
+</svg>

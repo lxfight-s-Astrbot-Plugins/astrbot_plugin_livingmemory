@@ -1,0 +1,57 @@
+:root {
+  --vp-c-brand-1: #2f7f8f;
+  --vp-c-brand-2: #3b91a3;
+  --vp-c-brand-3: #59b4c4;
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #2f7f8f, #77a35a 54%, #c45d4b);
+}
+
+.dark {
+  --vp-c-brand-1: #7fd4df;
+  --vp-c-brand-2: #62bcc9;
+  --vp-c-brand-3: #449aa9;
+}
+
+.VPHome .image-src {
+  max-width: 210px;
+  max-height: 210px;
+  filter: drop-shadow(0 16px 34px rgb(36 88 99 / 28%));
+}
+
+.vp-doc img {
+  border-radius: 8px;
+}
+
+.vp-doc .diagram {
+  display: block;
+  width: 100%;
+  max-width: 920px;
+  margin: 18px auto 28px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+}
+
+.vp-doc .feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0 28px;
+}
+
+.vp-doc .feature-grid > div {
+  min-height: 138px;
+  padding: 18px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+}
+
+.vp-doc .feature-grid h3 {
+  margin-top: 0;
+}
+
+@media (max-width: 720px) {
+  .vp-doc .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="360" viewBox="0 0 1120 360" role="img" aria-labelledby="title desc">
+  <title id="title">Memory lifecycle</title>
+  <desc id="desc">Conversation is summarized, atomized, reinforced by access, decayed over time, and cleaned up or backed up safely.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#52656f"/>
+    </marker>
+    <style>
+      .bg{fill:#fbfaf6}
+      .box{fill:#fff;stroke:#8aa3aa;stroke-width:2;rx:16}
+      .accent{fill:#edf7f2;stroke:#72a36f;stroke-width:2;rx:16}
+      .warn{fill:#fff4e8;stroke:#d49a5c;stroke-width:2;rx:16}
+      .text{font:700 18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#20343b}
+      .small{font:500 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#52656f}
+      .line{stroke:#52656f;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" width="1120" height="360" rx="24"/>
+  <rect class="box" x="48" y="122" width="160" height="96"/>
+  <text class="text" x="78" y="162">Capture</text>
+  <text class="small" x="76" y="190">session messages</text>
+  <rect class="accent" x="268" y="122" width="160" height="96"/>
+  <text class="text" x="300" y="162">Summarize</text>
+  <text class="small" x="294" y="190">LLM reflection</text>
+  <rect class="accent" x="488" y="122" width="160" height="96"/>
+  <text class="text" x="518" y="162">Atomize</text>
+  <text class="small" x="515" y="190">facts with TTL</text>
+  <rect class="box" x="708" y="122" width="160" height="96"/>
+  <text class="text" x="750" y="162">Recall</text>
+  <text class="small" x="738" y="190">access reinforces</text>
+  <rect class="warn" x="928" y="122" width="144" height="96"/>
+  <text class="text" x="960" y="162">Decay</text>
+  <text class="small" x="950" y="190">expire or keep</text>
+  <path class="line" d="M208 170 L268 170"/>
+  <path class="line" d="M428 170 L488 170"/>
+  <path class="line" d="M648 170 L708 170"/>
+  <path class="line" d="M868 170 L928 170"/>
+  <path class="line" d="M1000 218 C1000 292 560 316 348 218"/>
+  <text class="small" x="456" y="296">backup, rollback, index validation, transactional deletion</text>
+</svg>
