@@ -7,9 +7,20 @@
 
 ## [Unreleased]
 
-## [2.3.4] - 2026-06-02
+## [2.3.4] - 2026-06-09
+
+### 重构
+- **EventHandler 模块化**: 将事件处理器拆分为 `GroupCapture`、`MemoryRecall`、`MemoryReflection` 三个子模块，提高代码可维护性 (#172)
+- **Page API 模块化**: 将 `page_api.py` 的处理逻辑提取到 `page_api_modules/` 目录下独立模块，职责分离更清晰 (#173)
+- **WebUI Dashboard 页面模块化**: 将前端页面逻辑拆分到 `modules/` 目录（memory-page.js、recall-page.js、graph-page.js、system-page.js）
+
+### 测试
+- 测试覆盖率从 73% 提升至 76% (#171)
 
 ### 修复
+- **群聊全量捕获误唤醒 AstrBot**: 修复 `PassiveGroupCaptureFilter` 未正确屏蔽群消息导致触发 LLM 响应的问题 (#170)
+- **inspect-stack 崩溃**: 传递 `plugin_name` 给 `StarTools.get_data_dir()` 避免堆栈检查失败 (#169)
+- **WebUI Page API 过滤器规范化**: 统一前端 API 请求的参数处理逻辑
 - **#166 排查确认**: TextPart 序列化崩溃非 LivingMemory 导致，而是其他插件（如 llmperception）注入 TextPart 引起。`mark_as_temp()` 标记的 TextPart 在 `dump_messages_with_checkpoints()` 中被过滤不落地，不会进入上下文压缩器。保持原有 `extra_user_content_parts` + `TextPart.mark_as_temp()` 注入方式不变。
 - **系统概览页重要性分布图始终为空**: `get_statistics()` 遍历了全部文档却未对重要性分桶，现在在批次处理循环中按 0-10 分 10 档统计
 - **系统概览页原子计数始终为 0**: `AtomStore` 缺少 `count_atoms()` 方法导致 `AttributeError` 被静默吞掉，现已新增该方法
