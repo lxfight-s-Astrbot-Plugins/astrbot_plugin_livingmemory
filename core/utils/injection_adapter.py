@@ -10,9 +10,17 @@ from typing import Any
 class InjectionAdapter:
     """根据 Provider/模型自动选择记忆注入策略的适配层。"""
 
-    # 已废弃的注入方式 → 自动回退到的推荐方式
-    _DEPRECATED_MODES: dict[str, str] = {
-        "system_prompt": "extra_user_content",
+    # 已废弃的注入方式 → (自动回退方式, 降级原因)
+    _DEPRECATED_MODES: dict[str, tuple[str, str]] = {
+        "system_prompt": (
+            "extra_user_content",
+            "system_prompt 已废弃（严重破坏 LLM 前缀缓存），自动回退至 extra_user_content",
+        ),
+        "fake_tool_call_deepseek_v4": (
+            "fake_tool_call",
+            "fake_tool_call_deepseek_v4 已废弃；新版 AstrBot 已支持 DeepSeek V4 "
+            "使用标准 fake_tool_call，自动回退至 fake_tool_call",
+        ),
     }
 
     # 降级规则表：按 provider_type / model_name 匹配，执行注入方式降级
@@ -20,7 +28,7 @@ class InjectionAdapter:
         {
             "provider_types": ["googlegenai_chat_completion"],
             "model_patterns": ["gemini"],
-            "downgrades": {"fake_tool_call": "user_message_before"},
+            "downgrades": {"fake_tool_call": "extra_user_content"},
         },
     ]
 
@@ -37,17 +45,16 @@ class InjectionAdapter:
             - resolved_mode: 实际使用的注入方式
             - fallback_reason: 降级原因描述；未降级时为 None
         """
+        deprecation_reason = None
         # 检查是否为已废弃的注入方式
         if configured_mode in self._DEPRECATED_MODES:
-            fallback = self._DEPRECATED_MODES[configured_mode]
-            reason = (
-                f"{configured_mode} 已废弃（严重破坏 LLM 前缀缓存），"
-                f"自动回退至 {fallback}"
-            )
-            return fallback, reason
+            fallback, deprecation_reason = self._DEPRECATED_MODES[configured_mode]
+            if fallback != "fake_tool_call":
+                return fallback, deprecation_reason
+            configured_mode = fallback
 
         if configured_mode != "fake_tool_call":
-            return configured_mode, None
+            return configured_mode, deprecation_reason
 
         try:
             provider_type, model_name = self._extract_provider_info(provider)
@@ -59,12 +66,15 @@ class InjectionAdapter:
                 downgrade = rule["downgrades"].get(configured_mode)
                 if downgrade:
                     reason = (
-                        f"fake_tool_call is not fully compatible with "
-                        f"Gemini (type={provider_type}, model={model_name})"
+                        f"fake_tool_call is not fully compatible with Gemini "
+                        f"(type={provider_type}, model={model_name}); "
+                        f"falling back to {downgrade}"
                     )
+                    if deprecation_reason:
+                        reason = f"{deprecation_reason}; {reason}"
                     return downgrade, reason
 
-        return configured_mode, None
+        return configured_mode, deprecation_reason
 
     @staticmethod
     def _extract_provider_info(provider: Any) -> tuple[str, str]:

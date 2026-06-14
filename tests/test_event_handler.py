@@ -821,7 +821,7 @@ def _make_recall_conversation_manager():
 async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
     memory_engine,
 ):
-    """Gemini 下配置 fake_tool_call 应自动降级为 user_message_before 注入。"""
+    """Gemini 下配置 fake_tool_call 应自动降级为 extra_user_content 注入。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
     gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
@@ -866,8 +866,12 @@ async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
 
     assert len(req.contexts) == 0
     assert req.system_prompt == ""
-    assert "用户喜欢吃火锅" in req.prompt
-    assert req.prompt.index("<RAG-Faiss-Memory>") < req.prompt.index("今天吃什么")
+    assert req.prompt == "今天吃什么"
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "用户喜欢吃火锅" in text_part.text
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
 
 
 @pytest.mark.asyncio
@@ -975,7 +979,7 @@ async def test_handle_memory_recall_fake_tool_call_fallback_logs_once(
     mock_warning.assert_called_once()
     warning_text = mock_warning.call_args[0][0]
     assert "fake_tool_call" in warning_text
-    assert "user_message_before" in warning_text
+    assert "extra_user_content" in warning_text
 
 
 @pytest.mark.asyncio
@@ -1028,8 +1032,9 @@ async def test_format_memories_for_fake_tool_call_deepseek_v4_empty():
 async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
     memory_engine,
 ):
-    """DeepSeek V4 模式应把转录内容注入到 prompt 前部。"""
+    """DeepSeek V4 专用模式已废弃，应自动回退到普通 fake_tool_call。"""
     context = Mock()
+    context.get_using_provider = Mock(return_value=None)
 
     h = EventHandler(
         context=context,
@@ -1071,16 +1076,138 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    context.get_using_provider.assert_not_called()
+    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
+    assert len(req.contexts) == 2
+    assert req.system_prompt == ""
+    assert req.prompt == "今天吃什么"
+    assert req.extra_user_content_parts == []
+    assistant_msg, tool_msg = req.contexts
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["tool_calls"][0]["function"]["name"] == (
+        "recall_long_term_memory"
+    )
+    assert tool_msg["role"] == "tool"
+    assert '"session_filtered": false' in tool_msg["content"]
+    assert '"persona_filtered": true' in tool_msg["content"]
+    assert "用户喜欢吃火锅" in tool_msg["content"]
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4_on_gemini(
+    memory_engine,
+):
+    """DeepSeek V4 旧配置在 Gemini 上应继续降级到 extra_user_content。"""
+    gemini_provider = Mock()
+    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
+    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
+
+    context = Mock()
+    context.get_using_provider = Mock(return_value=gemini_provider)
+
+    h = EventHandler(
+        context=context,
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "fake_tool_call_deepseek_v4",
+                },
+                "filtering_settings": {
+                    "use_session_filtering": False,
+                    "use_persona_filtering": True,
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=_make_recall_conversation_manager(),
+    )
+
+    recalled = Mock(
+        content="用户喜欢吃火锅",
+        final_score=0.88,
+        metadata={"importance": 0.9, "create_time": 1700000000},
+    )
+    recalled.doc_id = 99
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    event.get_message_str = Mock(return_value="今天吃什么")
+    req = _make_req("今天吃什么")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
     assert len(req.contexts) == 0
     assert req.system_prompt == ""
-    assert req.prompt.endswith("今天吃什么")
-    assert req.prompt.index("[DeepSeekV4-FakeToolCall-Replay]") < req.prompt.index(
-        "今天吃什么"
+    assert req.prompt == "今天吃什么"
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "用户喜欢吃火锅" in text_part.text
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
+
+
+@pytest.mark.asyncio
+async def test_handle_memory_recall_deepseek_v4_alias_falls_back_when_provider_lookup_fails(
+    memory_engine,
+):
+    """DeepSeek V4 旧配置在 provider 获取失败时仍应继续按 fake_tool_call 处理。"""
+    context = Mock()
+    context.get_using_provider = Mock(side_effect=ValueError("no provider"))
+
+    h = EventHandler(
+        context=context,
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "fake_tool_call_deepseek_v4",
+                },
+                "filtering_settings": {
+                    "use_session_filtering": False,
+                    "use_persona_filtering": True,
+                },
+                "reflection_engine": {"summary_trigger_rounds": 1},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=_make_recall_conversation_manager(),
     )
-    assert '"session_filtered": false' in req.prompt
-    assert '"persona_filtered": true' in req.prompt
-    assert "用户喜欢吃火锅" in req.prompt
+
+    recalled = Mock(
+        content="用户喜欢吃火锅",
+        final_score=0.88,
+        metadata={"importance": 0.9, "create_time": 1700000000},
+    )
+    recalled.doc_id = 99
+    memory_engine.search_memories = AsyncMock(return_value=[recalled])
+
+    event = _make_event(group=False)
+    event.get_message_str = Mock(return_value="今天吃什么")
+    req = _make_req("今天吃什么")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "p1"
+        await h.handle_memory_recall(event, req)
+
+    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
+    assert len(req.contexts) == 2
+    assert req.prompt == "今天吃什么"
+    assert req.extra_user_content_parts == []
+    assert req.system_prompt == ""
 
 
 @pytest.mark.asyncio

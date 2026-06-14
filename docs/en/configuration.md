@@ -45,7 +45,7 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
 
-`extra_user_content` is the safest default. Avoid forcing `fake_tool_call` with Gemini providers. For DeepSeek V4 thinking mode, use `fake_tool_call_deepseek_v4` if fake-tool semantics are needed.
+`extra_user_content` is the safest default. Gemini providers automatically fall back from `fake_tool_call` to `extra_user_content`. DeepSeek V4 thinking mode can now use normal `fake_tool_call` on recent AstrBot versions; the legacy `fake_tool_call_deepseek_v4` option is kept only as a compatibility alias and automatically falls back to `fake_tool_call`.
 
 ## Memory isolation
 
