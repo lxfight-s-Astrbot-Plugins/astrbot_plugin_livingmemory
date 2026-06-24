@@ -381,7 +381,7 @@ class PluginInitializer:
             _orig_write = _faiss.write_index
 
             def _patched_read_index(path: str, *args, **kwargs):
-                if _needs_bridge(path):
+                if isinstance(path, (str, bytes, os.PathLike)) and _needs_bridge(path):
                     tmp = _make_temp_file("_faiss_read")
                     try:
                         shutil.copy2(path, tmp)
@@ -394,14 +394,16 @@ class PluginInitializer:
                                 pass
                 return _orig_read(path, *args, **kwargs)
 
-            def _patched_write_index(index, path: str, **kwargs) -> None:
-                if _needs_bridge(path):
+            def _patched_write_index(index, path, *args, **kwargs) -> None:
+                # 仅在第二个参数为路径类对象 且 Windows 非 ASCII 时桥接；
+                # 否则原样转发（如 VectorIOWriter / FILE* 等非路径对象）
+                if isinstance(path, (str, bytes, os.PathLike)) and _needs_bridge(path):
                     dirname = os.path.dirname(path)
                     if dirname:
                         os.makedirs(dirname, exist_ok=True)
                     tmp = _make_temp_file("_faiss_write")
                     try:
-                        _orig_write(index, tmp, **kwargs)
+                        _orig_write(index, tmp, *args, **kwargs)
                         # os.replace 原子覆盖，同卷 rename 跨卷 copy+delete
                         try:
                             os.replace(tmp, path)
@@ -418,7 +420,7 @@ class PluginInitializer:
                             except OSError:
                                 pass
                     return
-                _orig_write(index, path, **kwargs)
+                _orig_write(index, path, *args, **kwargs)
 
             _faiss.read_index = _patched_read_index
             _faiss.write_index = _patched_write_index
@@ -846,32 +848,16 @@ class PluginInitializer:
             pass
 
         try:
-            try:
-                import faiss
-            except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
-                raise InitializationError(
-                    "FAISS 初始化失败，无法读取索引文件。"
-                    "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
-                ) from exc
+            import faiss
+        except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
+            raise InitializationError(
+                "FAISS 初始化失败，无法读取索引文件。"
+                "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
+            ) from exc
 
+        # 读取索引文件 — 仅在 FAISS I/O 失败时进入坏索引处理
+        try:
             old_index = self._faiss_read_index_safe(index_path)
-            old_dim = old_index.d
-            new_dim = self.embedding_provider.get_dim()  # type: ignore
-
-            if old_dim != new_dim:
-                logger.warning(
-                    f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
-                    f"当前 Embedding Provider 维度={new_dim}"
-                )
-                logger.warning(
-                    "这通常由 Embedding 模型切换导致。"
-                    "旧索引将被删除，系统会自动重建索引。"
-                )
-
-                os.remove(index_path)
-                logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
-                logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
-
         except InitializationError:
             raise
         except Exception as e:
@@ -894,6 +880,25 @@ class PluginInitializer:
                     f"检查索引维度时出错，且删除坏索引失败: {e}",
                     exc_info=True,
                 )
+            return
+
+        # 对比维度 — 放在坏索引处理之外，避免 embedding_provider 异常误删健康索引
+        old_dim = old_index.d
+        new_dim = self.embedding_provider.get_dim()  # type: ignore
+
+        if old_dim != new_dim:
+            logger.warning(
+                f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
+                f"当前 Embedding Provider 维度={new_dim}"
+            )
+            logger.warning(
+                "这通常由 Embedding 模型切换导致。"
+                "旧索引将被删除，系统会自动重建索引。"
+            )
+
+            os.remove(index_path)
+            logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
+            logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
 
     @staticmethod
     def _faiss_read_index_safe(index_path: str):
