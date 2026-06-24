@@ -53,8 +53,8 @@ Configure the plugin from the AstrBot plugin configuration page.
 - `llm_provider_id`: LLM model ID. Leave empty to use the AstrBot default.
 
 **Memory injection compatibility**:
-- `fake_tool_call` automatically falls back to `user_message_before` for Gemini providers to avoid tool-message protocol incompatibility.
-- For DeepSeek V4 `thinking` mode, select `fake_tool_call_deepseek_v4` manually if you need fake-tool-call semantics.
+- `fake_tool_call` automatically falls back to `extra_user_content` for Gemini providers to avoid tool-message protocol incompatibility.
+- DeepSeek V4 `thinking` mode can use normal `fake_tool_call` on recent AstrBot versions. The legacy `fake_tool_call_deepseek_v4` option is kept for compatibility and automatically falls back to `fake_tool_call`.
 
 ### AstrBot Version Requirement
 

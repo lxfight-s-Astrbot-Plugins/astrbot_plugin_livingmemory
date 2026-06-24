@@ -15,7 +15,6 @@ from astrbot.core.agent.message import TextPart
 from ..utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
-    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     get_persona_id,
 )
@@ -226,8 +225,17 @@ class MemoryRecall:
                         "recall_engine.injection_method", "extra_user_content"
                     )
                     provider = None
-                    if configured_method == "fake_tool_call":
-                        provider = self.context.get_using_provider(session_id)
+                    if configured_method in (
+                        "fake_tool_call",
+                        "fake_tool_call_deepseek_v4",
+                    ):
+                        try:
+                            provider = self.context.get_using_provider(session_id)
+                        except Exception as e:
+                            logger.warning(
+                                f"[{session_id}] 获取当前 Provider 失败，"
+                                f"将按无 Provider 继续解析注入模式: {e}"
+                            )
                     injection_method, fallback_reason = (
                         self.injection_adapter.resolve(provider, configured_method)
                     )
@@ -261,20 +269,6 @@ class MemoryRecall:
                             req.contexts.extend(fake_messages)
                             logger.info(
                                 f"[{session_id}] 成功以伪造工具调用方式注入 "
-                                f"{len(recalled_memories)} 条记忆"
-                            )
-                    elif injection_method == "fake_tool_call_deepseek_v4":
-                        fake_replay = format_memories_for_fake_tool_call_deepseek_v4(
-                            memory_list,
-                            query=actual_query,
-                            k=self.config_manager.get("recall_engine.top_k", 5),
-                            session_filtered=use_session_filtering,
-                            persona_filtered=use_persona_filtering,
-                        )
-                        if fake_replay:
-                            req.prompt = fake_replay + "\n\n" + (req.prompt or "")
-                            logger.info(
-                                f"[{session_id}] 成功以 DeepSeek V4 兼容伪工具转录方式注入 "
                                 f"{len(recalled_memories)} 条记忆"
                             )
                     else:

@@ -60,7 +60,7 @@ class RecallEngineConfig(BaseModel):
             "user_message_before(用户消息前), "
             "user_message_after(用户消息后), "
             "fake_tool_call(伪造工具调用), "
-            "fake_tool_call_deepseek_v4(DeepSeek V4兼容伪工具转录), "
+            "fake_tool_call_deepseek_v4(已废弃，自动回退至fake_tool_call), "
             "system_prompt(已废弃，自动回退至extra_user_content)"
         ),
     )

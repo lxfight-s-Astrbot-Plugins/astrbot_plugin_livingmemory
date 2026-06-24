@@ -30,28 +30,52 @@ def test_resolve_system_prompt_falls_back(adapter):
     assert "extra_user_content" in reason
 
 
+def test_resolve_deepseek_v4_mode_falls_back_to_fake_tool_call(adapter):
+    """DeepSeek V4 专用模式已废弃，应自动回退到标准 fake_tool_call。"""
+    mode, reason = adapter.resolve(None, "fake_tool_call_deepseek_v4")
+
+    assert mode == "fake_tool_call"
+    assert reason is not None
+    assert "fake_tool_call_deepseek_v4" in reason
+    assert "fake_tool_call" in reason
+
+
+def test_resolve_deepseek_v4_mode_still_downgrades_for_gemini(adapter):
+    """DeepSeek V4 旧配置在 Gemini 上仍应继续走 Gemini 兼容降级。"""
+    gemini_provider = Mock()
+    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
+    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
+
+    mode, reason = adapter.resolve(gemini_provider, "fake_tool_call_deepseek_v4")
+
+    assert mode == "extra_user_content"
+    assert reason is not None
+    assert "fake_tool_call_deepseek_v4" in reason
+    assert "extra_user_content" in reason
+
+
 def test_resolve_gemini_by_provider_type(adapter):
-    """provider type 为 googlegenai_chat_completion 时应降级为 user_message_before。"""
+    """provider type 为 googlegenai_chat_completion 时应降级为 extra_user_content。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
     gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
 
     mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
 
-    assert mode == "user_message_before"
+    assert mode == "extra_user_content"
     assert reason is not None
     assert "gemini" in reason.lower()
 
 
 def test_resolve_gemini_by_model_name(adapter):
-    """model 名包含 gemini 时应降级为 user_message_before。"""
+    """model 名包含 gemini 时应降级为 extra_user_content。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "some_other_type"}
     gemini_provider.get_model = Mock(return_value="gemini-1.5-flash")
 
     mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
 
-    assert mode == "user_message_before"
+    assert mode == "extra_user_content"
     assert reason is not None
 
 
@@ -83,6 +107,6 @@ def test_resolve_returns_reason_on_fallback(adapter):
 
     mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
 
-    assert mode == "user_message_before"
+    assert mode == "extra_user_content"
     assert reason is not None
     assert "fake_tool_call is not fully compatible" in reason

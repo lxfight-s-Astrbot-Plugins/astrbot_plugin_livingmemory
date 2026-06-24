@@ -24,8 +24,8 @@ LivingMemory is a long-term memory plugin for AstrBot. It maintains a searchable
 | Private assistant | Enable persona and session filtering to avoid cross-persona memories |
 | Long-running group chat | Enable `enable_full_group_capture` to capture context that does not directly mention the bot |
 | Agent / tool loop | Keep agent memory tools enabled so the model can recall or write memory when useful |
-| Gemini provider | Avoid forcing `fake_tool_call`; the plugin automatically falls back to a compatible injection method |
-| DeepSeek V4 thinking | Use `fake_tool_call_deepseek_v4` if fake-tool semantics are needed |
+| Gemini provider | `fake_tool_call` automatically falls back to `extra_user_content` |
+| DeepSeek V4 thinking | Use normal `fake_tool_call`; the legacy `fake_tool_call_deepseek_v4` option is only a compatibility alias |
 
 ## Open the dashboard
 

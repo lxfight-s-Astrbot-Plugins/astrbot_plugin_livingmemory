@@ -32,7 +32,6 @@ from .processors.memory_processor import MemoryProcessor
 from .utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
-    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     get_persona_id,
 )
