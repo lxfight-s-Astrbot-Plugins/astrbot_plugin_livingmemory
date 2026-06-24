@@ -38,6 +38,7 @@ FaissVecDB: Any = None
 
 def _needs_bridge(path: str) -> bool:
     """判断是否需要 ASCII 临时文件桥接。"""
+    path = os.fspath(path)
     return os.name == "nt" and not path.isascii()
 
 
@@ -65,6 +66,7 @@ def _make_temp_file(prefix: str) -> str:
 
 def _sanitize_path(path: str) -> str:
     """脱敏路径：非 ASCII 部分替换为 [***]，避免日志泄露中文用户名。"""
+    path = os.fspath(path)
     if path.isascii():
         return path
     parts: list[str] = []
@@ -378,29 +380,37 @@ class PluginInitializer:
             _orig_read = _faiss.read_index
             _orig_write = _faiss.write_index
 
-            def _patched_read_index(path: str):
+            def _patched_read_index(path: str, *args, **kwargs):
                 if _needs_bridge(path):
                     tmp = _make_temp_file("_faiss_read")
                     try:
                         shutil.copy2(path, tmp)
-                        return _orig_read(tmp)
+                        return _orig_read(tmp, *args, **kwargs)
                     finally:
                         if os.path.exists(tmp):
                             try:
                                 os.remove(tmp)
                             except OSError:
                                 pass
-                return _orig_read(path)
+                return _orig_read(path, *args, **kwargs)
 
-            def _patched_write_index(index, path: str) -> None:
+            def _patched_write_index(index, path: str, **kwargs) -> None:
                 if _needs_bridge(path):
                     dirname = os.path.dirname(path)
                     if dirname:
                         os.makedirs(dirname, exist_ok=True)
                     tmp = _make_temp_file("_faiss_write")
                     try:
-                        _orig_write(index, tmp)
-                        shutil.move(tmp, path)
+                        _orig_write(index, tmp, **kwargs)
+                        # os.replace 原子覆盖，同卷 rename 跨卷 copy+delete
+                        try:
+                            os.replace(tmp, path)
+                        except OSError:
+                            shutil.copy2(tmp, path)
+                            try:
+                                os.remove(tmp)
+                            except OSError:
+                                pass
                     finally:
                         if os.path.exists(tmp):
                             try:
@@ -408,7 +418,7 @@ class PluginInitializer:
                             except OSError:
                                 pass
                     return
-                _orig_write(index, path)
+                _orig_write(index, path, **kwargs)
 
             _faiss.read_index = _patched_read_index
             _faiss.write_index = _patched_write_index
