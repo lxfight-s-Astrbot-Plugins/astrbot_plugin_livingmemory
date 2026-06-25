@@ -5,8 +5,10 @@
 
 import asyncio
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,54 @@ from .schedulers.decay_scheduler import DecayScheduler
 from .validators.index_validator import IndexValidator
 
 FaissVecDB: Any = None
+
+# ── Faiss C++ fopen() 在 Windows 上使用 ANSI codepage ──
+# Python 传给 Faiss 的路径是 UTF-8 字节，Windows fopen 期望 ANSI 编码，
+# 含非 ASCII 字符的路径（如 C:\Users\<中文名>\...）被解读为乱码 →
+# RuntimeError: could not open ... for reading: No such file or directory。
+# 通过 monkey-patch faiss.read_index / write_index，经纯 ASCII 临时文件桥接。
+
+
+def _needs_bridge(path: str) -> bool:
+    """判断是否需要 ASCII 临时文件桥接。"""
+    path = os.fspath(path)
+    return os.name == "nt" and not path.isascii()
+
+
+def _safe_temp_dir() -> str:
+    """返回保证纯 ASCII 且可写的临时目录。"""
+    if os.name == "nt":
+        root = os.environ.get("SystemRoot", r"C:\Windows")
+        temp_dir = os.path.join(root, "Temp")
+        if temp_dir.isascii() and os.path.isdir(temp_dir) and os.access(temp_dir, os.W_OK):
+            return temp_dir
+        tmp = tempfile.gettempdir()
+        if tmp.isascii():
+            return tmp
+        raise OSError("_safe_temp_dir: 无法找到可写的纯 ASCII 临时目录")
+    return tempfile.gettempdir()
+
+
+def _make_temp_file(prefix: str) -> str:
+    """创建 Faiss 桥接临时文件，返回纯 ASCII 路径。"""
+    safe_dir = _safe_temp_dir()
+    fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=".faiss", dir=safe_dir)
+    os.close(fd)
+    return path
+
+
+def _sanitize_path(path: str) -> str:
+    """脱敏路径：非 ASCII 部分替换为 [***]，避免日志泄露中文用户名。"""
+    path = os.fspath(path)
+    if path.isascii():
+        return path
+    parts: list[str] = []
+    for ch in path:
+        if ch.isascii():
+            parts.append(ch)
+        elif not parts or parts[-1] != "[***]":
+            parts.append("[***]")
+    return "".join(parts)
 
 
 class PluginInitializer:
@@ -325,6 +375,56 @@ class PluginInitializer:
 
         self._check_faiss_runtime()
         try:
+            import faiss as _faiss
+
+            _orig_read = _faiss.read_index
+            _orig_write = _faiss.write_index
+
+            def _patched_read_index(path: str, *args, **kwargs):
+                if isinstance(path, (str, bytes, os.PathLike)) and _needs_bridge(path):
+                    tmp = _make_temp_file("_faiss_read")
+                    try:
+                        shutil.copy2(path, tmp)
+                        return _orig_read(tmp, *args, **kwargs)
+                    finally:
+                        if os.path.exists(tmp):
+                            try:
+                                os.remove(tmp)
+                            except OSError:
+                                pass
+                return _orig_read(path, *args, **kwargs)
+
+            def _patched_write_index(index, path, *args, **kwargs) -> None:
+                # 仅在第二个参数为路径类对象 且 Windows 非 ASCII 时桥接；
+                # 否则原样转发（如 VectorIOWriter / FILE* 等非路径对象）
+                if isinstance(path, (str, bytes, os.PathLike)) and _needs_bridge(path):
+                    dirname = os.path.dirname(path)
+                    if dirname:
+                        os.makedirs(dirname, exist_ok=True)
+                    tmp = _make_temp_file("_faiss_write")
+                    try:
+                        _orig_write(index, tmp, *args, **kwargs)
+                        # os.replace 原子覆盖，同卷 rename 跨卷 copy+delete
+                        try:
+                            os.replace(tmp, path)
+                        except OSError:
+                            shutil.copy2(tmp, path)
+                            try:
+                                os.remove(tmp)
+                            except OSError:
+                                pass
+                    finally:
+                        if os.path.exists(tmp):
+                            try:
+                                os.remove(tmp)
+                            except OSError:
+                                pass
+                    return
+                _orig_write(index, path, *args, **kwargs)
+
+            _faiss.read_index = _patched_read_index
+            _faiss.write_index = _patched_write_index
+
             from astrbot.core.db.vec_db.faiss_impl.vec_db import (
                 FaissVecDB as LoadedFaissVecDB,
             )
@@ -738,49 +838,88 @@ class PluginInitializer:
         if not os.path.exists(index_path):
             return
 
+        # 空文件不是有效索引，直接删除让 initialize() 重建，避免 faiss 抛异常
         try:
-            try:
-                import faiss
-            except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
-                raise InitializationError(
-                    "FAISS 初始化失败，无法读取索引文件。"
-                    "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
-                ) from exc
-
-            old_index = faiss.read_index(index_path)
-            old_dim = old_index.d
-            new_dim = self.embedding_provider.get_dim()  # type: ignore
-
-            if old_dim != new_dim:
-                logger.warning(
-                    f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
-                    f"当前 Embedding Provider 维度={new_dim}"
-                )
-                logger.warning(
-                    "这通常由 Embedding 模型切换导致。"
-                    "旧索引将被删除，系统会自动重建索引。"
-                )
-
+            if os.path.getsize(index_path) == 0:
                 os.remove(index_path)
-                logger.info(f"已删除不兼容的旧索引文件: {index_path}")
-                logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+                logger.debug(f"已删除空索引文件: {_sanitize_path(index_path)}")
+                return
+        except OSError:
+            pass
 
+        try:
+            import faiss
+        except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
+            raise InitializationError(
+                "FAISS 初始化失败，无法读取索引文件。"
+                "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
+            ) from exc
+
+        # 读取索引文件 — 仅在 FAISS I/O 失败时进入坏索引处理
+        try:
+            old_index = self._faiss_read_index_safe(index_path)
         except InitializationError:
             raise
         except Exception as e:
-            quarantine_path = f"{index_path}.corrupt_{int(time.time())}"
+            error_msg = str(e)
+            # 文件在 os.path.exists 和 faiss.read_index 之间消失（如被外部进程删除），
+            # 这不是坏文件，不需要隔离，让 initialize() 自动重建即可
+            if "No such file" in error_msg or "could not open" in error_msg:
+                logger.debug(f"FAISS 索引文件({_sanitize_path(index_path)})在检查时不可访问，将由 initialize() 重建: {e}")
+                return
+            # 真正的坏文件：直接删除（系统会自动重建），避免累积 .corrupt_* 文件
             try:
-                os.replace(index_path, quarantine_path)
+                os.remove(index_path)
                 logger.error(
-                    f"FAISS 索引文件不可读，已隔离坏文件: {quarantine_path}。"
+                    f"FAISS 索引文件已损坏并被删除: {_sanitize_path(index_path)}。"
                     "系统将创建空索引，并在初始化后尝试分批重建。",
                     exc_info=True,
                 )
-            except Exception:
+            except OSError:
                 logger.error(
-                    f"检查索引维度时出错，且隔离坏索引失败: {e}",
+                    f"检查索引维度时出错，且删除坏索引失败: {e}",
                     exc_info=True,
                 )
+            return
+
+        # 对比维度 — 放在坏索引处理之外，避免 embedding_provider 异常误删健康索引
+        old_dim = old_index.d
+        new_dim = self.embedding_provider.get_dim()  # type: ignore
+
+        if old_dim != new_dim:
+            logger.warning(
+                f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
+                f"当前 Embedding Provider 维度={new_dim}"
+            )
+            logger.warning(
+                "这通常由 Embedding 模型切换导致。"
+                "旧索引将被删除，系统会自动重建索引。"
+            )
+
+            os.remove(index_path)
+            logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
+            logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+
+    @staticmethod
+    def _faiss_read_index_safe(index_path: str):
+        """通过 ASCII 临时路径桥接 FAISS read_index。
+
+        monkey-patch 已覆盖全局 faiss.read_index，此方法作为显式后备。
+        """
+        if not _needs_bridge(index_path):
+            import faiss
+            return faiss.read_index(index_path)
+        tmp = _make_temp_file("_faiss_read")
+        try:
+            shutil.copy2(index_path, tmp)
+            import faiss
+            return faiss.read_index(tmp)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
     async def stop_scheduler(self) -> None:
         """停止衰减调度器"""
