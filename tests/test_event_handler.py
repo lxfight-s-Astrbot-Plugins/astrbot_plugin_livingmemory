@@ -1329,6 +1329,68 @@ async def test_top_k_0_still_cleans_injected_memories(
 
 
 @pytest.mark.asyncio
+async def test_top_k_0_cleans_livingmemory_temp_extra_parts(
+    memory_engine, memory_processor, conversation_manager
+):
+    """top_k=0 时应按 _no_save 清理 LivingMemory 上轮临时 extra_user_content。"""
+    from astrbot.core.agent.message import TextPart
+    from astrbot_plugin_livingmemory.core.base.constants import (
+        MEMORY_INJECTION_FOOTER,
+        MEMORY_INJECTION_HEADER,
+    )
+
+    handler = _make_handler_with_top_k_0(
+        memory_engine, memory_processor, conversation_manager
+    )
+    event = _make_event(group=False)
+    req = _make_req("test query")
+    req.extra_user_content_parts = [
+        TextPart(
+            text=f"{MEMORY_INJECTION_HEADER}\n旧记忆内容\n{MEMORY_INJECTION_FOOTER}"
+        ).mark_as_temp(),
+        TextPart(text="<image_caption>cat</image_caption>").mark_as_temp(),
+    ]
+
+    await handler.handle_memory_recall(event, req)
+
+    assert len(req.extra_user_content_parts) == 1
+    assert req.extra_user_content_parts[0].text == "<image_caption>cat</image_caption>"
+    memory_engine.search_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_top_k_0_normalizes_text_only_history_content_parts(
+    memory_engine, memory_processor, conversation_manager
+):
+    """历史里的纯文本 content parts 应折叠回字符串，真实多模态消息保持不变。"""
+    handler = _make_handler_with_top_k_0(
+        memory_engine, memory_processor, conversation_manager
+    )
+    event = _make_event(group=False)
+    req = _make_req("test query")
+    multimodal_content = [
+        {"type": "text", "text": "look"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+    ]
+    req.contexts = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "text", "text": "\nworld"},
+            ],
+        },
+        {"role": "user", "content": multimodal_content},
+    ]
+
+    await handler.handle_memory_recall(event, req)
+
+    assert req.contexts[0]["content"] == "hello\nworld"
+    assert req.contexts[1]["content"] is multimodal_content
+    memory_engine.search_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_top_k_0_still_stores_private_message(
     memory_engine, memory_processor, conversation_manager
 ):

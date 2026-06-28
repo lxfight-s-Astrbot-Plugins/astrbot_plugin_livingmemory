@@ -26,6 +26,32 @@ class MemoryHandler:
         """
         self.utils = utils
 
+    @staticmethod
+    def _normalize_importance_update(value: Any, value_scale: str = "auto") -> float:
+        """Normalize WebUI/API importance input into the stored 0-1 scale."""
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("重要性必须是数字") from exc
+
+        scale = str(value_scale or "auto").strip().lower()
+        if scale in {"display", "0-10", "ten"}:
+            if not 0.0 <= parsed <= 10.0:
+                raise ValueError("重要性必须在 0-10 范围内")
+            return parsed / 10.0
+
+        if scale in {"stored", "normalized", "0-1"}:
+            if not 0.0 <= parsed <= 1.0:
+                raise ValueError("重要性必须在 0-1 范围内")
+            return parsed
+
+        if 0.0 <= parsed <= 1.0:
+            return parsed
+        if 0.0 <= parsed <= 10.0:
+            return parsed / 10.0
+
+        raise ValueError("重要性必须在 0-1 或 0-10 范围内")
+
     async def list_memories(self, memory_engine) -> dict[str, Any]:
         """
         获取记忆列表（带分页和过滤）
@@ -307,6 +333,7 @@ class MemoryHandler:
 
         field = str(payload.get("field", "")).strip()
         value = payload.get("value")
+        value_scale = str(payload.get("value_scale", "auto")).strip().lower()
         reason = str(payload.get("reason", "")).strip()
 
         if not field or value is None:
@@ -383,15 +410,9 @@ class MemoryHandler:
         new_value_for_history: Any
         if field == "importance":
             try:
-                parsed = float(value)
-            except (TypeError, ValueError):
-                return self.utils.error("重要性必须是数字")
-            if 0.0 <= parsed <= 1.0:
-                normalized = parsed
-            elif 0.0 <= parsed <= 10.0:
-                normalized = parsed / 10.0
-            else:
-                return self.utils.error("重要性必须在 0-1 或 0-10 范围内")
+                normalized = self._normalize_importance_update(value, value_scale)
+            except ValueError as exc:
+                return self.utils.error(str(exc))
             updates["importance"] = normalized
             old_value_for_history = self.utils.importance_to_display(
                 current_metadata.get("importance", 0.5)
@@ -506,6 +527,7 @@ class MemoryHandler:
         memory_ids = payload.get("memory_ids", [])
         field = str(payload.get("field", "")).strip()
         value = payload.get("value")
+        value_scale = str(payload.get("value_scale", "auto")).strip().lower()
 
         if not isinstance(memory_ids, list) or not memory_ids:
             return self.utils.error("需要提供记忆 ID 列表")
@@ -535,15 +557,10 @@ class MemoryHandler:
                     updates["metadata"] = {"status": status_value}
                 elif field == "importance":
                     try:
-                        parsed = float(value)
-                    except (TypeError, ValueError):
-                        failed_ids.append(raw_id)
-                        continue
-                    if 0.0 <= parsed <= 1.0:
-                        updates["importance"] = parsed
-                    elif 0.0 <= parsed <= 10.0:
-                        updates["importance"] = parsed / 10.0
-                    else:
+                        updates["importance"] = self._normalize_importance_update(
+                            value, value_scale
+                        )
+                    except ValueError:
                         failed_ids.append(raw_id)
                         continue
                 elif field == "type":

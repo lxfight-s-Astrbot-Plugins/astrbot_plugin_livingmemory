@@ -51,3 +51,26 @@ async def test_subgraph_memory_stats_recompute_after_node_limit(tmp_path):
     assert len(subgraph["entries"]) == 1
     assert subgraph["memories"][0]["entry_count"] == 1
     assert subgraph["memories"][0]["node_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_by_tokens_batches_large_token_lists(tmp_path):
+    store = GraphStore(str(tmp_path / "graph_tokens.db"))
+    await store.initialize()
+
+    await store.upsert_nodes(
+        [
+            GraphNode("topic", "needle alpha", "needle alpha"),
+            GraphNode("topic", "needle beta", "needle beta"),
+        ]
+    )
+
+    tokens = [f"token-{i}" for i in range(1100)]
+    tokens.extend(["needle", "needle", ""])
+
+    results = await store.search_nodes_by_tokens(tokens, limit=10)
+
+    assert {item["canonical_value"] for item in results} == {
+        "needle beta",
+        "needle alpha",
+    }
