@@ -85,6 +85,10 @@ class MemoryRecall:
                     logger.debug(f"[{session_id}] 请求中无可用用户内容，跳过记忆召回")
                     return
 
+                normalized = self._normalize_text_only_context_parts(req, session_id)
+                if normalized > 0:
+                    logger.info(f"[{session_id}] 已归一化 {normalized} 条纯文本历史消息")
+
                 # 自动删除旧的注入记忆
                 if self.config_manager.get("recall_engine.auto_remove_injected", True):
                     removed = self._remove_injected_memories_from_context(
@@ -319,18 +323,66 @@ class MemoryRecall:
                     if cleaned_prompt != original_prompt:
                         removed += 1
 
-        # 清理 extra_user_content_parts（通过 is_temp 标记）
+        # 清理 extra_user_content_parts（通过 mark_as_temp/_no_save 标记）
         parts_before = len(getattr(req, "extra_user_content_parts", []))
         if parts_before > 0:
             req.extra_user_content_parts = [
                 part
                 for part in req.extra_user_content_parts
-                if not getattr(part, "is_temp", False)
+                if not self._is_livingmemory_temp_part(part)
             ]
             parts_after = len(req.extra_user_content_parts)
             removed += parts_before - parts_after
 
         return removed
+
+    def _is_livingmemory_temp_part(self, part) -> bool:
+        """判断是否为 LivingMemory 本轮临时注入的 extra_user_content part"""
+        from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+        text = getattr(part, "text", "")
+        return (
+            getattr(part, "_no_save", False)
+            and isinstance(text, str)
+            and MEMORY_INJECTION_HEADER in text
+            and MEMORY_INJECTION_FOOTER in text
+        )
+
+    def _normalize_text_only_context_parts(
+        self, req: ProviderRequest, session_id: str
+    ) -> int:
+        """把历史中的纯文本 content parts 折叠回字符串，避免污染长期上下文格式"""
+        contexts = getattr(req, "contexts", None)
+        if not isinstance(contexts, list):
+            return 0
+
+        normalized = 0
+        for msg in contexts:
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list) or not content:
+                continue
+
+            text_parts = []
+            text_only = True
+            for part in content:
+                if not isinstance(part, dict) or part.get("type") != "text":
+                    text_only = False
+                    break
+                text_parts.append(str(part.get("text", "") or ""))
+
+            if not text_only:
+                continue
+
+            msg["content"] = "".join(text_parts)
+            normalized += 1
+
+        if normalized:
+            logger.debug(f"[{session_id}] 已归一化 {normalized} 条纯文本历史 content parts")
+        return normalized
 
     def _remove_fake_tool_call_from_context(
         self, req: ProviderRequest, session_id: str

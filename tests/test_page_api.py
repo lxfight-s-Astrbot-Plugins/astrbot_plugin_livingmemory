@@ -667,6 +667,7 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_importance_valid_range(self, api):
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
         req = _mock_page_request(
             get_json={
                 "memory_id": 1,
@@ -682,6 +683,56 @@ class TestUpdateMemory:
                 result = await api.update_memory()
         assert result["status"] == "ok"
         assert result["data"]["field"] == "importance"
+        api.plugin.initializer.memory_engine.update_memory.assert_awaited_once()
+        assert (
+            api.plugin.initializer.memory_engine.update_memory.call_args.args[1][
+                "importance"
+            ]
+            == 0.85
+        )
+
+    @pytest.mark.asyncio
+    async def test_importance_display_scale_preserves_one_point_zero(self, api):
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "importance",
+                "value": 1.0,
+                "value_scale": "display",
+            }
+        )
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        updates = api.plugin.initializer.memory_engine.update_memory.call_args.args[1]
+        assert updates["importance"] == 0.1
+
+    @pytest.mark.asyncio
+    async def test_importance_auto_scale_keeps_legacy_normalized_value(self, api):
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "importance",
+                "value": 0.8,
+            }
+        )
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value={"id": 1, "text": "hello", "metadata": {}},
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        updates = api.plugin.initializer.memory_engine.update_memory.call_args.args[1]
+        assert updates["importance"] == 0.8
 
     @pytest.mark.asyncio
     async def test_status_invalid_value(self, api):

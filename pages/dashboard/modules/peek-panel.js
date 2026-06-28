@@ -346,6 +346,7 @@ export class PeekPanel {
           memory_id: id,
           field: "importance",
           value: newImportance,
+          value_scale: "display",
           reason: reason
         });
         messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));

@@ -17,6 +17,7 @@ class GraphStore:
     """Persist graph nodes, edges, and searchable entries."""
 
     _SQLITE_BATCH_SIZE = 500
+    _NODE_TOKEN_QUERY_BATCH_SIZE = 200
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -696,23 +697,38 @@ class GraphStore:
         self, tokens: list[str], limit: int = 20
     ) -> list[dict[str, Any]]:
         """Find graph nodes whose canonical values overlap query tokens."""
-        if not tokens:
+        normalized_tokens = list(dict.fromkeys(str(token).strip() for token in tokens))
+        normalized_tokens = [token for token in normalized_tokens if token]
+        if not normalized_tokens:
             return []
-        clauses = ["canonical_value LIKE ?" for _ in tokens]
-        params = [f"%{token}%" for token in tokens]
+
+        rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                f"""
-                SELECT id, node_key, node_type, node_value, canonical_value, metadata
-                FROM graph_nodes
-                WHERE {" OR ".join(clauses)}
-                ORDER BY LENGTH(canonical_value) ASC
-                LIMIT ?
-                """,
-                (*params, limit),
-            )
-            rows = await cursor.fetchall()
+            for start in range(0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE):
+                batch = normalized_tokens[
+                    start : start + self._NODE_TOKEN_QUERY_BATCH_SIZE
+                ]
+                clauses = ["canonical_value LIKE ?" for _ in batch]
+                params = [f"%{token}%" for token in batch]
+                cursor = await db.execute(
+                    f"""
+                    SELECT id, node_key, node_type, node_value, canonical_value, metadata
+                    FROM graph_nodes
+                    WHERE {" OR ".join(clauses)}
+                    ORDER BY LENGTH(canonical_value) ASC
+                    LIMIT ?
+                    """,
+                    (*params, limit),
+                )
+                batch_rows = await cursor.fetchall()
+                for row in batch_rows:
+                    rows_by_id.setdefault(int(row["id"]), row)
+
+        rows = sorted(
+            rows_by_id.values(),
+            key=lambda row: (len(str(row["canonical_value"])), int(row["id"])),
+        )[:limit]
 
         return [
             {
