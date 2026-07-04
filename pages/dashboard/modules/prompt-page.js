@@ -216,23 +216,17 @@ export class PromptPage {
       if (this._resetMode) {
         await this.api.post("prompts/reset", { id: this.editingId });
         this._resetMode = false;
+        this.showToast(window.t("prompt.resetDone"));
       } else {
         await this.api.post("prompts/update", {
           id: this.editingId,
           content: content,
         });
+        this.showToast(window.t("prompt.saved"));
       }
       this.editContent = content;
-      this.showToast(
-        this._resetMode
-          ? window.t("prompt.resetDone")
-          : window.t("prompt.saved")
-      );
-      if (saveBtn) saveBtn.disabled = true;
-      const statusEl = document.getElementById("prompt-editor-status");
-      if (statusEl)
-        statusEl.textContent = " " + window.t("prompt.customizedStatus");
-      window.location.reload();
+      await this.fetch();
+      this.closeEditor();
     } catch (e) {
       console.error("[PromptPage] savePrompt failed:", e);
       this.showToast(e.message || window.t("prompt.saveFailed"), true);
