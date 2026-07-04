@@ -52,6 +52,17 @@ export class PromptPage {
     });
 
     let html = "";
+
+    // 顶部警告
+    html +=
+      '<div class="prompt-warning">' +
+      '<div class="prompt-warning-title">' +
+      esc(window.t("prompt.warningTitle")) +
+      "</div>" +
+      '<div class="prompt-warning-text">' +
+      esc(window.t("prompt.warningText")) +
+      "</div></div>";
+
     for (const [catId, prompts] of Object.entries(grouped)) {
       const catInfo = this.categories.find((c) => c.id === catId) || {};
       const catName = catInfo.name || catId;
@@ -79,6 +90,12 @@ export class PromptPage {
             window.t("prompt.customized") +
             "</span>"
           : "";
+        const jsonBadge =
+          p.category === "memory_processing"
+            ? ' <span class="badge badge-json-warn" title="' +
+              esc(window.t("prompt.jsonRequired")) +
+              '">⚠️ JSON</span>'
+            : "";
         const varList = (p.variables || [])
           .map((v) => '<code>' + esc(v) + "</code>")
           .join(" ");
@@ -91,6 +108,7 @@ export class PromptPage {
           '<div class="prompt-item-header">' +
           '<span class="prompt-item-name">' +
           esc(p.name) +
+          jsonBadge +
           customBadge +
           "</span>" +
           '<span class="prompt-item-name-en">' +
@@ -100,6 +118,10 @@ export class PromptPage {
         if (descText)
           html +=
             '<p class="prompt-item-desc">' + esc(descText) + "</p>";
+        const usageNote = p.usage_note || "";
+        if (usageNote)
+          html +=
+            '<p class="prompt-item-usage">' + esc(usageNote) + "</p>";
         if (varList)
           html +=
             '<div class="prompt-item-vars">' +

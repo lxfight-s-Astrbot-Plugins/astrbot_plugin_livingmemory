@@ -455,6 +455,9 @@
     "prompt.resetFailed":   { zh: "恢复默认失败", en: "Failed to reset prompt", ru: "Не удалось сбросить промпт" },
     "prompt.defaultFilled": { zh: "已填充默认内容，请点击保存以确认", en: "Default content loaded. Click Save to confirm.", ru: "Содержимое по умолчанию загружено. Нажмите Сохранить." },
     "prompt.defaultFilledStatus": { zh: "（待保存：默认内容）", en: "(Pending: default content)", ru: "(Ожидает: по умолчанию)" },
+    "prompt.warningTitle": { zh: "注意", en: "Important", ru: "Внимание" },
+    "prompt.warningText": { zh: "以下提示词控制着 LLM 的记忆总结和注入行为。标注 ⚠️ JSON 的模板必须保留 JSON 输出格式要求，否则记忆功能将失效。修改前请确保理解每个模板的作用。", en: "These prompts control LLM memory summarization and injection. Templates marked with ⚠️ JSON MUST preserve JSON output format requirements, otherwise memory functionality will break.", ru: "Эти промпты управляют поведением LLM. Шаблоны с ⚠️ JSON ДОЛЖНЫ сохранять требования к формату JSON." },
+    "prompt.jsonRequired": { zh: "此模板必须要求 LLM 输出 JSON 格式，修改可能导致记忆功能失效", en: "This template MUST require JSON output from the LLM. Modifying may break memory.", ru: "Этот шаблон ДОЛЖЕН требовать вывод JSON от LLM." },
   };
 
   /* ---- Engine ---- */
