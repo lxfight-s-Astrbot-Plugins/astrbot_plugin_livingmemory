@@ -216,7 +216,12 @@ export class PeekPanel {
     this.state._nodeDetailCache = null;
 
     const id = detail.memory_id;
-    const content = getDetailText(detail);
+    const metadata = detail.metadata || {};
+    const content = detail.persona_summary || metadata.persona_summary || detail.summary || getDetailText(detail);
+    const topics = Array.isArray(detail.topics) ? detail.topics : [];
+    const keyFacts = Array.isArray(detail.key_facts) ? detail.key_facts : [];
+    const participants = Array.isArray(detail.participants) ? detail.participants : [];
+    const sentiment = detail.sentiment || metadata.sentiment || "neutral";
     const importance = normalizeImportance(detail.importance).toFixed(1);
     const type = detail.memory_type || "GENERAL";
     const status = detail.status || "active";
@@ -228,15 +233,31 @@ export class PeekPanel {
     html += '</div>';
 
     html += '<div class="memory-detail-actions">';
+    html += '<select class="memory-detail-select save-mode-select" id="peek-save-mode" aria-label="' + esc(window.t("detail.saveMode")) + '">';
+    html += '<option value="rebuild">' + window.t("detail.saveMode.rebuild") + '</option>';
+    html += '<option value="in_place">' + window.t("detail.saveMode.inPlace") + '</option>';
+    html += '</select>';
     html += '<button class="btn btn-sm btn-primary" id="peek-save-btn">' + window.t("detail.saveBtn") + '</button>';
     html += '<button class="btn btn-sm btn-ghost" id="peek-cancel-btn">' + window.t("detail.cancelBtn") + '</button>';
     html += '</div>';
 
-    // 可编辑内容
-    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.content") + '</div>';
+    // 可编辑结构化记忆
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.summary") + '</div>';
     html += '<textarea id="edit-content-area" class="memory-detail-edit-area" rows="6">' + esc(content) + '</textarea>';
     html += '<p class="form-hint" style="margin-top:4px">' + window.t("detail.contentHint") + '</p>';
     html += '</div>';
+
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.topics") + '</div>';
+    html += '<textarea id="edit-topics-area" class="memory-detail-edit-area" rows="3">' + esc(topics.join("\n")) + '</textarea>';
+    html += '<p class="form-hint">' + window.t("detail.onePerLine") + '</p></div>';
+
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.keyFacts") + '</div>';
+    html += '<textarea id="edit-key-facts-area" class="memory-detail-edit-area" rows="5">' + esc(keyFacts.join("\n")) + '</textarea>';
+    html += '<p class="form-hint">' + window.t("detail.onePerLine") + '</p></div>';
+
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.participants") + '</div>';
+    html += '<textarea id="edit-participants-area" class="memory-detail-edit-area" rows="3">' + esc(participants.join("\n")) + '</textarea>';
+    html += '<p class="form-hint">' + window.t("detail.onePerLine") + '</p></div>';
 
     // 可编辑元数据
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.metadata") + '</div>';
@@ -254,6 +275,14 @@ export class PeekPanel {
     html += '<span class="memory-detail-meta-label">' + window.t("detail.type") + '</span>';
     html += '<input type="text" id="edit-type" class="memory-detail-select" value="' + esc(type) + '" />';
     html += '</div>';
+
+    html += '<div class="memory-detail-meta-item">';
+    html += '<span class="memory-detail-meta-label">' + window.t("detail.sentiment") + '</span>';
+    html += '<select id="edit-sentiment" class="memory-detail-select">';
+    ["positive", "neutral", "negative"].forEach(value => {
+      html += '<option value="' + value + '"' + (sentiment === value ? " selected" : "") + '>' + window.t("detail.sentiment." + value) + '</option>';
+    });
+    html += '</select></div>';
 
     html += '<div class="memory-detail-meta-item" style="grid-column:1/-1">';
     html += '<span class="memory-detail-meta-label">' + window.t("detail.importance") + '</span>';
@@ -289,70 +318,47 @@ export class PeekPanel {
   async saveEdit(detail) {
     let id = detail.memory_id;
     const newContent = document.getElementById("edit-content-area").value.trim();
+    const newTopics = document.getElementById("edit-topics-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    const newKeyFacts = document.getElementById("edit-key-facts-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    const newParticipants = document.getElementById("edit-participants-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    const newSentiment = document.getElementById("edit-sentiment").value;
     const newStatus = document.getElementById("edit-status").value;
     const newType = document.getElementById("edit-type").value.trim();
     const newImportance = parseFloat(document.getElementById("edit-importance").value);
     const reason = document.getElementById("peek-edit-reason").value.trim();
+    const updateMode = document.getElementById("peek-save-mode").value;
 
     const saveBtn = document.getElementById("peek-save-btn");
     if (saveBtn) saveBtn.disabled = true;
-    const messages = [];
-
     try {
       if (!newContent) {
         this.showToast(window.t("detail.contentRequired"), true);
         return;
       }
 
-      // 更新内容
-      if (newContent !== getDetailText(detail)) {
-        const result = await this.api.post("memories/update", {
-          memory_id: id,
-          field: "content",
-          value: newContent,
-          reason: reason
-        });
-        if (result && result.new_memory_id) {
-          messages.push(window.t("detail.contentUpdated", result.new_memory_id));
-          id = parseInt(result.new_memory_id);
-        }
-      }
-
-      // 更新状态
-      if (newStatus !== detail.status) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "status",
-          value: newStatus,
-          reason: reason
-        });
-        messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
-      }
-
-      // 更新类型
-      if (newType !== detail.memory_type) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "type",
-          value: newType,
-          reason: reason
-        });
-        messages.push(window.t("detail.typeUpdated", newType));
-      }
-
-      // 更新重要性
-      if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "importance",
-          value: newImportance,
-          value_scale: "display",
-          reason: reason
-        });
-        messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
-      }
-
-      this.showToast(messages.length ? messages.join("; ") : window.t("detail.noChanges"));
+      const result = await this.api.post("memories/update", {
+        memory_id: id,
+        field: "structured",
+        value: {
+          summary: newContent,
+          persona_summary: newContent,
+          topics: newTopics,
+          key_facts: newKeyFacts,
+          participants: newParticipants,
+          sentiment: newSentiment,
+          importance: newImportance,
+          importance_scale: "display",
+          memory_type: newType,
+          status: newStatus
+        },
+        reason: reason,
+        update_mode: updateMode
+      });
+      if (result && result.new_memory_id) id = parseInt(result.new_memory_id);
+      this.showToast(window.t(
+        updateMode === "in_place" ? "detail.structuredUpdatedInPlace" : "detail.structuredUpdated",
+        id
+      ));
       this.close();
 
       // 通知刷新记忆列表（通过全局回调）

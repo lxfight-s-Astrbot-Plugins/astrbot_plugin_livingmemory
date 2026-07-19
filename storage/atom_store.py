@@ -157,6 +157,45 @@ class AtomStore:
                 atom_ids.extend(batch_atom_ids)
         return atom_ids
 
+    async def replace_by_parent(
+        self,
+        parent_memory_id: int,
+        atoms: list[MemoryAtom],
+    ) -> list[int]:
+        """Replace one memory's atoms and FTS rows in a single transaction."""
+        prepared_atoms: list[MemoryAtom] = []
+        async with self._connect() as db:
+            try:
+                cursor = await db.execute(
+                    "SELECT id FROM memory_atoms WHERE parent_memory_id = ?",
+                    (parent_memory_id,),
+                )
+                old_atom_ids = [int(row[0]) for row in await cursor.fetchall()]
+                if old_atom_ids:
+                    placeholders = ",".join("?" * len(old_atom_ids))
+                    await db.execute(
+                        f"DELETE FROM memory_atoms_fts WHERE atom_id IN ({placeholders})",
+                        old_atom_ids,
+                    )
+                    await db.execute(
+                        f"DELETE FROM memory_atoms WHERE id IN ({placeholders})",
+                        old_atom_ids,
+                    )
+
+                atom_ids: list[int] = []
+                for atom in atoms:
+                    atom.parent_memory_id = parent_memory_id
+                    self._prepare_atom_for_insert(atom)
+                    prepared_atoms.append(atom)
+                    atom_ids.append(await self._insert_atom(db, atom))
+                await db.commit()
+                return atom_ids
+            except Exception:
+                await db.rollback()
+                for atom in prepared_atoms:
+                    atom.atom_id = 0
+                raise
+
     def _prepare_atom_for_insert(self, atom: MemoryAtom) -> None:
         """Populate time-derived fields before persistence."""
         now = time.time()

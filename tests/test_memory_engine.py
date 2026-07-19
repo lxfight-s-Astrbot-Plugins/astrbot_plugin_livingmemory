@@ -188,6 +188,114 @@ async def test_memory_engine_add_search_get_delete(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_replace_memory_preserves_logical_uid_and_increments_revision(
+    tmp_path: Path,
+):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "replace_memory.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    old_id = await engine.add_memory(
+        content="旧事实",
+        session_id="bot-a:FriendMessage:user-1",
+        persona_id="p1",
+        importance=0.6,
+        metadata={"topics": ["旧主题"], "key_facts": ["旧事实"]},
+    )
+    old_memory = await engine.get_memory(old_id)
+    old_create_time = old_memory["metadata"]["create_time"]
+
+    new_id = await engine.replace_memory(
+        old_id,
+        content="新事实",
+        metadata={
+            "session_id": "bot-a:FriendMessage:user-1",
+            "persona_id": "p1",
+            "topics": ["新主题"],
+            "key_facts": ["新事实"],
+            "canonical_summary": "新事实",
+        },
+        importance=0.8,
+        atoms=[],
+    )
+
+    assert new_id != old_id
+    assert await engine.get_memory(old_id) is None
+    replacement = await engine.get_memory(new_id)
+    assert replacement is not None
+    assert replacement["metadata"]["revision"] == 2
+    assert replacement["metadata"]["previous_id"] == old_id
+    assert replacement["metadata"]["memory_uid"]
+    assert replacement["metadata"]["key_facts"] == ["新事实"]
+    assert replacement["metadata"]["create_time"] == old_create_time
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_rewrite_memory_in_place_preserves_document_id(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "rewrite_in_place.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+    memory_id = await engine.add_memory(
+        content="旧事实",
+        session_id="bot-a:FriendMessage:user-1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={"topics": ["旧主题"], "key_facts": ["旧事实"]},
+    )
+
+    engine.hybrid_retriever.replace_memory_in_place = AsyncMock(return_value=True)
+    engine.atom_store = Mock()
+    engine.atom_store.get_by_parent = AsyncMock(return_value=[])
+    engine.atom_store.replace_by_parent = AsyncMock(return_value=[])
+    engine.graph_memory_manager = Mock()
+    engine.graph_memory_manager.index_memory = AsyncMock()
+
+    result_id = await engine.rewrite_memory_in_place(
+        memory_id,
+        content="新事实",
+        metadata={
+            "session_id": "bot-a:FriendMessage:user-1",
+            "persona_id": "p1",
+            "topics": ["新主题"],
+            "key_facts": ["新事实"],
+        },
+        importance=0.8,
+        atoms=[],
+    )
+
+    assert result_id == memory_id
+    rewrite_call = engine.hybrid_retriever.replace_memory_in_place.call_args
+    assert rewrite_call.args[0] == memory_id
+    assert rewrite_call.args[1] == "新事实"
+    assert rewrite_call.args[2]["revision"] == 2
+    assert rewrite_call.args[2]["memory_uid"]
+    engine.atom_store.replace_by_parent.assert_awaited_once_with(memory_id, [])
+    engine.graph_memory_manager.index_memory.assert_awaited_once()
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_atom_store_replace_by_parent_replaces_only_target_memory(tmp_path: Path):
+    store = AtomStore(str(tmp_path / "replace_atoms.db"))
+    await store.initialize()
+    await store.insert(MemoryAtom(parent_memory_id=1, content="旧事实"))
+    await store.insert(MemoryAtom(parent_memory_id=2, content="其他记忆事实"))
+
+    new_atom = MemoryAtom(parent_memory_id=0, content="新事实")
+    new_ids = await store.replace_by_parent(1, [new_atom])
+
+    assert len(new_ids) == 1
+    assert [atom.content for atom in await store.get_by_parent(1)] == ["新事实"]
+    assert [atom.content for atom in await store.get_by_parent(2)] == ["其他记忆事实"]
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_decay_and_cleanup(tmp_path: Path):
     db_path = tmp_path / "memory_decay.db"
     engine = MemoryEngine(
@@ -835,6 +943,11 @@ async def test_memory_engine_update_memory_content_creates_new_deletes_old(
     success = await engine.update_memory(old_id, {"content": "新内容"})
     assert success is True
     assert await engine.get_memory(old_id) is None
+    cursor = await engine.db_connection.execute("SELECT metadata FROM documents")
+    replacement_metadata = json.loads((await cursor.fetchone())["metadata"])
+    assert replacement_metadata["canonical_summary"] == "新内容"
+    assert replacement_metadata["topics"] == []
+    assert replacement_metadata["key_facts"] == []
 
     await engine.close()
 

@@ -54,6 +54,12 @@ class FakeMemoryEngine:
     async def update_memory(self, memory_id: int, updates: dict):
         return True
 
+    async def replace_memory(self, memory_id: int, **kwargs):
+        return 999
+
+    async def rewrite_memory_in_place(self, memory_id: int, **kwargs):
+        return memory_id
+
     async def batch_delete_memories(self, memory_ids: list[int]):
         return len(memory_ids)
 
@@ -65,6 +71,7 @@ class FakeInitializer:
     def __init__(self):
         self.memory_engine = FakeMemoryEngine()
         self.conversation_manager = None
+        self.memory_processor = SimpleNamespace()
         self.index_validator = None
         self.data_dir = "/tmp/test_plugin"
 
@@ -126,9 +133,10 @@ def _patch_page_request(req: MagicMock):
     import astrbot_plugin_livingmemory.core.page_api_modules.graph_handler as graph_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler as memory_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.recall_handler as recall_mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.session_handler as session_mod
 
     # Patch all modules that use request
-    modules = [mod, memory_mod, recall_mod, graph_mod]
+    modules = [mod, memory_mod, recall_mod, graph_mod, session_mod]
     old_values = []
 
     for module in modules:
@@ -216,6 +224,30 @@ class TestOptionalText:
 
         utils = PageApiUtils()
         assert utils.optional_text(raw) == expected
+
+
+class TestSessionCatalogHelpers:
+    def test_parse_group_session(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import SessionHandler
+
+        parsed = SessionHandler._parse_session_id(
+            "bot-account:GroupMessage:group-123"
+        )
+        assert parsed == {
+            "platform_id": "bot-account",
+            "message_type": "GroupMessage",
+            "chat_type": "group",
+            "target_id": "group-123",
+        }
+
+    def test_parse_private_session_preserves_complex_target(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules import SessionHandler
+
+        parsed = SessionHandler._parse_session_id(
+            "bot-account:FriendMessage:webchat!astrbot!user:42"
+        )
+        assert parsed["chat_type"] == "private"
+        assert parsed["target_id"] == "webchat!astrbot!user:42"
 
 
 class TestNormalizeMetadata:
@@ -456,6 +488,75 @@ class TestGetStats:
         result = await api_not_ready.get_stats()
         assert result["status"] == "error"
         assert "尚未就绪" in result["message"]
+
+
+class TestSessionCatalog:
+    @pytest.mark.asyncio
+    async def test_layered_filters(self, api):
+        sessions = [
+            SimpleNamespace(
+                session_id="bot-a:GroupMessage:group-1",
+                platform="qq",
+                created_at=10.0,
+                last_active_at=200.0,
+                message_count=12,
+            ),
+            SimpleNamespace(
+                session_id="bot-a:FriendMessage:user-1",
+                platform="qq",
+                created_at=20.0,
+                last_active_at=300.0,
+                message_count=8,
+            ),
+            SimpleNamespace(
+                session_id="bot-b:GroupMessage:group-2",
+                platform="qq",
+                created_at=30.0,
+                last_active_at=400.0,
+                message_count=6,
+            ),
+        ]
+        store = SimpleNamespace(get_recent_sessions=AsyncMock(return_value=sessions))
+        api.plugin.initializer.conversation_manager = SimpleNamespace(store=store)
+        req = _mock_page_request(
+            args={
+                "platform_id": "bot-a",
+                "chat_type": "group",
+                "updated_after": "100",
+                "target_query": "group",
+            }
+        )
+
+        with _patch_page_request(req):
+            result = await api.list_sessions()
+
+        assert result["status"] == "ok"
+        assert result["data"]["facets"]["platform_ids"] == ["bot-a", "bot-b"]
+        assert [item["session_id"] for item in result["data"]["items"]] == [
+            "bot-a:GroupMessage:group-1"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_target_items_wait_for_required_layers(self, api):
+        sessions = [
+            SimpleNamespace(
+                session_id="bot-a:GroupMessage:group-1",
+                platform="qq",
+                created_at=10.0,
+                last_active_at=200.0,
+                message_count=12,
+            )
+        ]
+        store = SimpleNamespace(get_recent_sessions=AsyncMock(return_value=sessions))
+        api.plugin.initializer.conversation_manager = SimpleNamespace(store=store)
+        req = _mock_page_request(args={})
+
+        with _patch_page_request(req):
+            result = await api.list_sessions()
+
+        assert result["status"] == "ok"
+        assert result["data"]["facets"]["platform_ids"] == ["bot-a"]
+        assert result["data"]["items"] == []
 
 
 class TestListMemories:
@@ -816,18 +917,149 @@ class TestUpdateMemory:
                 "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value=memory,
             ):
-                api.plugin.initializer.memory_engine.add_memory = AsyncMock(
+                processor = api.plugin.initializer.memory_processor
+                processor.build_memory_from_structured_data = MagicMock(
+                    return_value=(
+                        "new content",
+                        {
+                            "canonical_summary": "new content",
+                            "persona_summary": "new content",
+                            "topics": [],
+                            "key_facts": [],
+                        },
+                        0.5,
+                    )
+                )
+                processor.classify_atoms_from_metadata = MagicMock(return_value=[])
+                api.plugin.initializer.memory_engine.replace_memory = AsyncMock(
                     return_value=999
                 )
                 result = await api.update_memory()
 
         assert result["status"] == "ok"
         assert (
-            api.plugin.initializer.memory_engine.add_memory.call_args.kwargs[
+            api.plugin.initializer.memory_engine.replace_memory.call_args.kwargs[
                 "importance"
             ]
             == 0.5
         )
+
+    @pytest.mark.asyncio
+    async def test_structured_update_rebuilds_atoms_and_derived_metadata(self, api):
+        memory = {
+            "id": 1,
+            "text": "错误事实",
+            "metadata": {
+                "session_id": "bot-a:FriendMessage:user-1",
+                "persona_id": "p1",
+                "topics": ["旧主题"],
+                "key_facts": ["旧事实"],
+                "importance": 0.6,
+            },
+        }
+        processor = api.plugin.initializer.memory_processor
+        processor.build_memory_from_structured_data = MagicMock(
+            return_value=(
+                "正确摘要 | 正确事实",
+                {
+                    "canonical_summary": "正确摘要 | 正确事实",
+                    "persona_summary": "正确摘要",
+                    "topics": ["新主题"],
+                    "key_facts": ["正确事实"],
+                    "sentiment": "neutral",
+                },
+                0.8,
+            )
+        )
+        atoms = [SimpleNamespace(content="正确事实")]
+        processor.classify_atoms_from_metadata = MagicMock(return_value=atoms)
+        api.plugin.initializer.memory_engine.replace_memory = AsyncMock(return_value=2)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "structured",
+                "value": {
+                    "summary": "正确摘要",
+                    "topics": ["新主题"],
+                    "key_facts": ["正确事实"],
+                    "importance": 8,
+                    "importance_scale": "display",
+                },
+                "reason": "纠错",
+            }
+        )
+
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=memory,
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        assert result["data"]["new_memory_id"] == 2
+        kwargs = api.plugin.initializer.memory_engine.replace_memory.call_args.kwargs
+        assert kwargs["metadata"]["topics"] == ["新主题"]
+        assert kwargs["metadata"]["key_facts"] == ["正确事实"]
+        assert kwargs["metadata"]["participants"] == []
+        assert kwargs["atoms"] == atoms
+
+    @pytest.mark.asyncio
+    async def test_structured_update_can_rebuild_in_place(self, api):
+        memory = {
+            "id": 7,
+            "text": "旧内容",
+            "metadata": {
+                "session_id": "bot-a:FriendMessage:user-1",
+                "persona_id": "p1",
+                "importance": 0.5,
+            },
+        }
+        processor = api.plugin.initializer.memory_processor
+        processor.build_memory_from_structured_data = MagicMock(
+            return_value=(
+                "新内容",
+                {
+                    "canonical_summary": "新内容",
+                    "persona_summary": "新内容",
+                    "topics": ["新主题"],
+                    "key_facts": ["新事实"],
+                },
+                0.7,
+            )
+        )
+        processor.classify_atoms_from_metadata = MagicMock(return_value=[])
+        api.plugin.initializer.memory_engine.rewrite_memory_in_place = AsyncMock(
+            return_value=7
+        )
+        api.plugin.initializer.memory_engine.replace_memory = AsyncMock(return_value=999)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 7,
+                "field": "structured",
+                "update_mode": "in_place",
+                "value": {
+                    "summary": "新内容",
+                    "topics": ["新主题"],
+                    "key_facts": ["新事实"],
+                    "importance": 7,
+                    "importance_scale": "display",
+                },
+            }
+        )
+
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=memory,
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        assert result["data"]["new_memory_id"] == 7
+        assert result["data"]["update_mode"] == "in_place"
+        api.plugin.initializer.memory_engine.rewrite_memory_in_place.assert_awaited_once()
+        api.plugin.initializer.memory_engine.replace_memory.assert_not_awaited()
 
 
 class TestBatchDeleteMemories:
@@ -1137,15 +1369,16 @@ class TestEnsurePluginReady:
 
 
 class TestRouteRegistration:
-    def test_registers_all_ten_routes(self):
+    def test_registers_all_routes(self):
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 10
+        assert len(plugin._api_routes) == 11
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
         assert f"{prefix}/stats" in paths
+        assert f"{prefix}/sessions" in paths
         assert f"{prefix}/memories" in paths
         assert f"{prefix}/memories/update" in paths
         assert f"{prefix}/memories/batch-delete" in paths

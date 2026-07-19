@@ -8,6 +8,7 @@ import {
   PeekPanel,
   MemoryPage,
   RecallPage,
+  SessionPicker,
   SystemPage,
   esc,
   statusPill,
@@ -51,6 +52,7 @@ import {
   const memoryPage = new MemoryPage(state, api, peekPanel);
   const recallPage = new RecallPage(state, api, peekPanel);
   const systemPage = new SystemPage(state, api);
+  const sessionPicker = new SessionPicker(api, showToast);
 
   /* ================================================================
      Theme Management
@@ -275,6 +277,7 @@ import {
 
     memoryPage.initEventListeners();
     recallPage.initEventListeners();
+    sessionPicker.init();
 
     document.getElementById("peek-close").addEventListener("click", () => peekPanel.close());
     document.getElementById("peek-overlay").addEventListener("click", () => peekPanel.close());

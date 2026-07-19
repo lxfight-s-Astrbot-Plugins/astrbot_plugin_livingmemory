@@ -814,6 +814,48 @@ body {
   max-width: 400px;
 }
 
+.session-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 280px;
+}
+
+.session-input-group .input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.session-picker-btn {
+  white-space: nowrap;
+}
+
+.session-picker-modal {
+  width: 620px;
+}
+
+.session-picker-intro {
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+}
+
+.session-picker-date-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+@media (max-width: 680px) {
+  .session-input-group {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .session-picker-date-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ----- Graph Canvas -------------------------------------------- */
 .graph-canvas-container {
   position: relative;
@@ -1335,6 +1377,11 @@ body {
 
 .memory-detail-select:focus {
   border-color: var(--accent);
+}
+
+.save-mode-select {
+  width: auto;
+  min-width: 190px;
 }
 
 /* Importance slider in detail */

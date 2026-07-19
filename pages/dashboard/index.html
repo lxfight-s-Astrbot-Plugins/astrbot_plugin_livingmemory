@@ -75,7 +75,10 @@
           <header class="page-header">
             <span class="page-title" data-i18n="nav.graph">Knowledge Graph</span>
             <div class="page-actions">
-              <input type="text" id="graph-session-filter" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
+              <div class="session-input-group">
+                <input type="text" id="graph-session-filter" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" />
+                <button class="btn btn-secondary btn-sm session-picker-btn" data-session-picker-target="graph-session-filter" data-i18n="sessionPicker.open">分层筛选</button>
+              </div>
               <button class="btn btn-secondary btn-sm" id="graph-overview-btn">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
                 <span data-i18n="graph.overviewBtn">Overview</span>
@@ -117,7 +120,10 @@
           <div class="page-body">
             <div class="filter-bar">
               <input type="text" id="mem-keyword" class="input" data-i18n-placeholder="filter.keyword" placeholder="Search by keyword or memory ID..." />
-              <input type="text" id="mem-session" class="input" data-i18n-placeholder="filter.sessionId" placeholder="Session ID" style="max-width:200px" />
+              <div class="session-input-group">
+                <input type="text" id="mem-session" class="input" data-i18n-placeholder="filter.sessionId" placeholder="Session ID" />
+                <button class="btn btn-secondary btn-sm session-picker-btn" data-session-picker-target="mem-session" data-i18n="sessionPicker.open">分层筛选</button>
+              </div>
               <select id="mem-status" class="select input">
                 <option value="all" data-i18n="filter.statusAll">All Status</option>
                 <option value="active" data-i18n="filter.statusActive">Active</option>
@@ -261,6 +267,51 @@
       </div>
       <div class="peek-body" id="peek-body"></div>
     </aside>
+
+    <!-- Layered Session Picker -->
+    <div class="modal-overlay" id="session-picker-overlay">
+      <div class="modal session-picker-modal">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="sessionPicker.title">选择会话</div>
+          <button class="modal-close" id="session-picker-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="form-hint session-picker-intro" data-i18n="sessionPicker.hint">按层级缩小范围；原文本框仍可自由填写。</p>
+          <div class="form-group">
+            <label class="form-label" data-i18n="sessionPicker.platform">机器人主体账号</label>
+            <select id="session-picker-platform" class="select input"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="sessionPicker.chatType">聊天类型</label>
+            <select id="session-picker-chat-type" class="select input" disabled></select>
+          </div>
+          <div class="session-picker-date-grid">
+            <div class="form-group">
+              <label class="form-label" data-i18n="sessionPicker.updatedAfter">最近更新时间起点（可空）</label>
+              <input id="session-picker-after" type="datetime-local" class="input" disabled />
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="sessionPicker.updatedBefore">最近更新时间终点（可空）</label>
+              <input id="session-picker-before" type="datetime-local" class="input" disabled />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="sessionPicker.targetSearch">搜索聊天对象</label>
+            <input id="session-picker-target-query" class="input" data-i18n-placeholder="sessionPicker.targetSearchPh" placeholder="输入群号、用户 ID 或会话关键字" disabled />
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="sessionPicker.target">聊天对象</label>
+            <select id="session-picker-target" class="select input" disabled></select>
+            <p class="form-hint" id="session-picker-result-hint"></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="session-picker-clear" data-i18n="common.clear">清空</button>
+          <button class="btn btn-secondary" id="session-picker-cancel" data-i18n="common.cancel">取消</button>
+          <button class="btn btn-primary" id="session-picker-apply" data-i18n="sessionPicker.apply">使用此会话</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Edit Modal -->
     <div class="modal-overlay" id="modal-overlay">

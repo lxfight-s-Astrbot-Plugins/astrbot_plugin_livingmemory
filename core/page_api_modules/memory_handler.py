@@ -277,6 +277,11 @@ class MemoryHandler:
             "persona_id": metadata.get("persona_id"),
             "key_facts": metadata.get("key_facts", []),
             "topics": metadata.get("topics", []),
+            "participants": metadata.get("participants", []),
+            "persona_summary": metadata.get("persona_summary", ""),
+            "sentiment": metadata.get("sentiment", "neutral"),
+            "revision": metadata.get("revision", 1),
+            "memory_uid": metadata.get("memory_uid"),
             "create_time": metadata.get("create_time"),
             "last_access_time": metadata.get("last_access_time"),
             "update_history": metadata.get("update_history", []),
@@ -304,11 +309,178 @@ class MemoryHandler:
 
         return self.utils.ok(detail)
 
-    async def update_memory(self, memory_engine) -> dict[str, Any]:
+    @staticmethod
+    def _normalize_text_list(value: Any, limit: int = 20) -> list[str]:
+        if isinstance(value, str):
+            raw_items = value.replace("，", "\n").splitlines()
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            raw_items = []
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            text = str(item).strip()
+            if text and text not in seen:
+                result.append(text)
+                seen.add(text)
+            if len(result) >= limit:
+                break
+        return result
+
+    async def _replace_structured_memory(
+        self,
+        memory_engine,
+        memory_processor,
+        memory: dict[str, Any],
+        structured_value: dict[str, Any],
+        reason: str,
+        update_mode: str = "rebuild",
+    ) -> dict[str, Any]:
+        if memory_processor is None:
+            return self.utils.error("MemoryProcessor 未初始化")
+
+        memory_id = int(memory["id"])
+        current_metadata = self.utils.normalize_metadata(memory.get("metadata"))
+        session_id = current_metadata.get("session_id")
+        persona_id = current_metadata.get("persona_id")
+        is_group_chat = (
+            current_metadata.get("interaction_type") == "group_chat"
+            or "GroupMessage" in str(session_id or "")
+        )
+
+        summary = str(structured_value.get("summary", "")).strip()
+        if not summary:
+            return self.utils.error("记忆摘要不能为空")
+        try:
+            importance = self._normalize_importance_update(
+                structured_value.get("importance", current_metadata.get("importance", 0.5)),
+                str(structured_value.get("importance_scale", "stored")),
+            )
+        except ValueError as exc:
+            return self.utils.error(str(exc))
+
+        structured_data = {
+            "summary": summary,
+            "topics": self._normalize_text_list(structured_value.get("topics"), 10),
+            "key_facts": self._normalize_text_list(
+                structured_value.get("key_facts"), 20
+            ),
+            "participants": self._normalize_text_list(
+                structured_value.get("participants"), 30
+            ),
+            "sentiment": str(
+                structured_value.get(
+                    "sentiment", current_metadata.get("sentiment", "neutral")
+                )
+            ),
+            "importance": importance,
+        }
+        status = str(
+            structured_value.get("status", current_metadata.get("status", "active"))
+        ).strip() or "active"
+        if status not in {"active", "archived", "deleted"}:
+            return self.utils.error("状态必须是 active、archived 或 deleted")
+
+        try:
+            content, generated_metadata, normalized_importance = (
+                memory_processor.build_memory_from_structured_data(
+                    structured_data=structured_data,
+                    is_group_chat=is_group_chat,
+                    fallback_excerpt=summary,
+                )
+            )
+
+            # Preserve operational provenance while replacing every field that can
+            # affect retrieval, graph extraction, atoms, or prompt injection.
+            replacement_metadata = dict(current_metadata)
+            replacement_metadata.update(generated_metadata)
+            # The standard builder omits participants for private chats, so assign
+            # explicitly to ensure stale values cannot survive a structured edit.
+            replacement_metadata["participants"] = structured_data["participants"]
+            persona_summary = str(
+                structured_value.get("persona_summary", summary)
+            ).strip()
+            replacement_metadata["persona_summary"] = persona_summary or summary
+            replacement_metadata["memory_type"] = str(
+                structured_value.get(
+                    "memory_type", current_metadata.get("memory_type", "GENERAL")
+                )
+            ).strip() or "GENERAL"
+            replacement_metadata["status"] = status
+        except Exception as exc:
+            logger.error(f"[PageAPI] 重建结构化记忆失败: {exc}", exc_info=True)
+            return self.utils.error(str(exc))
+        replacement_metadata["update_history"] = self.utils.append_update_history(
+            current_metadata,
+            field="structured",
+            old_value={
+                "content": memory.get("text", ""),
+                "topics": current_metadata.get("topics", []),
+                "key_facts": current_metadata.get("key_facts", []),
+            },
+            new_value={
+                "content": content,
+                "topics": replacement_metadata.get("topics", []),
+                "key_facts": replacement_metadata.get("key_facts", []),
+            },
+            reason=reason,
+            timestamp=time.time(),
+        )
+        if reason:
+            replacement_metadata["update_reason"] = reason
+
+        if update_mode not in {"rebuild", "in_place"}:
+            return self.utils.error("update_mode 必须是 rebuild 或 in_place")
+        replacement_metadata["last_update_mode"] = update_mode
+
+        try:
+            atoms = memory_processor.classify_atoms_from_metadata(
+                metadata=replacement_metadata,
+                parent_importance=normalized_importance,
+                session_id=session_id,
+                persona_id=persona_id,
+            )
+            if update_mode == "in_place":
+                new_memory_id = await memory_engine.rewrite_memory_in_place(
+                    memory_id,
+                    content=content,
+                    metadata=replacement_metadata,
+                    importance=normalized_importance,
+                    atoms=atoms,
+                )
+            else:
+                new_memory_id = await memory_engine.replace_memory(
+                    memory_id,
+                    content=content,
+                    metadata=replacement_metadata,
+                    importance=normalized_importance,
+                    atoms=atoms,
+                )
+        except Exception as exc:
+            logger.error(f"[PageAPI] 结构化更新记忆失败: {exc}", exc_info=True)
+            return self.utils.error(str(exc))
+
+        return self.utils.ok(
+            {
+                "message": (
+                    f"结构化记忆已原位重建（ID: {memory_id}）"
+                    if update_mode == "in_place"
+                    else f"结构化记忆已更新（ID: {memory_id} → {new_memory_id}）"
+                ),
+                "old_memory_id": memory_id,
+                "new_memory_id": new_memory_id,
+                "field": "structured",
+                "update_mode": update_mode,
+            }
+        )
+
+    async def update_memory(self, memory_engine, memory_processor=None) -> dict[str, Any]:
         """
         更新单个记忆的字段
 
         支持的字段:
+            - structured: 摘要、主题、事实、参与者等结构化字段（整体重建索引）
             - content: 记忆内容（会创建新记忆并删除旧记忆）
             - importance: 重要性（0-1 或 0-10）
             - status: 状态（active/archived/deleted）
@@ -319,6 +491,7 @@ class MemoryHandler:
             - field: 要更新的字段（必需）
             - value: 新值（必需）
             - reason: 更新原因（可选）
+            - update_mode: rebuild 或 in_place（仅 structured，默认 rebuild）
 
         Returns:
             包含更新结果的字典
@@ -335,6 +508,7 @@ class MemoryHandler:
         value = payload.get("value")
         value_scale = str(payload.get("value_scale", "auto")).strip().lower()
         reason = str(payload.get("reason", "")).strip()
+        update_mode = str(payload.get("update_mode", "rebuild")).strip().lower()
 
         if not field or value is None:
             return self.utils.error("需要指定 field 和 value")
@@ -345,63 +519,44 @@ class MemoryHandler:
 
         current_metadata = self.utils.normalize_metadata(memory.get("metadata"))
 
+        if field == "structured":
+            if not isinstance(value, dict):
+                return self.utils.error("structured 字段必须是对象")
+            return await self._replace_structured_memory(
+                memory_engine,
+                memory_processor,
+                memory,
+                value,
+                reason,
+                update_mode,
+            )
+
         # 特殊处理：content 更新需要重新创建记忆
         if field == "content":
             new_content = str(value).strip()
             if not new_content:
                 return self.utils.error("记忆内容不能为空")
 
-            session_id = current_metadata.get("session_id")
-            persona_id = current_metadata.get("persona_id")
-            importance = clamp_float(current_metadata.get("importance"), default=0.5)
-            updated_at = time.time()
-            update_history = self.utils.append_update_history(
-                current_metadata,
-                field="content",
-                old_value=memory.get("text", ""),
-                new_value=new_content,
-                reason=reason,
-                timestamp=updated_at,
-            )
-
-            if reason:
-                current_metadata["update_reason"] = reason
-            current_metadata["updated_at"] = updated_at
-            current_metadata["previous_content"] = str(memory.get("text", ""))[:100]
-            current_metadata["update_history"] = update_history
-
-            new_memory_id = None
-            try:
-                new_memory_id = await memory_engine.add_memory(
-                    content=new_content,
-                    session_id=session_id,
-                    persona_id=persona_id,
-                    importance=importance,
-                    metadata=current_metadata,
-                )
-                delete_success = await memory_engine.delete_memory(memory_id)
-                if not delete_success:
-                    await memory_engine.delete_memory(new_memory_id)
-                    return self.utils.error("旧记忆删除失败，已回滚本次内容更新")
-            except Exception as exc:
-                if new_memory_id is not None:
-                    try:
-                        await memory_engine.delete_memory(new_memory_id)
-                    except Exception:
-                        logger.error(
-                            f"[PageAPI] 回滚新记忆失败 (new_memory_id={new_memory_id})",
-                            exc_info=True,
-                        )
-                logger.error(f"[PageAPI] 更新记忆内容失败: {exc}", exc_info=True)
-                return self.utils.error(str(exc))
-
-            return self.utils.ok(
+            # Legacy callers are made safe by clearing stale structured fields.
+            return await self._replace_structured_memory(
+                memory_engine,
+                memory_processor,
+                memory,
                 {
-                    "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
-                    "old_memory_id": memory_id,
-                    "new_memory_id": new_memory_id,
-                    "field": field,
-                }
+                    "summary": new_content,
+                    "persona_summary": new_content,
+                    "topics": [],
+                    "key_facts": [],
+                    "participants": current_metadata.get("participants", []),
+                    "sentiment": current_metadata.get("sentiment", "neutral"),
+                    "importance": clamp_float(
+                        current_metadata.get("importance"), default=0.5
+                    ),
+                    "importance_scale": "stored",
+                    "memory_type": current_metadata.get("memory_type", "GENERAL"),
+                    "status": current_metadata.get("status", "active"),
+                },
+                reason,
             )
 
         # 其他字段更新
