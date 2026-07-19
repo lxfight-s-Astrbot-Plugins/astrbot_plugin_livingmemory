@@ -2,13 +2,20 @@
 记忆管理处理模块
 """
 
+import asyncio
+import hashlib
+import json
 import time
+import uuid
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 from quart import request
 
 from astrbot.api import logger
+
+from ..processors.entity_resolver import EntityResolver
 
 if TYPE_CHECKING:
     from .utils import PageApiUtils
@@ -25,6 +32,9 @@ class MemoryHandler:
             utils: PageApiUtils 工具实例
         """
         self.utils = utils
+        self._update_plans: dict[str, dict[str, Any]] = {}
+        self._update_jobs: dict[str, dict[str, Any]] = {}
+        self._update_tasks: dict[str, asyncio.Task] = {}
 
     @staticmethod
     def _normalize_importance_update(value: Any, value_scale: str = "auto") -> float:
@@ -474,6 +484,635 @@ class MemoryHandler:
                 "update_mode": update_mode,
             }
         )
+
+    @staticmethod
+    def _scope_matches(
+        source_metadata: dict[str, Any],
+        candidate_metadata: dict[str, Any],
+        scope: str,
+    ) -> bool:
+        if scope == "session":
+            source_session = source_metadata.get("session_id")
+            return (
+                bool(source_session)
+                and candidate_metadata.get("session_id") == source_session
+            )
+        if scope == "persona":
+            source_persona = source_metadata.get("persona_id")
+            return (
+                bool(source_persona)
+                and candidate_metadata.get("persona_id") == source_persona
+            )
+        return False
+
+    def _structured_memory_value(
+        self,
+        memory: dict[str, Any], metadata: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Return the editable representation used by structured rebuilds."""
+        return {
+            "summary": metadata.get("persona_summary")
+            or metadata.get("canonical_summary")
+            or memory.get("text", ""),
+            "persona_summary": metadata.get("persona_summary")
+            or metadata.get("canonical_summary")
+            or memory.get("text", ""),
+            "topics": self._normalize_text_list(metadata.get("topics"), 30),
+            "key_facts": self._normalize_text_list(metadata.get("key_facts"), 30),
+            "participants": self._normalize_text_list(
+                metadata.get("participants"), 30
+            ),
+            "sentiment": metadata.get("sentiment", "neutral"),
+            "importance": metadata.get("importance", 0.5),
+            "importance_scale": "stored",
+            "memory_type": metadata.get("memory_type", "GENERAL"),
+            "status": metadata.get("status", "active"),
+        }
+
+    def _memory_fingerprint(self, memory: dict[str, Any]) -> str:
+        metadata = self.utils.normalize_metadata(memory.get("metadata"))
+        relevant = {
+            "id": memory.get("id"),
+            "text": memory.get("text", ""),
+            "revision": metadata.get("revision", 1),
+            "canonical_summary": metadata.get("canonical_summary"),
+            "persona_summary": metadata.get("persona_summary"),
+            "topics": metadata.get("topics", []),
+            "key_facts": metadata.get("key_facts", []),
+            "participants": metadata.get("participants", []),
+            "sentiment": metadata.get("sentiment"),
+            "importance": metadata.get("importance"),
+            "memory_type": metadata.get("memory_type"),
+            "status": metadata.get("status"),
+        }
+        payload = json.dumps(relevant, ensure_ascii=False, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _derive_propagating_changes(
+        self,
+        metadata: dict[str, Any],
+        edited: dict[str, Any],
+        declared_changes: Any = None,
+    ) -> list[dict[str, Any]]:
+        """Find unambiguous replacements; additions and removals never propagate.
+
+        The WebUI declares row-level operations explicitly. The positional fallback
+        is retained for older API clients and only accepts conservative replacements.
+        """
+        changes: list[dict[str, Any]] = []
+        if isinstance(declared_changes, list):
+            for declared in declared_changes:
+                if not isinstance(declared, dict):
+                    continue
+                # Add/remove operations intentionally never propagate.
+                if str(declared.get("operation", "")).strip() != "replace":
+                    continue
+                field = str(declared.get("field", "")).strip()
+                if field not in {"key_facts", "topics"}:
+                    continue
+                before = str(declared.get("before", "")).strip()
+                after = str(declared.get("after", "")).strip()
+                old_values = self._normalize_text_list(metadata.get(field), 30)
+                new_values = self._normalize_text_list(edited.get(field), 30)
+                if before not in old_values or after not in new_values or before == after:
+                    continue
+                changes.append(
+                    {
+                        "change_id": uuid.uuid4().hex,
+                        "field": field,
+                        "operation": "replace",
+                        "before": before,
+                        "after": after,
+                    }
+                )
+            return changes
+
+        for field in ("key_facts", "topics"):
+            old_values = self._normalize_text_list(metadata.get(field), 30)
+            new_values = self._normalize_text_list(edited.get(field), 30)
+            old_keys = [EntityResolver.canonicalize(item) for item in old_values]
+            new_keys = [EntityResolver.canonicalize(item) for item in new_values]
+            for index in range(min(len(old_values), len(new_values))):
+                before = old_values[index]
+                after = new_values[index]
+                before_key = old_keys[index]
+                after_key = new_keys[index]
+                if not before_key or not after_key or before_key == after_key:
+                    continue
+                # A value found elsewhere means insertion/deletion/reordering may
+                # have shifted the textarea rows. Do not infer a replacement.
+                if before_key in new_keys or after_key in old_keys:
+                    continue
+                changes.append(
+                    {
+                        "change_id": uuid.uuid4().hex,
+                        "field": field,
+                        "operation": "replace",
+                        "before": before,
+                        "after": after,
+                        "source_index": index,
+                    }
+                )
+        return changes
+
+    async def _list_scope_memories(
+        self,
+        memory_engine,
+        source_metadata: dict[str, Any],
+        scope: str,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        db_path = getattr(memory_engine, "db_path", None)
+        if not db_path:
+            raise RuntimeError("MemoryEngine db_path unavailable")
+        field = "session_id" if scope == "session" else "persona_id"
+        scope_value = source_metadata.get(field)
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"""
+                SELECT id, text, metadata
+                FROM documents
+                WHERE json_valid(metadata)
+                  AND json_extract(metadata, '$.{field}') = ?
+                  AND COALESCE(json_extract(metadata, '$.status'), 'active') != 'deleted'
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (scope_value, limit),
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "text": str(row["text"] or ""),
+                "metadata": self.utils.normalize_metadata(row["metadata"]),
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _field_match(before: str, candidate: str) -> tuple[str, float] | None:
+        if before == candidate:
+            return "exact", 1.0
+        before_key = EntityResolver.canonicalize(before)
+        candidate_key = EntityResolver.canonicalize(candidate)
+        if not before_key or not candidate_key:
+            return None
+        if before_key == candidate_key:
+            return "normalized_exact", 1.0
+        score = SequenceMatcher(None, before_key, candidate_key, autojunk=False).ratio()
+        if score >= 0.86:
+            return "near", score
+        return None
+
+    def _build_candidate_plan(
+        self,
+        candidate: dict[str, Any],
+        changes: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        metadata = self.utils.normalize_metadata(candidate.get("metadata"))
+        before_value = self._structured_memory_value(candidate, metadata)
+        proposed_value = {
+            key: list(value) if isinstance(value, list) else value
+            for key, value in before_value.items()
+        }
+        modifications: list[dict[str, Any]] = []
+
+        for change in changes:
+            field = change["field"]
+            candidate_values = self._normalize_text_list(proposed_value.get(field), 30)
+            best: tuple[int, str, float] | None = None
+            for index, candidate_text in enumerate(candidate_values):
+                matched = self._field_match(change["before"], candidate_text)
+                if matched is None:
+                    continue
+                match_type, score = matched
+                if best is None or score > best[2]:
+                    best = (index, match_type, score)
+            if best is None:
+                continue
+
+            index, match_type, score = best
+            candidate_before = candidate_values[index]
+            candidate_values[index] = change["after"]
+            proposed_value[field] = candidate_values
+            summary_before = str(proposed_value.get("summary", ""))
+            summary_after = summary_before.replace(candidate_before, change["after"])
+            if summary_after != summary_before:
+                proposed_value["summary"] = summary_after
+                proposed_value["persona_summary"] = summary_after
+            modifications.append(
+                {
+                    "change_id": change["change_id"],
+                    "field": field,
+                    "operation": "replace",
+                    "match_type": match_type,
+                    "score": round(score, 6),
+                    "source_before": change["before"],
+                    "source_after": change["after"],
+                    "candidate_before": candidate_before,
+                    "candidate_after": change["after"],
+                    "summary_changed": summary_after != summary_before,
+                    "summary_before": (
+                        summary_before if summary_after != summary_before else None
+                    ),
+                    "summary_after": (
+                        summary_after if summary_after != summary_before else None
+                    ),
+                }
+            )
+
+        if not modifications:
+            return None
+        strongest = min(item["score"] for item in modifications)
+        default_selected = all(
+            item["match_type"] in {"exact", "normalized_exact"}
+            for item in modifications
+        )
+        return {
+            "plan_item_id": uuid.uuid4().hex,
+            "memory_id": int(candidate["id"]),
+            "memory_fingerprint": self._memory_fingerprint(candidate),
+            "excerpt": str(candidate.get("text", ""))[:160],
+            "match_score": round(strongest, 6),
+            "default_selected": default_selected,
+            "modification_type": (
+                "exact_replace" if default_selected else "near_replace"
+            ),
+            "modifications": modifications,
+            "before_value": before_value,
+            "proposed_value": proposed_value,
+        }
+
+    async def detect_related_memories(self, memory_engine) -> dict[str, Any]:
+        """Build and freeze a field-level related-memory modification plan."""
+        payload = await request.get_json(silent=True) or {}
+        try:
+            memory_id = int(payload.get("memory_id"))
+        except (TypeError, ValueError):
+            return self.utils.error("memory_id 必须是整数")
+
+        scope = str(payload.get("scope", "current")).strip().lower()
+        if scope not in {"session", "persona"}:
+            return self.utils.error("scope 必须是 session 或 persona")
+
+        memory = await self._get_memory_record(memory_id, memory_engine)
+        if not memory:
+            return self.utils.error("记忆不存在")
+        metadata = self.utils.normalize_metadata(memory.get("metadata"))
+        if scope == "session" and not metadata.get("session_id"):
+            return self.utils.error("当前记忆没有 session_id，无法检测同会话记忆")
+        if scope == "persona" and not metadata.get("persona_id"):
+            return self.utils.error("当前记忆没有 persona_id，无法检测当前人格记忆")
+
+        edited = payload.get("value") if isinstance(payload.get("value"), dict) else {}
+        changes = self._derive_propagating_changes(
+            metadata,
+            edited,
+            payload.get("field_changes"),
+        )
+
+        records: list[dict[str, Any]] = []
+        if changes:
+            try:
+                records = await self._list_scope_memories(
+                    memory_engine, metadata, scope
+                )
+            except Exception as exc:
+                logger.error(f"[PageAPI] 检测关联记忆失败: {exc}", exc_info=True)
+                return self.utils.error(str(exc))
+
+        items: list[dict[str, Any]] = []
+        for candidate in records:
+            if int(candidate["id"]) == memory_id:
+                continue
+            planned = self._build_candidate_plan(candidate, changes)
+            if planned is not None:
+                items.append(planned)
+            if len(items) >= 50:
+                break
+
+        plan_id = uuid.uuid4().hex
+        now = time.time()
+        plan = {
+            "plan_id": plan_id,
+            "source_memory_id": memory_id,
+            "source_fingerprint": self._memory_fingerprint(memory),
+            "source_value": edited,
+            "scope": scope,
+            "changes": changes,
+            "items": items,
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._update_plans[plan_id] = plan
+        self._prune_update_jobs()
+
+        return self.utils.ok(
+            {
+                "plan_id": plan_id,
+                "items": items,
+                "changes": changes,
+                "scope": scope,
+                "total": len(items),
+                "limit": 50,
+            }
+        )
+
+    def _prune_update_jobs(self) -> None:
+        cutoff = time.time() - 3600
+        stale_plan_ids = [
+            plan_id
+            for plan_id, plan in self._update_plans.items()
+            if float(plan.get("updated_at", 0)) < cutoff
+        ]
+        for plan_id in stale_plan_ids:
+            self._update_plans.pop(plan_id, None)
+        stale_ids = [
+            job_id
+            for job_id, job in self._update_jobs.items()
+            if float(job.get("updated_at", 0)) < cutoff
+            and job.get("status") in {"completed", "failed"}
+        ]
+        for job_id in stale_ids:
+            self._update_jobs.pop(job_id, None)
+            self._update_tasks.pop(job_id, None)
+
+    async def start_structured_update_job(
+        self, memory_engine, memory_processor
+    ) -> dict[str, Any]:
+        """Validate and start a tracked structured-memory propagation job."""
+        if memory_processor is None:
+            return self.utils.error("MemoryProcessor 未初始化")
+        payload = await request.get_json(silent=True) or {}
+        try:
+            memory_id = int(payload.get("memory_id"))
+        except (TypeError, ValueError):
+            return self.utils.error("memory_id 必须是整数")
+        update_mode = str(payload.get("update_mode", "in_place")).strip().lower()
+        if update_mode not in {"rebuild", "in_place"}:
+            return self.utils.error("update_mode 必须是 rebuild 或 in_place")
+        scope = str(payload.get("scope", "current")).strip().lower()
+        if scope not in {"current", "session", "persona"}:
+            return self.utils.error("scope 必须是 current、session 或 persona")
+
+        source = await self._get_memory_record(memory_id, memory_engine)
+        if not source:
+            return self.utils.error("记忆不存在")
+        source_metadata = self.utils.normalize_metadata(source.get("metadata"))
+
+        value = payload.get("value")
+        candidates: list[dict[str, Any]] = []
+        if scope == "current":
+            if not isinstance(value, dict):
+                return self.utils.error("value 必须是结构化记忆对象")
+        else:
+            plan_id = str(payload.get("plan_id", "")).strip()
+            plan = self._update_plans.get(plan_id)
+            if not plan:
+                return self.utils.error("修改计划不存在或已过期，请重新检测关联记忆")
+            if (
+                int(plan.get("source_memory_id", -1)) != memory_id
+                or plan.get("scope") != scope
+            ):
+                return self.utils.error("修改计划与当前记忆或作用域不匹配")
+            if self._memory_fingerprint(source) != plan.get("source_fingerprint"):
+                return self.utils.error("当前记忆在预览后已发生变化，请重新检测")
+            value = plan.get("source_value")
+            raw_item_ids = payload.get("selected_plan_item_ids", [])
+            if not isinstance(raw_item_ids, list):
+                return self.utils.error("selected_plan_item_ids 必须是数组")
+            selected_ids = list(
+                dict.fromkeys(
+                    str(item).strip()
+                    for item in raw_item_ids
+                    if str(item).strip()
+                )
+            )
+            if len(selected_ids) > 50:
+                return self.utils.error("单次最多更新 50 条关联记忆")
+            if selected_ids and payload.get("risk_acknowledged") is not True:
+                return self.utils.error("更新关联记忆前必须确认已了解风险并核对修改内容")
+            planned_by_id = {
+                str(item.get("plan_item_id")): item
+                for item in plan.get("items", [])
+            }
+            unknown = [
+                item_id for item_id in selected_ids if item_id not in planned_by_id
+            ]
+            if unknown:
+                return self.utils.error("包含未审核或无效的关联修改计划项")
+            for item_id in selected_ids:
+                planned = planned_by_id[item_id]
+                candidate_id = int(planned["memory_id"])
+                candidate = await self._get_memory_record(candidate_id, memory_engine)
+                if not candidate:
+                    return self.utils.error(f"关联记忆 {candidate_id} 不存在")
+                candidate_metadata = self.utils.normalize_metadata(
+                    candidate.get("metadata")
+                )
+                if not self._scope_matches(source_metadata, candidate_metadata, scope):
+                    return self.utils.error(f"关联记忆 {candidate_id} 不在所选范围内")
+                if self._memory_fingerprint(candidate) != planned.get(
+                    "memory_fingerprint"
+                ):
+                    return self.utils.error(
+                        f"关联记忆 {candidate_id} 在预览后已发生变化，请重新检测"
+                    )
+                candidates.append(
+                    {
+                        "memory": candidate,
+                        "plan_item_id": item_id,
+                        "proposed_value": planned["proposed_value"],
+                        "modifications": planned.get("modifications", []),
+                        "plan_id": plan_id,
+                    }
+                )
+
+        if not isinstance(value, dict):
+            return self.utils.error("修改计划中的结构化记忆数据无效")
+        if not str(value.get("summary", "")).strip():
+            return self.utils.error("记忆摘要不能为空")
+
+        self._prune_update_jobs()
+        job_id = uuid.uuid4().hex
+        now = time.time()
+        job = {
+            "job_id": job_id,
+            "status": "queued",
+            "phase": "queued",
+            "total": 1 + len(candidates),
+            "completed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "percent": 0,
+            "current_item": None,
+            "results": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._update_jobs[job_id] = job
+        task = asyncio.create_task(
+            self._run_structured_update_job(
+                job,
+                memory_engine,
+                memory_processor,
+                source,
+                value,
+                str(payload.get("reason", "")).strip(),
+                update_mode,
+                candidates,
+                str(payload.get("plan_id", "")).strip() or None,
+            ),
+            name=f"livingmemory-webui-update-{job_id[:8]}",
+        )
+        self._update_tasks[job_id] = task
+        task.add_done_callback(
+            lambda finished, key=job_id: self._finish_update_task(key, finished)
+        )
+        return self.utils.ok(dict(job))
+
+    def _finish_update_task(self, job_id: str, task: asyncio.Task) -> None:
+        """Consume task errors and prevent interrupted jobs from staying active."""
+        self._update_tasks.pop(job_id, None)
+        job = self._update_jobs.get(job_id)
+        if not job or job.get("status") in {"completed", "failed"}:
+            return
+        if task.cancelled():
+            error = "后台更新任务已取消"
+        else:
+            exception = task.exception()
+            if exception is None:
+                return
+            error = str(exception)
+            logger.error(f"[PageAPI] 后台更新任务异常终止: {error}")
+        job.update(
+            status="failed",
+            phase="failed",
+            current_item=None,
+            error=error,
+            updated_at=time.time(),
+        )
+
+    async def _run_structured_update_job(
+        self,
+        job: dict[str, Any],
+        memory_engine,
+        memory_processor,
+        source: dict[str, Any],
+        edited_value: dict[str, Any],
+        reason: str,
+        update_mode: str,
+        candidates: list[dict[str, Any]],
+        plan_id: str | None = None,
+    ) -> None:
+        job.update(status="running", phase="updating_current", updated_at=time.time())
+
+        async def record_result(
+            old_id: int,
+            kind: str,
+            response: dict[str, Any] | None = None,
+            error: str | None = None,
+        ) -> bool:
+            ok = bool(response and response.get("status") == "ok" and not error)
+            data = response.get("data", {}) if ok and response else {}
+            item = {
+                "old_memory_id": old_id,
+                "new_memory_id": data.get("new_memory_id") if ok else None,
+                "kind": kind,
+                "status": "completed" if ok else "failed",
+                "error": error or (response or {}).get("message"),
+                "plan_id": data.get("plan_id") if ok else None,
+                "plan_item_id": data.get("plan_item_id") if ok else None,
+                "modifications": data.get("modifications", []) if ok else [],
+            }
+            job["results"].append(item)
+            job["completed"] += 1
+            job["succeeded" if ok else "failed"] += 1
+            job["percent"] = round(job["completed"] * 100 / job["total"])
+            job["updated_at"] = time.time()
+            return ok
+
+        source_id = int(source["id"])
+        job["current_item"] = {
+            "memory_id": source_id,
+            "excerpt": str(source.get("text", ""))[:160],
+        }
+        try:
+            response = await self._replace_structured_memory(
+                memory_engine,
+                memory_processor,
+                source,
+                edited_value,
+                reason,
+                update_mode,
+            )
+            source_ok = await record_result(source_id, "current", response=response)
+        except Exception as exc:
+            logger.error("[PageAPI] 更新当前记忆任务失败", exc_info=True)
+            source_ok = await record_result(source_id, "current", error=str(exc))
+
+        if not source_ok:
+            job.update(
+                status="failed",
+                phase="failed",
+                current_item=None,
+                updated_at=time.time(),
+            )
+            return
+
+        for planned_candidate in candidates:
+            candidate = planned_candidate["memory"]
+            candidate_id = int(candidate["id"])
+            job.update(
+                phase="updating_related",
+                current_item={
+                    "memory_id": candidate_id,
+                    "excerpt": str(candidate.get("text", ""))[:160],
+                },
+                updated_at=time.time(),
+            )
+            try:
+                response = await self._replace_structured_memory(
+                    memory_engine,
+                    memory_processor,
+                    candidate,
+                    planned_candidate["proposed_value"],
+                    reason or f"根据记忆 {source_id} 的人工修订同步校正",
+                    update_mode,
+                )
+                if response.get("status") == "ok":
+                    response.setdefault("data", {})["plan_id"] = plan_id
+                    response["data"]["plan_item_id"] = planned_candidate[
+                        "plan_item_id"
+                    ]
+                    response["data"]["modifications"] = planned_candidate.get(
+                        "modifications", []
+                    )
+                await record_result(candidate_id, "related", response=response)
+            except Exception as exc:
+                logger.error(
+                    f"[PageAPI] 校正关联记忆 {candidate_id} 失败", exc_info=True
+                )
+                await record_result(candidate_id, "related", error=str(exc))
+
+        job.update(
+            status="completed",
+            phase="completed",
+            current_item=None,
+            percent=100,
+            updated_at=time.time(),
+        )
+
+    async def get_structured_update_progress(self) -> dict[str, Any]:
+        job_id = str(request.args.get("job_id", "")).strip()
+        if not job_id:
+            return self.utils.error("需要提供 job_id")
+        job = self._update_jobs.get(job_id)
+        if not job:
+            return self.utils.error("更新任务不存在或已过期")
+        return self.utils.ok(dict(job))
 
     async def update_memory(self, memory_engine, memory_processor=None) -> dict[str, Any]:
         """

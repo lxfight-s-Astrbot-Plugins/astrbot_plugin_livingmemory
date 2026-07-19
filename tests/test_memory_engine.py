@@ -404,6 +404,23 @@ async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_memory_engine_search_can_skip_access_tracking(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_preview.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    await engine.add_memory(content="只读关联检测", importance=0.5, metadata={})
+    engine._create_tracked_task = Mock()
+
+    await engine.search_memories("关联检测", k=1, track_access=False)
+
+    engine._create_tracked_task.assert_not_called()
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_write(
     tmp_path: Path,
 ):

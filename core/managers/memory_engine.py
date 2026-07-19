@@ -1163,6 +1163,7 @@ class MemoryEngine:
         k: int = 5,
         session_id: str | None = None,
         persona_id: str | None = None,
+        track_access: bool = True,
     ) -> list[HybridResult]:
         """
         检索相关记忆
@@ -1172,6 +1173,7 @@ class MemoryEngine:
             k: 返回数量
             session_id: 会话ID过滤(可选,应传入unified_msg_origin完整格式)
             persona_id: 人格ID过滤(可选)
+            track_access: 是否把结果记录为一次真实召回访问
 
         Returns:
             List[HybridResult]: 检索结果列表
@@ -1182,10 +1184,11 @@ class MemoryEngine:
         cache_key = self._search_cache_key(query, k, session_id, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
-            for result in cached_results:
-                self._create_tracked_task(
-                    self._update_access_time_internal(result.doc_id)
-                )
+            if track_access:
+                for result in cached_results:
+                    self._create_tracked_task(
+                        self._update_access_time_internal(result.doc_id)
+                    )
             return cached_results
 
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
@@ -1213,8 +1216,11 @@ class MemoryEngine:
             )
 
         # 异步更新访问时间(不阻塞返回)
-        for result in results:
-            self._create_tracked_task(self._update_access_time_internal(result.doc_id))
+        if track_access:
+            for result in results:
+                self._create_tracked_task(
+                    self._update_access_time_internal(result.doc_id)
+                )
 
         self._set_cached_search_results(cache_key, results)
         return results

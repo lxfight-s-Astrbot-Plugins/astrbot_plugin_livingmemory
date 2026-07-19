@@ -88,6 +88,24 @@ class PluginPageApi:
             "LivingMemory Page update memory",
         )
         register(
+            f"{PAGE_API_PREFIX}/memories/related",
+            self.detect_related_memories,
+            ["POST"],
+            "LivingMemory Page detect related memories",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/update/start",
+            self.start_structured_update_job,
+            ["POST"],
+            "LivingMemory Page start structured update job",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/update/progress",
+            self.get_structured_update_progress,
+            ["GET"],
+            "LivingMemory Page structured update progress",
+        )
+        register(
             f"{PAGE_API_PREFIX}/memories/batch-delete",
             self.batch_delete_memories,
             ["POST"],
@@ -165,6 +183,31 @@ class PluginPageApi:
         return await self.memory_handler.update_memory(
             ready["memory_engine"], ready["memory_processor"]
         )
+
+    async def detect_related_memories(self):
+        """检测所选会话或人格范围内的关联记忆。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.detect_related_memories(
+            ready["memory_engine"]
+        )
+
+    async def start_structured_update_job(self):
+        """启动带进度跟踪的结构化记忆更新任务。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.start_structured_update_job(
+            ready["memory_engine"], ready["memory_processor"]
+        )
+
+    async def get_structured_update_progress(self):
+        """查询结构化记忆更新任务进度。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.get_structured_update_progress()
 
     async def batch_delete_memories(self):
         """批量删除记忆"""

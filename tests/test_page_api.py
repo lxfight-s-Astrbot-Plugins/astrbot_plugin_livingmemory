@@ -39,7 +39,14 @@ class FakeMemoryEngine:
     async def get_statistics(self):
         return self.stats
 
-    async def search_memories(self, query, k=5, session_id=None, persona_id=None):
+    async def search_memories(
+        self,
+        query,
+        k=5,
+        session_id=None,
+        persona_id=None,
+        track_access=True,
+    ):
         return []
 
     async def get_memory(self, memory_id: int):
@@ -1062,6 +1069,265 @@ class TestUpdateMemory:
         api.plugin.initializer.memory_engine.replace_memory.assert_not_awaited()
 
 
+class TestStructuredUpdateWorkflow:
+    @pytest.mark.asyncio
+    async def test_detect_related_memories_respects_session_scope(self, api):
+        engine = api.plugin.initializer.memory_engine
+        source = {
+            "id": 1,
+            "text": "current",
+            "metadata": {
+                "session_id": "s1",
+                "persona_id": "p1",
+                "key_facts": ["用户住在北京"],
+            },
+        }
+        related = {
+            "id": 2,
+            "text": "related content",
+            "metadata": {
+                "session_id": "s1",
+                "persona_id": "p1",
+                "key_facts": ["用户住在北京"],
+            },
+        }
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "scope": "session",
+                "value": {
+                    "summary": "edited",
+                    "key_facts": ["用户住在上海"],
+                },
+                "field_changes": [
+                    {
+                        "field": "key_facts",
+                        "operation": "replace",
+                        "before": "用户住在北京",
+                        "after": "用户住在上海",
+                    }
+                ],
+            }
+        )
+        with _patch_page_request(req), patch.object(
+            api.memory_handler,
+            "_get_memory_record",
+            AsyncMock(return_value=source),
+        ), patch.object(
+            api.memory_handler,
+            "_list_scope_memories",
+            AsyncMock(return_value=[source, related]),
+        ):
+            result = await api.detect_related_memories()
+
+        assert result["status"] == "ok"
+        assert [item["memory_id"] for item in result["data"]["items"]] == [2]
+        assert result["data"]["items"][0]["modification_type"] == "exact_replace"
+        assert result["data"]["items"][0]["proposed_value"]["key_facts"] == [
+            "用户住在上海"
+        ]
+        assert result["data"]["plan_id"]
+
+    @pytest.mark.asyncio
+    async def test_deleted_field_does_not_produce_related_candidates(self, api):
+        source = {
+            "id": 1,
+            "text": "current",
+            "metadata": {
+                "session_id": "s1",
+                "persona_id": "p1",
+                "key_facts": ["用户住在北京"],
+            },
+        }
+        related = {
+            "id": 2,
+            "text": "related",
+            "metadata": {
+                "session_id": "s1",
+                "persona_id": "p1",
+                "key_facts": ["用户住在北京"],
+            },
+        }
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "scope": "session",
+                "value": {"summary": "edited", "key_facts": []},
+                "field_changes": [
+                    {
+                        "field": "key_facts",
+                        "operation": "remove",
+                        "before": "用户住在北京",
+                        "after": None,
+                    }
+                ],
+            }
+        )
+        with _patch_page_request(req), patch.object(
+            api.memory_handler,
+            "_get_memory_record",
+            AsyncMock(return_value=source),
+        ), patch.object(
+            api.memory_handler,
+            "_list_scope_memories",
+            AsyncMock(return_value=[source, related]),
+        ):
+            result = await api.detect_related_memories()
+
+        assert result["status"] == "ok"
+        assert result["data"]["changes"] == []
+        assert result["data"]["items"] == []
+
+    def test_near_field_match_requires_manual_selection(self, api):
+        candidate = {
+            "id": 2,
+            "text": "用户目前居住在北京市",
+            "metadata": {
+                "session_id": "s1",
+                "key_facts": ["用户目前居住在北京市"],
+            },
+        }
+        planned = api.memory_handler._build_candidate_plan(
+            candidate,
+            [
+                {
+                    "change_id": "change-1",
+                    "field": "key_facts",
+                    "operation": "replace",
+                    "before": "用户目前居住在北京",
+                    "after": "用户目前居住在上海",
+                }
+            ],
+        )
+
+        assert planned is not None
+        assert planned["modification_type"] == "near_replace"
+        assert planned["default_selected"] is False
+        assert planned["proposed_value"]["key_facts"] == ["用户目前居住在上海"]
+
+    @pytest.mark.asyncio
+    async def test_start_job_tracks_current_memory_progress(self, api):
+        source = {
+            "id": 1,
+            "text": "old",
+            "metadata": {"session_id": "s1", "persona_id": "p1"},
+        }
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "value": {"summary": "edited"},
+                "scope": "current",
+                "update_mode": "in_place",
+            }
+        )
+        update_result = {
+            "status": "ok",
+            "data": {"old_memory_id": 1, "new_memory_id": 1},
+        }
+        with _patch_page_request(req), patch.object(
+            api.memory_handler,
+            "_get_memory_record",
+            AsyncMock(return_value=source),
+        ), patch.object(
+            api.memory_handler,
+            "_replace_structured_memory",
+            AsyncMock(return_value=update_result),
+        ):
+            started = await api.start_structured_update_job()
+            task = next(iter(api.memory_handler._update_tasks.values()))
+            await task
+
+        job_id = started["data"]["job_id"]
+        progress_req = _mock_page_request(args={"job_id": job_id})
+        with _patch_page_request(progress_req):
+            progress = await api.get_structured_update_progress()
+
+        assert progress["status"] == "ok"
+        assert progress["data"]["status"] == "completed"
+        assert progress["data"]["completed"] == 1
+        assert progress["data"]["succeeded"] == 1
+        assert progress["data"]["percent"] == 100
+
+    @pytest.mark.asyncio
+    async def test_job_reconciles_selected_related_memory(self, api):
+        source = {
+            "id": 1,
+            "text": "source",
+            "metadata": {"session_id": "s1", "persona_id": "p1"},
+        }
+        related = {
+            "id": 2,
+            "text": "stale",
+            "metadata": {
+                "session_id": "s1",
+                "persona_id": "p1",
+                "topics": ["old"],
+                "key_facts": ["stale fact"],
+                "importance": 0.4,
+            },
+        }
+        processor = api.plugin.initializer.memory_processor
+        plan_id = "plan-1"
+        plan_item_id = "item-2"
+        api.memory_handler._update_plans[plan_id] = {
+            "plan_id": plan_id,
+            "source_memory_id": 1,
+            "source_fingerprint": api.memory_handler._memory_fingerprint(source),
+            "source_value": {"summary": "authoritative"},
+            "scope": "session",
+            "items": [
+                {
+                    "plan_item_id": plan_item_id,
+                    "memory_id": 2,
+                    "memory_fingerprint": api.memory_handler._memory_fingerprint(related),
+                    "proposed_value": {
+                        "summary": "corrected",
+                        "topics": ["new"],
+                        "key_facts": ["correct fact"],
+                        "participants": [],
+                        "sentiment": "neutral",
+                        "importance": 0.6,
+                    },
+                    "modifications": [],
+                }
+            ],
+        }
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "value": {"summary": "authoritative"},
+                "scope": "session",
+                "plan_id": plan_id,
+                "selected_plan_item_ids": [plan_item_id],
+                "risk_acknowledged": True,
+                "update_mode": "in_place",
+            }
+        )
+        replace_result = {
+            "status": "ok",
+            "data": {"old_memory_id": 1, "new_memory_id": 1},
+        }
+        with _patch_page_request(req), patch.object(
+            api.memory_handler,
+            "_get_memory_record",
+            AsyncMock(side_effect=[source, related]),
+        ), patch.object(
+            api.memory_handler,
+            "_replace_structured_memory",
+            AsyncMock(return_value=replace_result),
+        ) as replace_mock:
+            started = await api.start_structured_update_job()
+            task = next(iter(api.memory_handler._update_tasks.values()))
+            await task
+
+        job = api.memory_handler._update_jobs[started["data"]["job_id"]]
+        assert job["completed"] == 2
+        assert job["succeeded"] == 2
+        related_update = replace_mock.await_args_list[1].args[3]
+        assert related_update["summary"] == "corrected"
+        assert related_update["key_facts"] == ["correct fact"]
+
+
 class TestBatchDeleteMemories:
     @pytest.mark.asyncio
     async def test_empty_list(self, api):
@@ -1373,7 +1639,7 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 11
+        assert len(plugin._api_routes) == 14
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1381,6 +1647,9 @@ class TestRouteRegistration:
         assert f"{prefix}/sessions" in paths
         assert f"{prefix}/memories" in paths
         assert f"{prefix}/memories/update" in paths
+        assert f"{prefix}/memories/related" in paths
+        assert f"{prefix}/memories/update/start" in paths
+        assert f"{prefix}/memories/update/progress" in paths
         assert f"{prefix}/memories/batch-delete" in paths
         assert f"{prefix}/recall/test" in paths
         assert f"{prefix}/graph/overview" in paths

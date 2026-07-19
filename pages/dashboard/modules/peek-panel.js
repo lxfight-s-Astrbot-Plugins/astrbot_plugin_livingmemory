@@ -20,6 +20,7 @@ export class PeekPanel {
     this.api = apiClient;
     this._confirmResolve = null;
     this._prevPeekContent = null;
+    this._saveJobRunning = false;
   }
 
   /**
@@ -45,6 +46,8 @@ export class PeekPanel {
     if (this._confirmResolve) {
       this._closeConfirmDialog(false);
     }
+    const saveOverlay = document.getElementById("memory-save-overlay");
+    if (saveOverlay && !this._saveJobRunning) saveOverlay.remove();
     const panel = document.getElementById("peek-panel");
     panel.classList.remove("visible", "wide");
     document.getElementById("peek-overlay").classList.remove("visible");
@@ -233,10 +236,6 @@ export class PeekPanel {
     html += '</div>';
 
     html += '<div class="memory-detail-actions">';
-    html += '<select class="memory-detail-select save-mode-select" id="peek-save-mode" aria-label="' + esc(window.t("detail.saveMode")) + '">';
-    html += '<option value="rebuild">' + window.t("detail.saveMode.rebuild") + '</option>';
-    html += '<option value="in_place">' + window.t("detail.saveMode.inPlace") + '</option>';
-    html += '</select>';
     html += '<button class="btn btn-sm btn-primary" id="peek-save-btn">' + window.t("detail.saveBtn") + '</button>';
     html += '<button class="btn btn-sm btn-ghost" id="peek-cancel-btn">' + window.t("detail.cancelBtn") + '</button>';
     html += '</div>';
@@ -248,12 +247,14 @@ export class PeekPanel {
     html += '</div>';
 
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.topics") + '</div>';
-    html += '<textarea id="edit-topics-area" class="memory-detail-edit-area" rows="3">' + esc(topics.join("\n")) + '</textarea>';
-    html += '<p class="form-hint">' + window.t("detail.onePerLine") + '</p></div>';
+    html += this.renderEditableMemoryItems("edit-topics-list", topics);
+    html += '<button type="button" class="btn btn-sm btn-ghost memory-item-add" data-target="edit-topics-list">' + esc(window.t("detail.addItem")) + '</button>';
+    html += '<p class="form-hint">' + window.t("detail.itemEditHint") + '</p></div>';
 
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.keyFacts") + '</div>';
-    html += '<textarea id="edit-key-facts-area" class="memory-detail-edit-area" rows="5">' + esc(keyFacts.join("\n")) + '</textarea>';
-    html += '<p class="form-hint">' + window.t("detail.onePerLine") + '</p></div>';
+    html += this.renderEditableMemoryItems("edit-key-facts-list", keyFacts);
+    html += '<button type="button" class="btn btn-sm btn-ghost memory-item-add" data-target="edit-key-facts-list">' + esc(window.t("detail.addItem")) + '</button>';
+    html += '<p class="form-hint">' + window.t("detail.itemEditHint") + '</p></div>';
 
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.participants") + '</div>';
     html += '<textarea id="edit-participants-area" class="memory-detail-edit-area" rows="3">' + esc(participants.join("\n")) + '</textarea>';
@@ -304,6 +305,12 @@ export class PeekPanel {
     document.getElementById("edit-importance").addEventListener("input", function() {
       document.getElementById("importance-value").textContent = parseFloat(this.value).toFixed(1);
     });
+    document.querySelectorAll(".memory-item-add").forEach(button => {
+      button.addEventListener("click", () => this.addEditableMemoryItem(button.dataset.target));
+    });
+    document.querySelectorAll(".memory-item-remove").forEach(button => {
+      button.addEventListener("click", () => this.removeEditableMemoryItem(button));
+    });
 
     const saveBtn = document.getElementById("peek-save-btn");
     const cancelBtn = document.getElementById("peek-cancel-btn");
@@ -311,65 +318,362 @@ export class PeekPanel {
     if (cancelBtn) cancelBtn.addEventListener("click", () => this.renderDetailView(detail));
   }
 
+  renderEditableMemoryItems(containerId, values) {
+    const rows = values.map(value =>
+      '<div class="memory-item-row" data-original="' + esc(String(value)) + '">' +
+      '<input type="text" class="memory-detail-select memory-item-input" value="' + esc(String(value)) + '" />' +
+      '<button type="button" class="btn btn-sm btn-ghost memory-item-remove" title="' + esc(window.t("detail.removeItem")) + '">×</button></div>'
+    ).join("");
+    return '<div class="memory-item-list" id="' + containerId + '">' + rows + '</div>';
+  }
+
+  addEditableMemoryItem(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const row = document.createElement("div");
+    row.className = "memory-item-row";
+    row.dataset.original = "";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "memory-detail-select memory-item-input";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn btn-sm btn-ghost memory-item-remove";
+    remove.title = window.t("detail.removeItem");
+    remove.textContent = "×";
+    remove.addEventListener("click", () => this.removeEditableMemoryItem(remove));
+    row.appendChild(input);
+    row.appendChild(remove);
+    container.appendChild(row);
+    input.focus();
+  }
+
+  removeEditableMemoryItem(button) {
+    const row = button.closest(".memory-item-row");
+    if (!row) return;
+    if (row.dataset.original) {
+      row.dataset.deleted = "true";
+      row.hidden = true;
+      const input = row.querySelector(".memory-item-input");
+      if (input) input.value = "";
+    } else {
+      row.remove();
+    }
+  }
+
+  collectEditableMemoryItems(containerId, field) {
+    const container = document.getElementById(containerId);
+    const values = [];
+    const changes = [];
+    if (!container) return { values, changes };
+    container.querySelectorAll(".memory-item-row").forEach(row => {
+      const original = String(row.dataset.original || "").trim();
+      const input = row.querySelector(".memory-item-input");
+      const current = input ? input.value.trim() : "";
+      const deleted = row.dataset.deleted === "true";
+      if (original && deleted) {
+        changes.push({ field, operation: "remove", before: original, after: null });
+        return;
+      }
+      if (current) values.push(current);
+      if (original && current && original !== current) {
+        changes.push({ field, operation: "replace", before: original, after: current });
+      } else if (!original && current) {
+        changes.push({ field, operation: "add", before: null, after: current });
+      }
+    });
+    return { values, changes };
+  }
+
   /**
    * 保存记忆编辑
    * @param {Object} detail - 原始记忆详情
    */
   async saveEdit(detail) {
-    let id = detail.memory_id;
     const newContent = document.getElementById("edit-content-area").value.trim();
-    const newTopics = document.getElementById("edit-topics-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
-    const newKeyFacts = document.getElementById("edit-key-facts-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    const topicEdit = this.collectEditableMemoryItems("edit-topics-list", "topics");
+    const factEdit = this.collectEditableMemoryItems("edit-key-facts-list", "key_facts");
+    const newTopics = topicEdit.values;
+    const newKeyFacts = factEdit.values;
     const newParticipants = document.getElementById("edit-participants-area").value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
     const newSentiment = document.getElementById("edit-sentiment").value;
     const newStatus = document.getElementById("edit-status").value;
     const newType = document.getElementById("edit-type").value.trim();
     const newImportance = parseFloat(document.getElementById("edit-importance").value);
     const reason = document.getElementById("peek-edit-reason").value.trim();
-    const updateMode = document.getElementById("peek-save-mode").value;
-
-    const saveBtn = document.getElementById("peek-save-btn");
-    if (saveBtn) saveBtn.disabled = true;
-    try {
-      if (!newContent) {
-        this.showToast(window.t("detail.contentRequired"), true);
-        return;
-      }
-
-      const result = await this.api.post("memories/update", {
-        memory_id: id,
-        field: "structured",
-        value: {
-          summary: newContent,
-          persona_summary: newContent,
-          topics: newTopics,
-          key_facts: newKeyFacts,
-          participants: newParticipants,
-          sentiment: newSentiment,
-          importance: newImportance,
-          importance_scale: "display",
-          memory_type: newType,
-          status: newStatus
-        },
-        reason: reason,
-        update_mode: updateMode
-      });
-      if (result && result.new_memory_id) id = parseInt(result.new_memory_id);
-      this.showToast(window.t(
-        updateMode === "in_place" ? "detail.structuredUpdatedInPlace" : "detail.structuredUpdated",
-        id
-      ));
-      this.close();
-
-      // 通知刷新记忆列表（通过全局回调）
-      if (window.lmRefreshMemories) {
-        await window.lmRefreshMemories();
-      }
-    } catch (e) {
-      this.showToast(e.message || window.t("edit.updateFailed"), true);
-    } finally {
-      if (saveBtn) saveBtn.disabled = false;
+    if (!newContent) {
+      this.showToast(window.t("detail.contentRequired"), true);
+      return;
     }
+
+    this.openSaveDialog({
+      memory_id: detail.memory_id,
+      value: {
+        summary: newContent,
+        persona_summary: newContent,
+        topics: newTopics,
+        key_facts: newKeyFacts,
+        participants: newParticipants,
+        sentiment: newSentiment,
+        importance: newImportance,
+        importance_scale: "display",
+        memory_type: newType,
+        status: newStatus
+      },
+      field_changes: topicEdit.changes.concat(factEdit.changes),
+      reason: reason
+    });
+  }
+
+  openSaveDialog(updatePayload) {
+    const previous = document.getElementById("memory-save-overlay");
+    if (previous) previous.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "memory-save-overlay";
+    overlay.className = "modal-overlay visible memory-save-overlay";
+    overlay.innerHTML = '<div class="modal memory-save-modal" role="dialog" aria-modal="true">' +
+      '<div class="modal-header"><div class="modal-title">' + esc(window.t("saveDialog.title")) + '</div>' +
+      '<button class="modal-close" id="memory-save-close" aria-label="Close">×</button></div>' +
+      '<div class="modal-body" id="memory-save-body">' +
+      '<div class="save-danger-notice"><strong>' + esc(window.t("saveDialog.dangerTitle")) + '</strong>' +
+      '<span>' + esc(window.t("saveDialog.dangerMessage")) + '</span></div>' +
+      '<div class="save-dialog-section"><div class="save-dialog-label">' + esc(window.t("detail.saveMode")) + '</div>' +
+      '<label class="save-dialog-option"><input type="radio" name="memory-save-mode" value="in_place" checked /> ' + esc(window.t("saveDialog.mode.sameId")) + '</label>' +
+      '<label class="save-dialog-option"><input type="radio" name="memory-save-mode" value="rebuild" /> ' + esc(window.t("saveDialog.mode.newId")) + '</label></div>' +
+      '<div class="save-dialog-section"><label class="save-dialog-label" for="memory-related-scope">' + esc(window.t("saveDialog.relatedScope")) + '</label>' +
+      '<select id="memory-related-scope" class="memory-detail-select save-dialog-select">' +
+      '<option value="current">' + esc(window.t("saveDialog.scope.current")) + '</option>' +
+      '<option value="session">' + esc(window.t("saveDialog.scope.session")) + '</option>' +
+      '<option value="persona">' + esc(window.t("saveDialog.scope.persona")) + '</option></select></div>' +
+      '<div id="memory-related-detection" class="save-dialog-detection" hidden>' +
+      '<button class="btn btn-secondary btn-sm" id="memory-detect-related">' + esc(window.t("saveDialog.detect")) + '</button>' +
+      '<span class="save-dialog-detect-status" id="memory-detect-status"></span>' +
+      '<div class="save-related-list" id="memory-related-list"></div>' +
+      '<label class="save-risk-confirm" id="memory-risk-confirm-wrap" hidden><input type="checkbox" id="memory-risk-confirm" />' +
+      '<span>' + esc(window.t("saveDialog.riskConfirm")) + '</span></label></div>' +
+      '<div class="save-progress" id="memory-save-progress" hidden>' +
+      '<div class="save-progress-track"><div class="save-progress-bar" id="memory-save-progress-bar"></div></div>' +
+      '<div class="save-progress-text" id="memory-save-progress-text"></div>' +
+      '<div class="save-progress-current" id="memory-save-progress-current"></div></div>' +
+      '</div><div class="modal-footer">' +
+      '<button class="btn btn-secondary" id="memory-save-cancel">' + esc(window.t("common.cancel")) + '</button>' +
+      '<button class="btn btn-primary" id="memory-save-confirm">' + esc(window.t("common.confirm")) + '</button>' +
+      '</div></div>';
+    document.body.appendChild(overlay);
+
+    const scopeSelect = overlay.querySelector("#memory-related-scope");
+    const detection = overlay.querySelector("#memory-related-detection");
+    const detectBtn = overlay.querySelector("#memory-detect-related");
+    const confirmBtn = overlay.querySelector("#memory-save-confirm");
+    const cancelBtn = overlay.querySelector("#memory-save-cancel");
+    const closeBtn = overlay.querySelector("#memory-save-close");
+    overlay._relatedDetected = false;
+    overlay._planId = "";
+
+    const closeDialog = () => {
+      if (this._saveJobRunning) return;
+      const shouldRefresh = !!overlay._jobFinished;
+      overlay.remove();
+      if (shouldRefresh) {
+        this.close();
+        if (window.lmRefreshMemories) {
+          Promise.resolve(window.lmRefreshMemories()).catch(() => {});
+        }
+      }
+    };
+    const resetDetection = () => {
+      const scoped = scopeSelect.value !== "current";
+      detection.hidden = !scoped;
+      overlay._relatedDetected = !scoped;
+      overlay._planId = "";
+      confirmBtn.disabled = scoped;
+      overlay.querySelector("#memory-related-list").innerHTML = "";
+      overlay.querySelector("#memory-detect-status").textContent = scoped ? window.t("saveDialog.detectRequired") : "";
+      overlay.querySelector("#memory-risk-confirm-wrap").hidden = true;
+      overlay.querySelector("#memory-risk-confirm").checked = false;
+    };
+    scopeSelect.addEventListener("change", resetDetection);
+    cancelBtn.addEventListener("click", closeDialog);
+    closeBtn.addEventListener("click", closeDialog);
+    overlay.addEventListener("click", event => {
+      if (event.target === overlay) closeDialog();
+    });
+    detectBtn.addEventListener("click", () => this.detectRelatedMemories(overlay, updatePayload));
+    confirmBtn.addEventListener("click", () => this.startSaveJob(overlay, updatePayload));
+    resetDetection();
+  }
+
+  async detectRelatedMemories(overlay, updatePayload) {
+    const detectBtn = overlay.querySelector("#memory-detect-related");
+    const status = overlay.querySelector("#memory-detect-status");
+    const list = overlay.querySelector("#memory-related-list");
+    const confirmBtn = overlay.querySelector("#memory-save-confirm");
+    const scope = overlay.querySelector("#memory-related-scope").value;
+    detectBtn.disabled = true;
+    status.textContent = window.t("saveDialog.detecting");
+    list.innerHTML = "";
+    try {
+      const result = await this.api.post("memories/related", {
+        memory_id: updatePayload.memory_id,
+        scope: scope,
+        value: updatePayload.value,
+        field_changes: updatePayload.field_changes || []
+      });
+      const items = (result && result.items) || [];
+      overlay._planId = (result && result.plan_id) || "";
+      if (!items.length) {
+        list.innerHTML = '<div class="save-related-empty">' + esc(window.t("saveDialog.noRelated")) + '</div>';
+      } else {
+        list.innerHTML = items.map(item => {
+          const modifications = Array.isArray(item.modifications) ? item.modifications : [];
+          const details = modifications.map(mod => {
+            const matchLabel = window.t("saveDialog.match." + (mod.match_type || "near"));
+            const fieldLabel = window.t("saveDialog.field." + (mod.field || "key_facts"));
+            const actionLabel = window.t(
+              mod.match_type === "near" ? "saveDialog.action.nearReplace" : "saveDialog.action.exactReplace"
+            );
+            const score = Math.round(Number(mod.score || 0) * 100);
+            return '<div class="save-related-change">' +
+              '<div class="save-related-change-meta"><span>' + esc(fieldLabel) + ' · ' + esc(actionLabel) + '</span><span>' + esc(matchLabel) + ' · ' + score + '%</span></div>' +
+              '<div class="save-related-diff"><span class="save-related-before">− ' + esc(mod.candidate_before || "") + '</span>' +
+              '<span class="save-related-after">+ ' + esc(mod.candidate_after || "") + '</span></div>' +
+              (mod.summary_changed ? '<details class="save-summary-diff"><summary>' + esc(window.t("saveDialog.summaryChanged")) + '</summary>' +
+                '<div class="save-related-diff"><span class="save-related-before">− ' + esc(mod.summary_before || "") + '</span>' +
+                '<span class="save-related-after">+ ' + esc(mod.summary_after || "") + '</span></div></details>' : '') +
+              '</div>';
+          }).join("");
+          return '<div class="save-related-item">' +
+            '<label class="save-related-head"><input type="checkbox" class="memory-related-checkbox" value="' + esc(item.plan_item_id || "") + '" data-memory-id="' + parseInt(item.memory_id) + '"' + (item.default_selected ? ' checked' : '') + ' />' +
+            '<span class="save-related-id">#' + parseInt(item.memory_id) + '</span>' +
+            '<span class="save-related-excerpt">' + esc(item.excerpt || "") + '</span></label>' +
+            details + '<div class="save-related-impact">' + esc(window.t("saveDialog.rebuildImpact")) + '</div></div>';
+        }).join("");
+      }
+      overlay._relatedDetected = true;
+      confirmBtn.disabled = false;
+      status.textContent = window.t("saveDialog.detected", items.length);
+      overlay.querySelector("#memory-risk-confirm-wrap").hidden = !items.length;
+    } catch (e) {
+      overlay._relatedDetected = false;
+      overlay._planId = "";
+      confirmBtn.disabled = true;
+      status.textContent = e.message || window.t("saveDialog.detectFailed");
+    } finally {
+      detectBtn.disabled = false;
+    }
+  }
+
+  async startSaveJob(overlay, updatePayload) {
+    const scope = overlay.querySelector("#memory-related-scope").value;
+    if (scope !== "current" && !overlay._relatedDetected) return;
+    const modeInput = overlay.querySelector('input[name="memory-save-mode"]:checked');
+    const selectedPlanItemIds = Array.from(overlay.querySelectorAll(".memory-related-checkbox:checked"))
+      .map(input => input.value).filter(Boolean);
+    if (selectedPlanItemIds.length && !overlay.querySelector("#memory-risk-confirm").checked) {
+      this.showToast(window.t("saveDialog.riskConfirmRequired"), true);
+      return;
+    }
+    const confirmBtn = overlay.querySelector("#memory-save-confirm");
+    const cancelBtn = overlay.querySelector("#memory-save-cancel");
+    const closeBtn = overlay.querySelector("#memory-save-close");
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    closeBtn.disabled = true;
+    overlay.querySelector("#memory-related-scope").disabled = true;
+    overlay.querySelectorAll('input[name="memory-save-mode"], .memory-related-checkbox, #memory-risk-confirm').forEach(input => { input.disabled = true; });
+    const detectBtn = overlay.querySelector("#memory-detect-related");
+    if (detectBtn) detectBtn.disabled = true;
+    overlay.querySelector("#memory-save-progress").hidden = false;
+    this._saveJobRunning = true;
+    let jobStarted = false;
+    let jobId = "";
+
+    try {
+      const job = await this.api.post("memories/update/start", {
+        ...updatePayload,
+        update_mode: modeInput ? modeInput.value : "in_place",
+        scope: scope,
+        plan_id: scope === "current" ? "" : overlay._planId,
+        selected_plan_item_ids: selectedPlanItemIds,
+        risk_acknowledged: selectedPlanItemIds.length > 0 && overlay.querySelector("#memory-risk-confirm").checked
+      });
+      jobId = job.job_id;
+      jobStarted = true;
+      await this.pollSaveJob(overlay, jobId);
+    } catch (e) {
+      this._saveJobRunning = false;
+      cancelBtn.disabled = false;
+      closeBtn.disabled = false;
+      if (jobStarted) {
+        overlay._jobFinished = true;
+        cancelBtn.textContent = window.t("common.close");
+        overlay.querySelector("#memory-save-progress-current").textContent = window.t("saveDialog.progressUnavailable", jobId);
+      } else {
+        confirmBtn.disabled = false;
+        overlay.querySelector("#memory-related-scope").disabled = false;
+        overlay.querySelectorAll('input[name="memory-save-mode"], .memory-related-checkbox, #memory-risk-confirm').forEach(input => { input.disabled = false; });
+        if (detectBtn) detectBtn.disabled = false;
+        overlay.querySelector("#memory-save-progress").hidden = true;
+      }
+      this.showToast(e.message || window.t("edit.updateFailed"), true);
+    }
+  }
+
+  async pollSaveJob(overlay, jobId) {
+    let job = null;
+    while (true) {
+      job = await this.api.get("memories/update/progress", { job_id: jobId });
+      this.renderSaveProgress(overlay, job);
+      if (job.status === "completed" || job.status === "failed") break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    this._saveJobRunning = false;
+    if (job.status === "failed") {
+      this.showToast(window.t("saveDialog.jobFailed"), true);
+      const cancelBtn = overlay.querySelector("#memory-save-cancel");
+      const closeBtn = overlay.querySelector("#memory-save-close");
+      cancelBtn.disabled = false;
+      closeBtn.disabled = false;
+      cancelBtn.textContent = window.t("common.close");
+      return;
+    }
+
+    this.showToast(window.t("saveDialog.completed", job.succeeded, job.failed), job.failed > 0);
+    if (job.failed > 0) {
+      overlay._jobFinished = true;
+      const failed = (job.results || []).filter(item => item.status === "failed");
+      const detection = overlay.querySelector("#memory-related-detection");
+      const list = overlay.querySelector("#memory-related-list");
+      detection.hidden = false;
+      list.innerHTML = '<div class="save-dialog-label">' + esc(window.t("saveDialog.failedItems")) + '</div>' + failed.map(item =>
+        '<div class="save-related-item"><span></span><span class="save-related-id">#' + parseInt(item.old_memory_id) + '</span>' +
+        '<span class="save-related-excerpt">' + esc(item.error || window.t("edit.updateFailed")) + '</span></div>'
+      ).join("");
+      const cancelBtn = overlay.querySelector("#memory-save-cancel");
+      const closeBtn = overlay.querySelector("#memory-save-close");
+      cancelBtn.disabled = false;
+      closeBtn.disabled = false;
+      cancelBtn.textContent = window.t("common.close");
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 700));
+    overlay.remove();
+    this.close();
+    if (window.lmRefreshMemories) await window.lmRefreshMemories();
+  }
+
+  renderSaveProgress(overlay, job) {
+    const percent = Math.max(0, Math.min(100, Number(job.percent || 0)));
+    overlay.querySelector("#memory-save-progress-bar").style.width = percent + "%";
+    overlay.querySelector("#memory-save-progress-text").textContent = window.t(
+      "saveDialog.progress", job.completed || 0, job.total || 0, percent
+    );
+    const current = job.current_item;
+    overlay.querySelector("#memory-save-progress-current").textContent = current
+      ? window.t("saveDialog.processing", current.memory_id, current.excerpt || "")
+      : window.t("saveDialog.finishing");
   }
 
   /**
