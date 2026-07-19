@@ -3,6 +3,8 @@
 封装AstrBot的FaissVecDB,提供统一的检索接口
 """
 
+import asyncio
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -294,6 +296,117 @@ class VectorRetriever:
             from astrbot.api import logger
 
             logger.error(f"[元数据更新] 失败 (doc_id={doc_id}): {e}", exc_info=True)
+            return False
+
+    async def replace_document_in_place(
+        self,
+        doc_id: int,
+        content: str,
+        metadata: dict[str, Any],
+    ) -> bool:
+        """Replace text, metadata and vector while preserving both document IDs."""
+        from astrbot.api import logger
+
+        docs = await self.faiss_db.document_storage.get_documents(
+            metadata_filters={}, ids=[doc_id], limit=1
+        )
+        if not docs:
+            logger.warning(f"[原位更新] 文档不存在 (doc_id={doc_id})")
+            return False
+
+        old_doc = docs[0]
+        uuid_doc_id = old_doc.get("doc_id")
+        if not uuid_doc_id:
+            logger.error(f"[原位更新] 文档缺少 UUID (doc_id={doc_id})")
+            return False
+
+        old_content = str(old_doc.get("text") or "")
+        old_metadata = old_doc.get("metadata") or {}
+        if isinstance(old_metadata, str):
+            try:
+                old_metadata = json.loads(old_metadata)
+            except (json.JSONDecodeError, TypeError):
+                old_metadata = {}
+        if not isinstance(old_metadata, dict):
+            old_metadata = {}
+
+        max_chars = 4000
+        new_embedding_text = self._fit_content_for_embedding(content, max_chars)
+        old_embedding_text = self._fit_content_for_embedding(old_content, max_chars)
+        try:
+            import numpy as np
+
+            # Compute both vectors before mutating any store so rollback never
+            # depends on an embedding request after the old vector is removed.
+            new_vector = np.array(
+                await self.faiss_db.embedding_provider.get_embedding(
+                    new_embedding_text
+                ),
+                dtype=np.float32,
+            )
+            old_vector = np.array(
+                await self.faiss_db.embedding_provider.get_embedding(
+                    old_embedding_text
+                ),
+                dtype=np.float32,
+            )
+        except Exception as exc:
+            logger.error(f"[原位更新] 生成替换向量失败 (doc_id={doc_id}): {exc}")
+            return False
+
+        async def replace_metadata_exact(next_metadata: dict[str, Any]) -> None:
+            from sqlalchemy import text
+
+            doc_storage = self.faiss_db.document_storage
+            async with doc_storage.get_session() as session, session.begin():
+                await session.execute(
+                    text("UPDATE documents SET metadata = :metadata WHERE id = :id"),
+                    {
+                        "metadata": json.dumps(next_metadata, ensure_ascii=False),
+                        "id": doc_id,
+                    },
+                )
+
+        document_changed = False
+        vector_removed = False
+
+        async def rollback() -> None:
+            try:
+                if vector_removed:
+                    await self.faiss_db.embedding_storage.delete([doc_id])
+                    await self.faiss_db.embedding_storage.insert(old_vector, doc_id)
+                if document_changed:
+                    await self.faiss_db.document_storage.update_document_by_doc_id(
+                        uuid_doc_id, old_content
+                    )
+                    await replace_metadata_exact(old_metadata)
+            except Exception:
+                logger.error(
+                    f"[原位更新] 回滚失败 (doc_id={doc_id})",
+                    exc_info=True,
+                )
+
+        try:
+            await self.faiss_db.document_storage.update_document_by_doc_id(
+                uuid_doc_id, content
+            )
+            document_changed = True
+            await replace_metadata_exact(metadata)
+
+            await self.faiss_db.embedding_storage.delete([doc_id])
+            vector_removed = True
+            await self.faiss_db.embedding_storage.insert(new_vector, doc_id)
+            logger.info(f"[原位更新] 正文、元数据和向量已更新 (doc_id={doc_id})")
+            return True
+        except asyncio.CancelledError:
+            await asyncio.shield(rollback())
+            raise
+        except Exception as exc:
+            logger.error(
+                f"[原位更新] 更新失败，开始回滚 (doc_id={doc_id}): {exc}",
+                exc_info=True,
+            )
+            await rollback()
             return False
 
     async def delete_document(self, doc_id: int) -> bool:

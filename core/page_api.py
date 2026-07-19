@@ -17,6 +17,7 @@ from .page_api_modules import (
     MemoryHandler,
     PageApiUtils,
     RecallHandler,
+    SessionHandler,
     StatsHandler,
 )
 
@@ -37,6 +38,7 @@ class PluginPageApi:
         self.stats_handler = StatsHandler(self.utils)
         self.memory_handler = MemoryHandler(self.utils)
         self.recall_handler = RecallHandler(self.utils)
+        self.session_handler = SessionHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
 
         # BackupHandler 需要 data_dir，延迟初始化
@@ -62,6 +64,12 @@ class PluginPageApi:
             "LivingMemory Page stats",
         )
         register(
+            f"{PAGE_API_PREFIX}/sessions",
+            self.list_sessions,
+            ["GET"],
+            "LivingMemory Page session catalog",
+        )
+        register(
             f"{PAGE_API_PREFIX}/memories",
             self.list_memories,
             ["GET"],
@@ -78,6 +86,24 @@ class PluginPageApi:
             self.update_memory,
             ["POST"],
             "LivingMemory Page update memory",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/related",
+            self.detect_related_memories,
+            ["POST"],
+            "LivingMemory Page detect related memories",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/update/start",
+            self.start_structured_update_job,
+            ["POST"],
+            "LivingMemory Page start structured update job",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/update/progress",
+            self.get_structured_update_progress,
+            ["GET"],
+            "LivingMemory Page structured update progress",
         )
         register(
             f"{PAGE_API_PREFIX}/memories/batch-delete",
@@ -126,6 +152,15 @@ class PluginPageApi:
             return error
         return await self.stats_handler.get_stats(ready["memory_engine"])
 
+    async def list_sessions(self):
+        """获取供 WebUI 分层筛选使用的轻量会话目录。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.session_handler.list_sessions(
+            ready["conversation_manager"],
+        )
+
     async def list_memories(self):
         """获取记忆列表（带分页和过滤）"""
         ready, error = await self._ensure_plugin_ready()
@@ -145,7 +180,34 @@ class PluginPageApi:
         ready, error = await self._ensure_plugin_ready()
         if error:
             return error
-        return await self.memory_handler.update_memory(ready["memory_engine"])
+        return await self.memory_handler.update_memory(
+            ready["memory_engine"], ready["memory_processor"]
+        )
+
+    async def detect_related_memories(self):
+        """检测所选会话或人格范围内的关联记忆。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.detect_related_memories(
+            ready["memory_engine"]
+        )
+
+    async def start_structured_update_job(self):
+        """启动带进度跟踪的结构化记忆更新任务。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.start_structured_update_job(
+            ready["memory_engine"], ready["memory_processor"]
+        )
+
+    async def get_structured_update_progress(self):
+        """查询结构化记忆更新任务进度。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.get_structured_update_progress()
 
     async def batch_delete_memories(self):
         """批量删除记忆"""
@@ -208,5 +270,8 @@ class PluginPageApi:
         return {
             "memory_engine": memory_engine,
             "conversation_manager": self.plugin.initializer.conversation_manager,
+            "memory_processor": getattr(
+                self.plugin.initializer, "memory_processor", None
+            ),
             "index_validator": self.plugin.initializer.index_validator,
         }, None

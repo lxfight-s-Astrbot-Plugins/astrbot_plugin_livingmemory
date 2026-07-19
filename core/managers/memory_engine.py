@@ -7,6 +7,7 @@ import asyncio
 import copy
 import json
 import time
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -973,6 +974,7 @@ class MemoryEngine:
         importance: float = 0.5,
         metadata: dict[str, Any] | None = None,
         atoms: list | None = None,
+        preserve_create_time: bool = False,
     ) -> int:
         """
         添加新记忆
@@ -983,6 +985,7 @@ class MemoryEngine:
             persona_id: 人格ID(支持多种格式,自动提取UUID)
             importance: 重要性(0-1)
             metadata: 额外元数据
+            preserve_create_time: 内部替换操作是否保留 metadata 中的原创建时间
 
         Returns:
             int: 记忆ID(doc_id)
@@ -1020,8 +1023,18 @@ class MemoryEngine:
         if metadata:
             full_metadata.update(metadata)
 
-        # 确保时间字段始终存在且不被外部metadata覆盖
-        full_metadata["create_time"] = current_time
+        # 普通新增始终使用当前时间；结构化替换可保留原始时间轴位置。
+        preserved_create_time = None
+        if preserve_create_time and metadata:
+            try:
+                preserved_create_time = float(metadata.get("create_time"))
+            except (TypeError, ValueError):
+                preserved_create_time = None
+        full_metadata["create_time"] = (
+            preserved_create_time
+            if preserved_create_time is not None
+            else current_time
+        )
         full_metadata["last_access_time"] = current_time
 
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
@@ -1150,6 +1163,7 @@ class MemoryEngine:
         k: int = 5,
         session_id: str | None = None,
         persona_id: str | None = None,
+        track_access: bool = True,
     ) -> list[HybridResult]:
         """
         检索相关记忆
@@ -1159,6 +1173,7 @@ class MemoryEngine:
             k: 返回数量
             session_id: 会话ID过滤(可选,应传入unified_msg_origin完整格式)
             persona_id: 人格ID过滤(可选)
+            track_access: 是否把结果记录为一次真实召回访问
 
         Returns:
             List[HybridResult]: 检索结果列表
@@ -1169,10 +1184,11 @@ class MemoryEngine:
         cache_key = self._search_cache_key(query, k, session_id, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
-            for result in cached_results:
-                self._create_tracked_task(
-                    self._update_access_time_internal(result.doc_id)
-                )
+            if track_access:
+                for result in cached_results:
+                    self._create_tracked_task(
+                        self._update_access_time_internal(result.doc_id)
+                    )
             return cached_results
 
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
@@ -1200,8 +1216,11 @@ class MemoryEngine:
             )
 
         # 异步更新访问时间(不阻塞返回)
-        for result in results:
-            self._create_tracked_task(self._update_access_time_internal(result.doc_id))
+        if track_access:
+            for result in results:
+                self._create_tracked_task(
+                    self._update_access_time_internal(result.doc_id)
+                )
 
         self._set_cached_search_results(cache_key, results)
         return results
@@ -1285,47 +1304,29 @@ class MemoryEngine:
                 return False
 
             try:
-                # 保留必要信息
-                session_id = current_metadata.get("session_id")
-                persona_id = current_metadata.get("persona_id")
                 importance = clamp_float(
-                    current_metadata.get("importance", updates.get("importance", 0.5)),
+                    updates.get("importance", current_metadata.get("importance", 0.5)),
                     default=0.5,
                 )
 
-                # 构建新元数据
+                # Legacy content-only callers cannot provide a newly classified
+                # fact set. Clear every stale derived field so old facts/topics
+                # cannot survive in graph entries or prompt injection.
                 new_metadata = current_metadata.copy()
                 new_metadata["updated_at"] = time.time()
-                new_metadata["previous_id"] = memory_id  # 记录旧ID
+                new_metadata["canonical_summary"] = new_content
+                new_metadata["persona_summary"] = new_content
+                new_metadata["topics"] = []
+                new_metadata["key_facts"] = []
 
-                # 【改进】先创建新记忆，再删除旧记忆（避免数据丢失）
-                logger.info(f"[更新] 开始内容更新流程 (old_id={memory_id})")
-
-                # 1. 创建新记忆（自动在所有数据库创建）
-                new_memory_id = await self.add_memory(
+                logger.info(f"[更新] 开始安全内容替换 (old_id={memory_id})")
+                new_memory_id = await self.replace_memory(
+                    memory_id,
                     content=new_content,
-                    session_id=session_id,
-                    persona_id=persona_id,
-                    importance=importance,
                     metadata=new_metadata,
+                    importance=importance,
+                    atoms=[],
                 )
-
-                if new_memory_id is None:
-                    logger.error(f"[更新] 创建新记忆失败 (old_id={memory_id})")
-                    return False
-
-                logger.info(f"[更新] 新记忆已创建 (new_id={new_memory_id})")
-
-                # 2. 删除旧记忆（从所有数据库删除）
-                delete_success = await self.delete_memory(memory_id)
-                if not delete_success:
-                    # 旧记忆删除失败，回滚：删除刚创建的新记忆，避免重复记录
-                    logger.warning(
-                        f"[更新] 删除旧记忆失败，回滚新记忆 (old_id={memory_id}, new_id={new_memory_id})"
-                    )
-                    await self.delete_memory(new_memory_id)
-                    return False
-
                 logger.info(
                     f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})"
                 )
@@ -1392,6 +1393,179 @@ class MemoryEngine:
             return success
 
         return True
+
+    async def rewrite_memory_in_place(
+        self,
+        memory_id: int,
+        *,
+        content: str,
+        metadata: dict[str, Any],
+        importance: float,
+        atoms: list | None = None,
+    ) -> int:
+        """Rebuild a memory and every derived index while preserving its ID."""
+        current = await self.get_memory(memory_id)
+        if not current:
+            raise ValueError(f"记忆不存在 (memory_id={memory_id})")
+        if not content or not content.strip():
+            raise ValueError("记忆内容不能为空")
+        if self.hybrid_retriever is None:
+            raise RuntimeError("混合检索器未初始化")
+
+        current_metadata = self._safe_json_dict(current.get("metadata"))
+        replacement_metadata = dict(metadata or {})
+        replacement_metadata["memory_uid"] = current_metadata.get(
+            "memory_uid"
+        ) or str(uuid.uuid4())
+        try:
+            current_revision = int(current_metadata.get("revision", 1))
+        except (TypeError, ValueError):
+            current_revision = 1
+        replacement_metadata["revision"] = current_revision + 1
+        replacement_metadata["updated_at"] = time.time()
+        replacement_metadata["importance"] = clamp_float(importance, default=0.5)
+
+        old_content = str(current.get("text") or "")
+        old_atoms: list = []
+        if self.atom_store is not None:
+            old_atoms = await self.atom_store.get_by_parent(memory_id)
+
+        hybrid_updated = False
+        atoms_updated = False
+
+        async def rollback() -> None:
+            try:
+                if hybrid_updated:
+                    await self.hybrid_retriever.replace_memory_in_place(
+                        memory_id,
+                        old_content,
+                        current_metadata,
+                    )
+                if atoms_updated and self.atom_store is not None:
+                    await self.atom_store.replace_by_parent(memory_id, old_atoms)
+                if self.graph_memory_manager is not None and (
+                    hybrid_updated or atoms_updated
+                ):
+                    await self.graph_memory_manager.index_memory(
+                        memory_id,
+                        old_content,
+                        current_metadata,
+                        old_atoms or None,
+                    )
+            except Exception:
+                logger.error(
+                    f"[原位更新] 回滚不完整 (memory_id={memory_id})",
+                    exc_info=True,
+                )
+
+        try:
+            hybrid_updated = await self.hybrid_retriever.replace_memory_in_place(
+                memory_id,
+                content,
+                replacement_metadata,
+            )
+            if not hybrid_updated:
+                raise RuntimeError("正文或检索索引原位更新失败")
+
+            if self.atom_store is not None:
+                await self.atom_store.replace_by_parent(memory_id, list(atoms or []))
+                atoms_updated = True
+
+            if self.graph_memory_manager is not None:
+                await self.graph_memory_manager.index_memory(
+                    memory_id,
+                    content,
+                    replacement_metadata,
+                    atoms,
+                )
+
+            self._invalidate_search_cache()
+            logger.info(f"[原位更新] 记忆及派生索引更新完成 (memory_id={memory_id})")
+            return memory_id
+        except asyncio.CancelledError:
+            await asyncio.shield(rollback())
+            self._invalidate_search_cache()
+            raise
+        except Exception:
+            logger.error(
+                f"[原位更新] 派生索引更新失败，开始回滚 (memory_id={memory_id})",
+                exc_info=True,
+            )
+            await rollback()
+            self._invalidate_search_cache()
+            raise
+
+    async def replace_memory(
+        self,
+        memory_id: int,
+        *,
+        content: str,
+        metadata: dict[str, Any],
+        importance: float,
+        atoms: list | None = None,
+    ) -> int:
+        """Atomically-as-possible replace a memory and all derived indexes.
+
+        FAISS and SQLite cannot share one transaction, so replacement follows the
+        existing create-first strategy and rolls the new record back if deleting
+        the old record fails. A stable memory_uid and monotonically increasing
+        revision preserve logical identity across physical document IDs.
+        """
+        current = await self.get_memory(memory_id)
+        if not current:
+            raise ValueError(f"记忆不存在 (memory_id={memory_id})")
+        if not content or not content.strip():
+            raise ValueError("记忆内容不能为空")
+
+        current_metadata = self._safe_json_dict(current.get("metadata"))
+        replacement_metadata = dict(metadata or {})
+        replacement_metadata["memory_uid"] = current_metadata.get(
+            "memory_uid"
+        ) or str(uuid.uuid4())
+        try:
+            current_revision = int(current_metadata.get("revision", 1))
+        except (TypeError, ValueError):
+            current_revision = 1
+        replacement_metadata["revision"] = current_revision + 1
+        replacement_metadata["previous_id"] = memory_id
+        replacement_metadata["updated_at"] = time.time()
+
+        session_id = replacement_metadata.get("session_id") or current_metadata.get(
+            "session_id"
+        )
+        persona_id = replacement_metadata.get("persona_id") or current_metadata.get(
+            "persona_id"
+        )
+        new_memory_id: int | None = None
+        try:
+            new_memory_id = await self.add_memory(
+                content=content,
+                session_id=session_id,
+                persona_id=persona_id,
+                importance=importance,
+                metadata=replacement_metadata,
+                atoms=atoms,
+                preserve_create_time=True,
+            )
+            if new_memory_id is None:
+                raise RuntimeError("新记忆创建失败")
+            if not await self.delete_memory(memory_id):
+                await self.delete_memory(new_memory_id)
+                raise RuntimeError("旧记忆删除失败，已回滚新记忆")
+            return new_memory_id
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if new_memory_id is not None:
+                try:
+                    if await self.get_memory(new_memory_id):
+                        await self.delete_memory(new_memory_id)
+                except Exception:
+                    logger.error(
+                        f"[替换] 回滚新记忆失败 (memory_id={new_memory_id})",
+                        exc_info=True,
+                    )
+            raise
 
     async def delete_memory(self, memory_id: int) -> bool:
         """

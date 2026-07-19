@@ -6,6 +6,7 @@ from .backup_handler import BackupHandler
 from .graph_handler import GraphHandler
 from .memory_handler import MemoryHandler
 from .recall_handler import RecallHandler
+from .session_handler import SessionHandler
 from .stats_handler import StatsHandler
 from .utils import PageApiUtils
 
@@ -13,6 +14,7 @@ __all__ = [
     "StatsHandler",
     "MemoryHandler",
     "RecallHandler",
+    "SessionHandler",
     "GraphHandler",
     "BackupHandler",
     "PageApiUtils",

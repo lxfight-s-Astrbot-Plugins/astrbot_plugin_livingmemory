@@ -100,6 +100,7 @@
     dom.searchButton.addEventListener("click", runQuery);
     dom.focusButton.addEventListener("click", focusMemory);
     dom.overviewButton.addEventListener("click", fetchOverview);
+    dom.sessionInput.addEventListener("change", fetchOverview);
 
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }

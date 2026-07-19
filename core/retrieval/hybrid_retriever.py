@@ -450,6 +450,67 @@ class HybridRetriever:
             logger.error(f"[同步更新] 失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
 
+    async def replace_memory_in_place(
+        self,
+        doc_id: int,
+        content: str,
+        metadata: dict[str, Any],
+    ) -> bool:
+        """Replace all document retrieval indexes without changing doc_id."""
+        docs = await self.vector_retriever.faiss_db.document_storage.get_documents(
+            metadata_filters={}, ids=[doc_id], limit=1
+        )
+        if not docs:
+            logger.error(f"[原位更新] 记忆不存在 (doc_id={doc_id})")
+            return False
+
+        old_doc = docs[0]
+        old_content = str(old_doc.get("text") or "")
+        old_metadata = old_doc.get("metadata") or {}
+        if isinstance(old_metadata, str):
+            try:
+                old_metadata = json.loads(old_metadata)
+            except (json.JSONDecodeError, TypeError):
+                old_metadata = {}
+        if not isinstance(old_metadata, dict):
+            old_metadata = {}
+
+        vector_success = await self.vector_retriever.replace_document_in_place(
+            doc_id, content, metadata
+        )
+        if not vector_success:
+            return False
+
+        try:
+            bm25_success = await self.bm25_retriever.update_document(
+                doc_id, content, metadata
+            )
+        except asyncio.CancelledError:
+            await asyncio.shield(
+                self.vector_retriever.replace_document_in_place(
+                    doc_id, old_content, old_metadata
+                )
+            )
+            await asyncio.shield(
+                self.bm25_retriever.update_document(
+                    doc_id, old_content, old_metadata
+                )
+            )
+            raise
+        if bm25_success:
+            return True
+
+        logger.error(f"[原位更新] BM25 更新失败，开始回滚 (doc_id={doc_id})")
+        vector_rollback = await self.vector_retriever.replace_document_in_place(
+            doc_id, old_content, old_metadata
+        )
+        bm25_rollback = await self.bm25_retriever.update_document(
+            doc_id, old_content, old_metadata
+        )
+        if not vector_rollback or not bm25_rollback:
+            logger.error(f"[原位更新] 检索索引回滚不完整 (doc_id={doc_id})")
+        return False
+
     async def delete_memory(self, doc_id: int) -> bool:
         """
         从多个存储层中删除记忆（带事务回滚机制）
