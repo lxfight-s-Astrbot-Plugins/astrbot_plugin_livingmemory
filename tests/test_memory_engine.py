@@ -960,8 +960,11 @@ async def test_memory_engine_update_memory_content_creates_new_deletes_old(
     success = await engine.update_memory(old_id, {"content": "新内容"})
     assert success is True
     assert await engine.get_memory(old_id) is None
-    cursor = await engine.db_connection.execute("SELECT metadata FROM documents")
-    replacement_metadata = json.loads((await cursor.fetchone())["metadata"])
+    replacement_docs = await engine.faiss_db.document_storage.get_documents(
+        metadata_filters={}, limit=10
+    )
+    assert len(replacement_docs) == 1
+    replacement_metadata = replacement_docs[0]["metadata"]
     assert replacement_metadata["canonical_summary"] == "新内容"
     assert replacement_metadata["topics"] == []
     assert replacement_metadata["key_facts"] == []

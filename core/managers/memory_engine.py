@@ -1529,6 +1529,9 @@ class MemoryEngine:
         replacement_metadata["revision"] = current_revision + 1
         replacement_metadata["previous_id"] = memory_id
         replacement_metadata["updated_at"] = time.time()
+        # Physical replacement must keep the logical memory on its original
+        # timeline even when callers only provide newly generated metadata.
+        replacement_metadata["create_time"] = current_metadata.get("create_time")
 
         session_id = replacement_metadata.get("session_id") or current_metadata.get(
             "session_id"
