@@ -1679,6 +1679,31 @@ class MemoryEngine:
                 access_count = 0
             metadata["access_count"] = min(access_count + 1, 1_000_000)
 
+            # ===== 访问驱动的 importance 增长 =====
+            boost_config = self.config.get("access_boost", {})
+            boost_enabled = boost_config.get("enabled", True)
+            if boost_enabled:
+                boost_factor = float(boost_config.get("boost_factor", 0.02))
+                boost_formula = boost_config.get("formula", "logarithmic")
+                high_access_threshold = int(boost_config.get("high_access_threshold", 30))
+                
+                old_importance = metadata.get("importance", 0.5)
+                
+                if access_count >= high_access_threshold:
+                    # 30次以上：极小加分（锁定保护，几乎不涨）
+                    boost = 0.001 * (1.0 - old_importance) / access_count
+                elif boost_formula == "linear":
+                    boost = boost_factor
+                elif boost_formula == "logarithmic":
+                    import math
+                    boost = boost_factor * (1.0 - old_importance) * math.log(access_count + 2)
+                else:
+                    boost = 0.0
+                
+                new_importance = min(1.0, old_importance + boost)
+                metadata["importance"] = round(new_importance, 4)
+
+
             # 3. 写回 documents 表
             await self.db_connection.execute(
                 "UPDATE documents SET metadata = ? WHERE id = ?",
