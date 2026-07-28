@@ -94,7 +94,7 @@ export class PromptPage {
           p.category === "memory_processing"
             ? ' <span class="badge badge-json-warn" title="' +
               esc(window.t("prompt.jsonRequired")) +
-              '">⚠️ JSON</span>'
+              '">JSON</span>'
             : "";
         const varList = (p.variables || [])
           .map((v) => '<code>' + esc(v) + "</code>")
@@ -133,9 +133,9 @@ export class PromptPage {
           '<div class="prompt-item-actions">' +
           '<button class="btn btn-sm btn-secondary prompt-edit-btn" data-id="' +
           esc(p.id) +
-          '">' +
+          '"><i data-lucide="square-pen" aria-hidden="true"></i><span>' +
           window.t("prompt.edit") +
-          "</button>" +
+          "</span></button>" +
           "</div>";
         html += "</div>";
       });
@@ -143,6 +143,7 @@ export class PromptPage {
     }
 
     container.innerHTML = html;
+    if (window.lmHydrateIcons) window.lmHydrateIcons();
 
     // 绑定编辑按钮事件
     container.querySelectorAll(".prompt-edit-btn").forEach((btn) => {

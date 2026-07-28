@@ -1026,6 +1026,39 @@ class TestGraphEndpoints:
         assert result["data"]["enabled"] is False
 
     @pytest.mark.asyncio
+    async def test_overview_full_graph_uses_unlimited_snapshot(self):
+        snapshot = {
+            "nodes": [{"id": 1, "type": "topic", "label": "all"}],
+            "edges": [],
+            "entries": [],
+            "memories": [],
+        }
+        graph_store = SimpleNamespace(
+            get_full_graph_snapshot=AsyncMock(return_value=snapshot),
+            get_graph_snapshot=AsyncMock(),
+        )
+        engine = FakeMemoryEngine(graph_store=graph_store)
+        api = PluginPageApi(FakePlugin(memory_engine=engine))
+        req = _mock_page_request(
+            args={
+                "full_graph": "true",
+                "session_id": "scope-1",
+                "persona_id": "persona-1",
+            }
+        )
+
+        with _patch_page_request(req):
+            result = await api.get_graph_overview()
+
+        assert result["status"] == "ok"
+        assert result["data"]["summary"]["visible_node_count"] == 1
+        graph_store.get_full_graph_snapshot.assert_awaited_once_with(
+            session_id="scope-1",
+            persona_id="persona-1",
+        )
+        graph_store.get_graph_snapshot.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_query_invalid_params(self, api):
         req = _mock_page_request(
             get_json={

@@ -16,6 +16,13 @@
     isGraphReady: false,
   };
 
+  const EXPANDED_GRAPH_LIMITS = {
+    limit_memories: 24,
+    limit_entries: 80,
+    limit_nodes: 80,
+    limit_edges: 120,
+  };
+
   const dom = {};
 
   /* Node type config */
@@ -30,8 +37,8 @@
   }
 
   const NODE_TYPE_COLORS = {
-    topic: "#7c6fca", person: "#2f9e8b", fact: "#c99a16",
-    summary: "#c8648d", other: "#8b949e",
+    topic: "#78a94b", person: "#2a9e96", fact: "#c58c2a",
+    summary: "#df6d62", other: "#74868a",
   };
 
   /* ================================================================
@@ -138,12 +145,7 @@
       }
     });
 
-    /* Auto-load overview */
-    setTimeout(function() {
-      if (!state.hasLoadedOverview && !state.isLoading) {
-        fetchOverview();
-      }
-    }, 100);
+    /* app.js starts loading after the host Bridge reports ready. */
   }
 
   /* Expose for app.js lazy-load */
@@ -167,11 +169,19 @@
     return body;
   }
 
+  function addExpandedLimits(target) {
+    Object.entries(EXPANDED_GRAPH_LIMITS).forEach(function(entry) {
+      target[entry[0]] = String(entry[1]);
+    });
+    return target;
+  }
+
   async function fetchOverview() {
     setLoading(true);
+    setCanvasMessage(window.t("graph.loadingOverview"), true);
     try {
       var filters = getFilters();
-      var params = new URLSearchParams();
+      var params = new URLSearchParams({ full_graph: "true" });
       if (filters.session_id) params.set("session_id", filters.session_id);
       var qs = params.toString();
       var payload = await requestGraph("/graph/overview" + (qs ? "?" + qs : ""));
@@ -190,9 +200,11 @@
     if (!query) { fetchOverview(); return; }
 
     setLoading(true);
+    setCanvasMessage(window.t("graph.loadingQuery", query), true);
     try {
       var filters = getFilters();
-      var body = addOptionalFilter({ query: query }, "session_id", filters.session_id);
+      var body = addExpandedLimits({ query: query });
+      addOptionalFilter(body, "session_id", filters.session_id);
       var payload = await requestGraph("/graph/query", {
         method: "POST",
         body: body,
@@ -212,9 +224,11 @@
     if (Number.isNaN(memoryId)) { setCanvasMessage(window.t("graph.focusNotInt"), false); return; }
 
     setLoading(true);
+    setCanvasMessage(window.t("graph.loadingFocus", memoryId), true);
     try {
       var filters = getFilters();
-      var body = addOptionalFilter({ memory_id: memoryId }, "session_id", filters.session_id);
+      var body = addExpandedLimits({ memory_id: memoryId });
+      addOptionalFilter(body, "session_id", filters.session_id);
       var payload = await requestGraph("/graph/query", {
         method: "POST",
         body: body,

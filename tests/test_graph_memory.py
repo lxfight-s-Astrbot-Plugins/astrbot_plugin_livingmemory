@@ -304,6 +304,18 @@ async def test_graph_store_snapshot_builds_ui_ready_subgraphs(tmp_path: Path):
     assert snapshot["entries"]
     assert {memory["memory_id"] for memory in snapshot["memories"]} >= {11, 12}
 
+    compact_snapshot = await graph_store.get_graph_snapshot(
+        session_id="test:private:s1",
+        limit_memories=1,
+    )
+    full_snapshot = await graph_store.get_full_graph_snapshot(
+        session_id="test:private:s1"
+    )
+    assert {memory["memory_id"] for memory in full_snapshot["memories"]} == {11, 12}
+    assert len(full_snapshot["memories"]) > len(compact_snapshot["memories"])
+    assert len(full_snapshot["nodes"]) >= len(compact_snapshot["nodes"])
+    assert len(full_snapshot["edges"]) >= len(compact_snapshot["edges"])
+
     focused = await graph_store.get_subgraph_for_memories([11])
     assert focused["memories"]
     assert focused["memories"][0]["memory_id"] == 11

@@ -16,20 +16,20 @@
     EDGE_WIDTH_DEFAULT: 0.7,
     EDGE_WIDTH_ACTIVE: 1.1,
     EDGE_WIDTH_HIGHLIGHT: 1.7,
-    EDGE_OPACITY_DEFAULT: 0.2,
-    EDGE_OPACITY_ACTIVE: 0.44,
+    EDGE_OPACITY_DEFAULT: 0.22,
+    EDGE_OPACITY_ACTIVE: 0.5,
     EDGE_OPACITY_HIGHLIGHT: 0.76,
-    PARTICLE_COUNT_DEFAULT: 0,
-    PARTICLE_COUNT_ACTIVE: 0,
-    PARTICLE_COUNT_HIGHLIGHT: 0,
-    PARTICLE_SPEED: 0.18,
-    PARTICLE_SIZE: 2.0,
+    PARTICLE_COUNT_DEFAULT: 1,
+    PARTICLE_COUNT_ACTIVE: 2,
+    PARTICLE_COUNT_HIGHLIGHT: 3,
+    PARTICLE_SPEED: 0.12,
+    PARTICLE_SIZE: 1.45,
     /* Force-directed layout - optimized for natural clustering */
     FORCE_ITERATIONS: 400,
-    FORCE_REPULSION: 1800,
-    FORCE_LINK_DISTANCE: 120,
-    FORCE_LINK_STRENGTH: 0.025,
-    FORCE_GRAVITY: 0.008,
+    FORCE_REPULSION: 1680,
+    FORCE_LINK_DISTANCE: 108,
+    FORCE_LINK_STRENGTH: 0.032,
+    FORCE_GRAVITY: 0.0095,
     FORCE_DAMPING: 0.82,
     FORCE_MAX_SPEED: 15,
     /* Center node is larger */
@@ -38,7 +38,7 @@
     /* Animation */
     ANIM_SPEED: 0.075,
     IDLE_DAMPING: 0.05,
-    ZOOM_MIN: 0.2,
+    ZOOM_MIN: 0.06,
     ZOOM_MAX: 3.5,
     ZOOM_STEP: 0.001,
     DPR_MAX: 2,
@@ -46,8 +46,8 @@
   };
 
   const TYPE_COLORS = {
-    topic: "#7c6fca", person: "#2f9e8b", fact: "#c99a16",
-    summary: "#c8648d", other: "#8b949e",
+    topic: "#78a94b", person: "#2a9e96", fact: "#c58c2a",
+    summary: "#df6d62", other: "#74868a",
   };
 
   /* ── CSS helpers ───────────────────────────────────────────── */
@@ -86,6 +86,7 @@
     this.centerId = null;   // focus node id (for viewport + visual emphasis)
     this.positions = {};    // id → {tx, ty}
     this.rings = {};        // id → 0 for focus, 1 for others (backward compat)
+    this.communities = {};
   }
 
   ForceDirectedLayout.prototype._hashUnit = function(value, salt) {
@@ -105,6 +106,160 @@
     return clamp(radius, CFG.NODE_RADIUS_MIN, CFG.NODE_RADIUS_MAX);
   };
 
+  ForceDirectedLayout.prototype._buildTopologySeed = function(nodes, edges) {
+    var adjacency = {};
+    nodes.forEach(function(node) { adjacency[node.id] = []; });
+    edges.forEach(function(edge) {
+      if (!adjacency[edge.source] || !adjacency[edge.target]) return;
+      adjacency[edge.source].push(edge.target);
+      adjacency[edge.target].push(edge.source);
+    });
+
+    var targetCount = nodes.length < 8
+      ? 1
+      : clamp(Math.round(Math.sqrt(nodes.length / 6)), 2, 12);
+    var ranked = nodes.slice().sort(function(a, b) {
+      var degreeDiff = adjacency[b.id].length - adjacency[a.id].length;
+      if (degreeDiff) return degreeDiff;
+      var weightDiff = Number(b.weight || 0) - Number(a.weight || 0);
+      return weightDiff || String(a.id).localeCompare(String(b.id));
+    });
+
+    var hubs = [];
+    var hubSet = new Set();
+    ranked.forEach(function(node) {
+      if (hubs.length >= targetCount) return;
+      var touchesHub = adjacency[node.id].some(function(id) { return hubSet.has(id); });
+      if (!touchesHub || hubs.length === 0) {
+        hubs.push(node.id);
+        hubSet.add(node.id);
+      }
+    });
+    for (var ri = 0; hubs.length < targetCount && ri < ranked.length; ri++) {
+      if (!hubSet.has(ranked[ri].id)) {
+        hubs.push(ranked[ri].id);
+        hubSet.add(ranked[ri].id);
+      }
+    }
+
+    var assignment = {};
+    var distance = {};
+    var queue = [];
+    hubs.forEach(function(id, index) {
+      assignment[id] = index;
+      distance[id] = 0;
+      queue.push(id);
+    });
+    for (var qi = 0; qi < queue.length; qi++) {
+      var current = queue[qi];
+      var neighbors = adjacency[current].slice().sort(function(a, b) {
+        return String(a).localeCompare(String(b));
+      });
+      neighbors.forEach(function(neighbor) {
+        var nextDistance = distance[current] + 1;
+        if (distance[neighbor] == null || nextDistance < distance[neighbor]) {
+          distance[neighbor] = nextDistance;
+          assignment[neighbor] = assignment[current];
+          queue.push(neighbor);
+        }
+      });
+    }
+
+    /* Keep disconnected nodes visible, but collect them into one deliberate
+       island. Giving every orphan its own community creates hundreds of
+       outliers and forces the viewport to shrink the connected graph. */
+    var orphanCommunity = hubs.length;
+    nodes.forEach(function(node) {
+      if (assignment[node.id] == null) assignment[node.id] = orphanCommunity;
+    });
+
+    var groups = {};
+    nodes.forEach(function(node) {
+      var community = assignment[node.id];
+      if (!groups[community]) groups[community] = [];
+      groups[community].push(node);
+    });
+    var orderedGroups = Object.entries(groups).sort(function(a, b) {
+      var aIsOrphan = Number(a[0]) === orphanCommunity;
+      var bIsOrphan = Number(b[0]) === orphanCommunity;
+      if (aIsOrphan !== bIsOrphan) return aIsOrphan ? 1 : -1;
+      return b[1].length - a[1].length || Number(a[0]) - Number(b[0]);
+    });
+
+    var remapped = {};
+    orderedGroups.forEach(function(entry, index) {
+      entry[1].forEach(function(node) { remapped[node.id] = index; });
+    });
+
+    /* Pack communities as deterministic islands. Their footprint grows with
+       membership, so large datasets stay separated instead of collapsing
+       into a single cloud when bridge edges pull across communities. */
+    var centers = {};
+    var footprints = {};
+    var placed = [];
+    var goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    orderedGroups.forEach(function(entry, index) {
+      var footprint = Math.max(150, Math.sqrt(entry[1].length) * 31 + 54);
+      footprints[index] = footprint;
+      if (index === 0) {
+        centers[index] = { x: 0, y: 0 };
+        placed.push({ x: 0, y: 0, radius: footprint });
+        return;
+      }
+
+      var selected = null;
+      for (var attempt = 0; attempt < 260; attempt++) {
+        var angle = (index * 13 + attempt) * goldenAngle - Math.PI / 2;
+        var radius = 120 + Math.sqrt(attempt + 1) * (footprint + 92);
+        var candidate = {
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius * 0.76,
+        };
+        var clear = placed.every(function(other) {
+          var dx = candidate.x - other.x;
+          var dy = candidate.y - other.y;
+          var required = footprint + other.radius + 88;
+          return dx * dx + dy * dy >= required * required;
+        });
+        if (clear) {
+          selected = candidate;
+          break;
+        }
+      }
+      if (!selected) {
+        var fallbackAngle = index * goldenAngle;
+        var fallbackRadius = (footprint + 360) * Math.sqrt(index + 1);
+        selected = {
+          x: Math.cos(fallbackAngle) * fallbackRadius,
+          y: Math.sin(fallbackAngle) * fallbackRadius * 0.76,
+        };
+      }
+      centers[index] = selected;
+      placed.push({ x: selected.x, y: selected.y, radius: footprint });
+    });
+
+    var positions = {};
+    orderedGroups.forEach(function(entry, groupIndex) {
+      var members = entry[1].slice().sort(function(a, b) {
+        return adjacency[b.id].length - adjacency[a.id].length ||
+          Number(b.weight || 0) - Number(a.weight || 0);
+      });
+      var center = centers[groupIndex];
+      members.forEach(function(node, index) {
+        var radius = index === 0 ? 0 : 22 * Math.sqrt(index);
+        var angle = index * 2.3999632297;
+        positions[node.id] = {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+          clusterX: center.x,
+          clusterY: center.y,
+        };
+      });
+    });
+
+    return { assignment: remapped, positions: positions, centers: centers, footprints: footprints };
+  };
+
   /* Compute force-directed positions — all nodes are free */
   ForceDirectedLayout.prototype.compute = function(nodes, edges, focusId) {
     var self = this;
@@ -121,14 +276,20 @@
     }
 
     /* Seed positions — pseudo-random spiral from node id (deterministic) */
+    var largeGraph = n > 220;
+    var topology = this._buildTopologySeed(nodes, edges);
+    this.communities = topology.assignment;
     var sim = nodes.map(function(nd, i) {
-      var angle = self._hashUnit(nd.id, 13) * Math.PI * 2;
-      var dist = Math.sqrt(self._hashUnit(nd.id, 17)) * 180 + 20;
+      var seeded = topology.positions[nd.id] || { x: 0, y: 0, clusterX: 0, clusterY: 0 };
+      nd.community = topology.assignment[nd.id] || 0;
       return {
         id: nd.id,
         node: nd,
-        x: Math.cos(angle) * dist,
-        y: Math.sin(angle) * dist,
+        community: nd.community,
+        clusterX: seeded.clusterX,
+        clusterY: seeded.clusterY,
+        x: seeded.x,
+        y: seeded.y,
         vx: 0,
         vy: 0,
         radius: self._layoutRadius(nd),
@@ -151,6 +312,7 @@
         target: ti,
         weight: weight,
         confidence: confidence,
+        sameCommunity: sim[si].community === sim[ti].community,
         distanceJitter: self._hashUnit(String(edge.id) + ":" + edge.source + ":" + edge.target, 61),
       });
     });
@@ -165,48 +327,76 @@
     }
 
     /* ── N-body force simulation ── */
-    var iterations = n > 200 ? 300 : n > 100 ? 350 : CFG.FORCE_ITERATIONS;
+    var iterations = n > 2000 ? 35
+      : n > 1000 ? 55
+      : n > 500 ? 90
+      : n > 220 ? 150
+      : n > 100 ? 350
+      : CFG.FORCE_ITERATIONS;
+
+    function repelPair(a, b, cooled, effectiveRange) {
+      var dx = a.x - b.x;
+      var dy = a.y - b.y;
+      var distSq = dx * dx + dy * dy;
+      if (distSq < 0.01) {
+        var kick = self._hashUnit(a.id + ":" + b.id, 43) * Math.PI * 2;
+        dx = Math.cos(kick) * 0.1;
+        dy = Math.sin(kick) * 0.1;
+        distSq = dx * dx + dy * dy;
+      }
+      var dist = Math.sqrt(distSq);
+      var minSep = (a.radius + b.radius) * 2.2 + 16;
+      var repulse = CFG.FORCE_REPULSION * cooled / Math.max(distSq, minSep * minSep * 0.25);
+
+      if (dist < effectiveRange) {
+        var falloff = 1 - dist / effectiveRange;
+        repulse *= falloff * falloff;
+      } else {
+        repulse *= 0.05;
+      }
+      if (dist < minSep) repulse += (minSep - dist) * 0.35;
+
+      var fx = dx / dist * repulse;
+      var fy = dy / dist * repulse;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+
     for (var step = 0; step < iterations; step++) {
       var alpha = 1 - step / iterations;
       var cooled = 0.3 + alpha * 0.7;
 
-      /* Repulsion between all node pairs with distance-based falloff */
-      for (var i = 0; i < sim.length; i++) {
-        var a = sim[i];
-        for (var j = i + 1; j < sim.length; j++) {
-          var b = sim[j];
-          var dx = a.x - b.x;
-          var dy = a.y - b.y;
-          var distSq = dx * dx + dy * dy;
-          if (distSq < 0.01) {
-            var kick = self._hashUnit(a.id + ":" + b.id, 43) * Math.PI * 2;
-            dx = Math.cos(kick) * 0.1;
-            dy = Math.sin(kick) * 0.1;
-            distSq = dx * dx + dy * dy;
+      /* Large graphs use a spatial grid so repulsion stays near-linear. */
+      if (largeGraph) {
+        var cellSize = 92;
+        var buckets = {};
+        for (var gi = 0; gi < sim.length; gi++) {
+          var gx = Math.floor(sim[gi].x / cellSize);
+          var gy = Math.floor(sim[gi].y / cellSize);
+          var gkey = gx + ":" + gy;
+          if (!buckets[gkey]) buckets[gkey] = [];
+          buckets[gkey].push(gi);
+        }
+        for (var si = 0; si < sim.length; si++) {
+          var source = sim[si];
+          var sourceX = Math.floor(source.x / cellSize);
+          var sourceY = Math.floor(source.y / cellSize);
+          for (var bx = -1; bx <= 1; bx++) {
+            for (var by = -1; by <= 1; by++) {
+              var nearby = buckets[(sourceX + bx) + ":" + (sourceY + by)] || [];
+              for (var bi = 0; bi < nearby.length; bi++) {
+                if (nearby[bi] <= si) continue;
+                repelPair(source, sim[nearby[bi]], cooled, cellSize * 1.8);
+              }
+            }
           }
-          var dist = Math.sqrt(distSq);
-          var effectiveRange = 280 + Math.min(120, n * 1.2);
-
-          var minSep = (a.radius + b.radius) * 2.2 + 16;
-          var repulse = CFG.FORCE_REPULSION * cooled / Math.max(distSq, minSep * minSep * 0.25);
-
-          /* Smoother distance falloff - linear instead of sharp cutoff */
-          if (dist < effectiveRange) {
-            var falloff = 1 - (dist / effectiveRange);
-            repulse *= falloff * falloff;
-          } else {
-            repulse *= 0.05;
+        }
+      } else {
+        var effectiveRange = 280 + Math.min(120, n * 1.2);
+        for (var i = 0; i < sim.length; i++) {
+          for (var j = i + 1; j < sim.length; j++) {
+            repelPair(sim[i], sim[j], cooled, effectiveRange);
           }
-
-          /* Stronger push when nodes are too close */
-          if (dist < minSep) {
-            repulse += (minSep - dist) * 0.35;
-          }
-
-          var fx = dx / dist * repulse;
-          var fy = dy / dist * repulse;
-          a.vx += fx; a.vy += fy;
-          b.vx -= fx; b.vy -= fy;
         }
       }
 
@@ -219,13 +409,14 @@
         var dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
 
         /* Base distance varies by edge weight */
-        var baseDistance = CFG.FORCE_LINK_DISTANCE + edge.distanceJitter * 40;
+        var baseDistance = CFG.FORCE_LINK_DISTANCE + edge.distanceJitter * 34;
         var weightFactor = Math.min(1.5, Math.sqrt(edge.weight || 1) * 0.3);
-        var desired = baseDistance - weightFactor * 15;
+        var desired = (baseDistance - weightFactor * 15) * (edge.sameCommunity ? 0.82 : 1.55);
 
         /* Adaptive spring strength - weaker for long edges */
         var lengthRatio = dist / desired;
         var adaptiveStrength = CFG.FORCE_LINK_STRENGTH * edge.confidence * cooled;
+        if (!edge.sameCommunity) adaptiveStrength *= largeGraph ? 0.025 : 0.3;
         if (lengthRatio > 2) {
           adaptiveStrength *= 0.5;
         }
@@ -244,8 +435,11 @@
         var massFactor = 1 + Math.sqrt(sn.node.weight || 0) * 0.1 + Math.sqrt(sn.node.degree || 0) * 0.05;
         var gravity = CFG.FORCE_GRAVITY * cooled / massFactor;
         if (sn.isFocus) gravity *= 1.8;
-        sn.vx -= sn.x * gravity;
-        sn.vy -= sn.y * gravity;
+        var anchorStrength = largeGraph ? 0.045 * cooled : gravity * 1.45;
+        sn.vx -= (sn.x - sn.clusterX) * anchorStrength;
+        sn.vy -= (sn.y - sn.clusterY) * anchorStrength;
+        sn.vx -= sn.x * gravity * (largeGraph ? 0.015 : 0.12);
+        sn.vy -= sn.y * gravity * (largeGraph ? 0.015 : 0.12);
       }
 
       /* Damping + position update */
@@ -259,6 +453,27 @@
         }
         sn.x += sn.vx;
         sn.y += sn.vy;
+      });
+    }
+
+    /* Correct any residual bridge-edge drift without flattening the internal
+       topology. Each large-graph community ends at its packed anchor. */
+    if (largeGraph) {
+      var communityStats = {};
+      sim.forEach(function(sn) {
+        if (!communityStats[sn.community]) {
+          communityStats[sn.community] = { x: 0, y: 0, count: 0 };
+        }
+        communityStats[sn.community].x += sn.x;
+        communityStats[sn.community].y += sn.y;
+        communityStats[sn.community].count += 1;
+      });
+      sim.forEach(function(sn) {
+        var stats = communityStats[sn.community];
+        var center = topology.centers[sn.community];
+        if (!stats || !center || !stats.count) return;
+        sn.x += center.x - stats.x / stats.count;
+        sn.y += center.y - stats.y / stats.count;
       });
     }
 
@@ -322,9 +537,9 @@
     var oy = ((this.viewport.oy * this.viewport.scale) % step + step) % step;
 
     ctx.save();
-    ctx.fillStyle = dark ? "#202126" : themeColor("--bg-card", "#ffffff");
+    ctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.fillStyle = dark ? "rgba(144,146,150,0.12)" : "rgba(108,117,125,0.13)";
+    ctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(40,92,94,0.12)";
     for (var x = ox; x <= this.width; x += step) {
       for (var y = oy; y <= this.height; y += step) {
         ctx.beginPath();
@@ -332,6 +547,26 @@
         ctx.fill();
       }
     }
+
+    var majorStep = step * 5;
+    ctx.strokeStyle = dark ? "rgba(183,243,74,0.055)" : "rgba(40,92,94,0.05)";
+    ctx.lineWidth = 1;
+    for (var mx = ox % majorStep; mx <= this.width; mx += majorStep) {
+      ctx.beginPath();
+      ctx.moveTo(mx, 0);
+      ctx.lineTo(mx, this.height);
+      ctx.stroke();
+    }
+    for (var my = oy % majorStep; my <= this.height; my += majorStep) {
+      ctx.beginPath();
+      ctx.moveTo(0, my);
+      ctx.lineTo(this.width, my);
+      ctx.stroke();
+    }
+
+    var scanY = (Date.now() * 0.018) % Math.max(this.height, 1);
+    ctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(42,167,157,0.1)";
+    ctx.fillRect(0, scanY, this.width, 1);
     ctx.restore();
   };
 
@@ -402,6 +637,8 @@
     /* Compute animated positions */
     var ap = animProgress == null ? 1 : animProgress;
 
+    this._drawCommunities(nodes, layout, ap, dark);
+
     /* Draw edges first (under nodes) */
     this._drawnEdges = [];
     this._labelBoxes = [];
@@ -417,6 +654,17 @@
 
       var ssp = this.worldToScreen(sAnim.x, sAnim.y);
       var tsp = this.worldToScreen(tAnim.x, tAnim.y);
+      var lineDx = tsp.x - ssp.x;
+      var lineDy = tsp.y - ssp.y;
+      var lineLength = Math.sqrt(lineDx * lineDx + lineDy * lineDy) || 1;
+      var bendSeed = String(edge.id).split("").reduce(function(sum, char) {
+        return sum + char.charCodeAt(0);
+      }, 0);
+      var sameCommunity = src.community === tgt.community;
+      var bend = (bendSeed % 2 ? 1 : -1) * Math.min(24, lineLength * 0.065) *
+        (sameCommunity ? 1 : 0.38);
+      var controlX = (ssp.x + tsp.x) / 2 - lineDy / lineLength * bend;
+      var controlY = (ssp.y + tsp.y) / 2 + lineDx / lineLength * bend;
 
       var hasFocus = highlightNodes.size > 0 || highlightEdges.size > 0;
       var isActive = !hasFocus || (highlightNodes.has(edge.source) && highlightNodes.has(edge.target));
@@ -425,12 +673,14 @@
 
       var de = {
         id: edge.id, sx: ssp.x, sy: ssp.y, tx: tsp.x, ty: tsp.y,
+        cx: controlX, cy: controlY,
         sourceId: edge.source, targetId: edge.target,
         relationType: edge.relation_type || "related",
         memoryId: edge.memory_id, weight: edge.weight || 1,
         confidence: edge.confidence || 0.8,
         isActive: isActive, isHighlighted: isMemHl,
         isMuted: isMuted, hasFocus: hasFocus,
+        isCrossCommunity: !sameCommunity,
         isHovered: edge.id === hoverId,
         color: edge.__color || TYPE_COLORS.other,
       };
@@ -444,9 +694,11 @@
     /* Particles */
     ctx.save();
     var now = Date.now() / 1000;
+    var particleStride = Math.max(1, Math.ceil(this._drawnEdges.length / 320));
     for (var p = 0; p < this._drawnEdges.length; p++) {
       var de2 = this._drawnEdges[p];
       if (de2.isMuted) continue;
+      if (!de2.hasFocus && particleStride > 1 && p % particleStride !== 0) continue;
       this._drawParticles(ctx, de2, now, dark);
     }
     ctx.restore();
@@ -493,6 +745,55 @@
     ctx.restore();
   };
 
+  Renderer.prototype._drawCommunities = function(nodes, layout, animProgress, dark) {
+    if (!layout || !nodes.length) return;
+    var groups = {};
+    for (var i = 0; i < nodes.length; i++) {
+      var nd = nodes[i];
+      var community = nd.community == null ? 0 : nd.community;
+      if (!groups[community]) groups[community] = [];
+      var px = lerp(nd._prevX || nd.x, nd.x, animProgress);
+      var py = lerp(nd._prevY || nd.y, nd.y, animProgress);
+      groups[community].push(this.worldToScreen(px, py));
+    }
+    var keys = Object.keys(groups);
+    if (keys.length < 2) return;
+
+    var palette = ["#78a94b", "#2a9e96", "#df6d62", "#c58c2a", "#74868a", "#6684b8"];
+    var ctx = this.ctx;
+    ctx.save();
+    ctx.setLineDash([5, 8]);
+    keys.forEach(function(key, index) {
+      var points = groups[key];
+      if (points.length < 2) return;
+      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      points.forEach(function(point) {
+        minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
+      });
+      var cx = (minX + maxX) / 2;
+      var cy = (minY + maxY) / 2;
+      var rx = Math.max(36, (maxX - minX) / 2 + 28);
+      var ry = Math.max(28, (maxY - minY) / 2 + 24);
+      var color = palette[index % palette.length];
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = hexToRgba(color, dark ? 0.04 : 0.045);
+      ctx.strokeStyle = hexToRgba(color, dark ? 0.24 : 0.25);
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = hexToRgba(color, dark ? 0.72 : 0.9);
+      ctx.font = "600 9px 'SFMono-Regular', Consolas, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("C/" + String(index + 1).padStart(2, "0") + " · " + points.length, cx - rx + 12, cy - ry + 10);
+      ctx.setLineDash([5, 8]);
+    });
+    ctx.restore();
+  };
+
   /* Draw a single edge as a straight link */
   Renderer.prototype._drawEdge = function(ctx, de, dark) {
     var opacity = de.isHighlighted ? CFG.EDGE_OPACITY_HIGHLIGHT
@@ -502,6 +803,7 @@
     var strength = clamp(Math.sqrt(Number(de.weight || 1)) / 3.6, 0, 1);
 
     if (de.isMuted) opacity *= 0.35;
+    if (de.isCrossCommunity && !de.hasFocus) opacity *= 0.32;
     if (!de.isMuted) {
       width += strength * (de.hasFocus ? 0.35 : 0.8);
       opacity = clamp(opacity + strength * (de.hasFocus ? 0.04 : 0.1), 0, 0.84);
@@ -509,7 +811,7 @@
 
     ctx.beginPath();
     ctx.moveTo(de.sx, de.sy);
-    ctx.lineTo(de.tx, de.ty);
+    ctx.quadraticCurveTo(de.cx, de.cy, de.tx, de.ty);
     ctx.strokeStyle = de.isHighlighted || (de.hasFocus && de.isActive)
       ? hexToRgba(de.color, opacity)
       : dark ? "rgba(150,157,168," + opacity + ")" : "rgba(91,103,120," + opacity + ")";
@@ -529,8 +831,9 @@
 
     for (var i = 0; i < count; i++) {
       var t = ((now * CFG.PARTICLE_SPEED + this._particleOffsets[key] + i / count) % 1 + 1) % 1;
-      var px = lerp(de.sx, de.tx, t);
-      var py = lerp(de.sy, de.ty, t);
+      var oneMinusT = 1 - t;
+      var px = oneMinusT * oneMinusT * de.sx + 2 * oneMinusT * t * de.cx + t * t * de.tx;
+      var py = oneMinusT * oneMinusT * de.sy + 2 * oneMinusT * t * de.cy + t * t * de.ty;
       ctx.beginPath();
       ctx.arc(px, py, CFG.PARTICLE_SIZE * (de.isHighlighted ? 1.35 : 1), 0, Math.PI * 2);
       ctx.fillStyle = hexToRgba(de.color, de.isHighlighted ? 0.82 : 0.46);
@@ -540,16 +843,19 @@
 
   /* Draw a single circular node */
   Renderer.prototype._drawNode = function(ctx, dn, scale, dark) {
-    var x = dn.sx, y = dn.sy, r = dn.sr;
+    var x = dn.sx, y = dn.sy, r = Math.max(1.4, dn.sr);
 
     ctx.save();
     ctx.globalAlpha = dn.isMuted ? 0.26 : 1;
 
-    var halo = (dn.isSelected ? 7 : dn.isHovered ? 5 : dn.isCenter ? 4 : 0) * scale;
+    var pulse = 0.5 + Math.sin(Date.now() * 0.0024 + Number(dn.id || 0) * 0.73) * 0.5;
+    var isProminent = scale > 0.34 && (dn.degree >= 3 || dn.memoryCount >= 3 || dn.isCenter);
+    var haloBase = dn.isSelected ? 8 : dn.isHovered ? 6 : dn.isCenter ? 5 : isProminent ? 1.5 + pulse * 1.8 : 0;
+    var halo = haloBase * scale;
     if (halo > 0 && !dn.isMuted) {
       ctx.beginPath();
       ctx.arc(x, y, r + halo, 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(dn.color, dn.isSelected ? 0.14 : 0.08);
+      ctx.fillStyle = hexToRgba(dn.color, dn.isSelected ? 0.18 : 0.055 + pulse * 0.035);
       ctx.fill();
     }
 
@@ -564,10 +870,10 @@
       : dark ? "#202126" : "#ffffff";
     ctx.stroke();
 
-    var prominent = dn.degree >= 4 || dn.memoryCount >= 3 || dn.labelScore >= 11;
+    var prominent = dn.degree >= 5 || dn.memoryCount >= 4 || dn.labelScore >= 15;
     var labelVisible = dn.isHovered || dn.isSelected || dn.isCenter ||
-      (!dn.hasFocus && scale > 0.72 && prominent) ||
-      (!dn.hasFocus && scale > 1.12 && dn.degree >= 2);
+      (!dn.hasFocus && scale > 0.64 && prominent) ||
+      (!dn.hasFocus && scale > 1.18 && dn.degree >= 3);
     if (!labelVisible || dn.isMuted) {
       ctx.restore();
       return;
@@ -575,7 +881,7 @@
 
     var fontSize = Math.max(10, CFG.NODE_FONT_SIZE * scale);
     ctx.fillStyle = dark ? "#e9ecef" : "#2f343a";
-    ctx.font = (dn.isSelected || dn.isCenter ? "600 " : "500 ") + fontSize + "px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = (dn.isSelected || dn.isCenter ? "650 " : "520 ") + fontSize + "px Arial, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     var maxChars = dn.isCenter ? 28 : 24;
@@ -600,7 +906,7 @@
     if (dn.isHovered || dn.isSelected) {
       var metaFs = Math.max(8, CFG.NODE_META_SIZE * scale);
       ctx.fillStyle = dark ? "#a6abb4" : "#6b7280";
-      ctx.font = metaFs + "px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font = metaFs + "px 'SFMono-Regular', Consolas, monospace";
       ctx.textBaseline = "top";
       ctx.fillText(dn.memoryCount + "M / " + dn.degree + " links", labelX, y + 8 * scale);
     }
@@ -857,8 +1163,12 @@
       var target = this._layout.getTarget(nd.id);
       var isCenter = this._layout.centerId != null && nd.id === this._layout.centerId;
       var pad = this.renderer.nodeWorldRadius(nd, isCenter) + 28;
+      var prominent = Number(nd.degree || 0) >= 2 || Number(nd.memory_count || 0) >= 3;
+      var labelPad = prominent
+        ? Math.min(120, 20 + String(nd.label || "").length * 6)
+        : 0;
       minX = Math.min(minX, target.tx - pad);
-      maxX = Math.max(maxX, target.tx + pad);
+      maxX = Math.max(maxX, target.tx + pad + labelPad);
       minY = Math.min(minY, target.ty - pad);
       maxY = Math.max(maxY, target.ty + pad);
     }
@@ -867,12 +1177,12 @@
 
     var boundsW = Math.max(1, maxX - minX);
     var boundsH = Math.max(1, maxY - minY);
-    var padding = this.renderer.width < 520 ? 0.88 : 0.8;
+    var padding = this.renderer.width < 520 ? 0.9 : 0.92;
     var fitScale = Math.min(
       (this.renderer.width * padding) / boundsW,
       (this.renderer.height * padding) / boundsH
     );
-    var scale = clamp(fitScale, 0.35, 1.65);
+    var scale = clamp(fitScale, CFG.ZOOM_MIN, 1.65);
     var cx = (minX + maxX) / 2;
     var cy = (minY + maxY) / 2;
 
@@ -1176,7 +1486,7 @@
   };
 
   function relationColor(type) {
-    var palette = ["#8792a2", "#6f7f96", "#8a7b65", "#74806c", "#8a7181", "#6f8388"];
+    var palette = ["#2a9e96", "#c58c2a", "#df6d62", "#78a94b", "#74868a"];
     var h = String(type || "related").split("").reduce(function(a, c) { return a * 31 + c.charCodeAt(0); }, 7);
     return palette[Math.abs(h) % palette.length];
   }

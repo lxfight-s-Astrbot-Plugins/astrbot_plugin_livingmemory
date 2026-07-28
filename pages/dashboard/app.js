@@ -55,6 +55,32 @@ import {
   const systemPage = new SystemPage(state, api);
   const promptPage = new PromptPage(state, api);
 
+  function hydrateIcons() {
+    if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
+    window.lucide.createIcons({
+      attrs: {
+        "stroke-width": 1.7,
+        "aria-hidden": "true",
+      },
+    });
+  }
+
+  function initMotionField() {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let frame = 0;
+    document.addEventListener("pointermove", (event) => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        const x = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 12;
+        const y = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 12;
+        document.documentElement.style.setProperty("--field-x", x.toFixed(2) + "px");
+        document.documentElement.style.setProperty("--field-y", y.toFixed(2) + "px");
+        frame = 0;
+      });
+    }, { passive: true });
+  }
+
   /* ================================================================
      Theme Management
      ================================================================ */
@@ -254,6 +280,8 @@ import {
      Initialization
      ================================================================ */
   async function init() {
+    hydrateIcons();
+    initMotionField();
     const context = await api.ready();
 
     if (api.bridge && typeof api.bridge.onContext === "function") {
@@ -314,6 +342,7 @@ import {
   window.lmEsc = esc;
   window.lmStatusPill = statusPill;
   window.lmNodeBadge = nodeBadge;
+  window.lmHydrateIcons = hydrateIcons;
 
   // 图谱小视图绘制函数（如果需要）
   window.lmDrawMiniGraph = (canvas, nodes, edges) => {
