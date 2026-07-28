@@ -155,12 +155,17 @@
                 <option value="50" data-i18n="common.perPage50">50 per page</option>
                 <option value="100" data-i18n="common.perPage100">100 per page</option>
               </select>
+              <button class="btn btn-sm btn-danger" id="mem-delete-selected" disabled data-i18n-title="delete.selectedTitle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 11v5m4-5v5"/></svg>
+                <span id="mem-delete-selected-label" data-i18n="delete.selected">Delete selected</span>
+              </button>
             </div>
             <div class="table-container">
               <div class="table-scroll" id="memories-scroll">
               <table class="data-table" id="memories-table">
                 <thead>
                   <tr>
+                    <th class="cell-select"><input type="checkbox" id="mem-select-all" data-i18n-aria="delete.selectAll" aria-label="Select all memories on this page" /></th>
                     <th class="cell-id" data-i18n="table.id">ID</th>
                     <th class="cell-summary" data-i18n="table.summary">Summary</th>
                     <th class="cell-type" data-i18n="table.type">Type</th>
@@ -170,7 +175,7 @@
                   </tr>
                 </thead>
                 <tbody id="memories-body">
-                  <tr><td colspan="6" class="table-empty" data-i18n="table.noData">No data</td></tr>
+                  <tr><td colspan="7" class="table-empty" data-i18n="table.noData">No data</td></tr>
                 </tbody>
               </table>
               </div>

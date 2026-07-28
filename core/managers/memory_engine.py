@@ -1860,18 +1860,15 @@ class MemoryEngine:
                 )
                 uuid_rows = await cursor.fetchall()
                 found_ids = [int(row["id"]) for row in uuid_rows]
-                for row in uuid_rows:
-                    uuid_doc_id = row["doc_id"]
-                    if uuid_doc_id:
-                        try:
-                            await self.faiss_db.delete(uuid_doc_id)
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            logger.warning(
-                                f"[批量删除] FAISS 删除失败 (id={row['id']})",
-                                exc_info=True,
-                            )
+                if found_ids:
+                    deleted_vector_ids = await self.vector_retriever.delete_documents(
+                        found_ids
+                    )
+                    if set(deleted_vector_ids) != set(found_ids):
+                        raise RuntimeError(
+                            "批量向量删除不完整: "
+                            f"expected={found_ids}, deleted={deleted_vector_ids}"
+                        )
                 await self._advance_write_op(
                     op_id,
                     "faiss_deleted",
@@ -1884,7 +1881,9 @@ class MemoryEngine:
                     batch,
                 )
                 await self.db_connection.commit()
-                batch_deleted = int(cursor.rowcount or 0)
+                # FaissVecDB 与本引擎共享 documents 表；向量删除可能已移除
+                # 对应行，因此以删除前查到的记录数作为准确结果。
+                batch_deleted = len(found_ids)
                 await self._advance_write_op(
                     op_id,
                     "documents_deleted",

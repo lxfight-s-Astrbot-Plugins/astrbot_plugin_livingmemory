@@ -34,6 +34,7 @@ import {
       status: "all",
       type: "all",
       sort: "created_desc",
+      selectedIds: new Set(),
     },
     selectedMemory: null,
     isEditing: false,
