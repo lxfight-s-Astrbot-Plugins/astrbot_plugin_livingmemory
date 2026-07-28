@@ -40,7 +40,7 @@ class GraphVectorRetriever:
         return await self.faiss_db.insert(content=content, metadata=metadata)
 
     async def add_entries(self, entries: list[tuple[str, dict[str, Any]]]) -> list[int]:
-        """Insert graph entries with a single FAISS persistence operation."""
+        """Insert one source memory's graph entries with one FAISS save."""
         if not entries:
             return []
 
@@ -123,7 +123,7 @@ class GraphVectorRetriever:
         source_memory_id: int,
         vector_doc_ids: list[int],
     ) -> None:
-        """Delete one memory's graph vectors with one FAISS index save."""
+        """Delete one source memory's graph vectors with one FAISS save."""
         if not vector_doc_ids:
             return
 

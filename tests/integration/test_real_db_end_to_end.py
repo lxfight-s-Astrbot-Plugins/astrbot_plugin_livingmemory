@@ -140,7 +140,7 @@ class _ContextPersonaManager:
 async def test_graph_memory_batches_real_faiss_index_writes(
     tmp_path: Path, monkeypatch
 ):
-    """One graph-memory operation must persist the FAISS index at most once."""
+    """Each per-memory bulk insert or delete persists the FAISS index once."""
     graph_store = GraphStore(str(tmp_path / "graph.db"))
     await graph_store.initialize()
 

@@ -163,6 +163,7 @@ async def test_canonical_summary_falls_back_to_key_facts():
     llm = _DummyLLMProvider(
         """{
             "summary":"用户提到了一个重要事项",
+            "canonical_summary":null,
             "topics":["备忘"],
             "key_facts":["明天下午三点开会", "需要准备PPT"],
             "sentiment":"neutral",

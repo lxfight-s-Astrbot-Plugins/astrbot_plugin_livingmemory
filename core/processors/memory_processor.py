@@ -520,7 +520,9 @@ class MemoryProcessor:
             data["summary"] = str(data.get("summary", ""))
             logger.debug(f"[MemoryProcessor] 提取 summary: {data['summary'][:100]}...")
 
-            data["canonical_summary"] = str(data.get("canonical_summary", "")).strip()
+            data["canonical_summary"] = str(
+                data.get("canonical_summary") or ""
+            ).strip()
 
             data["topics"] = self._ensure_list(data.get("topics", []))[:5]
             logger.debug(
@@ -694,7 +696,7 @@ class MemoryProcessor:
         # New prompts provide a factual, style-neutral retrieval summary. Custom
         # and older prompts may omit it, so use key facts rather than the
         # personality-styled summary whenever facts are available.
-        canonical_summary = str(structured_data.get("canonical_summary", "")).strip()
+        canonical_summary = str(structured_data.get("canonical_summary") or "").strip()
         if not canonical_summary and key_facts:
             canonical_summary = "；".join(str(f) for f in key_facts[:5] if f)
         if not canonical_summary:
@@ -746,7 +748,7 @@ class MemoryProcessor:
                 data[field] = self._get_default_value(field)
 
         data["summary"] = str(data.get("summary", ""))
-        data["canonical_summary"] = str(data.get("canonical_summary", "")).strip()
+        data["canonical_summary"] = str(data.get("canonical_summary") or "").strip()
         data["topics"] = self._ensure_list(data.get("topics", []))[:5]
         data["key_facts"] = self._ensure_list(data.get("key_facts", []))[:5]
         data["sentiment"] = self._validate_sentiment(data.get("sentiment", "neutral"))
