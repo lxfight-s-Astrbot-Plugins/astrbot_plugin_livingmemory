@@ -140,8 +140,8 @@ export class PeekPanel {
 
     // 操作按钮
     html += '<div class="memory-detail-actions">';
-    html += '<button class="btn btn-sm btn-secondary" id="peek-edit-btn">' + window.t("detail.editBtn") + '</button>';
-    html += '<button class="btn btn-sm btn-danger" id="peek-delete-btn">' + window.t("detail.deleteBtn") + '</button>';
+    html += '<button class="btn btn-sm btn-secondary" id="peek-edit-btn"><i data-lucide="square-pen" aria-hidden="true"></i><span>' + window.t("detail.editBtn") + '</span></button>';
+    html += '<button class="btn btn-sm btn-danger" id="peek-delete-btn"><i data-lucide="trash-2" aria-hidden="true"></i><span>' + window.t("detail.deleteBtn") + '</span></button>';
     html += '</div>';
 
     // 内容区域
@@ -193,6 +193,7 @@ export class PeekPanel {
 
     const peekBody = document.getElementById("peek-body");
     peekBody.innerHTML = html;
+    if (window.lmHydrateIcons) window.lmHydrateIcons();
     peekBody.scrollTop = 0;
 
     // 绑定按钮事件
@@ -232,8 +233,8 @@ export class PeekPanel {
     html += '</div>';
 
     html += '<div class="memory-detail-actions">';
-    html += '<button class="btn btn-sm btn-primary" id="peek-save-btn">' + window.t("detail.saveBtn") + '</button>';
-    html += '<button class="btn btn-sm btn-ghost" id="peek-cancel-btn">' + window.t("detail.cancelBtn") + '</button>';
+    html += '<button class="btn btn-sm btn-primary" id="peek-save-btn"><i data-lucide="save" aria-hidden="true"></i><span>' + window.t("detail.saveBtn") + '</span></button>';
+    html += '<button class="btn btn-sm btn-ghost" id="peek-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span>' + window.t("detail.cancelBtn") + '</span></button>';
     html += '</div>';
 
     // 可编辑内容
@@ -283,6 +284,7 @@ export class PeekPanel {
 
     const peekBody = document.getElementById("peek-body");
     peekBody.innerHTML = html;
+    if (window.lmHydrateIcons) window.lmHydrateIcons();
     peekBody.scrollTop = 0;
 
     // 绑定滑块事件
@@ -481,11 +483,12 @@ export class PeekPanel {
       html += '<div class="confirm-dialog-title">' + esc(title) + '</div>';
       html += '<div class="confirm-dialog-message">' + esc(message) + '</div>';
       html += '<div class="confirm-dialog-actions">';
-      html += '<button class="btn btn-secondary" id="confirm-cancel-btn">' + window.t("common.cancel") + '</button>';
-      html += '<button class="btn btn-danger" id="confirm-ok-btn">' + window.t("common.confirm") + '</button>';
+      html += '<button class="btn btn-secondary" id="confirm-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span>' + window.t("common.cancel") + '</span></button>';
+      html += '<button class="btn btn-danger" id="confirm-ok-btn"><i data-lucide="trash-2" aria-hidden="true"></i><span>' + window.t("common.confirm") + '</span></button>';
       html += '</div></div>';
 
       document.getElementById("peek-body").innerHTML = html;
+      if (window.lmHydrateIcons) window.lmHydrateIcons();
 
       const okBtn = document.getElementById("confirm-ok-btn");
       const cancelBtn = document.getElementById("confirm-cancel-btn");

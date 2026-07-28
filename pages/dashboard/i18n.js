@@ -45,7 +45,7 @@
     /* ---- Nuke ---- */
     "nuke.cancel":        { zh: "取消核爆", en: "Cancel Nuke", ru: "Отменить сброс" },
     "nuke.button":        { zh: "核爆清除", en: "Nuke Clear", ru: "Полный сброс" },
-    "nuke.startToast":    { zh: "💥 核爆倒计时启动！", en: "💥 Nuke countdown started!", ru: "💥 Обратный отсчёт запущен!" },
+    "nuke.startToast":    { zh: "核爆倒计时启动！", en: "Nuke countdown started!", ru: "Обратный отсчёт запущен!" },
     "nuke.cancelledToast":{ zh: " 核爆已取消！记忆保留", en: " Nuke cancelled! Memories preserved.", ru: " Сброс отменён! Память сохранена." },
     "nuke.cancelFail":    { zh: "取消失败，请稍后重试", en: "Cancel failed, please retry", ru: "Не удалось отменить, попробуйте позже" },
     "nuke.countdown":     { zh: "所有记忆将在 {0} 秒后被抹除。立即取消以中止核爆！", en: "All memories will be erased in {0}s. Cancel now to abort!", ru: "Вся память будет удалена через {0} сек. Отмените сейчас!" },
@@ -110,7 +110,7 @@
     "search.resultToast": { zh: "搜索结果：找到 {0} 条记忆，当前显示第 {1} 条", en: "Search: {0} memories found, showing {1}", ru: "Поиск: найдено {0}, показано {1}" },
 
     /* ---- Delete ---- */
-    "delete.confirmTitle":{ zh: "️  确认删除？", en: "️  Confirm Delete?", ru: "️  Подтвердить удаление?" },
+    "delete.confirmTitle":{ zh: "确认删除？", en: "Confirm Delete?", ru: "Подтвердить удаление?" },
     "delete.confirmMsg":  { zh: "即将删除 {0} 条记忆。\n此操作无法撤销！\n\n点击\"确定\"继续删除，点击\"取消\"保留。", en: "About to delete {0} memories.\nThis cannot be undone!\n\nClick OK to proceed, Cancel to keep them.", ru: "Будет удалено {0} записей.\nЭто необратимо!\n\nНажмите ОК для удаления, Отмена для сохранения." },
     "delete.selected":    { zh: "删除所选 ({0})", en: "Delete selected ({0})", ru: "Удалить выбранные ({0})" },
     "delete.selectedTitle":{ zh: "删除当前页中选中的记忆", en: "Delete selected memories on this page", ru: "Удалить выбранные записи на этой странице" },
@@ -119,10 +119,10 @@
     "delete.cancelled":   { zh: "已取消删除操作", en: "Deletion cancelled", ru: "Удаление отменено" },
     "delete.deleting":    { zh: "删除中...", en: "Deleting...", ru: "Удаление..." },
     "delete.allFailed":   { zh: " 删除失败：全部 {0} 条记忆无法删除\n失败ID: {1}\n请检查日志了解详情", en: " Delete failed: all {0} memories could not be deleted\nFailed IDs: {1}", ru: " Ошибка: все {0} записей не удалены\nID: {1}" },
-    "delete.partialFailed":{ zh: "️ 部分删除失败：成功 {0} 条，失败 {1} 条\n失败ID: {2}", en: "️ Partial failure: {0} succeeded, {1} failed\nFailed IDs: {2}", ru: "️ Частичная ошибка: {0} удалено, {1} не удалено\nID: {2}" },
+    "delete.partialFailed":{ zh: "部分删除失败：成功 {0} 条，失败 {1} 条\n失败ID: {2}", en: "Partial failure: {0} succeeded, {1} failed\nFailed IDs: {2}", ru: "Частичная ошибка: {0} удалено, {1} не удалено\nID: {2}" },
     "delete.success":     { zh: " 已成功删除 {0} 条记忆", en: " Successfully deleted {0} memories", ru: " Удалено {0} записей" },
     "delete.successOne":  { zh: "已删除记忆 #{0}", en: "Deleted memory #{0}", ru: "Удалена память #{0}" },
-    "delete.none":        { zh: "️ 没有删除任何记忆", en: "️ No memories were deleted", ru: "️ Ничего не удалено" },
+    "delete.none":        { zh: "没有删除任何记忆", en: "No memories were deleted", ru: "Ничего не удалено" },
     "delete.error":       { zh: "删除失败，请稍后重试", en: "Delete failed, please try again later", ru: "Ошибка удаления, попробуйте позже" },
 
     /* ---- Archive ---- */
@@ -203,7 +203,7 @@
     "graph.memoryIdPh":   { zh: "输入记忆 ID 定位局部子图", en: "Enter memory ID to locate subgraph", ru: "Введите ID памяти для поиска подграфа" },
     "graph.searchBtn":    { zh: "检索图谱", en: "Search Graph", ru: "Искать в графе" },
     "graph.focusBtn":     { zh: "定位记忆", en: "Focus Memory", ru: "Фокус памяти" },
-    "graph.overviewBtn":  { zh: "最近概览", en: "Recent Overview", ru: "Обзор" },
+    "graph.overviewBtn":  { zh: "全量图谱", en: "Full Graph", ru: "Весь граф" },
 
     /* ---- Graph Stats ---- */
     "graph.visibleNodes": { zh: "可视节点", en: "Visible Nodes", ru: "Видимых узлов" },
@@ -255,7 +255,7 @@
     "graph.disabledRoute":{ zh: "未启用", en: "Disabled", ru: "Отключено" },
     "graph.disabledLegend":{ zh: "暂无图数据", en: "No graph data", ru: "Нет данных графа" },
     "graph.disabledMemories":{ zh: "暂无可展示的图记忆", en: "No graph memories to display", ru: "Нет граф-памятей для показа" },
-    "graph.disabledRetrieval":{ zh: "点击\"最近概览\"加载图谱，或直接输入检索词。", en: "Click Recent Overview to load graph, or enter a search term.", ru: "Нажмите Обзор для загрузки графа или введите запрос." },
+    "graph.disabledRetrieval":{ zh: "点击\"全量图谱\"加载全部关系，或直接输入检索词。", en: "Click Full Graph to load every relation, or enter a search term.", ru: "Нажмите Весь граф для загрузки всех связей или введите запрос." },
     "graph.disabledInspector":{ zh: "请选择节点或记忆查看详细信息。", en: "Select a node or memory to view details.", ru: "Выберите узел или память для просмотра." },
     "graph.disabledCanvas":{ zh: "当前实例尚未启用图记忆。", en: "Graph memory is not yet enabled.", ru: "Граф памяти ещё не включён." },
 
@@ -265,13 +265,13 @@
     "graph.errorFetch":   { zh: "无法加载图谱概览", en: "Cannot load graph overview", ru: "Не удалось загрузить обзор графа" },
 
     /* ---- Graph Canvas Messages ---- */
-    "graph.canvasDefault":{ zh: "点击\"最近概览\"加载图谱，或直接输入检索词。", en: "Click Recent Overview to load graph, or enter a search term.", ru: "Нажмите Обзор для загрузки графа или введите запрос." },
+    "graph.canvasDefault":{ zh: "点击\"全量图谱\"加载全部关系，或直接输入检索词。", en: "Click Full Graph to load every relation, or enter a search term.", ru: "Нажмите Весь граф для загрузки всех связей или введите запрос." },
     "graph.canvasNo3D":   { zh: "3D 图谱组件未加载，请刷新页面并检查静态资源。", en: "3D graph component not loaded. Refresh and check static assets.", ru: "3D компонент графа не загружен. Обновите страницу." },
     "graph.canvasEmpty":  { zh: "当前范围内暂无可视化图数据。", en: "No visible graph data in the current range.", ru: "Нет видимых данных графа в текущем диапазоне." },
     "graph.canvasNoScene":{ zh: "当前页面未能加载 3D 图谱组件，请刷新页面后重试。", en: "Failed to load 3D graph component. Refresh and retry.", ru: "Не удалось загрузить 3D компонент. Обновите страницу." },
 
     /* ---- Graph Loading ---- */
-    "graph.loadingOverview":{ zh: "正在加载最近图谱概览...", en: "Loading recent graph overview...", ru: "Загрузка обзора графа..." },
+    "graph.loadingOverview":{ zh: "正在加载全部节点与关系...", en: "Loading all nodes and relations...", ru: "Загрузка всех узлов и связей..." },
     "graph.loadingQuery": { zh: "正在检索\"{0}\"相关图谱...", en: "Retrieving graph for \"{0}\"...", ru: "Поиск графа для \"{0}\"..." },
     "graph.loadingFocus": { zh: "正在聚焦记忆 #{0} 的关系图...", en: "Focusing on relation graph of memory #{0}...", ru: "Фокус на графе связей памяти #{0}..." },
     "graph.loadingGeneric":{ zh: "图谱载入中...", en: "Loading graph...", ru: "Загрузка графа..." },
@@ -357,8 +357,8 @@
     "recall.resultStatus":{ zh: "状态:", en: "Status:", ru: "Статус:" },
 
     /* ---- Theme ---- */
-    "theme.darkToast":    { zh: "🌙 已切换到深色模式", en: "🌙 Dark mode enabled", ru: "🌙 Тёмная тема включена" },
-    "theme.lightToast":   { zh: "☀️ 已切换到浅色模式", en: "☀️ Light mode enabled", ru: "☀️ Светлая тема включена" },
+    "theme.darkToast":    { zh: "已切换到深色模式", en: "Dark mode enabled", ru: "Тёмная тема включена" },
+    "theme.lightToast":   { zh: "已切换到浅色模式", en: "Light mode enabled", ru: "Светлая тема включена" },
 
     /* ---- Bridge Error ---- */
     "bridge.error":       { zh: "当前页面必须运行在 AstrBot 官方插件 Page 内", en: "This page must run inside an AstrBot plugin page", ru: "Страница должна работать внутри страницы плагина AstrBot" },
@@ -462,7 +462,7 @@
     "prompt.defaultFilled": { zh: "已填充默认内容，请点击保存以确认", en: "Default content loaded. Click Save to confirm.", ru: "Содержимое по умолчанию загружено. Нажмите Сохранить." },
     "prompt.defaultFilledStatus": { zh: "（待保存：默认内容）", en: "(Pending: default content)", ru: "(Ожидает: по умолчанию)" },
     "prompt.warningTitle": { zh: "注意", en: "Important", ru: "Внимание" },
-    "prompt.warningText": { zh: "以下提示词控制着 LLM 的记忆总结和注入行为。标注 ⚠️ JSON 的模板必须保留 JSON 输出格式要求，否则记忆功能将失效。修改前请确保理解每个模板的作用。", en: "These prompts control LLM memory summarization and injection. Templates marked with ⚠️ JSON MUST preserve JSON output format requirements, otherwise memory functionality will break.", ru: "Эти промпты управляют поведением LLM. Шаблоны с ⚠️ JSON ДОЛЖНЫ сохранять требования к формату JSON." },
+    "prompt.warningText": { zh: "以下提示词控制着 LLM 的记忆总结和注入行为。标注 JSON 的模板必须保留 JSON 输出格式要求，否则记忆功能将失效。修改前请确保理解每个模板的作用。", en: "These prompts control LLM memory summarization and injection. Templates marked JSON MUST preserve JSON output format requirements, otherwise memory functionality will break.", ru: "Эти промпты управляют поведением LLM. Шаблоны с пометкой JSON ДОЛЖНЫ сохранять требования к формату JSON." },
     "prompt.jsonRequired": { zh: "此模板必须要求 LLM 输出 JSON 格式，修改可能导致记忆功能失效", en: "This template MUST require JSON output from the LLM. Modifying may break memory.", ru: "Этот шаблон ДОЛЖЕН требовать вывод JSON от LLM." },
   };
 

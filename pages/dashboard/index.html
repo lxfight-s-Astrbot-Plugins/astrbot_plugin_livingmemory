@@ -3,65 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title data-i18n="page.title">LivingMemory</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./art-direction.css" />
+    <script src="./vendor/lucide.min.js"></script>
     <script src="./i18n.js"></script>
   </head>
   <body>
     <div id="app">
       <!-- Sidebar -->
       <aside class="sidebar">
-        <div class="sidebar-brand">LivingMemory</div>
+        <div class="sidebar-brand" aria-label="LivingMemory">
+          <span class="brand-mark">LM</span>
+          <span class="brand-name"><strong>Living</strong><strong>Memory</strong></span>
+        </div>
+        <div class="sidebar-coordinate" aria-hidden="true">SYSTEM / 02</div>
         <nav class="sidebar-nav">
-          <button class="nav-item active" data-page="graph">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="5" cy="5" r="2"/>
-              <line x1="8.5" y1="9.5" x2="17" y2="6"/><line x1="8.5" y1="14.5" x2="17" y2="18"/><line x1="15" y1="7" x2="6.5" y2="11.5"/>
-            </svg>
+          <button class="nav-item active" data-page="graph" data-i18n-aria="nav.graph">
+            <i data-lucide="network" aria-hidden="true"></i>
             <span data-i18n="nav.graph">Knowledge Graph</span>
           </button>
-          <button class="nav-item" data-page="memory">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-              <rect x="8" y="2" width="8" height="4" rx="1"/>
-            </svg>
+          <button class="nav-item" data-page="memory" data-i18n-aria="nav.memory">
+            <i data-lucide="database" aria-hidden="true"></i>
             <span data-i18n="nav.memory">Memories</span>
           </button>
-          <button class="nav-item" data-page="recall">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-            </svg>
+          <button class="nav-item" data-page="recall" data-i18n-aria="nav.recall">
+            <i data-lucide="scan-search" aria-hidden="true"></i>
             <span data-i18n="nav.recall">Recall Test</span>
           </button>
-          <button class="nav-item" data-page="system">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
-            </svg>
+          <button class="nav-item" data-page="system" data-i18n-aria="nav.system">
+            <i data-lucide="chart-no-axes-combined" aria-hidden="true"></i>
             <span data-i18n="nav.system">System</span>
           </button>
-          <button class="nav-item" data-page="prompts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-            </svg>
+          <button class="nav-item" data-page="prompts" data-i18n-aria="nav.prompts">
+            <i data-lucide="braces" aria-hidden="true"></i>
             <span data-i18n="nav.prompts">Prompts</span>
           </button>
         </nav>
         <div class="sidebar-divider"></div>
         <div class="sidebar-footer">
-          <button class="nav-item" id="theme-toggle">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="theme-icon-dark">
-              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
-            </svg>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="theme-icon-light" class="hidden">
-              <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2m-6.93-15.07 1.41 1.41m11.04 11.04 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-            </svg>
+          <button class="nav-item" id="theme-toggle" data-i18n-aria="header.theme">
+            <i data-lucide="moon" id="theme-icon-dark" aria-hidden="true"></i>
+            <i data-lucide="sun" id="theme-icon-light" class="hidden" aria-hidden="true"></i>
             <span data-i18n="header.theme">Theme</span>
           </button>
           <details class="lang-menu" id="lang-menu">
-          <summary class="nav-item" id="lang-toggle">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-            </svg>
+          <summary class="nav-item" id="lang-toggle" data-i18n-aria="header.lang">
+            <i data-lucide="languages" aria-hidden="true"></i>
             <span id="lang-label" data-i18n="header.lang">Language</span>
           </summary>
           <div class="lang-options">
@@ -79,16 +68,16 @@
         <!-- Page: Graph -->
         <section class="page active" id="page-graph">
           <header class="page-header">
-            <span class="page-title" data-i18n="nav.graph">Knowledge Graph</span>
+            <div class="page-heading"><span class="page-index">01</span><span class="page-title" data-i18n="nav.graph">Knowledge Graph</span></div>
             <div class="page-actions">
               <input type="text" id="graph-session-filter" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
-              <button class="btn btn-secondary btn-sm" id="graph-overview-btn">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              <button class="btn btn-secondary btn-sm" id="graph-overview-btn" data-i18n-aria="graph.overviewBtn">
+                <i data-lucide="layout-dashboard" aria-hidden="true"></i>
                 <span data-i18n="graph.overviewBtn">Overview</span>
               </button>
             </div>
           </header>
-          <div class="page-body" style="display:flex;flex-direction:column;padding:var(--space-5)">
+          <div class="page-body graph-page-body">
             <div class="stat-pills" id="graph-stat-pills">
               <div class="stat-pill"><div class="stat-pill-value" id="gs-total">--</div><div class="stat-pill-label" data-i18n="stats.total">memories</div></div>
               <div class="stat-pill"><div class="stat-pill-value" id="gs-nodes">--</div><div class="stat-pill-label" data-i18n="graph.nodes">nodes</div></div>
@@ -96,6 +85,7 @@
               <div class="stat-pill"><div class="stat-pill-value" id="gs-sessions">--</div><div class="stat-pill-label" data-i18n="stats.sessions">sessions</div></div>
             </div>
             <div class="graph-canvas-container" style="flex:1">
+              <div class="graph-canvas-coordinate" aria-hidden="true">LIVE GRAPH / XY</div>
               <div class="graph-canvas-state" id="graph-canvas-state" data-i18n="graph.canvasDefault">Loading graph overview...</div>
               <div id="graph-canvas" class="graph-canvas"></div>
             </div>
@@ -104,11 +94,11 @@
               <input type="text" id="graph-query-input" class="input" data-i18n-placeholder="graph.queryPh" placeholder="Search entities, topics, or memories..." />
               <input type="text" id="graph-memory-id" class="input input-sm" data-i18n-placeholder="graph.memoryIdPh" placeholder="Memory ID" style="width:120px" />
               <button class="btn btn-primary btn-sm" id="graph-search-btn">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <i data-lucide="search" aria-hidden="true"></i>
                 <span data-i18n="graph.searchBtn">Search</span>
               </button>
               <button class="btn btn-secondary btn-sm" id="graph-focus-btn">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4m-6.93-15.07 2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg>
+                <i data-lucide="focus" aria-hidden="true"></i>
                 <span data-i18n="graph.focusBtn">Focus</span>
               </button>
             </div>
@@ -118,7 +108,7 @@
         <!-- Page: Memory -->
         <section class="page" id="page-memory">
           <header class="page-header">
-            <span class="page-title" data-i18n="nav.memory">Memories</span>
+            <div class="page-heading"><span class="page-index">02</span><span class="page-title" data-i18n="nav.memory">Memories</span></div>
           </header>
           <div class="page-body">
             <div class="filter-bar">
@@ -156,7 +146,7 @@
                 <option value="100" data-i18n="common.perPage100">100 per page</option>
               </select>
               <button class="btn btn-sm btn-danger" id="mem-delete-selected" disabled data-i18n-title="delete.selectedTitle">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 11v5m4-5v5"/></svg>
+                <i data-lucide="trash-2" aria-hidden="true"></i>
                 <span id="mem-delete-selected-label" data-i18n="delete.selected">Delete selected</span>
               </button>
             </div>
@@ -181,9 +171,9 @@
               </div>
               <div class="pagination">
                 <div class="pagination-controls">
-                  <button class="btn btn-sm btn-ghost" id="mem-prev" disabled data-i18n="pagination.prev">Previous</button>
+                  <button class="btn btn-sm btn-ghost" id="mem-prev" disabled><i data-lucide="arrow-left" aria-hidden="true"></i><span data-i18n="pagination.prev">Previous</span></button>
                   <span class="pagination-info" id="mem-pagination-info" data-i18n="common.page">Page 1/1 · 0 total</span>
-                  <button class="btn btn-sm btn-ghost" id="mem-next" disabled data-i18n="pagination.next">Next</button>
+                  <button class="btn btn-sm btn-ghost" id="mem-next" disabled><span data-i18n="pagination.next">Next</span><i data-lucide="arrow-right" aria-hidden="true"></i></button>
                 </div>
               </div>
             </div>
@@ -193,7 +183,7 @@
         <!-- Page: Recall Test -->
         <section class="page" id="page-recall">
           <header class="page-header">
-            <span class="page-title" data-i18n="nav.recall">Recall Test</span>
+            <div class="page-heading"><span class="page-index">03</span><span class="page-title" data-i18n="nav.recall">Recall Test</span></div>
           </header>
           <div class="page-body">
             <div class="recall-form-section">
@@ -210,7 +200,7 @@
                   <label class="recall-form-label" data-i18n="recall.sessionLabel">Session ID (optional)</label>
                   <input type="text" id="recall-session" class="input input-sm" data-i18n-placeholder="recall.sessionPh" placeholder="Filter by session..." />
                 </div>
-                <button class="btn btn-primary" id="recall-search-btn" data-i18n="recall.searchBtn">Run Recall</button>
+                <button class="btn btn-primary" id="recall-search-btn"><i data-lucide="scan-search" aria-hidden="true"></i><span data-i18n="recall.searchBtn">Run Recall</span></button>
               </div>
             </div>
             <div class="recall-results-header hidden" id="recall-stats">
@@ -224,7 +214,7 @@
         <!-- Page: System -->
         <section class="page" id="page-system">
           <header class="page-header">
-            <span class="page-title" data-i18n="nav.system">System Overview</span>
+            <div class="page-heading"><span class="page-index">04</span><span class="page-title" data-i18n="nav.system">System Overview</span></div>
           </header>
           <div class="page-body">
             <div class="stat-cards" id="system-stat-cards">
@@ -259,7 +249,7 @@
         <!-- Page: Prompts -->
         <section class="page" id="page-prompts">
           <header class="page-header">
-            <span class="page-title" data-i18n="nav.prompts">Prompt Management</span>
+            <div class="page-heading"><span class="page-index">05</span><span class="page-title" data-i18n="nav.prompts">Prompt Management</span></div>
           </header>
           <div class="page-body">
             <div id="prompt-content"></div>
@@ -275,9 +265,9 @@
               </div>
               <textarea id="prompt-editor-textarea" class="input textarea prompt-editor-textarea" rows="20" spellcheck="false"></textarea>
               <div class="prompt-editor-actions">
-                <button class="btn btn-secondary" id="prompt-cancel-btn" data-i18n="common.cancel">Cancel</button>
-                <button class="btn btn-danger btn-sm" id="prompt-reset-btn" data-i18n="prompt.reset">Reset to Default</button>
-                <button class="btn btn-primary" id="prompt-save-btn" data-i18n="common.save">Save</button>
+                <button class="btn btn-secondary" id="prompt-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span data-i18n="common.cancel">Cancel</span></button>
+                <button class="btn btn-danger btn-sm" id="prompt-reset-btn"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="prompt.reset">Reset to Default</span></button>
+                <button class="btn btn-primary" id="prompt-save-btn"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
               </div>
             </div>
           </div>
@@ -293,8 +283,8 @@
           <div id="peek-badge"></div>
           <div class="peek-title" id="peek-title">--</div>
         </div>
-        <button class="peek-close" id="peek-close">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        <button class="peek-close" id="peek-close" data-i18n-title="common.close" aria-label="Close">
+          <i data-lucide="x" aria-hidden="true"></i>
         </button>
       </div>
       <div class="peek-body" id="peek-body"></div>
@@ -305,8 +295,8 @@
       <div class="modal">
         <div class="modal-header">
           <div class="modal-title" data-i18n="edit.title">Edit Memory</div>
-          <button class="modal-close" id="modal-close">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <button class="modal-close" id="modal-close" data-i18n-title="common.close" aria-label="Close">
+            <i data-lucide="x" aria-hidden="true"></i>
           </button>
         </div>
         <div class="modal-body">
@@ -345,8 +335,8 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" id="cancel-edit" data-i18n="common.cancel">Cancel</button>
-          <button class="btn btn-primary" id="save-edit" data-i18n="common.save">Save</button>
+          <button class="btn btn-secondary" id="cancel-edit"><i data-lucide="x" aria-hidden="true"></i><span data-i18n="common.cancel">Cancel</span></button>
+          <button class="btn btn-primary" id="save-edit"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
         </div>
       </div>
     </div>
