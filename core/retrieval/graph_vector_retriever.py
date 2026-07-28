@@ -39,6 +39,23 @@ class GraphVectorRetriever:
         """Insert one graph entry into the vector database."""
         return await self.faiss_db.insert(content=content, metadata=metadata)
 
+    async def add_entries(self, entries: list[tuple[str, dict[str, Any]]]) -> list[int]:
+        """Insert one source memory's graph entries with one FAISS save."""
+        if not entries:
+            return []
+
+        insert_batch = getattr(self.faiss_db, "insert_batch", None)
+        if callable(insert_batch):
+            return await insert_batch(
+                contents=[content for content, _ in entries],
+                metadatas=[metadata for _, metadata in entries],
+            )
+
+        # Compatibility with older AstrBot versions without insert_batch.
+        return [
+            await self.add_entry(content, metadata) for content, metadata in entries
+        ]
+
     async def search(
         self,
         query: str,
@@ -100,6 +117,26 @@ class GraphVectorRetriever:
             return False
         await self.faiss_db.delete(uuid_doc_id)
         return True
+
+    async def delete_entries(
+        self,
+        source_memory_id: int,
+        vector_doc_ids: list[int],
+    ) -> None:
+        """Delete one source memory's graph vectors with one FAISS save."""
+        if not vector_doc_ids:
+            return
+
+        delete_documents = getattr(self.faiss_db, "delete_documents", None)
+        if callable(delete_documents):
+            await delete_documents(
+                metadata_filters={"source_memory_id": source_memory_id}
+            )
+            return
+
+        # Compatibility with older AstrBot versions without bulk deletion.
+        for vector_doc_id in vector_doc_ids:
+            await self.delete_entry(vector_doc_id)
 
     async def update_metadata(
         self, vector_doc_id: int, metadata: dict[str, Any]

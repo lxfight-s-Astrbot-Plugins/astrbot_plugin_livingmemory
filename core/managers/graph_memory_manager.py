@@ -61,29 +61,34 @@ class GraphMemoryManager:
             )
         entry_vector_doc_ids: dict[int, int] = {}
         try:
-            for entry_id, entry in zip(entry_ids, extracted.entries, strict=True):
-                vector_doc_id = await self.graph_vector_retriever.add_entry(
-                    entry.content,
-                    dict(entry.metadata),
+            vector_doc_ids = await self.graph_vector_retriever.add_entries(
+                [(entry.content, dict(entry.metadata)) for entry in extracted.entries]
+            )
+            if len(vector_doc_ids) != len(entry_ids):
+                raise RuntimeError(
+                    "graph vector id count mismatch: "
+                    f"ids={len(vector_doc_ids)}, entries={len(entry_ids)}"
                 )
-                entry_vector_doc_ids[entry_id] = vector_doc_id
+            entry_vector_doc_ids.update(zip(entry_ids, vector_doc_ids, strict=True))
         finally:
             await self.graph_store.update_entry_vector_doc_ids(entry_vector_doc_ids)
 
     async def delete_memory(self, source_memory_id: int) -> None:
         """Delete graph artifacts belonging to one source memory."""
         vector_doc_ids = await self.graph_store.delete_memory(source_memory_id)
-        for vector_doc_id in vector_doc_ids:
-            await self.graph_vector_retriever.delete_entry(vector_doc_id)
+        await self.graph_vector_retriever.delete_entries(
+            source_memory_id, vector_doc_ids
+        )
 
     async def batch_delete_memories(self, source_memory_ids: list[int]) -> None:
-        """Batch delete graph artifacts for multiple source memories."""
+        """Delete graph artifacts in one FAISS bulk operation per source memory."""
         if not source_memory_ids:
             return
         memory_vec_map = await self.graph_store.batch_delete_memories(source_memory_ids)
-        for vector_doc_ids in memory_vec_map.values():
-            for vector_doc_id in vector_doc_ids:
-                await self.graph_vector_retriever.delete_entry(vector_doc_id)
+        for source_memory_id in source_memory_ids:
+            await self.graph_vector_retriever.delete_entries(
+                source_memory_id, memory_vec_map.get(source_memory_id, [])
+            )
 
 
 __all__ = ["GraphMemoryManager"]

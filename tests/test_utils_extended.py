@@ -371,6 +371,25 @@ class TestFormatMemoriesForInjection:
         result = format_memories_for_injection(memories)
         assert "带元数据的记忆" in result
 
+    def test_format_uses_persona_summary_without_repeating_key_facts(self):
+        memories = [
+            {
+                "content": "事实检索摘要 | 张三周五发布",
+                "score": 0.9,
+                "metadata": {
+                    "persona_summary": "我记得张三周五要发布呀！",
+                    "key_facts": ["张三周五发布"],
+                    "importance": 0.8,
+                },
+            }
+        ]
+
+        result = format_memories_for_injection(memories)
+
+        assert "我记得张三周五要发布呀！" in result
+        assert "事实检索摘要" not in result
+        assert result.count("张三周五发布") == 1
+
 
 class TestNumberUtils:
     """测试数字工具函数"""

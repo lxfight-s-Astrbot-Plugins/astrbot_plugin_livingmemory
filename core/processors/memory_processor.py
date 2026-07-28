@@ -586,6 +586,10 @@ class MemoryProcessor:
             data["summary"] = str(data.get("summary", ""))
             logger.debug(f"[MemoryProcessor] 提取 summary: {data['summary'][:100]}...")
 
+            data["canonical_summary"] = str(
+                data.get("canonical_summary") or ""
+            ).strip()
+
             data["topics"] = self._ensure_list(data.get("topics", []))[:5]
             logger.debug(
                 f"[MemoryProcessor] 提取 topics ({len(data['topics'])} 个): {data['topics']}"
@@ -752,15 +756,17 @@ class MemoryProcessor:
         Returns:
             (content, metadata) 元组
         """
-        summary = structured_data.get("summary", "")
+        summary = str(structured_data.get("summary", "")).strip()
         key_facts = structured_data.get("key_facts", [])
 
-        # canonical_summary：事实导向、风格中性，用于检索
-        # 由 summary + key_facts 拼接，去除人格语气词
-        canonical_parts = [summary] if summary else []
-        if key_facts:
-            canonical_parts.append("；".join(str(f) for f in key_facts[:5]))
-        canonical_summary = " | ".join(canonical_parts) if canonical_parts else ""
+        # New prompts provide a factual, style-neutral retrieval summary. Custom
+        # and older prompts may omit it, so use key facts rather than the
+        # personality-styled summary whenever facts are available.
+        canonical_summary = str(structured_data.get("canonical_summary") or "").strip()
+        if not canonical_summary and key_facts:
+            canonical_summary = "；".join(str(f) for f in key_facts[:5] if f)
+        if not canonical_summary:
+            canonical_summary = summary
 
         # content 字段使用 canonical_summary，提升检索稳定性
         if canonical_summary:
@@ -808,6 +814,7 @@ class MemoryProcessor:
                 data[field] = self._get_default_value(field)
 
         data["summary"] = str(data.get("summary", ""))
+        data["canonical_summary"] = str(data.get("canonical_summary") or "").strip()
         data["topics"] = self._ensure_list(data.get("topics", []))[:5]
         data["key_facts"] = self._ensure_list(data.get("key_facts", []))[:5]
         data["sentiment"] = self._validate_sentiment(data.get("sentiment", "neutral"))
@@ -870,6 +877,7 @@ class MemoryProcessor:
         """获取字段的默认值"""
         defaults = {
             "summary": "",
+            "canonical_summary": "",
             "topics": [],
             "key_facts": [],
             "participants": [],
@@ -882,6 +890,7 @@ class MemoryProcessor:
         """获取默认的结构化数据"""
         data = {
             "summary": "对话记录",
+            "canonical_summary": "",
             "topics": [],
             "key_facts": [],
             "sentiment": "neutral",

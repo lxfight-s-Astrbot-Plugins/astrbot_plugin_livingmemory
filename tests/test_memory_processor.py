@@ -55,7 +55,8 @@ def _make_messages():
 async def test_process_conversation_success():
     llm = _DummyLLMProvider(
         """{
-            "summary":"我记录了张三明天下午三点开会，并给出提醒",
+            "summary":"张三明天下午三点要开会呀，我已经认真记下来啦！",
+            "canonical_summary":"张三明天下午三点开会，Bot 已确认提醒",
             "topics":["会议提醒"],
             "key_facts":["张三明天下午三点开会"],
             "sentiment":"neutral",
@@ -153,7 +154,8 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
     """
     llm = _DummyLLMProvider(
         """{
-            "summary":"我记录了张三明天下午三点开会，并给出提醒",
+            "summary":"张三明天下午三点要开会呀，我已经认真记下来啦！",
+            "canonical_summary":"张三明天下午三点开会，Bot 已确认提醒",
             "topics":["会议提醒"],
             "key_facts":["张三明天下午三点开会"],
             "sentiment":"neutral",
@@ -175,6 +177,9 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
     # persona_summary 应存在（等于原始 LLM summary）
     assert "persona_summary" in metadata
     assert "张三" in metadata["persona_summary"]
+    assert "呀" in metadata["persona_summary"]
+    assert "呀" not in metadata["canonical_summary"]
+    assert metadata["canonical_summary"] == "张三明天下午三点开会，Bot 已确认提醒"
 
     # content 应使用 canonical_summary（事实导向）
     assert content == metadata["canonical_summary"]
@@ -184,11 +189,12 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
 
 
 @pytest.mark.asyncio
-async def test_canonical_summary_includes_key_facts():
-    """canonical_summary 应将 key_facts 拼接到摘要中，提升检索覆盖率。"""
+async def test_canonical_summary_falls_back_to_key_facts():
+    """旧 Prompt 缺少 canonical_summary 时应使用事实而非人格摘要。"""
     llm = _DummyLLMProvider(
         """{
             "summary":"用户提到了一个重要事项",
+            "canonical_summary":null,
             "topics":["备忘"],
             "key_facts":["明天下午三点开会", "需要准备PPT"],
             "sentiment":"neutral",
@@ -206,6 +212,7 @@ async def test_canonical_summary_includes_key_facts():
     # canonical_summary 应包含 key_facts 内容
     assert "明天下午三点开会" in metadata["canonical_summary"]
     assert "需要准备PPT" in metadata["canonical_summary"]
+    assert "用户提到了一个重要事项" not in metadata["canonical_summary"]
 
 
 @pytest.mark.asyncio

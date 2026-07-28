@@ -16,6 +16,11 @@
 - `MemoryProcessor._load_prompts()` 和 `_build_system_prompt_with_persona()` 改为通过 PromptManager 加载模板，保留后备降级路径
 - `format_memories_for_injection()` 的记忆注入头部/尾部文本改为从 PromptManager 读取
 
+### 修复
+- **双通道摘要与注入**: 新生成的记忆独立请求事实型 `canonical_summary` 用于检索，注入优先使用 `persona_summary`；旧记录保持兼容回退，本次不迁移既有向量 (#202)
+- **FAISS 加载兼容性**: 移除插件模块加载阶段的 FAISS 导入，并在优化扩展不可用时尝试 generic 指令集模式；不替代损坏或不兼容安装的环境修复 (#153, #198)
+- **图记忆磁盘写放大**: 以单条来源记忆为边界批量新增和删除图向量，避免每条 graph entry 分别保存索引；非空批次仍会写入完整 FAISS 快照 (#197)
+
 ## [2.3.6] - 2026-06-28
 
 ### 修复

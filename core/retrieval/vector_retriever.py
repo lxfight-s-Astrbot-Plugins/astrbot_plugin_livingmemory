@@ -3,10 +3,13 @@
 封装AstrBot的FaissVecDB,提供统一的检索接口
 """
 
-from dataclasses import dataclass
-from typing import Any
+from __future__ import annotations
 
-from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
 _TRUNCATED_CONTENT_MARKER = "\n...[中间内容已截断]...\n"
 
