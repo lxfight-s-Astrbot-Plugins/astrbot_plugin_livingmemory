@@ -40,6 +40,7 @@
     "nav.recallTest":     { zh: "召回测试", en: "Recall Test", ru: "Тест поиска" },
     "nav.system":         { zh: "系统概览", en: "System", ru: "Система" },
     "nav.recall":         { zh: "召回测试", en: "Recall Test", ru: "Тест поиска" },
+    "nav.prompts":        { zh: "提示词管理", en: "Prompts", ru: "Промпты" },
 
     /* ---- Nuke ---- */
     "nuke.cancel":        { zh: "取消核爆", en: "Cancel Nuke", ru: "Отменить сброс" },
@@ -435,6 +436,28 @@
     "graph2d.noData":     { zh: "暂无图谱数据", en: "No graph data available", ru: "Нет данных графа" },
     "graph2d.loading":    { zh: "加载图谱中...", en: "Loading graph...", ru: "Загрузка графа..." },
     "graph2d.moduleFail": { zh: "2D 图谱模块未加载，请刷新页面重试。", en: "2D graph module not loaded. Refresh and retry.", ru: "2D модуль графа не загружен. Обновите страницу." },
+
+    /* ---- Prompt Management ---- */
+    "prompt.fetchFailed":   { zh: "加载提示词列表失败", en: "Failed to load prompts", ru: "Не удалось загрузить промпты" },
+    "prompt.noPrompts":     { zh: "暂无提示词数据", en: "No prompt data", ru: "Нет данных промптов" },
+    "prompt.customized":    { zh: "已自定义", en: "Customized", ru: "Изменён" },
+    "prompt.variables":     { zh: "可用变量", en: "Variables", ru: "Переменные" },
+    "prompt.edit":          { zh: "编辑", en: "Edit", ru: "Редактировать" },
+    "prompt.editTitle":     { zh: "编辑提示词", en: "Edit Prompt", ru: "Редактировать промпт" },
+    "prompt.customizedStatus": { zh: "（已自定义）", en: "(Customized)", ru: "(Изменён)" },
+    "prompt.defaultStatus": { zh: "（使用默认）", en: "(Default)", ru: "(По умолчанию)" },
+    "prompt.saved":         { zh: "提示词已保存", en: "Prompt saved", ru: "Промпт сохранён" },
+    "prompt.saveFailed":    { zh: "保存提示词失败", en: "Failed to save prompt", ru: "Не удалось сохранить промпт" },
+    "prompt.loadFailed":    { zh: "加载提示词详情失败", en: "Failed to load prompt detail", ru: "Не удалось загрузить промпт" },
+    "prompt.reset":         { zh: "恢复默认", en: "Reset to Default", ru: "Сбросить" },
+    "prompt.resetConfirm":  { zh: "确认恢复默认？当前自定义内容将丢失。", en: "Reset to default? Custom content will be lost.", ru: "Сбросить до значения по умолчанию? Изменения будут потеряны." },
+    "prompt.resetDone":     { zh: "已恢复为默认值", en: "Reset to default", ru: "Сброшено" },
+    "prompt.resetFailed":   { zh: "恢复默认失败", en: "Failed to reset prompt", ru: "Не удалось сбросить промпт" },
+    "prompt.defaultFilled": { zh: "已填充默认内容，请点击保存以确认", en: "Default content loaded. Click Save to confirm.", ru: "Содержимое по умолчанию загружено. Нажмите Сохранить." },
+    "prompt.defaultFilledStatus": { zh: "（待保存：默认内容）", en: "(Pending: default content)", ru: "(Ожидает: по умолчанию)" },
+    "prompt.warningTitle": { zh: "注意", en: "Important", ru: "Внимание" },
+    "prompt.warningText": { zh: "以下提示词控制着 LLM 的记忆总结和注入行为。标注 ⚠️ JSON 的模板必须保留 JSON 输出格式要求，否则记忆功能将失效。修改前请确保理解每个模板的作用。", en: "These prompts control LLM memory summarization and injection. Templates marked with ⚠️ JSON MUST preserve JSON output format requirements, otherwise memory functionality will break.", ru: "Эти промпты управляют поведением LLM. Шаблоны с ⚠️ JSON ДОЛЖНЫ сохранять требования к формату JSON." },
+    "prompt.jsonRequired": { zh: "此模板必须要求 LLM 输出 JSON 格式，修改可能导致记忆功能失效", en: "This template MUST require JSON output from the LLM. Modifying may break memory.", ru: "Этот шаблон ДОЛЖЕН требовать вывод JSON от LLM." },
   };
 
   /* ---- Engine ---- */

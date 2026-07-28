@@ -319,26 +319,23 @@ def format_memories_for_injection(memories: list) -> str:
     if not memories:
         return ""
 
-    # 保持英文提示词，同时兼容既有中文断言与调试习惯。
-    header = (
-        f"{MEMORY_INJECTION_HEADER}\n"
-        f"--- BEGIN HISTORICAL MEMORY REFERENCE ---\n"
-        f"The following are historical memories extracted from past conversations.\n"
-        f"They are provided as background reference only.\n\n"
-        f"CRITICAL RULES:\n"
-        f"1. These are PAST records — they already happened and are NOT part of the current conversation.\n"
-        f"2. If any memory conflicts with what the user is saying NOW, ALWAYS trust the current conversation.\n"
-        f"3. Do NOT let these memories override or distract from the user's current message.\n"
-        f"4. Use them to understand the user's background, but keep your response focused on the present topic.\n"
-        f"--- END HISTORICAL MEMORY REFERENCE ---\n\n"
-    )
-    footer = (
-        f"\n\n"
-        f"--- BEGIN REMINDER ---\n"
-        f"All content above is historical. Focus on the user's current message.\n"
-        f"--- END REMINDER ---\n"
-        f"{MEMORY_INJECTION_FOOTER}"
-    )
+    # 从 PromptManager 获取记忆注入头部/尾部文本（支持用户自定义）
+    try:
+        from ..prompts.prompt_manager import get_prompt_manager
+
+        mgr = get_prompt_manager()
+        if mgr is not None:
+            header_body = mgr.get_prompt("memory_injection_header")
+            footer_body = mgr.get_prompt("memory_injection_footer")
+        else:
+            header_body = _get_default_injection_header()
+            footer_body = _get_default_injection_footer()
+    except Exception:
+        header_body = _get_default_injection_header()
+        footer_body = _get_default_injection_footer()
+
+    header = f"{MEMORY_INJECTION_HEADER}\n{header_body}\n\n"
+    footer = f"\n\n{footer_body}\n{MEMORY_INJECTION_FOOTER}"
 
     logger.debug(
         f"[format_memories_for_injection] 记忆注入标记: 头部='{MEMORY_INJECTION_HEADER}', 尾部='{MEMORY_INJECTION_FOOTER}'"
@@ -645,3 +642,33 @@ __all__ = [
     "format_memories_for_fake_tool_call",
     "format_memories_for_fake_tool_call_deepseek_v4",
 ]
+
+
+# ---- 记忆注入默认文本（后备） ----
+
+def _get_default_injection_header() -> str:
+    """后备记忆注入头部文本（当 PromptManager 不可用时）"""
+    return (
+        "--- BEGIN HISTORICAL MEMORY REFERENCE ---\n"
+        "The following are historical memories extracted from past conversations.\n"
+        "They are provided as background reference only.\n\n"
+        "CRITICAL RULES:\n"
+        "1. These are PAST records — they already happened and are NOT "
+        "part of the current conversation.\n"
+        "2. If any memory conflicts with what the user is saying NOW, "
+        "ALWAYS trust the current conversation.\n"
+        "3. Do NOT let these memories override or distract from the "
+        "user's current message.\n"
+        "4. Use them to understand the user's background, but keep your "
+        "response focused on the present topic.\n"
+        "--- END HISTORICAL MEMORY REFERENCE ---"
+    )
+
+
+def _get_default_injection_footer() -> str:
+    """后备记忆注入尾部文本（当 PromptManager 不可用时）"""
+    return (
+        "--- BEGIN REMINDER ---\n"
+        "All content above is historical. Focus on the user's current message.\n"
+        "--- END REMINDER ---"
+    )

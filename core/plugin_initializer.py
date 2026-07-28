@@ -129,6 +129,14 @@ class PluginInitializer:
 
         logger.info("LivingMemory 插件开始后台初始化...")
 
+        # 0. 初始化 PromptManager（尽早初始化，供后续组件使用）
+        try:
+            from .prompts.prompt_manager import init_prompt_manager
+
+            init_prompt_manager(self.data_dir)
+        except Exception as e:
+            logger.warning(f"PromptManager 初始化失败（不影响核心功能）: {e}")
+
         try:
             # 1. 等待 Provider 就绪
             if not await self._wait_for_providers_non_blocking():
