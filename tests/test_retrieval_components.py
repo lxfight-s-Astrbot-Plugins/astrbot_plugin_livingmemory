@@ -653,6 +653,56 @@ async def test_hybrid_in_place_update_rolls_back_when_bm25_fails():
 
 
 @pytest.mark.asyncio
+async def test_hybrid_in_place_update_rolls_back_when_bm25_raises():
+    class _Docs:
+        async def get_documents(self, metadata_filters, ids, limit):
+            return [
+                {
+                    "id": 5,
+                    "doc_id": "uuid-5",
+                    "text": "旧内容",
+                    "metadata": {"importance": 0.4},
+                }
+            ]
+
+    class _InPlaceVector:
+        def __init__(self):
+            self.faiss_db = type("FakeDB", (), {"document_storage": _Docs()})()
+            self.calls = []
+
+        async def replace_document_in_place(self, doc_id, content, metadata):
+            self.calls.append((doc_id, content, metadata))
+            return True
+
+    class _ExceptionalBM25:
+        def __init__(self):
+            self.calls = []
+
+        async def update_document(self, doc_id, content, metadata):
+            self.calls.append((doc_id, content, metadata))
+            if len(self.calls) == 1:
+                raise RuntimeError("BM25 update failed")
+            return True
+
+    vector = _InPlaceVector()
+    bm25 = _ExceptionalBM25()
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, bm25),
+        vector_retriever=cast(VectorRetriever, vector),
+        rrf_fusion=RRFFusion(k=60),
+        config={},
+    )
+
+    with pytest.raises(RuntimeError, match="BM25 update failed"):
+        await retriever.replace_memory_in_place(
+            5, "新内容", {"importance": 0.8}
+        )
+
+    assert [call[1] for call in vector.calls] == ["新内容", "旧内容"]
+    assert [call[1] for call in bm25.calls] == ["新内容", "旧内容"]
+
+
+@pytest.mark.asyncio
 async def test_hybrid_retriever_empty_query_returns_empty():
     """空查询字符串应直接返回空列表，不调用任何检索器。"""
     retriever = HybridRetriever(

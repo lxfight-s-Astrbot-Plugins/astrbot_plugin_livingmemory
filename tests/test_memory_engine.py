@@ -234,6 +234,62 @@ async def test_replace_memory_preserves_logical_uid_and_increments_revision(
 
 
 @pytest.mark.asyncio
+async def test_replace_memory_cancellation_cleans_up_new_memory(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "replace_memory_cancelled.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    old_id = await engine.add_memory(
+        content="旧事实",
+        session_id="bot-a:FriendMessage:user-1",
+        persona_id="p1",
+        importance=0.6,
+        metadata={"topics": ["旧主题"], "key_facts": ["旧事实"]},
+    )
+
+    new_id = old_id + 1
+    original_delete_memory = engine.delete_memory
+    delete_calls = []
+    old_delete_started = asyncio.Event()
+
+    async def cancel_old_memory_delete(memory_id: int) -> bool:
+        delete_calls.append(memory_id)
+        if memory_id == old_id:
+            old_delete_started.set()
+            await asyncio.Future()
+        return await original_delete_memory(memory_id)
+
+    engine.delete_memory = cancel_old_memory_delete
+
+    replace_task = asyncio.create_task(
+        engine.replace_memory(
+            old_id,
+            content="新事实",
+            metadata={
+                "session_id": "bot-a:FriendMessage:user-1",
+                "persona_id": "p1",
+                "topics": ["新主题"],
+                "key_facts": ["新事实"],
+            },
+            importance=0.8,
+            atoms=[],
+        )
+    )
+    await asyncio.wait_for(old_delete_started.wait(), timeout=1)
+    replace_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await replace_task
+
+    assert delete_calls == [old_id, new_id]
+    assert await engine.get_memory(old_id) is not None
+    assert await engine.get_memory(new_id) is None
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_rewrite_memory_in_place_preserves_document_id(tmp_path: Path):
     engine = MemoryEngine(
         db_path=str(tmp_path / "rewrite_in_place.db"),
