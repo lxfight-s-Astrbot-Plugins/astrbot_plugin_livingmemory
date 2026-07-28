@@ -144,6 +144,16 @@ async def test_graph_vector_retriever_uses_bulk_faiss_operations():
 
 
 @pytest.mark.asyncio
+async def test_graph_vector_retriever_skips_empty_bulk_delete():
+    vector_db = SimpleNamespace(delete_documents=AsyncMock())
+    retriever = GraphVectorRetriever(vector_db)
+
+    await retriever.delete_entries(7, [])
+
+    vector_db.delete_documents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_graph_memory_manager_indexes_nodes_edges_and_entries(tmp_path: Path):
     db_path = tmp_path / "graph_memory.db"
     graph_store = GraphStore(str(db_path))

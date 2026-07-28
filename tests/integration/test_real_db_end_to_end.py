@@ -16,9 +16,17 @@ from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
     ConversationManager,
 )
+from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
+    GraphMemoryManager,
+)
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
+    GraphVectorRetriever,
+)
 from astrbot_plugin_livingmemory.storage.conversation_store import ConversationStore
+from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse
@@ -126,6 +134,66 @@ class _ContextPersonaManager:
     async def get_persona(self, persona_id: str):
         del persona_id
         return SimpleNamespace(system_prompt="You are calm and factual.")
+
+
+@pytest.mark.asyncio
+async def test_graph_memory_batches_real_faiss_index_writes(
+    tmp_path: Path, monkeypatch
+):
+    """One graph-memory operation must persist the FAISS index at most once."""
+    graph_store = GraphStore(str(tmp_path / "graph.db"))
+    await graph_store.initialize()
+
+    index_path = tmp_path / "graph.index"
+    vector_db = FaissVecDB(
+        doc_store_path=str(tmp_path / "graph_documents.db"),
+        index_store_path=str(index_path),
+        embedding_provider=_DeterministicEmbeddingProvider(dim=24),
+    )
+    await vector_db.initialize()
+
+    write_paths: list[str] = []
+    original_write_index = vector_db.embedding_storage._write_index
+
+    def counted_write_index(index, path: str) -> None:
+        write_paths.append(path)
+        original_write_index(index, path)
+
+    monkeypatch.setattr(
+        vector_db.embedding_storage,
+        "_write_index",
+        counted_write_index,
+    )
+
+    manager = GraphMemoryManager(
+        graph_store=graph_store,
+        graph_vector_retriever=GraphVectorRetriever(vector_db),
+        graph_extractor=GraphExtractor(),
+    )
+    metadata = {
+        "session_id": "test:private:write-count",
+        "persona_id": "persona-write-count",
+        "importance": 0.8,
+        "canonical_summary": "Alice and Bob planned the release",
+        "topics": ["release", "deployment"],
+        "participants": ["Alice", "Bob"],
+        "key_facts": ["Release is Friday", "Bob owns deployment"],
+    }
+
+    try:
+        await manager.index_memory(77, metadata["canonical_summary"], metadata)
+        stats = await graph_store.get_memory_entry_stats()
+        assert stats["graph_entries"] > 1
+        assert len(write_paths) == 1
+        assert index_path.stat().st_size > 0
+
+        await manager.index_memory(77, metadata["canonical_summary"], metadata)
+        assert len(write_paths) == 3
+
+        await manager.delete_memory(77)
+        assert len(write_paths) == 4
+    finally:
+        await vector_db.close()
 
 
 class _TestContext:

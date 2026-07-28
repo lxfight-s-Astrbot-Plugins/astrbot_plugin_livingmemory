@@ -124,6 +124,9 @@ class GraphVectorRetriever:
         vector_doc_ids: list[int],
     ) -> None:
         """Delete one memory's graph vectors with one FAISS index save."""
+        if not vector_doc_ids:
+            return
+
         delete_documents = getattr(self.faiss_db, "delete_documents", None)
         if callable(delete_documents):
             await delete_documents(
