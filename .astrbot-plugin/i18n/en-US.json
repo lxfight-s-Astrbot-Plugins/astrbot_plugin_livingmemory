@@ -74,6 +74,10 @@
         "description": "Importance Weight",
         "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories."
       },
+      "min_importance_for_retrieval": {
+        "description": "Minimum Importance for Recall",
+        "hint": "Filter out memories below this importance value. Range: 0-1. Set to 0 to disable filtering."
+      },
       "fallback_to_vector": {
         "description": "Fallback to Pure Vector Search",
         "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."

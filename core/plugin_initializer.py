@@ -549,6 +549,9 @@ class PluginInitializer:
                 "importance_weight": self.config_manager.get(
                     "recall_engine.importance_weight", 1.0
                 ),
+                "min_importance_for_retrieval": self.config_manager.get(
+                    "recall_engine.min_importance_for_retrieval", 0.0
+                ),
                 "search_cache_enabled": self.config_manager.get(
                     "recall_engine.search_cache_enabled", True
                 ),
