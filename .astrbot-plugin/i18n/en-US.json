@@ -12,7 +12,12 @@
         "zh": "Chinese",
         "en": "English",
         "ru": "Russian"
-      }
+      },
+      "labels": [
+        "Chinese",
+        "English",
+        "Russian"
+      ]
     },
     "provider_settings": {
       "description": "Model Provider",
@@ -29,6 +34,10 @@
     "session_manager": {
       "description": "Session Management",
       "hint": "Manage user session states and conversation history caching behavior",
+      "enable_full_group_capture": {
+        "description": "Capture All Group Messages",
+        "hint": "Whether to capture all messages in group chats, including messages that do not mention the bot. When enabled, every group message is recorded to build richer group-chat context."
+      },
       "max_sessions": {
         "description": "Max Cached Sessions",
         "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database."
@@ -71,11 +80,35 @@
       },
       "injection_method": {
         "description": "Memory Injection Position",
-        "hint": "Where to inject memories into LLM requests. user_message_before: as a user message prefix; system_prompt: append to system prompt; user_message_after: as a user message suffix; fake_tool_call: inject as a fake tool call message pair into conversation history, letting the LLM naturally understand this as retrieval results."
+        "hint": "Where to inject memories into LLM requests. extra_user_content is recommended: append to the current user message without affecting prefix cache or polluting conversation history. user_message_before: inject as a user-message prefix. user_message_after: inject as a user-message suffix. fake_tool_call: inject as fake tool-call message pairs so the LLM understands them as retrieval results. fake_tool_call_deepseek_v4 is deprecated and automatically falls back to fake_tool_call. With Gemini, fake_tool_call automatically falls back to extra_user_content. system_prompt is deprecated and automatically falls back to extra_user_content.",
+        "labels": [
+          "Extra User Content",
+          "Before User Message",
+          "After User Message",
+          "Fake Tool Call",
+          "Fake Tool Call (DeepSeek V4, deprecated)",
+          "System Prompt (deprecated)"
+        ]
       },
       "auto_remove_injected": {
         "description": "Auto-Clear Old Injection Fragments",
         "hint": "Automatically remove previously injected memory fragments from history before injecting new ones, preventing duplicate accumulation and token waste. Recommended to keep enabled."
+      },
+      "inject_with_recent_context": {
+        "description": "Enable Cross-Turn Context Expansion",
+        "hint": "When enabled, memory retrieval appends the recent two dialogue turns to the current query, improving relevance for follow-up questions and reducing unrelated recalls."
+      },
+      "search_cache_enabled": {
+        "description": "Enable Short-Term Search Cache",
+        "hint": "Reuse retrieval results for the same session and query within a short time window to reduce repeated SQLite and FAISS work during follow-up conversations."
+      },
+      "search_cache_ttl_seconds": {
+        "description": "Search Cache TTL (seconds)",
+        "hint": "How long retrieval cache entries are kept. Writes, updates, and deletes invalidate the cache automatically. Set to 0 to disable caching."
+      },
+      "search_cache_max_size": {
+        "description": "Max Search Cache Entries",
+        "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted."
       }
     },
     "importance_decay": {
@@ -84,6 +117,18 @@
       "decay_rate": {
         "description": "Daily Decay Rate",
         "hint": "The proportion of memory importance decayed per day. 0.01 means a 1% decrease daily. Set to 0 to disable decay."
+      },
+      "access_decay_window_days": {
+        "description": "Access Reinforcement Window (days)",
+        "hint": "Memories accessed within this window reduce their effective decay rate according to access count."
+      },
+      "access_decay_max_count": {
+        "description": "Max Access Reinforcement Count",
+        "hint": "The access count that grants maximum decay protection. Additional accesses beyond this count do not increase protection further."
+      },
+      "access_count_decay_multiplier": {
+        "description": "Access Count Retention Ratio",
+        "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever."
       }
     },
     "fusion_strategy": {
@@ -114,6 +159,18 @@
         "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round)."
       }
     },
+    "agent_tools": {
+      "description": "Agent Active Memory Tools",
+      "hint": "Control whether AstrBot Agent receives tools for active long-term memory recall and writing.",
+      "enable_recall_tool": {
+        "description": "Enable Active Recall Tool",
+        "hint": "When enabled, registers recall_long_term_memory so the Agent can actively search long-term memories."
+      },
+      "enable_memorize_tool": {
+        "description": "Enable Active Memory Write Tool",
+        "hint": "When enabled, registers memorize_long_term_memory so the Agent can actively write long-term memories."
+      }
+    },
     "graph_memory": {
       "description": "Graph Memory Dual-Path Retrieval",
       "hint": "When enabled, both document-based and graph-based paths are maintained simultaneously, each supporting keyword and vector retrieval, with results unified into a single fused recall set.",
@@ -137,6 +194,18 @@
         "description": "Graph Neighbor Expansion Limit",
         "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval."
       },
+      "expansion_hops": {
+        "description": "Graph Expansion Hops",
+        "hint": "Number of hops expanded outward from matched nodes during graph keyword retrieval. Default is 1; setting it to 2 can recall indirect relations with a small query-cost increase."
+      },
+      "second_hop_weight": {
+        "description": "Second-Hop Expansion Weight",
+        "hint": "Score weight for second-hop graph candidates. Higher values make indirect relations more likely to enter the final recall results."
+      },
+      "dynamic_route_weighting": {
+        "description": "Dynamic Route Weighting",
+        "hint": "Automatically adjust document-route and graph-route weights according to relationship, time, and definition-like intent in the query."
+      },
       "max_topics_per_memory": {
         "description": "Max Topics Per Memory",
         "hint": "Maximum number of topic nodes extracted from a single memory."
@@ -148,6 +217,22 @@
       "max_facts_per_memory": {
         "description": "Max Facts Per Memory",
         "hint": "Maximum number of key facts extracted from a single memory to enter the graph index."
+      },
+      "atom_enabled": {
+        "description": "Enable Memory Atomization",
+        "hint": "When enabled, each key_fact becomes an independent memory atom with its own lifetime and decay curve. When disabled, the plugin falls back to the original coarse-grained behavior."
+      },
+      "atom_maintenance_interval_hours": {
+        "description": "Atom Maintenance Interval (hours)",
+        "hint": "How often the lifecycle manager runs expiration and forgetting checks for memory atoms."
+      },
+      "atom_forget_delay_days": {
+        "description": "Atom Forget Delay (days)",
+        "hint": "How many days after expiration an atom is completely removed from retrieval indexes."
+      },
+      "atom_purge_delay_days": {
+        "description": "Forgotten Atom Purge Delay (days)",
+        "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage."
       }
     },
     "migration_settings": {
