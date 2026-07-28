@@ -96,6 +96,7 @@ class MemoryEngine:
                 - rrf_k: RRF参数,默认60
                 - decay_rate: 时间衰减率,默认0.01
                 - importance_weight: 重要性权重,默认1.0
+                - min_importance_for_retrieval: 召回最低重要性,默认0.0
                 - fallback_enabled: 启用退化机制,默认True
                 - cleanup_days_threshold: 清理天数阈值,默认30
                 - cleanup_importance_threshold: 清理重要性阈值,默认0.3
@@ -393,7 +394,26 @@ class MemoryEngine:
             round(float(self.config.get("document_route_weight", 0.65)), 4),
             round(float(self.config.get("graph_route_weight", 0.35)), 4),
             int(self.config.get("graph_expansion_hops", 1)),
+            round(float(self.config.get("min_importance_for_retrieval", 0.0)), 4),
         )
+
+    def _filter_by_min_importance(
+        self, results: list[HybridResult]
+    ) -> list[HybridResult]:
+        threshold = clamp_float(
+            self.config.get("min_importance_for_retrieval"), default=0.0
+        )
+        if threshold <= 0:
+            return results
+
+        return [
+            result
+            for result in results
+            if clamp_float(
+                getattr(result, "metadata", {}).get("importance"), default=0.5
+            )
+            >= threshold
+        ]
 
     def _get_cached_search_results(
         self,
@@ -1198,6 +1218,8 @@ class MemoryEngine:
             results = await self.hybrid_retriever.search(
                 query, k, session_id, persona_id
             )
+
+        results = self._filter_by_min_importance(results)
 
         # 异步更新访问时间(不阻塞返回)
         for result in results:

@@ -51,6 +51,12 @@ class RecallEngineConfig(BaseModel):
     importance_weight: float = Field(
         default=1.0, ge=0.0, le=10.0, description="重要性权重"
     )
+    min_importance_for_retrieval: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="召回记忆的最低重要性，0 表示不过滤",
+    )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
     injection_method: str = Field(
         default="extra_user_content",

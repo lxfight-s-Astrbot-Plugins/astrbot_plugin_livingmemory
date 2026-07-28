@@ -96,6 +96,12 @@
                 "type": "float",
                 "default": 1.0
             },
+            "min_importance_for_retrieval": {
+                "description": "召回最低重要性",
+                "hint": "过滤重要性低于该值的记忆。范围 0-1，设为 0 表示不过滤。",
+                "type": "float",
+                "default": 0.0
+            },
             "fallback_to_vector": {
                 "description": "降级到纯向量检索",
                 "hint": "混合检索失败或结果为空时，自动降级为纯向量检索。建议开启。",

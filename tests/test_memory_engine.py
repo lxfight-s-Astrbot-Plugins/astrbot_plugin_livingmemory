@@ -296,6 +296,53 @@ async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_search_memories_filters_below_minimum_importance(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_threshold.db"),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "min_importance_for_retrieval": 0.6,
+            "search_cache_enabled": False,
+        },
+    )
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.search = AsyncMock(
+        return_value=[
+            Mock(doc_id=1, metadata={"importance": 0.8}),
+            Mock(doc_id=2, metadata={"importance": 0.59}),
+            Mock(doc_id=3, metadata={}),
+        ]
+    )
+
+    results = await engine.search_memories("query", k=5)
+
+    assert [result.doc_id for result in results] == [1]
+    await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
+async def test_search_memories_zero_importance_threshold_preserves_results(
+    tmp_path: Path,
+):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_no_threshold.db"),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "min_importance_for_retrieval": 0.0,
+            "search_cache_enabled": False,
+        },
+    )
+    expected = [Mock(doc_id=1, metadata={"importance": 0.01})]
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.search = AsyncMock(return_value=expected)
+
+    results = await engine.search_memories("query", k=5)
+
+    assert results == expected
+    await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_write(
     tmp_path: Path,
 ):
