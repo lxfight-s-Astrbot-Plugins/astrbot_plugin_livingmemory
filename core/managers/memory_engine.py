@@ -1557,6 +1557,22 @@ class MemoryEngine:
                 raise RuntimeError("旧记忆删除失败，已回滚新记忆")
             return new_memory_id
         except asyncio.CancelledError:
+            if new_memory_id is not None:
+                try:
+                    cleanup_success = await asyncio.shield(
+                        self.delete_memory(new_memory_id)
+                    )
+                    if not cleanup_success:
+                        logger.error(
+                            f"[替换] 取消后清理新记忆失败 "
+                            f"(memory_id={new_memory_id})"
+                        )
+                except Exception:
+                    logger.error(
+                        f"[替换] 取消后清理新记忆异常 "
+                        f"(memory_id={new_memory_id})",
+                        exc_info=True,
+                    )
             raise
         except Exception:
             if new_memory_id is not None:

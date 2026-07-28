@@ -481,34 +481,31 @@ class HybridRetriever:
         if not vector_success:
             return False
 
+        async def rollback() -> None:
+            vector_rollback = await self.vector_retriever.replace_document_in_place(
+                doc_id, old_content, old_metadata
+            )
+            bm25_rollback = await self.bm25_retriever.update_document(
+                doc_id, old_content, old_metadata
+            )
+            if not vector_rollback or not bm25_rollback:
+                logger.error(f"[原位更新] 检索索引回滚不完整 (doc_id={doc_id})")
+
         try:
             bm25_success = await self.bm25_retriever.update_document(
                 doc_id, content, metadata
             )
         except asyncio.CancelledError:
-            await asyncio.shield(
-                self.vector_retriever.replace_document_in_place(
-                    doc_id, old_content, old_metadata
-                )
-            )
-            await asyncio.shield(
-                self.bm25_retriever.update_document(
-                    doc_id, old_content, old_metadata
-                )
-            )
+            await asyncio.shield(rollback())
+            raise
+        except Exception:
+            await rollback()
             raise
         if bm25_success:
             return True
 
         logger.error(f"[原位更新] BM25 更新失败，开始回滚 (doc_id={doc_id})")
-        vector_rollback = await self.vector_retriever.replace_document_in_place(
-            doc_id, old_content, old_metadata
-        )
-        bm25_rollback = await self.bm25_retriever.update_document(
-            doc_id, old_content, old_metadata
-        )
-        if not vector_rollback or not bm25_rollback:
-            logger.error(f"[原位更新] 检索索引回滚不完整 (doc_id={doc_id})")
+        await rollback()
         return False
 
     async def delete_memory(self, doc_id: int) -> bool:
