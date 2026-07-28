@@ -48,6 +48,9 @@ class FakeMemoryEngine:
     async def add_memory(self, **kwargs):
         return 999
 
+    async def replace_memory(self, memory_id: int, **kwargs):
+        return 999
+
     async def delete_memory(self, memory_id: int):
         return True
 
@@ -816,18 +819,89 @@ class TestUpdateMemory:
                 "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
                 return_value=memory,
             ):
-                api.plugin.initializer.memory_engine.add_memory = AsyncMock(
+                api.plugin.initializer.memory_engine.replace_memory = AsyncMock(
                     return_value=999
                 )
                 result = await api.update_memory()
 
         assert result["status"] == "ok"
         assert (
-            api.plugin.initializer.memory_engine.add_memory.call_args.kwargs[
+            api.plugin.initializer.memory_engine.replace_memory.call_args.kwargs[
                 "importance"
             ]
             == 0.5
         )
+
+    @pytest.mark.asyncio
+    async def test_structured_update_replaces_topics_and_key_facts_once(self, api):
+        engine = api.plugin.initializer.memory_engine
+        engine.replace_memory = AsyncMock(return_value=42)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "structured",
+                "value": {
+                    "content": "new summary",
+                    "topics": ["release", "release", " deployment "],
+                    "key_facts": ["Release is Friday"],
+                    "status": "active",
+                    "type": "EVENT",
+                    "importance": 8,
+                },
+                "value_scale": "display",
+                "reason": "correct summary",
+            }
+        )
+        memory = {
+            "id": 1,
+            "text": "old summary",
+            "metadata": {
+                "topics": ["old"],
+                "key_facts": ["old fact"],
+                "status": "active",
+                "memory_type": "GENERAL",
+                "importance": 0.5,
+            },
+        }
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value=memory,
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        assert result["data"]["new_memory_id"] == 42
+        engine.replace_memory.assert_awaited_once()
+        call = engine.replace_memory.call_args
+        assert call.args == (1,)
+        assert call.kwargs["content"] == "new summary"
+        assert call.kwargs["importance"] == 0.8
+        assert call.kwargs["metadata"]["topics"] == ["release", "deployment"]
+        assert call.kwargs["metadata"]["key_facts"] == ["Release is Friday"]
+        assert call.kwargs["metadata"]["canonical_summary"] == "new summary"
+
+    @pytest.mark.asyncio
+    async def test_structured_update_rejects_more_than_five_topics(self, api):
+        engine = api.plugin.initializer.memory_engine
+        engine.replace_memory = AsyncMock(return_value=42)
+        req = _mock_page_request(
+            get_json={
+                "memory_id": 1,
+                "field": "topics",
+                "value": [f"topic-{index}" for index in range(6)],
+            }
+        )
+        with _patch_page_request(req):
+            with patch(
+                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+                return_value={"id": 1, "text": "summary", "metadata": {}},
+            ):
+                result = await api.update_memory()
+
+        assert result["status"] == "error"
+        assert "最多允许 5 项" in result["message"]
+        engine.replace_memory.assert_not_awaited()
 
 
 class TestBatchDeleteMemories:

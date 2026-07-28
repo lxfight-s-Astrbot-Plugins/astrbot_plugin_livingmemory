@@ -191,7 +191,9 @@ export class PeekPanel {
       html += '</div></div>';
     }
 
-    document.getElementById("peek-body").innerHTML = html;
+    const peekBody = document.getElementById("peek-body");
+    peekBody.innerHTML = html;
+    peekBody.scrollTop = 0;
 
     // 绑定按钮事件
     const editBtn = document.getElementById("peek-edit-btn");
@@ -220,6 +222,8 @@ export class PeekPanel {
     const importance = normalizeImportance(detail.importance).toFixed(1);
     const type = detail.memory_type || "GENERAL";
     const status = detail.status || "active";
+    const topics = Array.isArray(detail.topics) ? detail.topics : [];
+    const keyFacts = Array.isArray(detail.key_facts) ? detail.key_facts : [];
 
     let html = "";
 
@@ -236,6 +240,14 @@ export class PeekPanel {
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.content") + '</div>';
     html += '<textarea id="edit-content-area" class="memory-detail-edit-area" rows="6">' + esc(content) + '</textarea>';
     html += '<p class="form-hint" style="margin-top:4px">' + window.t("detail.contentHint") + '</p>';
+    html += '</div>';
+
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.topics") + '</div>';
+    html += '<textarea id="edit-topics-area" class="memory-detail-edit-area compact" rows="3">' + esc(topics.join("\n")) + '</textarea>';
+    html += '</div>';
+
+    html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.keyFacts") + '</div>';
+    html += '<textarea id="edit-key-facts-area" class="memory-detail-edit-area compact" rows="5">' + esc(keyFacts.join("\n")) + '</textarea>';
     html += '</div>';
 
     // 可编辑元数据
@@ -269,7 +281,9 @@ export class PeekPanel {
 
     html += '</div></div>';
 
-    document.getElementById("peek-body").innerHTML = html;
+    const peekBody = document.getElementById("peek-body");
+    peekBody.innerHTML = html;
+    peekBody.scrollTop = 0;
 
     // 绑定滑块事件
     document.getElementById("edit-importance").addEventListener("input", function() {
@@ -289,6 +303,14 @@ export class PeekPanel {
   async saveEdit(detail) {
     let id = detail.memory_id;
     const newContent = document.getElementById("edit-content-area").value.trim();
+    const normalizeLines = (value) => Array.from(new Set(
+      String(value || "").split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+    ));
+    const sameList = (left, right) => (
+      left.length === right.length && left.every((item, index) => item === right[index])
+    );
+    const newTopics = normalizeLines(document.getElementById("edit-topics-area").value);
+    const newKeyFacts = normalizeLines(document.getElementById("edit-key-facts-area").value);
     const newStatus = document.getElementById("edit-status").value;
     const newType = document.getElementById("edit-type").value.trim();
     const newImportance = parseFloat(document.getElementById("edit-importance").value);
@@ -304,52 +326,63 @@ export class PeekPanel {
         return;
       }
 
-      // 更新内容
-      if (newContent !== getDetailText(detail)) {
+      const oldTopics = Array.isArray(detail.topics) ? detail.topics : [];
+      const oldKeyFacts = Array.isArray(detail.key_facts) ? detail.key_facts : [];
+      const rebuildRequired = newContent !== getDetailText(detail)
+        || !sameList(newTopics, oldTopics)
+        || !sameList(newKeyFacts, oldKeyFacts);
+
+      // 内容、主题和关键事实在一次物理替换中更新，避免派生索引错位。
+      if (rebuildRequired) {
         const result = await this.api.post("memories/update", {
           memory_id: id,
-          field: "content",
-          value: newContent,
-          reason: reason
-        });
-        if (result && result.new_memory_id) {
-          messages.push(window.t("detail.contentUpdated", result.new_memory_id));
-          id = parseInt(result.new_memory_id);
-        }
-      }
-
-      // 更新状态
-      if (newStatus !== detail.status) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "status",
-          value: newStatus,
-          reason: reason
-        });
-        messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
-      }
-
-      // 更新类型
-      if (newType !== detail.memory_type) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "type",
-          value: newType,
-          reason: reason
-        });
-        messages.push(window.t("detail.typeUpdated", newType));
-      }
-
-      // 更新重要性
-      if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
-        await this.api.post("memories/update", {
-          memory_id: id,
-          field: "importance",
-          value: newImportance,
+          field: "structured",
+          value: {
+            content: newContent,
+            topics: newTopics,
+            key_facts: newKeyFacts,
+            status: newStatus,
+            type: newType,
+            importance: newImportance
+          },
           value_scale: "display",
           reason: reason
         });
-        messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
+        if (result && result.new_memory_id) {
+          id = parseInt(result.new_memory_id);
+        }
+        if (newContent !== getDetailText(detail)) messages.push(window.t("detail.contentUpdated", id));
+        if (!sameList(newTopics, oldTopics)) messages.push(window.t("detail.topicsUpdated"));
+        if (!sameList(newKeyFacts, oldKeyFacts)) messages.push(window.t("detail.keyFactsUpdated"));
+        if (newStatus !== detail.status) messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
+        if (newType !== detail.memory_type) messages.push(window.t("detail.typeUpdated", newType));
+        if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
+          messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
+        }
+      } else {
+        // 不影响派生数据的字段继续原位更新。
+        if (newStatus !== detail.status) {
+          await this.api.post("memories/update", {
+            memory_id: id, field: "status", value: newStatus, reason: reason
+          });
+          messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
+        }
+        if (newType !== detail.memory_type) {
+          await this.api.post("memories/update", {
+            memory_id: id, field: "type", value: newType, reason: reason
+          });
+          messages.push(window.t("detail.typeUpdated", newType));
+        }
+        if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
+          await this.api.post("memories/update", {
+            memory_id: id,
+            field: "importance",
+            value: newImportance,
+            value_scale: "display",
+            reason: reason
+          });
+          messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
+        }
       }
 
       this.showToast(messages.length ? messages.join("; ") : window.t("detail.noChanges"));

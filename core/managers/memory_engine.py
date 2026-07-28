@@ -20,6 +20,7 @@ from ...storage.graph_store import GraphStore
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
 from ..managers.graph_memory_manager import GraphMemoryManager
 from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
+from ..processors.atom_classifier import classify_atoms
 from ..processors.graph_extractor import GraphExtractor
 from ..processors.text_processor import TextProcessor
 from ..retrieval.atom_retriever import AtomRetriever
@@ -993,6 +994,7 @@ class MemoryEngine:
         importance: float = 0.5,
         metadata: dict[str, Any] | None = None,
         atoms: list | None = None,
+        preserve_create_time: bool = False,
     ) -> int:
         """
         添加新记忆
@@ -1040,8 +1042,18 @@ class MemoryEngine:
         if metadata:
             full_metadata.update(metadata)
 
-        # 确保时间字段始终存在且不被外部metadata覆盖
-        full_metadata["create_time"] = current_time
+        # 普通新增使用当前时间；物理替换保留原记忆的时间轴位置。
+        preserved_create_time = None
+        if preserve_create_time and metadata:
+            try:
+                preserved_create_time = float(metadata.get("create_time"))
+            except (TypeError, ValueError):
+                preserved_create_time = None
+        full_metadata["create_time"] = (
+            preserved_create_time
+            if preserved_create_time is not None
+            else current_time
+        )
         full_metadata["last_access_time"] = current_time
 
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
@@ -1307,46 +1319,29 @@ class MemoryEngine:
                 return False
 
             try:
-                # 保留必要信息
-                session_id = current_metadata.get("session_id")
-                persona_id = current_metadata.get("persona_id")
                 importance = clamp_float(
-                    current_metadata.get("importance", updates.get("importance", 0.5)),
+                    updates.get("importance", current_metadata.get("importance", 0.5)),
                     default=0.5,
                 )
 
                 # 构建新元数据
                 new_metadata = current_metadata.copy()
+                metadata_patch = updates.get("metadata")
+                if isinstance(metadata_patch, dict):
+                    new_metadata.update(metadata_patch)
                 new_metadata["updated_at"] = time.time()
                 new_metadata["previous_id"] = memory_id  # 记录旧ID
+                new_metadata["importance"] = importance
 
                 # 【改进】先创建新记忆，再删除旧记忆（避免数据丢失）
                 logger.info(f"[更新] 开始内容更新流程 (old_id={memory_id})")
 
-                # 1. 创建新记忆（自动在所有数据库创建）
-                new_memory_id = await self.add_memory(
+                new_memory_id = await self.replace_memory(
+                    memory_id,
                     content=new_content,
-                    session_id=session_id,
-                    persona_id=persona_id,
                     importance=importance,
                     metadata=new_metadata,
                 )
-
-                if new_memory_id is None:
-                    logger.error(f"[更新] 创建新记忆失败 (old_id={memory_id})")
-                    return False
-
-                logger.info(f"[更新] 新记忆已创建 (new_id={new_memory_id})")
-
-                # 2. 删除旧记忆（从所有数据库删除）
-                delete_success = await self.delete_memory(memory_id)
-                if not delete_success:
-                    # 旧记忆删除失败，回滚：删除刚创建的新记忆，避免重复记录
-                    logger.warning(
-                        f"[更新] 删除旧记忆失败，回滚新记忆 (old_id={memory_id}, new_id={new_memory_id})"
-                    )
-                    await self.delete_memory(new_memory_id)
-                    return False
 
                 logger.info(
                     f"[更新] 内容更新完成 (old_id={memory_id} → new_id={new_memory_id})"
@@ -1414,6 +1409,96 @@ class MemoryEngine:
             return success
 
         return True
+
+    async def replace_memory(
+        self,
+        memory_id: int,
+        *,
+        content: str,
+        metadata: dict[str, Any],
+        importance: float,
+    ) -> int:
+        """Replace one memory and rebuild all derived data with a new ID."""
+        current = await self.get_memory(memory_id)
+        if not current:
+            raise ValueError(f"记忆不存在 (memory_id={memory_id})")
+        if not content or not content.strip():
+            raise ValueError("记忆内容不能为空")
+
+        current_metadata = self._safe_json_dict(current.get("metadata"))
+        replacement_metadata = current_metadata.copy()
+        replacement_metadata.update(metadata or {})
+        replacement_metadata["previous_id"] = memory_id
+        replacement_metadata["updated_at"] = time.time()
+        replacement_metadata["create_time"] = current_metadata.get("create_time")
+        normalized_importance = clamp_float(importance, default=0.5)
+        replacement_metadata["importance"] = normalized_importance
+
+        session_id = replacement_metadata.get("session_id")
+        persona_id = replacement_metadata.get("persona_id")
+        raw_key_facts = replacement_metadata.get("key_facts")
+        raw_topics = replacement_metadata.get("topics")
+        raw_participants = replacement_metadata.get("participants")
+        key_facts = raw_key_facts if isinstance(raw_key_facts, list) else []
+        topics = raw_topics if isinstance(raw_topics, list) else []
+        participants = (
+            raw_participants if isinstance(raw_participants, list) else []
+        )
+        atoms = []
+        if self.atom_enabled:
+            atoms = classify_atoms(
+                key_facts=key_facts,
+                topics=topics,
+                participants=participants,
+                parent_importance=normalized_importance,
+                session_id=session_id,
+                persona_id=persona_id,
+            )
+
+        new_memory_id: int | None = None
+        add_task = asyncio.create_task(
+            self.add_memory(
+                content=content,
+                session_id=session_id,
+                persona_id=persona_id,
+                importance=normalized_importance,
+                metadata=replacement_metadata,
+                atoms=atoms,
+                preserve_create_time=True,
+            )
+        )
+        try:
+            new_memory_id = await asyncio.shield(add_task)
+            if new_memory_id is None:
+                raise RuntimeError("新记忆创建失败")
+            if not await self.delete_memory(memory_id):
+                await self.delete_memory(new_memory_id)
+                new_memory_id = None
+                raise RuntimeError("旧记忆删除失败，已回滚新记忆")
+            self._invalidate_search_cache()
+            return new_memory_id
+        except asyncio.CancelledError:
+            if new_memory_id is None:
+                try:
+                    new_memory_id = await asyncio.shield(add_task)
+                except Exception:
+                    new_memory_id = None
+            if new_memory_id is not None:
+                await asyncio.shield(self.delete_memory(new_memory_id))
+            self._invalidate_search_cache()
+            raise
+        except Exception:
+            if new_memory_id is not None:
+                try:
+                    if await self.get_memory(new_memory_id):
+                        await self.delete_memory(new_memory_id)
+                except Exception:
+                    logger.error(
+                        f"[更新] 回滚新记忆失败 (memory_id={new_memory_id})",
+                        exc_info=True,
+                    )
+            self._invalidate_search_cache()
+            raise
 
     async def delete_memory(self, memory_id: int) -> bool:
         """

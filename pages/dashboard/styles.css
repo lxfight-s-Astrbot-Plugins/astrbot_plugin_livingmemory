@@ -1268,6 +1268,10 @@ body {
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
+.memory-detail-edit-area.compact {
+  min-height: 96px;
+}
+
 .memory-detail-meta-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
