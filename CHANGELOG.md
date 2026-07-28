@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### 新增
+- **WebUI 提示词管理页面**: 在 Dashboard 中集中管理插件所有可自定义的 prompt 模板，支持按分类浏览、编辑、保存、恢复默认，含 JSON 格式警告标识和 i18n 多语言支持
+- **PromptManager**: 提示词注册表 + 文件持久化引擎，自定义内容保存至 `data/prompts/`，内置默认不受影响；原有硬编码 prompt（system_prompt_base、system_prompt_with_persona、injection_header/footer）提取为独立模板文件
+- **提示词 API**: Page API 新增 `prompts`、`prompts/detail`、`prompts/update`、`prompts/reset`、`prompts/default` 五个路由
+
+### 变更
+- `MemoryProcessor._load_prompts()` 和 `_build_system_prompt_with_persona()` 改为通过 PromptManager 加载模板，保留后备降级路径
+- `format_memories_for_injection()` 的记忆注入头部/尾部文本改为从 PromptManager 读取
+
 ## [2.3.6] - 2026-06-28
 
 ### 修复

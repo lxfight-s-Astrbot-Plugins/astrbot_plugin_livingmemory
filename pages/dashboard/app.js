@@ -9,6 +9,7 @@ import {
   MemoryPage,
   RecallPage,
   SystemPage,
+  PromptPage,
   esc,
   statusPill,
   nodeBadge,
@@ -51,6 +52,7 @@ import {
   const memoryPage = new MemoryPage(state, api, peekPanel);
   const recallPage = new RecallPage(state, api, peekPanel);
   const systemPage = new SystemPage(state, api);
+  const promptPage = new PromptPage(state, api);
 
   /* ================================================================
      Theme Management
@@ -134,6 +136,7 @@ import {
     if (name === "memory") memoryPage.fetch();
     if (name === "recall") { /* 召回页面按需加载 */ }
     if (name === "system") systemPage.fetch();
+    if (name === "prompts") promptPage.fetch();
   }
 
   function normalizeLocale(locale) {

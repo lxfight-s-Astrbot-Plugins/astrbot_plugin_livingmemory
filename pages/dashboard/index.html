@@ -39,6 +39,12 @@
             </svg>
             <span data-i18n="nav.system">System</span>
           </button>
+          <button class="nav-item" data-page="prompts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <span data-i18n="nav.prompts">Prompts</span>
+          </button>
         </nav>
         <div class="sidebar-divider"></div>
         <div class="sidebar-footer">
@@ -241,6 +247,33 @@
             <div class="system-panel">
               <div class="system-panel-title" data-i18n="system.versionBackups">Version Backups</div>
               <div class="backup-list" id="backup-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Page: Prompts -->
+        <section class="page" id="page-prompts">
+          <header class="page-header">
+            <span class="page-title" data-i18n="nav.prompts">Prompt Management</span>
+          </header>
+          <div class="page-body">
+            <div id="prompt-content"></div>
+            <div class="prompt-editor hidden" id="prompt-editor">
+              <div class="prompt-editor-header">
+                <span class="prompt-editor-subtitle" data-i18n="prompt.editTitle">Edit Prompt</span>
+                <span class="prompt-editor-title" id="prompt-editor-title"></span>
+                <span class="prompt-editor-status" id="prompt-editor-status"></span>
+              </div>
+              <div class="prompt-editor-vars-row">
+                <span class="prompt-editor-vars-label" data-i18n="prompt.variables">Variables</span>
+                <span id="prompt-editor-vars"></span>
+              </div>
+              <textarea id="prompt-editor-textarea" class="input textarea prompt-editor-textarea" rows="20" spellcheck="false"></textarea>
+              <div class="prompt-editor-actions">
+                <button class="btn btn-secondary" id="prompt-cancel-btn" data-i18n="common.cancel">Cancel</button>
+                <button class="btn btn-danger btn-sm" id="prompt-reset-btn" data-i18n="prompt.reset">Reset to Default</button>
+                <button class="btn btn-primary" id="prompt-save-btn" data-i18n="common.save">Save</button>
+              </div>
             </div>
           </div>
         </section>

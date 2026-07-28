@@ -88,25 +88,51 @@ class MemoryProcessor:
         return None
 
     def _load_prompts(self) -> None:
-        """从外部文件加载提示词模板"""
+        """从 PromptManager 加载提示词模板（支持用户自定义覆盖）"""
+        try:
+            from ..prompts.prompt_manager import get_prompt_manager
+
+            mgr = get_prompt_manager()
+            if mgr is not None:
+                self.private_chat_prompt = mgr.get_prompt("private_chat_prompt")
+                self.group_chat_prompt = mgr.get_prompt("group_chat_prompt")
+                logger.info("[MemoryProcessor] 通过 PromptManager 加载提示词模板成功")
+            else:
+                self._load_prompts_fallback()
+        except Exception as e:
+            logger.error(f"[MemoryProcessor] 通过 PromptManager 加载提示词失败: {e}")
+            self._load_prompts_fallback()
+
+    def _get_chat_prompt(self, is_group_chat: bool) -> str:
+        """每次处理时从 PromptManager 实时读取，确保 WebUI 保存后立即生效。"""
+        try:
+            from ..prompts.prompt_manager import get_prompt_manager
+
+            mgr = get_prompt_manager()
+            if mgr is not None:
+                prompt_id = "group_chat_prompt" if is_group_chat else "private_chat_prompt"
+                return mgr.get_prompt(prompt_id)
+        except Exception:
+            pass
+        return self.group_chat_prompt if is_group_chat else self.private_chat_prompt
+
+    def _load_prompts_fallback(self) -> None:
+        """后备加载：直接从文件读取提示词"""
         prompt_dir = Path(__file__).parent.parent / "prompts"
 
         try:
-            # 加载私聊提示词
             private_prompt_file = prompt_dir / "private_chat_prompt.txt"
             with open(private_prompt_file, encoding="utf-8") as f:
                 self.private_chat_prompt = f.read()
 
-            # 加载群聊提示词
             group_prompt_file = prompt_dir / "group_chat_prompt.txt"
             with open(group_prompt_file, encoding="utf-8") as f:
                 self.group_chat_prompt = f.read()
 
-            logger.info("[MemoryProcessor] 提示词模板加载成功")
+            logger.info("[MemoryProcessor] 提示词模板加载成功（后备模式）")
 
         except Exception as e:
             logger.error(f"[MemoryProcessor] 加载提示词模板失败: {e}")
-            # 使用简单的后备提示词（注意：使用 replace 替换，无需转义大括号）
             self.private_chat_prompt = """分析以下对话并生成JSON格式的记忆:
 {conversation}
 
@@ -131,12 +157,20 @@ class MemoryProcessor:
             str: 包含人格提示的 system_prompt
         """
         current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        base_prompt = (
-            "你正在总结对话记忆。请严格按照JSON格式输出。\n"
-            f"当前日期时间: {current_date}\n"
-            "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、\u201c明天\u201d、\u201c昨天\u201d、\u201c下周\u201d、\u201c上个月\u201d等）"
-            "转换为具体日期后再写入记忆，以便未来查阅时仍能准确理解时间信息。"
-        )
+
+        # 尝试从 PromptManager 获取基础 system prompt
+        try:
+            from ..prompts.prompt_manager import get_prompt_manager
+
+            mgr = get_prompt_manager()
+            if mgr is not None:
+                base_prompt = mgr.get_prompt("memory_system_prompt_base").replace(
+                    "{current_date}", current_date
+                )
+            else:
+                base_prompt = self._build_base_prompt_fallback(current_date)
+        except Exception:
+            base_prompt = self._build_base_prompt_fallback(current_date)
 
         if not persona_id:
             logger.debug("[MemoryProcessor] 未指定人格ID，使用基础提示词")
@@ -180,22 +214,25 @@ class MemoryProcessor:
             )
             logger.debug(f"[MemoryProcessor] 人格提示词预览: {persona_prompt[:100]}...")
 
-            enhanced_prompt = (
-                f"{base_prompt}\n\n"
-                f"## 你的人格设定\n"
-                f"{persona_prompt}\n\n"
-                f"## 记忆总结要求\n"
-                f"在总结对话记忆时,你需要:\n"
-                f"1. **保持你的人格特色**: 使用符合上述人格设定的语气、用词习惯和表达方式\n"
-                f'2. **第一人称视角**: 以"我"的视角回顾对话,不要说"bot"、"助手"等第三人称\n'
-                f"3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
-                f"4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
-                f"5. **时间转换**: 将对话中的相对时间（今天、明天、下周等）转换为具体日期（当前日期: {current_date}）\n\n"
-                f"例如:\n"
-                f'- 如果你是活泼可爱的性格,记忆中可以使用"呀"、"呢"、"~"等语气词\n'
-                f"- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
-                f"- 如果你是幽默风趣的性格,记忆中可以包含轻松的表达和有趣的观察"
-            )
+            # 使用 PromptManager 模板构建增强提示词
+            try:
+                if mgr is not None:
+                    enhanced_template = mgr.get_prompt(
+                        "memory_system_prompt_with_persona"
+                    )
+                    enhanced_prompt = (
+                        enhanced_template.replace("{base_prompt}", base_prompt)
+                        .replace("{persona_prompt}", persona_prompt)
+                        .replace("{current_date}", current_date)
+                    )
+                else:
+                    enhanced_prompt = self._build_enhanced_prompt_fallback(
+                        base_prompt, persona_prompt, current_date
+                    )
+            except Exception:
+                enhanced_prompt = self._build_enhanced_prompt_fallback(
+                    base_prompt, persona_prompt, current_date
+                )
 
             return enhanced_prompt
 
@@ -207,6 +244,40 @@ class MemoryProcessor:
                 f"[MemoryProcessor] 获取人格提示词时发生错误: {e}", exc_info=True
             )
             return base_prompt
+
+    @staticmethod
+    def _build_base_prompt_fallback(current_date: str) -> str:
+        """后备基础 system prompt（当 PromptManager 不可用时）"""
+        return (
+            "你正在总结对话记忆。请严格按照JSON格式输出。\n"
+            f"当前日期时间: {current_date}\n"
+            "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、"
+            "\u201c明天\u201d、\u201c昨天\u201d、"
+            "\u201c下周\u201d、\u201c上个月\u201d等）"
+            "转换为具体日期后再写入记忆，以便未来查阅时仍能准确理解时间信息。"
+        )
+
+    @staticmethod
+    def _build_enhanced_prompt_fallback(
+        base_prompt: str, persona_prompt: str, current_date: str
+    ) -> str:
+        """后备增强 system prompt（当 PromptManager 不可用时）"""
+        return (
+            f"{base_prompt}\n\n"
+            f"## 你的人格设定\n"
+            f"{persona_prompt}\n\n"
+            f"## 记忆总结要求\n"
+            f"在总结对话记忆时,你需要:\n"
+            f"1. **保持你的人格特色**: 使用符合上述人格设定的语气、用词习惯和表达方式\n"
+            f'2. **第一人称视角**: 以"我"的视角回顾对话,不要说"bot"、"助手"等第三人称\n'
+            f"3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
+            f"4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
+            f"5. **时间转换**: 将对话中的相对时间（今天、明天、下周等）转换为具体日期（当前日期: {current_date}）\n\n"
+            f"例如:\n"
+            f'- 如果你是活泼可爱的性格,记忆中可以使用"呀"、"呢"、"~"等语气词\n'
+            f"- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
+            f"- 如果你是幽默风趣的性格,记忆中可以包含轻松的表达和有趣的观察"
+        )
 
     async def _call_llm_with_retry(
         self, prompt: str, system_prompt: str, max_retries: int = 3
@@ -319,17 +390,12 @@ class MemoryProcessor:
         # 1. 格式化对话历史
         conversation_text = self._format_conversation(messages)
 
-        # 2. 选择合适的提示词模板
+        # 2. 选择合适的提示词模板（每次从 PromptManager 读取，确保 WebUI 保存后立即生效）
         # 使用 replace 而非 format，避免对话内容中的大括号导致解析错误
         current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if is_group_chat:
-            prompt = self.group_chat_prompt.replace("{conversation}", conversation_text)
-        else:
-            prompt = self.private_chat_prompt.replace(
-                "{conversation}", conversation_text
-            )
-        # 注入当前日期，让 LLM 能将相对时间转换为绝对日期
-        prompt = prompt.replace("{current_date}", current_date)
+        prompt = self._get_chat_prompt(is_group_chat).replace(
+            "{conversation}", conversation_text
+        ).replace("{current_date}", current_date)
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"

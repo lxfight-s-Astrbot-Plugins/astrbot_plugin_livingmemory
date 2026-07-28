@@ -16,6 +16,7 @@ from .page_api_modules import (
     GraphHandler,
     MemoryHandler,
     PageApiUtils,
+    PromptHandler,
     RecallHandler,
     StatsHandler,
 )
@@ -38,6 +39,7 @@ class PluginPageApi:
         self.memory_handler = MemoryHandler(self.utils)
         self.recall_handler = RecallHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
+        self.prompt_handler = PromptHandler(self.utils)
 
         # BackupHandler 需要 data_dir，延迟初始化
         self._backup_handler = None
@@ -115,6 +117,36 @@ class PluginPageApi:
             ["GET"],
             "LivingMemory Page backup list",
         )
+        register(
+            f"{PAGE_API_PREFIX}/prompts",
+            self.list_prompts,
+            ["GET"],
+            "LivingMemory Page prompt list",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/prompts/detail",
+            self.get_prompt_detail,
+            ["GET"],
+            "LivingMemory Page prompt detail",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/prompts/update",
+            self.update_prompt,
+            ["POST"],
+            "LivingMemory Page update prompt",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/prompts/reset",
+            self.reset_prompt,
+            ["POST"],
+            "LivingMemory Page reset prompt",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/prompts/default",
+            self.get_prompt_default,
+            ["GET"],
+            "LivingMemory Page get prompt default content",
+        )
 
     # ==================== 路由处理方法 ====================
     # 所有方法都委托给相应的处理器
@@ -185,6 +217,23 @@ class PluginPageApi:
     async def list_backups(self):
         """列出所有版本备份及其元数据"""
         return await self.backup_handler.list_backups()
+
+    # ---- Prompt 管理路由 ----
+
+    async def list_prompts(self):
+        return await self.prompt_handler.list_prompts()
+
+    async def get_prompt_detail(self):
+        return await self.prompt_handler.get_prompt_detail()
+
+    async def update_prompt(self):
+        return await self.prompt_handler.update_prompt()
+
+    async def reset_prompt(self):
+        return await self.prompt_handler.reset_prompt()
+
+    async def get_prompt_default(self):
+        return await self.prompt_handler.get_prompt_default()
 
     # ==================== 辅助方法 ====================
 
