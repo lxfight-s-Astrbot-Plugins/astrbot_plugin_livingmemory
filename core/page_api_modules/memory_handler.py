@@ -52,6 +52,27 @@ class MemoryHandler:
 
         raise ValueError("重要性必须在 0-1 或 0-10 范围内")
 
+    @staticmethod
+    def _normalize_edit_list(value: Any, field: str) -> list[str]:
+        """Validate a manually edited topics/key_facts list."""
+        if not isinstance(value, list):
+            raise ValueError(f"{field} 必须是字符串列表")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(f"{field} 必须是字符串列表")
+            text = item.strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            normalized.append(text)
+
+        if len(normalized) > 5:
+            raise ValueError(f"{field} 最多允许 5 项")
+        return normalized
+
     async def list_memories(self, memory_engine) -> dict[str, Any]:
         """
         获取记忆列表（带分页和过滤）
@@ -310,6 +331,9 @@ class MemoryHandler:
 
         支持的字段:
             - content: 记忆内容（会创建新记忆并删除旧记忆）
+            - topics: 主题列表（会重建记忆及派生数据）
+            - key_facts: 关键事实列表（会重建记忆及派生数据）
+            - structured: 联合更新上述字段及其他元数据
             - importance: 重要性（0-1 或 0-10）
             - status: 状态（active/archived/deleted）
             - type: 类型
@@ -345,62 +369,136 @@ class MemoryHandler:
 
         current_metadata = self.utils.normalize_metadata(memory.get("metadata"))
 
-        # 特殊处理：content 更新需要重新创建记忆
-        if field == "content":
-            new_content = str(value).strip()
+        # 内容、主题和关键事实共同决定向量、原子与图数据，必须一次重建。
+        if field in {"content", "topics", "key_facts", "structured"}:
+            if field == "structured":
+                if not isinstance(value, dict):
+                    return self.utils.error("structured value 必须是对象")
+                structured = value
+            else:
+                structured = {field: value}
+
+            new_content = str(
+                structured.get("content", memory.get("text", ""))
+            ).strip()
             if not new_content:
                 return self.utils.error("记忆内容不能为空")
 
-            session_id = current_metadata.get("session_id")
-            persona_id = current_metadata.get("persona_id")
-            importance = clamp_float(current_metadata.get("importance"), default=0.5)
+            try:
+                topics = self._normalize_edit_list(
+                    structured.get("topics", current_metadata.get("topics", [])),
+                    "topics",
+                )
+                key_facts = self._normalize_edit_list(
+                    structured.get(
+                        "key_facts", current_metadata.get("key_facts", [])
+                    ),
+                    "key_facts",
+                )
+                importance = (
+                    self._normalize_importance_update(
+                        structured["importance"], value_scale
+                    )
+                    if "importance" in structured
+                    else clamp_float(
+                        current_metadata.get("importance"), default=0.5
+                    )
+                )
+            except ValueError as exc:
+                return self.utils.error(str(exc))
+
+            status_value = str(
+                structured.get("status", current_metadata.get("status", "active"))
+            ).strip()
+            if status_value not in {"active", "archived", "deleted"}:
+                return self.utils.error("状态必须是 active、archived 或 deleted")
+            type_value = str(
+                structured.get(
+                    "type", current_metadata.get("memory_type", "GENERAL")
+                )
+            ).strip()
+            if not type_value:
+                return self.utils.error("类型不能为空")
+
             updated_at = time.time()
-            update_history = self.utils.append_update_history(
-                current_metadata,
-                field="content",
-                old_value=memory.get("text", ""),
-                new_value=new_content,
-                reason=reason,
-                timestamp=updated_at,
-            )
+            replacement_metadata = current_metadata.copy()
+            changes = {
+                "content": (str(memory.get("text", "")), new_content),
+                "topics": (current_metadata.get("topics", []), topics),
+                "key_facts": (current_metadata.get("key_facts", []), key_facts),
+                "status": (current_metadata.get("status", "active"), status_value),
+                "type": (
+                    current_metadata.get("memory_type", "GENERAL"),
+                    type_value,
+                ),
+                "importance": (
+                    clamp_float(current_metadata.get("importance"), default=0.5),
+                    importance,
+                ),
+            }
+            changed_fields = [
+                name for name, (old, new) in changes.items() if old != new
+            ]
+            if not changed_fields:
+                return self.utils.ok(
+                    {
+                        "message": "没有检测到修改",
+                        "memory_id": memory_id,
+                        "new_memory_id": memory_id,
+                        "field": field,
+                    }
+                )
+
+            for changed_field in changed_fields:
+                old_value, new_value = changes[changed_field]
+                replacement_metadata["update_history"] = (
+                    self.utils.append_update_history(
+                        replacement_metadata,
+                        field=changed_field,
+                        old_value=old_value,
+                        new_value=new_value,
+                        reason=reason,
+                        timestamp=updated_at,
+                    )
+                )
 
             if reason:
-                current_metadata["update_reason"] = reason
-            current_metadata["updated_at"] = updated_at
-            current_metadata["previous_content"] = str(memory.get("text", ""))[:100]
-            current_metadata["update_history"] = update_history
+                replacement_metadata["update_reason"] = reason
+            replacement_metadata.update(
+                {
+                    "updated_at": updated_at,
+                    "topics": topics,
+                    "key_facts": key_facts,
+                    "status": status_value,
+                    "memory_type": type_value,
+                    "importance": importance,
+                }
+            )
+            if "content" in changed_fields:
+                replacement_metadata["previous_content"] = str(
+                    memory.get("text", "")
+                )[:100]
+                replacement_metadata["canonical_summary"] = new_content
+                replacement_metadata["persona_summary"] = new_content
 
-            new_memory_id = None
             try:
-                new_memory_id = await memory_engine.add_memory(
+                new_memory_id = await memory_engine.replace_memory(
+                    memory_id,
                     content=new_content,
-                    session_id=session_id,
-                    persona_id=persona_id,
                     importance=importance,
-                    metadata=current_metadata,
+                    metadata=replacement_metadata,
                 )
-                delete_success = await memory_engine.delete_memory(memory_id)
-                if not delete_success:
-                    await memory_engine.delete_memory(new_memory_id)
-                    return self.utils.error("旧记忆删除失败，已回滚本次内容更新")
             except Exception as exc:
-                if new_memory_id is not None:
-                    try:
-                        await memory_engine.delete_memory(new_memory_id)
-                    except Exception:
-                        logger.error(
-                            f"[PageAPI] 回滚新记忆失败 (new_memory_id={new_memory_id})",
-                            exc_info=True,
-                        )
-                logger.error(f"[PageAPI] 更新记忆内容失败: {exc}", exc_info=True)
+                logger.error(f"[PageAPI] 重建记忆失败: {exc}", exc_info=True)
                 return self.utils.error(str(exc))
 
             return self.utils.ok(
                 {
-                    "message": f"记忆内容已更新（ID: {memory_id} → {new_memory_id}）",
+                    "message": f"记忆已更新（ID: {memory_id} → {new_memory_id}）",
                     "old_memory_id": memory_id,
                     "new_memory_id": new_memory_id,
                     "field": field,
+                    "changed_fields": changed_fields,
                 }
             )
 

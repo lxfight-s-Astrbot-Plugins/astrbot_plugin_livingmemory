@@ -128,8 +128,16 @@ class HybridRetriever:
         # 先添加到向量库获取doc_id
         doc_id = await self.vector_retriever.add_document(content, metadata)
 
-        # 使用相同的doc_id添加到BM25索引
-        await self.bm25_retriever.add_document(doc_id, content, metadata)
+        # 使用相同的doc_id添加到BM25索引。BM25失败时必须清理已经
+        # 写入的向量和文档记录，否则调用方无法得知残留记录的ID。
+        try:
+            await self.bm25_retriever.add_document(doc_id, content, metadata)
+        except asyncio.CancelledError:
+            await asyncio.shield(self.vector_retriever.delete_document(doc_id))
+            raise
+        except Exception:
+            await self.vector_retriever.delete_document(doc_id)
+            raise
 
         return doc_id
 

@@ -101,6 +101,9 @@ class _FakeFaissDB:
         if target is not None:
             self.docs.pop(target, None)
 
+    async def close(self) -> None:
+        return None
+
 
 def test_memory_engine_atom_enabled_honors_explicit_false(tmp_path: Path):
     engine = MemoryEngine(
@@ -1269,6 +1272,97 @@ async def test_update_memory_add_fails_returns_false(tmp_path: Path):
     assert success is False
     assert delete_called is False
 
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_replace_memory_rebuilds_atoms_and_preserves_create_time(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "replace_structured.db"),
+        faiss_db=_FakeFaissDB(),
+        graph_vector_db=_FakeFaissDB(),
+        config={"atom_enabled": True, "graph_memory_enabled": True},
+    )
+    await engine.initialize()
+    old_id = await engine.add_memory(
+        content="old summary",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={"topics": ["old"], "key_facts": ["old fact"]},
+    )
+    old_memory = await engine.get_memory(old_id)
+    old_create_time = old_memory["metadata"]["create_time"]
+
+    new_id = await engine.replace_memory(
+        old_id,
+        content="new summary",
+        importance=0.8,
+        metadata={
+            "topics": ["release"],
+            "key_facts": ["Release is Friday"],
+        },
+    )
+
+    assert new_id != old_id
+    assert await engine.get_memory(old_id) is None
+    replacement = await engine.get_memory(new_id)
+    assert replacement["metadata"]["topics"] == ["release"]
+    assert replacement["metadata"]["key_facts"] == ["Release is Friday"]
+    assert replacement["metadata"]["create_time"] == old_create_time
+    atoms = await engine.atom_store.get_by_parent(new_id)
+    assert [atom.content for atom in atoms] == ["Release is Friday"]
+    assert atoms[0].entities == ["release"]
+    old_graph = await engine.graph_store.get_subgraph_for_memories([old_id])
+    new_graph = await engine.graph_store.get_subgraph_for_memories([new_id])
+    assert old_graph["entries"] == []
+    assert any(
+        "Release is Friday" in entry["content"]
+        for entry in new_graph["entries"]
+    )
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_replace_memory_cancellation_removes_new_record(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "replace_cancelled.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+    old_id = await engine.add_memory(content="old summary", metadata={})
+    expected_new_id = old_id + 1
+    original_delete = engine.delete_memory
+    old_delete_started = asyncio.Event()
+    deleted_ids: list[int] = []
+
+    async def block_old_delete(memory_id: int) -> bool:
+        deleted_ids.append(memory_id)
+        if memory_id == old_id:
+            old_delete_started.set()
+            await asyncio.Future()
+        return await original_delete(memory_id)
+
+    engine.delete_memory = block_old_delete
+    task = asyncio.create_task(
+        engine.replace_memory(
+            old_id,
+            content="new summary",
+            metadata={"topics": ["new"], "key_facts": ["new fact"]},
+            importance=0.7,
+        )
+    )
+    await asyncio.wait_for(old_delete_started.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert deleted_ids == [old_id, expected_new_id]
+    assert await engine.get_memory(old_id) is not None
+    assert await engine.get_memory(expected_new_id) is None
     await engine.close()
 
 
