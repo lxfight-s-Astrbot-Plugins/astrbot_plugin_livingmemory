@@ -9,6 +9,7 @@
 
 ### 新增
 - **召回最低重要性过滤**: 新增可选的最低重要性阈值，在统一检索出口过滤低重要性记忆 (#116)
+- **扩展上下文时间限制**: 召回查询仅拼接配置时间范围内的历史消息，避免跨话题时间间隔造成干扰 (#182)
 - **WebUI 提示词管理页面**: 在 Dashboard 中集中管理插件所有可自定义的 prompt 模板，支持按分类浏览、编辑、保存、恢复默认，含 JSON 格式警告标识和 i18n 多语言支持
 - **PromptManager**: 提示词注册表 + 文件持久化引擎，自定义内容保存至 `data/prompts/`，内置默认不受影响；原有硬编码 prompt（system_prompt_base、system_prompt_with_persona、injection_header/footer）提取为独立模板文件
 - **提示词 API**: Page API 新增 `prompts`、`prompts/detail`、`prompts/update`、`prompts/reset`、`prompts/default` 五个路由

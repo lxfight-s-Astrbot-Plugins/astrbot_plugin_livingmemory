@@ -3,6 +3,7 @@ Tests for EventHandler core behaviors.
 """
 
 import json
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -1543,9 +1544,9 @@ async def test_context_expansion_enriches_query(
     # 模拟返回 3 条消息（最新在前）: [当前消息, bot 回复, 用户上条]
     cm_mock.get_context = AsyncMock(
         return_value=[
-            {"content": "当前用户消息"},
-            {"content": "Bot 的上一条回复"},
-            {"content": "用户之前说的事情"},
+            {"content": "当前用户消息", "timestamp": time.time()},
+            {"content": "Bot 的上一条回复", "timestamp": time.time() - 10},
+            {"content": "用户之前说的事情", "timestamp": time.time() - 20},
         ]
     )
 
@@ -1587,6 +1588,66 @@ async def test_context_expansion_enriches_query(
     call_kwargs = memory_engine.search_memories.await_args.kwargs
     assert "用户之前说的事情" in call_kwargs["query"]
     assert "Bot 的上一条回复" in call_kwargs["query"]
+    cm_mock.get_context.assert_awaited_once_with(
+        event.unified_msg_origin,
+        max_messages=5,
+        format_for_llm=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_context_expansion_excludes_stale_and_undated_messages(
+    memory_engine, memory_processor, conversation_manager
+):
+    """超过最大间隔或缺失时间戳的消息不应污染扩展查询。"""
+    now = time.time()
+    cm_mock = Mock()
+    cm_mock.add_message_from_event = AsyncMock()
+    cm_mock.store = Mock()
+    cm_mock.store.get_message_count = AsyncMock(return_value=4)
+    cm_mock.store.connection = Mock()
+    cm_mock.get_session_metadata = AsyncMock(return_value=0)
+    cm_mock.update_session_metadata = AsyncMock()
+    cm_mock.invalidate_cache = AsyncMock()
+    cm_mock.get_context = AsyncMock(
+        return_value=[
+            {"content": "当前消息", "timestamp": now},
+            {"content": "一小时内", "timestamp": now - 1800},
+            {"content": "三小时前", "timestamp": now - 10800},
+            {"content": "没有时间"},
+        ]
+    )
+
+    h = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "inject_with_recent_context": True,
+                    "recent_context_max_age_seconds": 7200,
+                }
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=cm_mock,
+    )
+    memory_engine.search_memories = AsyncMock(return_value=[])
+    event = _make_event(group=False)
+    event.get_message_str = Mock(return_value="当前消息")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await h.handle_memory_recall(event, _make_req("当前消息"))
+
+    query = memory_engine.search_memories.await_args.kwargs["query"]
+    assert "一小时内" in query
+    assert "三小时前" not in query
+    assert "没有时间" not in query
 
 
 @pytest.mark.asyncio

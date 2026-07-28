@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
@@ -56,6 +58,30 @@ class MemoryRecall:
         self.conversation_manager = conversation_manager
         self.message_utils = message_utils
         self.injection_adapter = injection_adapter
+
+    @staticmethod
+    def _message_timestamp_seconds(value) -> float | None:
+        if isinstance(value, (int, float)):
+            timestamp = float(value)
+        elif isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                timestamp = float(stripped)
+            except ValueError:
+                try:
+                    timestamp = datetime.fromisoformat(
+                        stripped.replace("Z", "+00:00")
+                    ).timestamp()
+                except ValueError:
+                    return None
+        else:
+            return None
+
+        if timestamp > 100_000_000_000:
+            timestamp /= 1000.0
+        return timestamp if timestamp > 0 else None
 
     async def handle_memory_recall(
         self, event: AstrMessageEvent, req: ProviderRequest
@@ -166,14 +192,31 @@ class MemoryRecall:
                     try:
                         recent_messages = (
                             await self.conversation_manager.get_context(
-                                session_id, max_messages=5
+                                session_id,
+                                max_messages=5,
+                                format_for_llm=False,
                             )
                         )
                         if recent_messages and len(recent_messages) > 1:
                             # recent_messages 按 timestamp DESC 排列（最新在前）
                             # 跳过索引0（当前消息），取后续消息作为扩展上下文
                             context_parts = []
+                            max_age_seconds = self.config_manager.get(
+                                "recall_engine.recent_context_max_age_seconds", 7200
+                            )
+                            now = time.time()
+                            skipped_by_age = 0
                             for msg in reversed(recent_messages[1:]):
+                                if max_age_seconds > 0:
+                                    timestamp = self._message_timestamp_seconds(
+                                        msg.get("timestamp")
+                                    )
+                                    if (
+                                        timestamp is None
+                                        or now - timestamp > max_age_seconds
+                                    ):
+                                        skipped_by_age += 1
+                                        continue
                                 content = msg.get("content", "")
                                 if content and content.strip():
                                     context_parts.append(content.strip())
@@ -182,7 +225,8 @@ class MemoryRecall:
                                 query_for_search = expanded + " " + actual_query
                                 logger.info(
                                     f"[{session_id}] 上下文扩展查询: "
-                                    f"{len(context_parts)}条历史消息 + 当前消息"
+                                    f"{len(context_parts)}条历史消息 + 当前消息，"
+                                    f"按时间跳过={skipped_by_age}条"
                                 )
                     except Exception as e:
                         logger.warning(f"[{session_id}] 获取上下文扩展失败: {e}")

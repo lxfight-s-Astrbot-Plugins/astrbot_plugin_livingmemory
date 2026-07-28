@@ -134,6 +134,12 @@
                 "type": "bool",
                 "default": false
             },
+            "recent_context_max_age_seconds": {
+                "description": "扩展上下文最大间隔（秒）",
+                "hint": "仅使用该时间范围内的历史消息扩展召回查询，避免新话题被过久之前的上下文干扰。设为 0 表示不限制时间。",
+                "type": "int",
+                "default": 7200
+            },
             "search_cache_enabled": {
                 "description": "启用短期检索缓存",
                 "hint": "短时间内相同会话和相同查询会复用检索结果，降低连续追问时的 SQLite/FAISS 开销。",

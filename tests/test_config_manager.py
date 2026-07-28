@@ -17,6 +17,7 @@ def test_config_manager_loads_defaults() -> None:
     assert "dense_retriever" not in config
     assert manager.get("recall_engine.top_k") == 5
     assert manager.get("recall_engine.min_importance_for_retrieval") == 0.0
+    assert manager.get("recall_engine.recent_context_max_age_seconds") == 7200
     assert manager.get("fusion_strategy.rrf_k") == 60
     assert manager.get("session_manager.max_sessions") == 100
     assert manager.get("session_manager.max_messages_per_session") == 1000
@@ -72,6 +73,14 @@ def test_validate_config_accepts_retrieval_importance_threshold() -> None:
     )
 
     assert config.recall_engine.min_importance_for_retrieval == 0.65
+
+
+def test_validate_config_accepts_recent_context_max_age() -> None:
+    config = validate_config(
+        {"recall_engine": {"recent_context_max_age_seconds": 3600}}
+    )
+
+    assert config.recall_engine.recent_context_max_age_seconds == 3600
 
 
 def test_config_manager_graph_memory_property() -> None:
