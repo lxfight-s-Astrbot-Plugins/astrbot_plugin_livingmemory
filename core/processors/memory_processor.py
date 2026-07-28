@@ -103,6 +103,19 @@ class MemoryProcessor:
             logger.error(f"[MemoryProcessor] 通过 PromptManager 加载提示词失败: {e}")
             self._load_prompts_fallback()
 
+    def _get_chat_prompt(self, is_group_chat: bool) -> str:
+        """每次处理时从 PromptManager 实时读取，确保 WebUI 保存后立即生效。"""
+        try:
+            from ..prompts.prompt_manager import get_prompt_manager
+
+            mgr = get_prompt_manager()
+            if mgr is not None:
+                prompt_id = "group_chat_prompt" if is_group_chat else "private_chat_prompt"
+                return mgr.get_prompt(prompt_id)
+        except Exception:
+            pass
+        return self.group_chat_prompt if is_group_chat else self.private_chat_prompt
+
     def _load_prompts_fallback(self) -> None:
         """后备加载：直接从文件读取提示词"""
         prompt_dir = Path(__file__).parent.parent / "prompts"
@@ -377,17 +390,12 @@ class MemoryProcessor:
         # 1. 格式化对话历史
         conversation_text = self._format_conversation(messages)
 
-        # 2. 选择合适的提示词模板
+        # 2. 选择合适的提示词模板（每次从 PromptManager 读取，确保 WebUI 保存后立即生效）
         # 使用 replace 而非 format，避免对话内容中的大括号导致解析错误
         current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if is_group_chat:
-            prompt = self.group_chat_prompt.replace("{conversation}", conversation_text)
-        else:
-            prompt = self.private_chat_prompt.replace(
-                "{conversation}", conversation_text
-            )
-        # 注入当前日期，让 LLM 能将相对时间转换为绝对日期
-        prompt = prompt.replace("{current_date}", current_date)
+        prompt = self._get_chat_prompt(is_group_chat).replace(
+            "{conversation}", conversation_text
+        ).replace("{current_date}", current_date)
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"

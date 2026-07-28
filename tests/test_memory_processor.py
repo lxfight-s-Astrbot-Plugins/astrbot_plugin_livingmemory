@@ -2,12 +2,17 @@
 Tests for MemoryProcessor.
 """
 
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+from astrbot_plugin_livingmemory.core.prompts.prompt_manager import (
+    get_prompt_manager,
+    init_prompt_manager,
+)
 
 
 class _DummyLLMProvider:
@@ -85,6 +90,32 @@ async def test_process_conversation_handles_non_json_response_with_fallback():
     assert isinstance(content, str) and len(content) > 0
     assert "topics" in metadata
     assert 0.0 <= importance <= 1.0
+
+
+class TestPromptLiveReload:
+    """验证 WebUI 保存后 MemoryProcessor 立即使用新 prompt（不依赖实例字段缓存）。"""
+
+    def test_get_chat_prompt_reads_from_prompt_manager(self):
+        custom_text = "自定义私聊 prompt 内容 [{conversation}]"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            init_prompt_manager(tmpdir)
+            get_prompt_manager().update_prompt("private_chat_prompt", custom_text)
+
+            llm = _DummyLLMProvider("{}")
+            processor = MemoryProcessor(llm_provider=llm, context=None)
+
+            live = processor._get_chat_prompt(is_group_chat=False)
+            assert live == custom_text
+
+            # 清理：重置为默认，避免影响其他测试
+            get_prompt_manager().reset_prompt("private_chat_prompt")
+
+    def test_get_chat_prompt_returns_valid_content(self):
+        llm = _DummyLLMProvider("{}")
+        processor = MemoryProcessor(llm_provider=llm, context=None)
+        live = processor._get_chat_prompt(is_group_chat=False)
+        assert isinstance(live, str) and len(live) > 50
+        assert "{conversation}" in live
 
 
 @pytest.mark.asyncio
