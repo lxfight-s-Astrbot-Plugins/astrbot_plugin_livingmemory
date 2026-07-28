@@ -357,16 +357,48 @@ class PluginInitializer:
                 "请确认 faiss-cpu 已正确安装，或改用兼容当前 CPU 的 FAISS 包。"
             ) from exc
 
-        if result.returncode != 0:
-            details = (result.stderr or result.stdout or "").strip()
-            if result.returncode < 0:
-                details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
-            raise InitializationError(
-                "FAISS 初始化失败，当前 CPU 或运行环境可能不兼容 faiss-cpu。"
-                "无 AVX2 的 CPU 上可能触发 Illegal instruction；"
-                "请使用支持 AVX2 的 CPU、安装兼容版本 FAISS，或更换运行环境。"
-                f"{' 原始错误: ' + details if details else ''}"
+        if result.returncode == 0:
+            return
+
+        # Some faiss-cpu wheels select an optimized extension that is incompatible
+        # with the current CPU or mismatched with the installed Python wrappers.
+        # Probe the generic extension in a child process before changing this process.
+        generic_env = os.environ.copy()
+        generic_env["FAISS_OPT_LEVEL"] = "generic"
+        try:
+            generic_result = subprocess.run(
+                [sys.executable, "-c", "import faiss"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env=generic_env,
             )
+        except (OSError, subprocess.TimeoutExpired):
+            generic_result = None
+
+        if generic_result is not None and generic_result.returncode == 0:
+            os.environ["FAISS_OPT_LEVEL"] = "generic"
+            logger.warning(
+                "FAISS 默认优化扩展加载失败，已回退到 generic 指令集兼容模式。"
+            )
+            return
+
+        details = (result.stderr or result.stdout or "").strip()
+        if result.returncode < 0:
+            details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
+        if generic_result is not None:
+            generic_details = (
+                generic_result.stderr or generic_result.stdout or ""
+            ).strip()
+            if generic_details and generic_details != details:
+                details = f"{details}；generic 模式: {generic_details}".strip("；")
+        raise InitializationError(
+            "FAISS 初始化失败，当前 CPU 或运行环境可能不兼容 faiss-cpu。"
+            "已尝试 generic 指令集兼容模式；请重新安装兼容版本的 FAISS，"
+            "或更换运行环境。"
+            f"{' 原始错误: ' + details if details else ''}"
+        )
 
     def _load_faiss_vec_db_class(self):
         global FaissVecDB

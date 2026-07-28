@@ -299,6 +299,15 @@ def get_now_datetime_from_context(context: Context) -> datetime:
         return get_now_datetime()
 
 
+def _memory_injection_content(content: Any, metadata: Any) -> str:
+    """Use the personality channel for injection while preserving legacy data."""
+    if isinstance(metadata, dict):
+        persona_summary = metadata.get("persona_summary")
+        if isinstance(persona_summary, str) and persona_summary.strip():
+            return persona_summary.strip()
+    return str(content or "")
+
+
 def format_memories_for_injection(memories: list) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
@@ -410,15 +419,17 @@ def format_memories_for_injection(memories: list) -> str:
             if metadata_parts:
                 entry_parts.append(" | ".join(metadata_parts))
 
-            # 添加记忆内容
-            entry_parts.append(content)
+            # Retrieval uses canonical content; prompt injection uses the
+            # personality channel. Legacy rows fall back to content.
+            display_content = _memory_injection_content(content, metadata)
+            entry_parts.append(display_content)
 
             entry = "\n".join(entry_parts)
             formatted_entries.append(entry)
 
             logger.debug(
                 f"[format_memories_for_injection] 格式化记忆 #{idx}: 重要性={importance:.2f}, "
-                f"得分={score:.2f}, 类型={interaction_type}, 内容长度={len(content)}"
+                f"得分={score:.2f}, 类型={interaction_type}, 内容长度={len(display_content)}"
             )
         except Exception as e:
             # 如果处理失败，则跳过此条记忆
@@ -507,10 +518,11 @@ def format_memories_for_fake_tool_call(
                 else metadata_raw
             )
 
+        display_content = _memory_injection_content(content, metadata)
         serialized_results.append(
             {
                 "id": memory_id,
-                "content": content,
+                "content": display_content,
                 "score": round(score, 4) if isinstance(score, float) else score,
                 "importance": metadata.get("importance", 0.5),
                 "session_id": metadata.get("session_id"),

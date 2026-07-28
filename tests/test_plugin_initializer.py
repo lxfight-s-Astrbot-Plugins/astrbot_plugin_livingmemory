@@ -83,6 +83,22 @@ def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
         initializer._check_faiss_runtime()
 
 
+def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
+    failed = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="", stderr="optimized import failed"
+    )
+    succeeded = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    run = Mock(side_effect=[failed, succeeded])
+    monkeypatch.setattr(plugin_initializer_mod.subprocess, "run", run)
+    monkeypatch.delenv("FAISS_OPT_LEVEL", raising=False)
+
+    initializer._check_faiss_runtime()
+
+    assert plugin_initializer_mod.os.environ["FAISS_OPT_LEVEL"] == "generic"
+    assert run.call_count == 2
+    assert run.call_args_list[1].kwargs["env"]["FAISS_OPT_LEVEL"] == "generic"
+
+
 def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
     class FakeFaissVecDB:
         pass

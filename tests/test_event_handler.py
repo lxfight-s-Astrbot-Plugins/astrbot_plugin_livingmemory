@@ -2,6 +2,7 @@
 Tests for EventHandler core behaviors.
 """
 
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -658,6 +659,31 @@ async def test_format_memories_for_fake_tool_call_empty():
 
     result = format_memories_for_fake_tool_call([], query="test", k=5)
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_fake_tool_call_uses_persona_summary_for_injection():
+    from astrbot_plugin_livingmemory.core.utils import (
+        format_memories_for_fake_tool_call,
+    )
+
+    result = format_memories_for_fake_tool_call(
+        [
+            {
+                "id": 1,
+                "content": "canonical retrieval text | repeated fact",
+                "score": 0.8,
+                "metadata": {
+                    "persona_summary": "persona injection text",
+                    "key_facts": ["repeated fact"],
+                },
+            }
+        ],
+        query="test",
+    )
+
+    payload = json.loads(result[1]["content"])
+    assert payload["results"][0]["content"] == "persona injection text"
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
@@ -113,6 +115,32 @@ class _FakeFaissDB:
 
     async def close(self) -> None:
         return None
+
+
+@pytest.mark.asyncio
+async def test_graph_vector_retriever_uses_bulk_faiss_operations():
+    vector_db = SimpleNamespace(
+        insert_batch=AsyncMock(return_value=[11, 12]),
+        delete_documents=AsyncMock(),
+    )
+    retriever = GraphVectorRetriever(vector_db)
+
+    ids = await retriever.add_entries(
+        [
+            ("entry one", {"source_memory_id": 7}),
+            ("entry two", {"source_memory_id": 7}),
+        ]
+    )
+    await retriever.delete_entries(7, ids)
+
+    assert ids == [11, 12]
+    vector_db.insert_batch.assert_awaited_once_with(
+        contents=["entry one", "entry two"],
+        metadatas=[{"source_memory_id": 7}, {"source_memory_id": 7}],
+    )
+    vector_db.delete_documents.assert_awaited_once_with(
+        metadata_filters={"source_memory_id": 7}
+    )
 
 
 @pytest.mark.asyncio
