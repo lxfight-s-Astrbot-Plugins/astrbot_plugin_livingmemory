@@ -154,6 +154,31 @@ async def test_graph_vector_retriever_skips_empty_bulk_delete():
 
 
 @pytest.mark.asyncio
+async def test_graph_vector_retriever_batches_multiple_source_deletes():
+    document_storage = SimpleNamespace(
+        get_documents=AsyncMock(
+            return_value=[
+                {"id": 11, "doc_id": "uuid-11"},
+                {"id": 12, "doc_id": "uuid-12"},
+            ]
+        ),
+        delete_document_by_doc_id=AsyncMock(),
+    )
+    embedding_storage = SimpleNamespace(delete=AsyncMock())
+    retriever = GraphVectorRetriever(
+        SimpleNamespace(
+            document_storage=document_storage,
+            embedding_storage=embedding_storage,
+        )
+    )
+
+    await retriever.delete_entries_batch({7: [11], 8: [12]})
+
+    embedding_storage.delete.assert_awaited_once_with([11, 12])
+    assert document_storage.delete_document_by_doc_id.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_graph_memory_manager_indexes_nodes_edges_and_entries(tmp_path: Path):
     db_path = tmp_path / "graph_memory.db"
     graph_store = GraphStore(str(db_path))

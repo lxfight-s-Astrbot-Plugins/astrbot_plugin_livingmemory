@@ -112,6 +112,10 @@
     /* ---- Delete ---- */
     "delete.confirmTitle":{ zh: "️  确认删除？", en: "️  Confirm Delete?", ru: "️  Подтвердить удаление?" },
     "delete.confirmMsg":  { zh: "即将删除 {0} 条记忆。\n此操作无法撤销！\n\n点击\"确定\"继续删除，点击\"取消\"保留。", en: "About to delete {0} memories.\nThis cannot be undone!\n\nClick OK to proceed, Cancel to keep them.", ru: "Будет удалено {0} записей.\nЭто необратимо!\n\nНажмите ОК для удаления, Отмена для сохранения." },
+    "delete.selected":    { zh: "删除所选 ({0})", en: "Delete selected ({0})", ru: "Удалить выбранные ({0})" },
+    "delete.selectedTitle":{ zh: "删除当前页中选中的记忆", en: "Delete selected memories on this page", ru: "Удалить выбранные записи на этой странице" },
+    "delete.selectAll":   { zh: "选择当前页全部记忆", en: "Select all memories on this page", ru: "Выбрать все записи на этой странице" },
+    "delete.selectOne":   { zh: "选择记忆 #{0}", en: "Select memory #{0}", ru: "Выбрать память #{0}" },
     "delete.cancelled":   { zh: "已取消删除操作", en: "Deletion cancelled", ru: "Удаление отменено" },
     "delete.deleting":    { zh: "删除中...", en: "Deleting...", ru: "Удаление..." },
     "delete.allFailed":   { zh: " 删除失败：全部 {0} 条记忆无法删除\n失败ID: {1}\n请检查日志了解详情", en: " Delete failed: all {0} memories could not be deleted\nFailed IDs: {1}", ru: " Ошибка: все {0} записей не удалены\nID: {1}" },

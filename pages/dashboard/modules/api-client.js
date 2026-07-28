@@ -67,7 +67,7 @@ export class ApiClient {
   async request(path, options = {}) {
     const method = options.method || "GET";
     const body = options.body;
-    const retries = options.retries || 2;
+    const retries = options.retries ?? 2;
 
     if (!this.bridge) {
       throw new Error(window.t ? window.t("bridge.error") : "Bridge not available");
@@ -142,7 +142,11 @@ export class ApiClient {
    * @param {Object} body - 请求体
    * @returns {Promise<any>} 响应数据
    */
-  async post(path, body = {}) {
-    return this.unwrapResponse(await this.request(path, { method: "POST", body }));
+  async post(path, body = {}, options = {}) {
+    return this.unwrapResponse(await this.request(path, {
+      method: "POST",
+      body,
+      retries: options.retries,
+    }));
   }
 }

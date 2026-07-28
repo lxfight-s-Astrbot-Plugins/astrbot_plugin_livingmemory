@@ -10,6 +10,9 @@ export class MemoryPage {
     this.state = state;
     this.api = apiClient;
     this.peek = peekPanel;
+    if (!(this.state.memory.selectedIds instanceof Set)) {
+      this.state.memory.selectedIds = new Set();
+    }
 
     // 虚拟滚动配置
     this.ROW_HEIGHT = 56;
@@ -64,6 +67,7 @@ export class MemoryPage {
           : "--",
         raw: item,
       }));
+      this.state.memory.selectedIds.clear();
 
       this.renderVirtual({ resetScroll: true });
       this.updatePagination();
@@ -109,7 +113,9 @@ export class MemoryPage {
         const impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
         const impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
 
-        html += '<tr data-key="' + key + '" style="height:' + this.ROW_HEIGHT + 'px">';
+        const selected = this.state.memory.selectedIds.has(item.memory_id);
+        html += '<tr data-key="' + key + '" class="' + (selected ? 'is-selected' : '') + '" style="height:' + this.ROW_HEIGHT + 'px">';
+        html += '<td class="cell-select"><input type="checkbox" class="memory-select" data-memory-id="' + item.memory_id + '" ' + (selected ? 'checked' : '') + ' aria-label="' + esc(window.t("delete.selectOne", item.memory_id)) + '" /></td>';
         html += '<td class="cell-mono cell-id">' + item.memory_id + '</td>';
         html += '<td class="cell-summary"><div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
         html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
@@ -124,6 +130,7 @@ export class MemoryPage {
       tbody.innerHTML = html;
       tbody.style.paddingTop = padTop + "px";
       tbody.style.paddingBottom = padBottom + "px";
+      this.updateSelectionControls();
     };
 
     // 绑定滚动事件（仅绑定一次）
@@ -142,9 +149,74 @@ export class MemoryPage {
    */
   renderEmpty() {
     const tbody = document.getElementById("memories-body");
-    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="table-empty">' + window.t("table.noData") + '</td></tr>';
     tbody.style.paddingTop = "0";
     tbody.style.paddingBottom = "0";
+    this.updateSelectionControls();
+  }
+
+  updateSelectionControls() {
+    const selectedIds = this.state.memory.selectedIds;
+    const pageIds = this.state.memory.items.map(item => item.memory_id);
+    const selectedOnPage = pageIds.filter(id => selectedIds.has(id)).length;
+    const selectAll = document.getElementById("mem-select-all");
+    if (selectAll) {
+      selectAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
+      selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
+      selectAll.disabled = pageIds.length === 0;
+    }
+
+    const deleteButton = document.getElementById("mem-delete-selected");
+    if (deleteButton) deleteButton.disabled = selectedIds.size === 0;
+    const deleteLabel = document.getElementById("mem-delete-selected-label");
+    if (deleteLabel) deleteLabel.textContent = window.t("delete.selected", selectedIds.size);
+  }
+
+  toggleAllOnPage(checked) {
+    for (const item of this.state.memory.items) {
+      if (checked) this.state.memory.selectedIds.add(item.memory_id);
+      else this.state.memory.selectedIds.delete(item.memory_id);
+    }
+    this.renderVirtual();
+  }
+
+  async deleteSelected() {
+    const ids = Array.from(this.state.memory.selectedIds);
+    if (!ids.length) return;
+
+    this.peek.open();
+    const confirmed = await this.peek.showConfirmDialog(
+      window.t("delete.confirmTitle"),
+      window.t("delete.confirmMsg", ids.length)
+    );
+    if (!confirmed) {
+      this.peek.close();
+      return;
+    }
+
+    const button = document.getElementById("mem-delete-selected");
+    if (button) button.disabled = true;
+    try {
+      const result = await this.api.post(
+        "memories/batch-delete",
+        { memory_ids: ids },
+        { retries: 0 }
+      );
+      const deleted = Number(result.deleted_count || 0);
+      if (deleted !== ids.length) {
+        const failed = ids.length - deleted;
+        this.showToast(window.t("delete.partialFailed", deleted, failed, "--"), true);
+      } else {
+        this.showToast(window.t("delete.success", deleted));
+      }
+      this.state.memory.selectedIds.clear();
+      this.peek.close();
+      await this.fetch();
+    } catch (error) {
+      this.peek.close();
+      this.showToast(error.message || window.t("delete.error"), true);
+      this.updateSelectionControls();
+    }
   }
 
   /**
@@ -178,6 +250,16 @@ export class MemoryPage {
     const tbody = document.getElementById("memories-body");
     if (tbody) {
       tbody.addEventListener("click", (e) => {
+        const checkbox = e.target.closest(".memory-select");
+        if (checkbox) {
+          const id = Number(checkbox.dataset.memoryId);
+          if (checkbox.checked) this.state.memory.selectedIds.add(id);
+          else this.state.memory.selectedIds.delete(id);
+          const row = checkbox.closest("tr");
+          if (row) row.classList.toggle("is-selected", checkbox.checked);
+          this.updateSelectionControls();
+          return;
+        }
         const tr = e.target.closest("tr");
         if (!tr || !tr.dataset.key) return;
 
@@ -185,6 +267,14 @@ export class MemoryPage {
         if (item) this.peek.renderMemory(item);
       });
     }
+
+    document.getElementById("mem-select-all").addEventListener("change", (e) => {
+      this.toggleAllOnPage(e.target.checked);
+    });
+
+    document.getElementById("mem-delete-selected").addEventListener("click", () => {
+      this.deleteSelected();
+    });
 
     // 筛选：关键词
     document.getElementById("mem-keyword").addEventListener("input", debounce(() => {

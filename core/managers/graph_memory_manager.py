@@ -81,14 +81,11 @@ class GraphMemoryManager:
         )
 
     async def batch_delete_memories(self, source_memory_ids: list[int]) -> None:
-        """Delete graph artifacts in one FAISS bulk operation per source memory."""
+        """Delete graph artifacts in one FAISS bulk operation when supported."""
         if not source_memory_ids:
             return
         memory_vec_map = await self.graph_store.batch_delete_memories(source_memory_ids)
-        for source_memory_id in source_memory_ids:
-            await self.graph_vector_retriever.delete_entries(
-                source_memory_id, memory_vec_map.get(source_memory_id, [])
-            )
+        await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
 
 
 __all__ = ["GraphMemoryManager"]

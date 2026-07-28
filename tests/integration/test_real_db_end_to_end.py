@@ -192,7 +192,60 @@ async def test_graph_memory_batches_real_faiss_index_writes(
 
         await manager.delete_memory(77)
         assert len(write_paths) == 4
+
+        await manager.index_memory(78, metadata["canonical_summary"], metadata)
+        await manager.index_memory(79, metadata["canonical_summary"], metadata)
+        assert len(write_paths) == 6
+
+        await manager.batch_delete_memories([78, 79])
+        assert len(write_paths) == 7
     finally:
+        await vector_db.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_batch_delete_saves_real_faiss_index_once(
+    tmp_path: Path, monkeypatch
+):
+    db_path = tmp_path / "memories.db"
+    index_path = tmp_path / "memories.index"
+    vector_db = FaissVecDB(
+        doc_store_path=str(db_path),
+        index_store_path=str(index_path),
+        embedding_provider=_DeterministicEmbeddingProvider(dim=24),
+    )
+    await vector_db.initialize()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=vector_db,
+        config={"graph_memory_enabled": False},
+    )
+    await engine.initialize()
+
+    first_id = await engine.add_memory("first", "s1", "p1", 0.5, {})
+    second_id = await engine.add_memory("second", "s1", "p1", 0.5, {})
+
+    write_paths: list[str] = []
+    original_write_index = vector_db.embedding_storage._write_index
+
+    def counted_write_index(index, path: str) -> None:
+        write_paths.append(path)
+        original_write_index(index, path)
+
+    monkeypatch.setattr(
+        vector_db.embedding_storage,
+        "_write_index",
+        counted_write_index,
+    )
+
+    try:
+        deleted = await engine.batch_delete_memories([first_id, second_id])
+        assert deleted == 2
+        assert len(write_paths) == 1
+        assert await engine.get_memory(first_id) is None
+        assert await engine.get_memory(second_id) is None
+    finally:
+        await engine.close()
         await vector_db.close()
 
 

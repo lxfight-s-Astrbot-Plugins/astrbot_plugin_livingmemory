@@ -24,6 +24,49 @@ class VectorResult:
     metadata: dict[str, Any]
 
 
+async def delete_faiss_documents_by_ids(
+    faiss_db,
+    doc_ids: list[int],
+) -> list[int] | None:
+    """Delete known FAISS document IDs with one index persistence operation.
+
+    Returns ``None`` when the installed AstrBot storage does not expose the
+    required bulk-capable primitives, allowing callers to use a compatibility
+    fallback.
+    """
+    if not doc_ids:
+        return []
+
+    embedding_storage = getattr(faiss_db, "embedding_storage", None)
+    document_storage = getattr(faiss_db, "document_storage", None)
+    embedding_delete = getattr(embedding_storage, "delete", None)
+    get_documents = getattr(document_storage, "get_documents", None)
+    delete_by_uuid = getattr(document_storage, "delete_document_by_doc_id", None)
+    if not (
+        callable(embedding_delete)
+        and callable(get_documents)
+        and callable(delete_by_uuid)
+    ):
+        return None
+
+    unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
+    documents = await get_documents(
+        metadata_filters={},
+        ids=unique_ids,
+        offset=0,
+        limit=len(unique_ids),
+    )
+    deletable = [doc for doc in documents if doc.get("doc_id")]
+    if not deletable:
+        return []
+
+    found_ids = [int(doc["id"]) for doc in deletable]
+    await embedding_delete(found_ids)
+    for document in deletable:
+        await delete_by_uuid(document["doc_id"])
+    return found_ids
+
+
 class VectorRetriever:
     """
     向量密集检索器
@@ -334,3 +377,19 @@ class VectorRetriever:
 
             logger.error(f"[向量删除] 失败 (doc_id={doc_id}): {e}", exc_info=True)
             return False
+
+    async def delete_documents(self, doc_ids: list[int]) -> list[int]:
+        """Delete multiple vector documents with one index save when supported."""
+        deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, doc_ids)
+        if deleted_ids is None:
+            deleted_ids = []
+            for doc_id in dict.fromkeys(doc_ids):
+                if await self.delete_document(doc_id):
+                    deleted_ids.append(doc_id)
+        if len(deleted_ids) != len(set(doc_ids)):
+            missing = sorted(set(doc_ids) - set(deleted_ids))
+            raise RuntimeError(f"批量向量删除未找到文档: {missing}")
+
+        for doc_id in deleted_ids:
+            self._id_cache.pop(doc_id, None)
+        return deleted_ids

@@ -1385,8 +1385,8 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_batch_delete_faiss_failure_continues(tmp_path: Path):
-    """FAISS delete 失败时不应阻断后续的 SQLite 删除。"""
+async def test_batch_delete_faiss_failure_is_marked_for_repair(tmp_path: Path):
+    """FAISS 删除失败时保留主记录，并将操作标记为可恢复。"""
     db_path = tmp_path / "batch_del_faissfail.db"
     faiss = _FakeFaissDB()
     engine = MemoryEngine(db_path=str(db_path), faiss_db=faiss, config={})
@@ -1428,14 +1428,25 @@ async def test_batch_delete_faiss_failure_continues(tmp_path: Path):
 
     faiss.delete = failing_delete
 
-    deleted = await engine.batch_delete_memories(ids)
-    assert deleted == 3
+    with pytest.raises(RuntimeError, match="批量向量删除未找到文档"):
+        await engine.batch_delete_memories(ids)
 
     if engine.db_connection is not None:
         cursor = await engine.db_connection.execute(
             "SELECT COUNT(*) FROM documents WHERE id IN (?, ?, ?)", tuple(ids)
         )
         row = await cursor.fetchone()
-        assert row[0] == 0
+        assert row[0] == 3
+
+        cursor = await engine.db_connection.execute(
+            """
+            SELECT status, step FROM memory_write_ops
+            WHERE op_type = 'batch_delete'
+            ORDER BY id DESC LIMIT 1
+            """
+        )
+        op_row = await cursor.fetchone()
+        assert op_row["status"] == "needs_repair"
+        assert op_row["step"] == "batch_delete_failed"
 
     await engine.close()

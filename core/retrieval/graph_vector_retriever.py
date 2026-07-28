@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from .vector_retriever import delete_faiss_documents_by_ids
+
 
 @dataclass(slots=True)
 class GraphVectorResult:
@@ -137,6 +139,31 @@ class GraphVectorRetriever:
         # Compatibility with older AstrBot versions without bulk deletion.
         for vector_doc_id in vector_doc_ids:
             await self.delete_entry(vector_doc_id)
+
+    async def delete_entries_batch(
+        self,
+        entries_by_source: dict[int, list[int]],
+    ) -> None:
+        """Delete several source memories with one FAISS save when supported."""
+        vector_doc_ids = [
+            vector_doc_id
+            for source_ids in entries_by_source.values()
+            for vector_doc_id in source_ids
+        ]
+        if not vector_doc_ids:
+            return
+
+        deleted_ids = await delete_faiss_documents_by_ids(
+            self.faiss_db, vector_doc_ids
+        )
+        if deleted_ids is not None:
+            if len(deleted_ids) != len(set(vector_doc_ids)):
+                missing = sorted(set(vector_doc_ids) - set(deleted_ids))
+                raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+            return
+
+        for source_memory_id, source_ids in entries_by_source.items():
+            await self.delete_entries(source_memory_id, source_ids)
 
     async def update_metadata(
         self, vector_doc_id: int, metadata: dict[str, Any]
