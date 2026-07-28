@@ -102,6 +102,10 @@
         "description": "Enable Cross-Turn Context Expansion",
         "hint": "When enabled, memory retrieval appends the recent two dialogue turns to the current query, improving relevance for follow-up questions and reducing unrelated recalls."
       },
+      "recent_context_max_age_seconds": {
+        "description": "Maximum Context Age (seconds)",
+        "hint": "Only historical messages within this time range extend the recall query. Set to 0 to disable the time limit."
+      },
       "search_cache_enabled": {
         "description": "Enable Short-Term Search Cache",
         "hint": "Reuse retrieval results for the same session and query within a short time window to reduce repeated SQLite and FAISS work during follow-up conversations."

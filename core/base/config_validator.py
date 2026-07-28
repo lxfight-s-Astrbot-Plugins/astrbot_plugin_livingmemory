@@ -77,6 +77,12 @@ class RecallEngineConfig(BaseModel):
         default=False,
         description="启用后使用最近2轮对话作为扩展查询关键词，提升检索精准度",
     )
+    recent_context_max_age_seconds: int = Field(
+        default=7200,
+        ge=0,
+        le=604800,
+        description="扩展召回查询允许使用的历史消息最大时间间隔，0 表示不限制",
+    )
     search_cache_enabled: bool = Field(
         default=True, description="是否启用短期检索结果缓存"
     )
