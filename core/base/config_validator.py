@@ -57,6 +57,21 @@ class RecallEngineConfig(BaseModel):
         le=1.0,
         description="召回记忆的最低重要性，0 表示不过滤",
     )
+    min_similarity_for_retrieval: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="召回记忆的最低向量相似度，0 表示不过滤",
+    )
+    recent_memory_count: int = Field(
+        default=2, ge=0, le=20, description="每次召回保留的近期记忆数量"
+    )
+    recent_memory_max_age_hours: int = Field(
+        default=72, ge=0, le=8760, description="近期记忆时间窗口，0 表示不限制"
+    )
+    memory_type_filter: str = Field(
+        default="all", pattern="^(all|event_only)$", description="记忆类型过滤模式"
+    )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
     injection_method: str = Field(
         default="extra_user_content",
@@ -106,6 +121,9 @@ class ReflectionEngineConfig(BaseModel):
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
     )
+    include_source_time_tags: bool = Field(
+        default=True, description="是否从原始消息时间写入确定性时间标签"
+    )
 
 
 class AgentToolsConfig(BaseModel):
@@ -124,6 +142,9 @@ class ForgettingAgentConfig(BaseModel):
 
     auto_cleanup_enabled: bool = Field(
         default=True, description="是否启用每日自动清理旧记忆"
+    )
+    auto_archived_enabled: bool = Field(
+        default=False, description="自动清理候选是否归档而非删除"
     )
     cleanup_days_threshold: int = Field(
         default=30, ge=1, le=3650, description="清理天数阈值"
@@ -161,6 +182,12 @@ class ImportanceDecayConfig(BaseModel):
     )
     access_count_decay_multiplier: float = Field(
         default=0.5, ge=0.0, le=1.0, description="每日衰减后访问次数保留比例"
+    )
+    protected_importance_threshold: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="达到该重要性的记忆不参与每日衰减",
     )
 
 

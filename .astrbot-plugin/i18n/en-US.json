@@ -78,6 +78,26 @@
         "description": "Minimum Importance for Recall",
         "hint": "Filter out memories below this importance value. Range: 0-1. Set to 0 to disable filtering."
       },
+      "min_similarity_for_retrieval": {
+        "description": "Minimum Vector Similarity",
+        "hint": "Filter vector candidates below this similarity. Keyword-only matches remain eligible. Range: 0-1; 0 disables the filter."
+      },
+      "recent_memory_count": {
+        "description": "Reserved Recent Memories",
+        "hint": "Reserve this many recall slots for recent memories in the current scope. Set to 0 to disable."
+      },
+      "recent_memory_max_age_hours": {
+        "description": "Recent Memory Window (hours)",
+        "hint": "Only memories inside this age window qualify for reserved recent slots. Set to 0 for no age limit."
+      },
+      "memory_type_filter": {
+        "description": "Memory Type Filter",
+        "hint": "Recall all memories, or exclude memories known to contain only preferences or relationships. Legacy untyped memories remain eligible.",
+        "labels": [
+          "All Memories",
+          "Events and Facts"
+        ]
+      },
       "fallback_to_vector": {
         "description": "Fallback to Pure Vector Search",
         "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."
@@ -137,6 +157,10 @@
       "access_count_decay_multiplier": {
         "description": "Access Count Retention Ratio",
         "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever."
+      },
+      "protected_importance_threshold": {
+        "description": "Protected Importance Threshold",
+        "hint": "Memories at or above this importance do not participate in daily importance decay."
       }
     },
     "fusion_strategy": {
@@ -165,6 +189,10 @@
       "summary_trigger_rounds": {
         "description": "Summary Trigger Rounds",
         "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round)."
+      },
+      "include_source_time_tags": {
+        "description": "Include Source Time Tags",
+        "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."
       }
     },
     "agent_tools": {
@@ -309,6 +337,10 @@
       "auto_cleanup_enabled": {
         "description": "Enable Daily Auto Cleanup",
         "hint": "Automatically clean up eligible old memories after daily importance decay."
+      },
+      "auto_archived_enabled": {
+        "description": "Archive Instead of Delete",
+        "hint": "Move cleanup candidates out of retrieval indexes while retaining restorable archived documents."
       },
       "cleanup_days_threshold": {
         "description": "Cleanup Age Threshold (days)",

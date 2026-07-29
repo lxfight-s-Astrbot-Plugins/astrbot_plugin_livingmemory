@@ -231,6 +231,8 @@ class BM25Retriever:
 
                 doc = docs[doc_id]
                 metadata = doc["metadata"]
+                if str(metadata.get("status") or "active") != "active":
+                    continue
 
                 # 应用过滤器 - 直接比较完整的 session_id / persona_id
                 if session_id is not None:

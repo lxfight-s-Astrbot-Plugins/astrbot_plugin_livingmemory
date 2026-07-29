@@ -442,6 +442,7 @@ class MemoryProcessor:
             content, metadata = self._build_storage_format(
                 fallback_excerpt, structured_data, is_group_chat
             )
+            content = self._apply_source_time_tags(content, metadata, messages)
             # 将质量标记写入 metadata
             metadata["summary_quality"] = structured_data.get("_quality", "normal")
 
@@ -462,6 +463,33 @@ class MemoryProcessor:
             logger.error(f"[MemoryProcessor] 处理对话历史失败: {e}", exc_info=True)
             # 不再降级处理，直接向上抛出异常，由调用方处理重试逻辑
             raise
+
+    def _apply_source_time_tags(
+        self,
+        content: str,
+        metadata: dict[str, Any],
+        messages: list[Message],
+    ) -> str:
+        """Attach source dates without asking the LLM to infer them."""
+        if not self.config.get("include_source_time_tags", True) or not messages:
+            return content
+
+        timestamps = sorted(float(message.timestamp) for message in messages)
+        start = datetime.fromtimestamp(timestamps[0]).astimezone()
+        end = datetime.fromtimestamp(timestamps[-1]).astimezone()
+        dates = sorted(
+            {
+                datetime.fromtimestamp(value).strftime("%Y-%m-%d")
+                for value in timestamps
+            }
+        )
+        label = dates[0] if len(dates) == 1 else f"{dates[0]} - {dates[-1]}"
+
+        metadata["time_tags"] = dates
+        metadata["source_time_start"] = start.isoformat()
+        metadata["source_time_end"] = end.isoformat()
+        metadata["source_time_label"] = label
+        return content
 
     def _format_conversation(self, messages: list[Message]) -> str:
         """
@@ -958,7 +986,7 @@ class MemoryProcessor:
             return []
         topics = metadata.get("topics", [])
         participants = metadata.get("participants", [])
-        return classify_atoms(
+        atoms = classify_atoms(
             key_facts=key_facts,
             topics=topics,
             participants=participants,
@@ -966,3 +994,5 @@ class MemoryProcessor:
             session_id=session_id,
             persona_id=persona_id,
         )
+        metadata["atom_types"] = sorted({atom.atom_type.value for atom in atoms})
+        return atoms

@@ -102,6 +102,31 @@
                 "type": "float",
                 "default": 0.0
             },
+            "min_similarity_for_retrieval": {
+                "description": "召回最低向量相似度",
+                "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。范围 0-1，设为 0 表示不过滤。",
+                "type": "float",
+                "default": 0.0
+            },
+            "recent_memory_count": {
+                "description": "近期记忆保留数量",
+                "hint": "在每次召回中为当前范围内的近期记忆保留槽位，避免只依赖向量相似度。设为 0 可关闭。",
+                "type": "int",
+                "default": 2
+            },
+            "recent_memory_max_age_hours": {
+                "description": "近期记忆时间窗口（小时）",
+                "hint": "只保留该时间窗口内的近期记忆。默认 72 小时，设为 0 表示不限制时间。",
+                "type": "int",
+                "default": 72
+            },
+            "memory_type_filter": {
+                "description": "记忆类型过滤",
+                "hint": "all 召回全部记忆；event_only 排除可明确识别为纯偏好或纯关系的记忆。旧记录没有类型元数据时保持可召回。",
+                "type": "string",
+                "options": ["all", "event_only"],
+                "default": "all"
+            },
             "fallback_to_vector": {
                 "description": "降级到纯向量检索",
                 "hint": "混合检索失败或结果为空时，自动降级为纯向量检索。建议开启。",
@@ -188,6 +213,12 @@
                 "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。",
                 "type": "float",
                 "default": 0.5
+            },
+            "protected_importance_threshold": {
+                "description": "重要记忆保护阈值",
+                "hint": "重要性达到该值的记忆不参与每日重要性衰减。范围 0-1，默认 1.0 仅保护满分记忆。",
+                "type": "float",
+                "default": 1.0
             }
         }
     },
@@ -232,6 +263,12 @@
                 "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。",
                 "type": "int",
                 "default": 10
+            },
+            "include_source_time_tags": {
+                "description": "写入来源时间标签",
+                "hint": "根据原始消息时间确定性地写入日期范围，并加入检索摘要；不依赖大模型推断时间。",
+                "type": "bool",
+                "default": true
             }
         }
     },
@@ -454,6 +491,12 @@
                 "hint": "每日重要性衰减后自动清理符合条件的旧记忆。",
                 "type": "bool",
                 "default": true
+            },
+            "auto_archived_enabled": {
+                "description": "自动归档而非删除",
+                "hint": "开启后，自动清理候选会从检索索引移除并保留为 archived 文档，可在 Dashboard 中恢复。",
+                "type": "bool",
+                "default": false
             },
             "cleanup_days_threshold": {
                 "description": "清理天数阈值（天）",

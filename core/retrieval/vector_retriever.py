@@ -213,7 +213,7 @@ class VectorRetriever:
 
         # 执行向量检索
         # fetch_k设置为k*2以确保过滤后有足够的结果
-        fetch_k = k * 2 if metadata_filters else k
+        fetch_k = k * 4 if metadata_filters else k * 2
 
         faiss_results = await self.faiss_db.retrieve(
             query=processed_query,
@@ -229,6 +229,11 @@ class VectorRetriever:
             # FaissVecDB返回的Result对象包含similarity和data
             # data是包含id, text, metadata的字典
             doc_data = result.data
+            metadata = doc_data.get("metadata")
+            if isinstance(metadata, dict) and str(
+                metadata.get("status") or "active"
+            ) != "active":
+                continue
             results.append(
                 VectorResult(
                     doc_id=doc_data["id"],
@@ -238,7 +243,7 @@ class VectorRetriever:
                 )
             )
 
-        return results
+        return results[:k]
 
     async def _get_uuid_from_id(self, doc_id: int) -> str | None:
         """

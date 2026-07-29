@@ -546,11 +546,26 @@ class PluginInitializer:
                 "access_count_decay_multiplier": self.config_manager.get(
                     "importance_decay.access_count_decay_multiplier", 0.5
                 ),
+                "protected_importance_threshold": self.config_manager.get(
+                    "importance_decay.protected_importance_threshold", 1.0
+                ),
                 "importance_weight": self.config_manager.get(
                     "recall_engine.importance_weight", 1.0
                 ),
                 "min_importance_for_retrieval": self.config_manager.get(
                     "recall_engine.min_importance_for_retrieval", 0.0
+                ),
+                "min_similarity_for_retrieval": self.config_manager.get(
+                    "recall_engine.min_similarity_for_retrieval", 0.0
+                ),
+                "recent_memory_count": self.config_manager.get(
+                    "recall_engine.recent_memory_count", 2
+                ),
+                "recent_memory_max_age_hours": self.config_manager.get(
+                    "recall_engine.recent_memory_max_age_hours", 72
+                ),
+                "memory_type_filter": self.config_manager.get(
+                    "recall_engine.memory_type_filter", "all"
                 ),
                 "search_cache_enabled": self.config_manager.get(
                     "recall_engine.search_cache_enabled", True
@@ -572,6 +587,9 @@ class PluginInitializer:
                 ),
                 "auto_cleanup_enabled": self.config_manager.get(
                     "forgetting_agent.auto_cleanup_enabled", True
+                ),
+                "auto_archived_enabled": self.config_manager.get(
+                    "forgetting_agent.auto_archived_enabled", False
                 ),
                 "stopwords_path": str(stopwords_dir),
                 "graph_memory_enabled": graph_memory_enabled,
@@ -681,6 +699,9 @@ class PluginInitializer:
                 llm_provider=llm_id if llm_id else None,
                 config={
                     "atom_enabled": memory_engine_config["atom_enabled"],
+                    "include_source_time_tags": self.config_manager.get(
+                        "reflection_engine.include_source_time_tags", True
+                    ),
                 },
             )
             logger.info("MemoryProcessor 已初始化")

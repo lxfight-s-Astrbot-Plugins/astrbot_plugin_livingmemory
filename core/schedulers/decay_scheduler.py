@@ -168,7 +168,16 @@ class DecayScheduler:
                         days_threshold=cleanup_days,
                         importance_threshold=cleanup_importance,
                     )
-                    logger.info(f"[衰减调度] 自动清理完成，删除 {deleted} 条旧记忆")
+                    action = (
+                        "归档"
+                        if self.memory_engine.config.get(
+                            "auto_archived_enabled", False
+                        )
+                        else "删除"
+                    )
+                    logger.info(
+                        f"[衰减调度] 自动清理完成，{action} {deleted} 条旧记忆"
+                    )
                 except Exception as cleanup_err:
                     logger.error(
                         f"[衰减调度] 自动清理失败: {cleanup_err}", exc_info=True

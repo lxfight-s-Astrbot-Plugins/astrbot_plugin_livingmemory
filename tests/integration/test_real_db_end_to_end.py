@@ -318,6 +318,71 @@ async def test_memory_batch_delete_saves_real_faiss_index_once(
         await vector_db.close()
 
 
+@pytest.mark.asyncio
+async def test_memory_archive_retains_document_and_restore_rebuilds_real_indexes(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "archive_memories.db"
+    vector_db = FaissVecDB(
+        doc_store_path=str(db_path),
+        index_store_path=str(tmp_path / "archive_memories.index"),
+        embedding_provider=_DeterministicEmbeddingProvider(dim=24),
+    )
+    await vector_db.initialize()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=vector_db,
+        config={
+            "graph_memory_enabled": False,
+            "recent_memory_count": 0,
+            "auto_archived_enabled": True,
+        },
+    )
+    await engine.initialize()
+    memory_id = await engine.add_memory(
+        "release archive verification",
+        "test:private:archive",
+        "persona-archive",
+        0.2,
+        {"key_facts": ["release archive verification"]},
+    )
+    await engine.update_memory(
+        memory_id,
+        {"metadata": {"create_time": 1.0, "last_access_time": 1.0}},
+    )
+
+    try:
+        assert vector_db.embedding_storage.index.ntotal == 1
+        assert (
+            await engine.cleanup_old_memories(
+                days_threshold=1, importance_threshold=0.3
+            )
+            == 1
+        )
+        archived = await engine.get_memory(memory_id)
+        assert archived is not None
+        archived_metadata = archived["metadata"]
+        if isinstance(archived_metadata, str):
+            archived_metadata = json.loads(archived_metadata)
+        assert archived_metadata["status"] == "archived"
+        assert vector_db.embedding_storage.index.ntotal == 0
+        assert await engine.search_memories("release", k=5) == []
+
+        assert await engine.restore_memory(memory_id) is True
+        restored = await engine.get_memory(memory_id)
+        assert restored is not None
+        restored_metadata = restored["metadata"]
+        if isinstance(restored_metadata, str):
+            restored_metadata = json.loads(restored_metadata)
+        assert restored_metadata["status"] == "active"
+        assert vector_db.embedding_storage.index.ntotal == 1
+        results = await engine.search_memories("release", k=5)
+        assert [result.doc_id for result in results] == [memory_id]
+    finally:
+        await engine.close()
+        await vector_db.close()
+
+
 class _TestContext:
     def __init__(self, persona_id: str):
         self.conversation_manager = _ContextConversationManager(persona_id)

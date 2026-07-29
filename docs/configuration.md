@@ -40,6 +40,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.top_k` | `5` | 每轮自动召回的记忆数量 |
 | `recall_engine.max_k` | `10` | Agent 主动检索工具允许返回的最大数量 |
 | `recall_engine.importance_weight` | `1.0` | 重要性在最终排序中的权重 |
+| `recall_engine.min_importance_for_retrieval` | `0.0` | 最低重要性阈值，`0` 表示不过滤 |
+| `recall_engine.min_similarity_for_retrieval` | `0.0` | 最低向量相似度；纯关键词命中不受影响 |
+| `recall_engine.recent_memory_count` | `2` | 每次召回为近期记忆保留的槽位数 |
+| `recall_engine.recent_memory_max_age_hours` | `72` | 近期记忆保底的时间窗口 |
+| `recall_engine.memory_type_filter` | `all` | 设为 `event_only` 可排除明确的纯偏好/关系记忆 |
 | `recall_engine.fallback_to_vector` | `true` | 混合检索失败时降级到向量检索 |
 | `recall_engine.injection_method` | `extra_user_content` | 记忆注入到 LLM 请求的位置或形式 |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
@@ -61,9 +66,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | 达到多少轮对话后触发总结 |
+| `reflection_engine.include_source_time_tags` | `true` | 从原始消息时间写入来源日期标签 |
 | `importance_decay.decay_rate` | `0.01` | 每日重要性衰减比例 |
 | `importance_decay.access_decay_window_days` | `30.0` | 访问强化的时间窗口 |
 | `importance_decay.access_decay_max_count` | `10` | 最大访问强化次数 |
+| `importance_decay.protected_importance_threshold` | `1.0` | 达到阈值的记忆不参与每日衰减 |
 
 如果你希望机器人更快记住短期上下文，可以降低 `summary_trigger_rounds`；如果希望减少 LLM 调用成本，可以提高它。
 
@@ -99,10 +106,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `backup_settings.enabled` | `true` | 每日自动备份数据库 |
 | `backup_settings.keep_days` | `7` | 自动备份保留天数 |
 | `forgetting_agent.auto_cleanup_enabled` | `true` | 每日清理久远且低重要性记忆 |
+| `forgetting_agent.auto_archived_enabled` | `false` | 将清理候选归档并移出检索索引，而非永久删除 |
 | `forgetting_agent.cleanup_days_threshold` | `30` | 进入清理候选的天数 |
 | `forgetting_agent.cleanup_importance_threshold` | `0.3` | 清理候选的重要性阈值 |
 
-生产使用建议保持备份和迁移备份开启。清理策略偏保守时，可以提高天数阈值或降低重要性阈值。
+生产使用建议保持备份和迁移备份开启。启用自动归档后，原始文档仍可在 Dashboard 查看和恢复，恢复时会重新生成 Embedding 并重建 BM25、图谱和记忆原子索引。
 
 ## 索引重建调优
 
