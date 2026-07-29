@@ -39,6 +39,9 @@ def test_readmes_link_languages_and_project_resources() -> None:
         "LICENSE",
         "/releases",
         "/issues",
+        "qm.qq.com",
+        "953245617",
+        "lxfight",
         "astrbot_plugin_livingmemory",
     )
     for name, content in _read_readmes().items():

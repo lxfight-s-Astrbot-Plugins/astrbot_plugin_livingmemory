@@ -71,4 +71,6 @@ flowchart LR
 
 [Документация](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/) · [Релизы](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [История изменений](CHANGELOG.md) · [Сообщить о проблеме](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
 
+Поддержка сообщества: [QQ-группа 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Пароль: `lxfight`
+
 LivingMemory распространяется по [лицензии AGPL-3.0](LICENSE).

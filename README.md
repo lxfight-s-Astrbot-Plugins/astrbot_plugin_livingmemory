@@ -71,4 +71,6 @@ Upgrading from v1.4.0-v1.4.2? Review the [backup and migration settings](https:/
 
 [Documentation](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/) · [Releases](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
 
+Community support: [QQ group 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Password: `lxfight`
+
 LivingMemory is released under the [AGPL-3.0 license](LICENSE).
