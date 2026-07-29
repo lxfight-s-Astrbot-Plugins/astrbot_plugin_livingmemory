@@ -64,3 +64,16 @@ def test_graph_dashboard_requests_full_overview_and_expanded_queries() -> None:
     assert "limit_entries: 80" in graph_ui
     assert "limit_nodes: 80" in graph_ui
     assert "limit_edges: 120" in graph_ui
+
+
+def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
+    graph_2d = (DASHBOARD / "graph-2d.js").read_text(encoding="utf-8")
+
+    assert "MASSIVE_EDGE_THRESHOLD: 12000" in graph_2d
+    assert "Renderer.prototype.prepareGraph" in graph_2d
+    assert "this._communityBundles" in graph_2d
+    assert "this._structuralEdges" in graph_2d
+    assert "this._instantLayout = tier >= 2" in graph_2d
+    assert "onRenderRequest" in graph_2d
+    assert "this._running = false" in graph_2d
+    assert "Graph2D.prototype.getDiagnostics" in graph_2d
