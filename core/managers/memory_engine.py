@@ -6,6 +6,7 @@
 import asyncio
 import copy
 import json
+import math
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -2015,6 +2016,8 @@ class MemoryEngine:
             protected_threshold = clamp_float(
                 self.config.get("protected_importance_threshold"), default=1.0
             )
+            high_access_threshold = int(self.config.get("high_access_threshold", 30))
+            lock_protection = bool(self.config.get("lock_protection", True))
             access_window_start = time.time() - max(1.0, access_window_days) * 86400.0
             access_decay_multiplier = max(0.0, min(1.0, access_decay_multiplier))
             cursor = await self.db_connection.execute(
@@ -2029,6 +2032,10 @@ class MemoryEngine:
                 if importance >= protected_threshold:
                     continue
                 access_count = safe_float(metadata.get("access_count"), 0.0)
+                # 30次以上调用：锁定保护，不衰减不删除
+                if lock_protection and access_count >= high_access_threshold:
+                    continue
+
                 last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
 
                 recent_access_factor = (
@@ -2124,6 +2131,25 @@ class MemoryEngine:
             except (TypeError, ValueError):
                 access_count = 0
             metadata["access_count"] = min(access_count + 1, 1_000_000)
+            # ===== 访问驱动的 importance 增长 =====
+            boost_config = self.config.get("access_boost", {})
+            boost_enabled = boost_config.get("enabled", True)
+            if boost_enabled:
+                boost_factor = float(boost_config.get("boost_factor", 0.02))
+                boost_formula = boost_config.get("formula", "logarithmic")
+                high_access_threshold = int(boost_config.get("high_access_threshold", 30))
+                old_importance = metadata.get("importance", 0.5)
+                if access_count >= high_access_threshold:
+                    # 30次以上：极小加分（锁定保护，几乎不涨）
+                    boost = 0.001 * (1.0 - old_importance) / access_count
+                elif boost_formula == "linear":
+                    boost = boost_factor
+                elif boost_formula == "logarithmic":
+                    boost = boost_factor * (1.0 - old_importance) * math.log(access_count + 2)
+                else:
+                    boost = 0.0
+                new_importance = min(1.0, old_importance + boost)
+                metadata["importance"] = round(new_importance, 4)
 
             # 3. 写回 documents 表
             await self.db_connection.execute(
@@ -2402,6 +2428,9 @@ class MemoryEngine:
             return 0
 
         cutoff_time = time.time() - (days * 86400)
+        # 30次调用锁定保护阈值
+        high_access_threshold = int(self.config.get("high_access_threshold", 30))
+        lock_protection = bool(self.config.get("lock_protection", True))
 
         try:
             total_count = await self.faiss_db.document_storage.count_documents(
@@ -2430,6 +2459,11 @@ class MemoryEngine:
                     doc_importance = clamp_float(
                         metadata.get("importance"), default=0.5
                     )
+                    access_count = safe_float(metadata.get("access_count"), 0.0)
+                    # 30次以上调用：锁定保护，不删除
+                    if lock_protection and access_count >= high_access_threshold:
+                        continue
+
                     if create_time < cutoff_time and doc_importance < importance:
                         candidates.append(doc["id"])
                 offset += len(batch_docs)
