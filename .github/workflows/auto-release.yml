@@ -17,7 +17,7 @@ jobs:
       old_version: ${{ steps.check.outputs.old_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
@@ -57,7 +57,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -67,32 +67,33 @@ jobs:
           NEW_VERSION="${{ needs.check-version.outputs.new_version }}"
           OLD_VERSION="${{ needs.check-version.outputs.old_version }}"
 
-          echo "## 🎉 Release $NEW_VERSION" > changelog.md
+          echo "## LivingMemory $NEW_VERSION" > changelog.md
           echo "" >> changelog.md
 
           # 如果有上一个版本标签，生成两个版本之间的提交日志
           if git rev-parse "$OLD_VERSION" >/dev/null 2>&1; then
-            echo "### 📝 Changes since $OLD_VERSION" >> changelog.md
+            echo "### Changes since $OLD_VERSION" >> changelog.md
             echo "" >> changelog.md
 
             # 获取提交信息并分类
-            git log "$OLD_VERSION..HEAD" --pretty=format:"%s|||%h|||%an" --no-merges | while IFS='|||' read -r subject hash author; do
+            git log "$OLD_VERSION..HEAD" --pretty=tformat:"%s%x09%h%x09%an" --no-merges | while IFS=$'\t' read -r subject hash author; do
               # 根据提交信息的前缀进行分类
-              if echo "$subject" | grep -qiE "^(feat|feature):"; then
-                echo "- ✨ **Feature**: ${subject#*: } (${hash})" >> changelog.md
-              elif echo "$subject" | grep -qiE "^fix:"; then
-                echo "- 🐛 **Fix**: ${subject#*: } (${hash})" >> changelog.md
-              elif echo "$subject" | grep -qiE "^docs:"; then
-                echo "- 📚 **Docs**: ${subject#*: } (${hash})" >> changelog.md
-              elif echo "$subject" | grep -qiE "^(refactor|style|perf|test|chore):"; then
+              commit_url="https://github.com/${{ github.repository }}/commit/$hash"
+              if echo "$subject" | grep -qiE "^(feat|feature)(\([^)]*\))?:"; then
+                echo "- **Feature**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
+              elif echo "$subject" | grep -qiE "^fix(\([^)]*\))?:"; then
+                echo "- **Fix**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
+              elif echo "$subject" | grep -qiE "^docs(\([^)]*\))?:"; then
+                echo "- **Docs**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
+              elif echo "$subject" | grep -qiE "^(refactor|style|perf|test|chore)(\([^)]*\))?:"; then
                 prefix=$(echo "$subject" | cut -d: -f1)
-                echo "- 🔧 **${prefix^}**: ${subject#*: } (${hash})" >> changelog.md
+                echo "- **${prefix^}**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
               else
-                echo "- 📌 $subject (${hash})" >> changelog.md
+                echo "- $subject ([${hash}](${commit_url}))" >> changelog.md
               fi
             done
           else
-            echo "### 📝 Changes" >> changelog.md
+            echo "### Changes" >> changelog.md
             echo "" >> changelog.md
             echo "Initial release or no previous version tag found." >> changelog.md
             echo "" >> changelog.md
@@ -105,10 +106,10 @@ jobs:
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$OLD_VERSION...$NEW_VERSION" >> changelog.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.check-version.outputs.new_version }}
-          name: Release ${{ needs.check-version.outputs.new_version }}
+          name: LivingMemory ${{ needs.check-version.outputs.new_version }}
           body_path: changelog.md
           draft: false
           prerelease: false
@@ -118,5 +119,5 @@ jobs:
 
       - name: Notify release created
         run: |
-          echo "✅ Release ${{ needs.check-version.outputs.new_version }} has been created successfully!"
-          echo "🔗 View release at: https://github.com/${{ github.repository }}/releases/tag/${{ needs.check-version.outputs.new_version }}"
+          echo "Release ${{ needs.check-version.outputs.new_version }} has been created successfully."
+          echo "View release at: https://github.com/${{ github.repository }}/releases/tag/${{ needs.check-version.outputs.new_version }}"
