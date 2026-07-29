@@ -56,6 +56,22 @@ def test_dynamic_dashboard_panels_rehydrate_lucide_icons() -> None:
     assert "lmHydrateIcons" in peek_panel
 
 
+def test_memory_transfer_controls_use_lucide_and_preview_before_import() -> None:
+    index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+    memory_page = (DASHBOARD / "modules" / "memory-page.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="mem-export"' in index
+    assert 'data-lucide="download"' in index
+    assert 'id="mem-import"' in index
+    assert 'data-lucide="upload"' in index
+    assert 'accept=".json,.csv,application/json,text/csv"' in index
+    assert '"memories/import"' in memory_page
+    assert "dry_run: true" in memory_page
+    assert "dry_run: false" in memory_page
+
+
 def test_graph_dashboard_requests_full_overview_and_expanded_queries() -> None:
     graph_ui = (DASHBOARD / "graph-ui.js").read_text(encoding="utf-8")
 

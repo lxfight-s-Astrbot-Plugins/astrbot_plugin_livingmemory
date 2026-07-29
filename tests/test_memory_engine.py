@@ -236,6 +236,88 @@ async def test_memory_source_is_separate_transferred_and_deleted(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_memory_transfer_records_include_source_and_duplicate_key(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_transfer.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    source = [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "user",
+            "content": "exact detail",
+            "sender_id": "u1",
+            "timestamp": 1.0,
+            "metadata": {},
+        }
+    ]
+    memory_id = await engine.add_memory(
+        content="portable summary",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.9,
+        metadata={"topics": ["portable"]},
+        source_messages=source,
+    )
+    await engine.db_connection.execute(
+        "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+        (
+            memory_id,
+            f"uuid-{memory_id}",
+            "portable summary",
+            json.dumps(engine.faiss_db.docs[memory_id]["metadata"]),
+        ),
+    )
+    await engine.db_connection.commit()
+
+    records = await engine.get_memory_transfer_records([memory_id])
+    keys = await engine.get_memory_import_keys()
+
+    assert records[0]["content"] == "portable summary"
+    assert records[0]["source_messages"] == source
+    assert ("portable summary", "s1", "p1") in keys
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_transfer_records_batches_more_than_500_selected_ids(
+    tmp_path: Path,
+):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_transfer_batches.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    assert engine.db_connection is not None
+    rows = [
+        (
+            memory_id,
+            f"uuid-{memory_id}",
+            f"memory {memory_id}",
+            json.dumps({"importance": 0.5}),
+        )
+        for memory_id in range(1, 502)
+    ]
+    await engine.db_connection.executemany(
+        "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+        rows,
+    )
+    await engine.db_connection.commit()
+
+    records = await engine.get_memory_transfer_records(list(range(501, 0, -1)))
+
+    assert len(records) == 501
+    assert [record["original_id"] for record in records] == list(range(1, 502))
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_source_write_failure_rolls_back_indexed_memory(tmp_path: Path):
     engine = MemoryEngine(
         db_path=str(tmp_path / "memory_source_failure.db"),

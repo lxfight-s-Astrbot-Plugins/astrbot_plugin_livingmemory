@@ -54,6 +54,12 @@ class FakeMemoryEngine:
     async def get_memory_source(self, memory_id: int):
         return []
 
+    async def get_memory_transfer_records(self, memory_ids=None):
+        return []
+
+    async def get_memory_import_keys(self):
+        return set()
+
     async def delete_memory(self, memory_id: int):
         return True
 
@@ -1252,7 +1258,7 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 16
+        assert len(plugin._api_routes) == 18
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1260,6 +1266,8 @@ class TestRouteRegistration:
         assert f"{prefix}/memories" in paths
         assert f"{prefix}/memories/update" in paths
         assert f"{prefix}/memories/resummarize" in paths
+        assert f"{prefix}/memories/export" in paths
+        assert f"{prefix}/memories/import" in paths
         assert f"{prefix}/memories/batch-delete" in paths
         assert f"{prefix}/recall/test" in paths
         assert f"{prefix}/graph/overview" in paths
@@ -1355,3 +1363,192 @@ async def test_resummarize_memory_rebuilds_from_retained_source():
     assert result["data"]["new_memory_id"] == 8
     processor.process_conversation.assert_awaited_once()
     engine.replace_memory.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_export_memories_returns_native_json_content():
+    engine = FakeMemoryEngine()
+    engine.get_memory_transfer_records = AsyncMock(
+        return_value=[
+            {
+                "original_id": 7,
+                "content": "portable summary",
+                "importance": 0.8,
+                "session_id": "s1",
+                "persona_id": None,
+                "metadata": {"topics": ["portable"]},
+                "source_messages": [],
+            }
+        ]
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    req = _mock_page_request(
+        get_json={"format": "json", "memory_ids": [7]}
+    )
+
+    with _patch_page_request(req):
+        result = await api.export_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["memory_count"] == 1
+    exported = json.loads(result["data"]["content"])
+    assert exported["format"] == "livingmemory"
+    assert exported["memories"][0]["content"] == "portable summary"
+    engine.get_memory_transfer_records.assert_awaited_once_with([7])
+
+
+@pytest.mark.asyncio
+async def test_import_preview_reports_duplicates_and_invalid_items():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(
+        return_value={("existing summary", "s1", "")}
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    content = json.dumps(
+        [
+            {"summary": "existing summary", "session_id": "s1"},
+            {"summary": "new summary", "session_id": "s1"},
+            {"messages": [{"role": "user"}]},
+        ]
+    )
+    req = _mock_page_request(
+        get_json={
+            "format": "json",
+            "content": content,
+            "dry_run": True,
+            "duplicate_strategy": "skip",
+        }
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["valid_count"] == 2
+    assert result["data"]["invalid_count"] == 1
+    assert result["data"]["duplicate_count"] == 1
+    assert result["data"]["planned_import_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_import_source_only_conversation_uses_processor_and_retains_source():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(return_value=set())
+    engine.add_memory = AsyncMock(return_value=42)
+    processor = MagicMock()
+    processor.process_conversation = AsyncMock(
+        return_value=("generated summary", {"topics": ["import"]}, 0.7)
+    )
+    processor.classify_atoms_from_metadata.return_value = []
+    plugin = FakePlugin(memory_engine=engine)
+    plugin.initializer.memory_processor = processor
+    api = PluginPageApi(plugin)
+    content = json.dumps(
+        [
+            {"role": "user", "content": "The code is alpha"},
+            {"role": "assistant", "content": "Noted"},
+        ]
+    )
+    req = _mock_page_request(
+        get_json={
+            "format": "json",
+            "content": content,
+            "dry_run": False,
+            "duplicate_strategy": "skip",
+        }
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["imported_ids"] == [42]
+    processor.process_conversation.assert_awaited_once()
+    add_kwargs = engine.add_memory.await_args.kwargs
+    assert add_kwargs["content"] == "generated summary"
+    assert add_kwargs["importance"] == 0.7
+    assert len(add_kwargs["source_messages"]) == 2
+    assert add_kwargs["metadata"]["memory_origin"] == "memory_import"
+
+
+@pytest.mark.asyncio
+async def test_import_allow_strategy_keeps_duplicate_entries():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(
+        return_value={("existing summary", "s1", "")}
+    )
+    engine.add_memory = AsyncMock(side_effect=[41, 42])
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    content = json.dumps(
+        [
+            {"summary": "existing summary", "session_id": "s1"},
+            {"summary": "existing summary", "session_id": "s1"},
+        ]
+    )
+    req = _mock_page_request(
+        get_json={
+            "format": "json",
+            "content": content,
+            "dry_run": False,
+            "duplicate_strategy": "allow",
+        }
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["imported_ids"] == [41, 42]
+    assert result["data"]["skipped_duplicate_count"] == 0
+    assert engine.add_memory.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_import_source_only_without_processor_reports_failure():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(return_value=set())
+    engine.add_memory = AsyncMock()
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    content = json.dumps(
+        [
+            {"role": "user", "content": "The code is alpha"},
+            {"role": "assistant", "content": "Noted"},
+        ]
+    )
+    req = _mock_page_request(
+        get_json={"format": "json", "content": content, "dry_run": False}
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["imported_count"] == 0
+    assert result["data"]["failed_count"] == 1
+    assert "记忆处理器未初始化" in result["data"]["errors"][0]["error"]
+    engine.add_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_import_failure_does_not_stop_later_entries():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(return_value=set())
+    engine.add_memory = AsyncMock(side_effect=[RuntimeError("write failed"), 52])
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    content = json.dumps(
+        [{"summary": "first"}, {"summary": "second"}]
+    )
+    req = _mock_page_request(
+        get_json={"format": "json", "content": content, "dry_run": False}
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["imported_ids"] == [52]
+    assert result["data"]["failed_count"] == 1
+    assert result["data"]["errors"] == [
+        {"index": 0, "error": "write failed"}
+    ]
+    assert engine.add_memory.await_count == 2

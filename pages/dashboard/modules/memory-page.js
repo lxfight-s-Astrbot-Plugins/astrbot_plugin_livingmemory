@@ -219,6 +219,98 @@ export class MemoryPage {
     }
   }
 
+  async exportMemories() {
+    const button = document.getElementById("mem-export");
+    const format = document.getElementById("mem-transfer-format").value || "json";
+    const selectedIds = Array.from(this.state.memory.selectedIds);
+    if (button) button.disabled = true;
+    try {
+      const payload = { format };
+      if (selectedIds.length) payload.memory_ids = selectedIds;
+      const result = await this.api.post("memories/export", payload, { retries: 0 });
+      const blob = new Blob([result.content || ""], {
+        type: result.mime_type || "application/octet-stream"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename || ("livingmemory-export." + format);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      this.showToast(window.t("transfer.exportSuccess", Number(result.memory_count || 0)));
+    } catch (error) {
+      this.showToast(error.message || window.t("transfer.failed"), true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async importFile(file) {
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      this.showToast(window.t("transfer.fileTooLarge"), true);
+      return;
+    }
+    const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json";
+    const duplicateStrategy = document.getElementById("mem-import-duplicates").value || "skip";
+    const content = await file.text();
+    const requestPayload = {
+      format,
+      content,
+      duplicate_strategy: duplicateStrategy
+    };
+    const button = document.getElementById("mem-import");
+    if (button) button.disabled = true;
+    try {
+      const preview = await this.api.post(
+        "memories/import",
+        { ...requestPayload, dry_run: true },
+        { retries: 0 }
+      );
+      this.peek.open();
+      const confirmed = await this.peek.showConfirmDialog(
+        window.t("transfer.importPreviewTitle"),
+        window.t(
+          "transfer.importPreview",
+          preview.valid_count || 0,
+          preview.planned_import_count || 0,
+          preview.duplicate_count || 0,
+          preview.invalid_count || 0,
+          preview.summary_required_count || 0
+        ),
+        { destructive: false }
+      );
+      if (!confirmed) {
+        this.peek.close();
+        return;
+      }
+      const result = await this.api.post(
+        "memories/import",
+        { ...requestPayload, dry_run: false },
+        { retries: 0 }
+      );
+      this.peek.close();
+      const failed = Number(result.failed_count || 0);
+      this.showToast(
+        window.t(
+          "transfer.importSuccess",
+          Number(result.imported_count || 0),
+          Number(result.skipped_duplicate_count || 0),
+          failed
+        ),
+        failed > 0
+      );
+      await this.fetch();
+    } catch (error) {
+      this.peek.close();
+      this.showToast(error.message || window.t("transfer.failed"), true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
   /**
    * 根据 key 获取记忆项
    * @param {string} key - 记忆键（格式：m:id）
@@ -274,6 +366,19 @@ export class MemoryPage {
 
     document.getElementById("mem-delete-selected").addEventListener("click", () => {
       this.deleteSelected();
+    });
+
+    document.getElementById("mem-export").addEventListener("click", () => {
+      this.exportMemories();
+    });
+
+    const importInput = document.getElementById("mem-import-file");
+    document.getElementById("mem-import").addEventListener("click", () => {
+      importInput.value = "";
+      importInput.click();
+    });
+    importInput.addEventListener("change", () => {
+      this.importFile(importInput.files && importInput.files[0]);
     });
 
     // 筛选：关键词
