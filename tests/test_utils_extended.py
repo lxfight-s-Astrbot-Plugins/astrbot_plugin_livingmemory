@@ -424,6 +424,21 @@ class TestFormatMemoriesForInjection:
 
         assert "普通旧记忆正文" in result
 
+    def test_format_includes_deterministic_source_time_tags(self):
+        memories = [
+            {
+                "content": "发布计划已确认",
+                "metadata": {
+                    "time_tags": ["2025-05-01", "2025-05-02"],
+                    "importance": 0.8,
+                },
+            }
+        ]
+
+        result = format_memories_for_injection(memories)
+
+        assert "Source time: 2025-05-01 - 2025-05-02" in result
+
 
 class TestNumberUtils:
     """测试数字工具函数"""

@@ -271,6 +271,51 @@ async def test_memory_engine_decay_and_cleanup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_daily_decay_skips_protected_importance_threshold(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "protected_decay.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"protected_importance_threshold": 0.8},
+    )
+    await engine.initialize()
+    now = time.time()
+    rows = [
+        (101, "uuid-101", "protected", 0.9),
+        (102, "uuid-102", "decaying", 0.5),
+    ]
+    for memory_id, uuid, text, importance in rows:
+        metadata = json.dumps(
+            {
+                "importance": importance,
+                "create_time": now,
+                "last_access_time": now,
+                "access_count": 0,
+            }
+        )
+        await engine.db_connection.execute(
+            "INSERT INTO documents "
+            "(id, doc_id, text, metadata, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (memory_id, uuid, text, metadata),
+        )
+    await engine.db_connection.commit()
+
+    affected = await engine.apply_daily_decay(0.1)
+    cursor = await engine.db_connection.execute(
+        "SELECT id, metadata FROM documents WHERE id IN (101, 102) ORDER BY id"
+    )
+    stored = {
+        int(row["id"]): json.loads(row["metadata"])["importance"]
+        for row in await cursor.fetchall()
+    }
+
+    assert affected == 1
+    assert stored[101] == 0.9
+    assert stored[102] == 0.45
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
     db_path = tmp_path / "memory_access.db"
     engine = MemoryEngine(
@@ -343,6 +388,91 @@ async def test_search_memories_zero_importance_threshold_preserves_results(
 
     assert results == expected
     await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
+async def test_search_memories_applies_vector_similarity_threshold(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_similarity.db"),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "min_similarity_for_retrieval": 0.7,
+            "recent_memory_count": 0,
+            "search_cache_enabled": False,
+        },
+    )
+    keyword_only = Mock(
+        doc_id=3,
+        metadata={"importance": 0.5},
+        vector_score=None,
+        score_breakdown={},
+    )
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.search = AsyncMock(
+        return_value=[
+            Mock(
+                doc_id=1,
+                metadata={"importance": 0.8},
+                vector_score=0.82,
+                score_breakdown={},
+            ),
+            Mock(
+                doc_id=2,
+                metadata={"importance": 0.8},
+                vector_score=0.69,
+                score_breakdown={},
+            ),
+            keyword_only,
+        ]
+    )
+
+    results = await engine.search_memories("query", k=5)
+
+    assert [result.doc_id for result in results] == [1, 3]
+    await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
+async def test_search_memories_event_only_keeps_legacy_and_event_types(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_types.db"),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "memory_type_filter": "event_only",
+            "recent_memory_count": 0,
+            "search_cache_enabled": False,
+        },
+    )
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.search = AsyncMock(
+        return_value=[
+            Mock(doc_id=1, metadata={"atom_types": ["episodic"]}),
+            Mock(doc_id=2, metadata={"atom_types": ["preference"]}),
+            Mock(doc_id=3, metadata={}),
+        ]
+    )
+
+    results = await engine.search_memories("query", k=5)
+
+    assert [result.doc_id for result in results] == [1, 3]
+    await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
+async def test_recent_memory_slots_are_reserved_without_duplicates(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "recent_slots.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"recent_memory_count": 2},
+    )
+    relevant = [Mock(doc_id=value) for value in (1, 2, 3, 4)]
+    engine._get_recent_memory_results = AsyncMock(
+        return_value=[Mock(doc_id=4), Mock(doc_id=5)]
+    )
+
+    merged = await engine._merge_recent_memories(relevant, 4, "session", "persona")
+
+    assert [result.doc_id for result in merged] == [1, 2, 4, 5]
 
 
 @pytest.mark.asyncio

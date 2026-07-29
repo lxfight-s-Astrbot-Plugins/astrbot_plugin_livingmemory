@@ -3,6 +3,7 @@ Tests for MemoryProcessor.
 """
 
 import tempfile
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -186,6 +187,39 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
 
     # schema 版本标记
     assert metadata.get("summary_schema_version") == "v2"
+
+
+@pytest.mark.asyncio
+async def test_source_time_tags_come_from_message_timestamps_without_rewriting_summary():
+    llm = _DummyLLMProvider(
+        '{"summary":"记住这件事", "canonical_summary":"发布计划已确认", '
+        '"topics":["发布"], "key_facts":["发布计划已确认"], '
+        '"sentiment":"neutral", "importance":0.8}'
+    )
+    messages = _make_messages()
+    messages[0].timestamp = datetime(2025, 5, 1, 9, 0).timestamp()
+    messages[1].timestamp = datetime(2025, 5, 2, 10, 0).timestamp()
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    content, metadata, _ = await processor.process_conversation(messages)
+
+    assert content == "发布计划已确认"
+    assert metadata["canonical_summary"] == "发布计划已确认"
+    assert metadata["time_tags"] == ["2025-05-01", "2025-05-02"]
+    assert metadata["source_time_label"] == "2025-05-01 - 2025-05-02"
+
+
+def test_atom_classification_persists_parent_memory_types():
+    processor = MemoryProcessor(context=None)
+    metadata = {
+        "key_facts": ["明天下午发布新版本", "用户喜欢爵士乐"],
+        "topics": ["发布", "音乐"],
+    }
+
+    atoms = processor.classify_atoms_from_metadata(metadata)
+
+    assert len(atoms) == 2
+    assert metadata["atom_types"] == ["planned", "preference"]
 
 
 @pytest.mark.asyncio

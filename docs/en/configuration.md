@@ -40,6 +40,11 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.top_k` | `5` | Number of memories automatically recalled each turn |
 | `recall_engine.max_k` | `10` | Maximum results returned by active agent recall |
 | `recall_engine.importance_weight` | `1.0` | Importance weight in final ranking |
+| `recall_engine.min_importance_for_retrieval` | `0.0` | Minimum importance; `0` disables the filter |
+| `recall_engine.min_similarity_for_retrieval` | `0.0` | Minimum vector similarity; keyword-only hits remain eligible |
+| `recall_engine.recent_memory_count` | `2` | Recall slots reserved for recent memories |
+| `recall_engine.recent_memory_max_age_hours` | `72` | Time window for recent-memory slots |
+| `recall_engine.memory_type_filter` | `all` | Use `event_only` to exclude known preference-only or relationship-only memories |
 | `recall_engine.fallback_to_vector` | `true` | Falls back to vector search if hybrid retrieval fails |
 | `recall_engine.injection_method` | `extra_user_content` | Where or how recalled memories are injected |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
@@ -61,9 +66,11 @@ Disable session filtering only if you intentionally want different chats to shar
 | Key | Default | Description |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | Number of conversation rounds before summarization |
+| `reflection_engine.include_source_time_tags` | `true` | Derives source date tags from original message timestamps |
 | `importance_decay.decay_rate` | `0.01` | Daily importance decay |
 | `importance_decay.access_decay_window_days` | `30.0` | Time window for access reinforcement |
 | `importance_decay.access_decay_max_count` | `10` | Maximum access reinforcement count |
+| `importance_decay.protected_importance_threshold` | `1.0` | Memories at or above this importance do not decay |
 
 Lower `summary_trigger_rounds` if you want the bot to remember faster. Raise it if you want fewer LLM calls.
 
@@ -99,10 +106,11 @@ For relationship-heavy use, increase graph-route weight or set `expansion_hops` 
 | `backup_settings.enabled` | `true` | Daily database backup |
 | `backup_settings.keep_days` | `7` | Backup retention days |
 | `forgetting_agent.auto_cleanup_enabled` | `true` | Daily cleanup for old low-importance memories |
+| `forgetting_agent.auto_archived_enabled` | `false` | Archives cleanup candidates outside retrieval indexes instead of deleting them |
 | `forgetting_agent.cleanup_days_threshold` | `30` | Age threshold for cleanup candidates |
 | `forgetting_agent.cleanup_importance_threshold` | `0.3` | Importance threshold for cleanup candidates |
 
-For production use, keep backups and migration backups enabled. To make cleanup more conservative, raise the day threshold or lower the importance threshold.
+With automatic archiving enabled, source documents remain visible and restorable in the Dashboard. Restoring regenerates the embedding and rebuilds BM25, graph, and memory-atom indexes.
 
 ## Index rebuild tuning
 

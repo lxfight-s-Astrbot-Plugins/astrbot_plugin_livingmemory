@@ -520,6 +520,36 @@ class MemoryHandler:
             status_value = str(value).strip()
             if status_value not in {"active", "archived", "deleted"}:
                 return self.utils.error("状态必须是 active、archived 或 deleted")
+            current_status = str(current_metadata.get("status") or "active")
+            if status_value == current_status:
+                return self.utils.ok(
+                    {
+                        "message": "没有检测到修改",
+                        "memory_id": memory_id,
+                        "field": field,
+                    }
+                )
+            if status_value == "archived":
+                archived = await memory_engine.archive_memories([memory_id])
+                if archived != 1:
+                    return self.utils.error("归档失败")
+                return self.utils.ok(
+                    {
+                        "message": "记忆已归档并移出检索索引",
+                        "memory_id": memory_id,
+                        "field": field,
+                    }
+                )
+            if status_value == "active" and current_status == "archived":
+                if not await memory_engine.restore_memory(memory_id):
+                    return self.utils.error("恢复失败")
+                return self.utils.ok(
+                    {
+                        "message": "记忆已恢复并重建检索索引",
+                        "memory_id": memory_id,
+                        "field": field,
+                    }
+                )
             updates["metadata"] = {"status": status_value}
             old_value_for_history = current_metadata.get("status", "active")
             new_value_for_history = status_value

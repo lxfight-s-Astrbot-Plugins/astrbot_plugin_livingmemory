@@ -427,6 +427,12 @@ def format_memories_for_injection(memories: list) -> str:
                 if facts_str:
                     metadata_parts.append(f"Key facts: {facts_str}")
 
+            time_tags = metadata.get("time_tags", [])
+            if time_tags and isinstance(time_tags, list):
+                tags_str = " - ".join(str(value) for value in time_tags if value)
+                if tags_str:
+                    metadata_parts.append(f"Source time: {tags_str}")
+
             # 组装元数据行
             if metadata_parts:
                 entry_parts.append(" | ".join(metadata_parts))
