@@ -10,7 +10,6 @@ from astrbot_plugin_livingmemory.core.managers.backup_manager import (
     PLUGIN_VERSION,
     BackupManager,
     _BACKUP_INFO_FILE,
-    _VERSION_FILE,
 )
 
 
@@ -264,7 +263,8 @@ def test_backup_info_json_contains_all_fields(tmp_path: Path) -> None:
     (tmp_path / "livingmemory.db").write_text("test")
 
     mgr = BackupManager(str(tmp_path))
-    mgr.version_file.write_text("2.5.0", encoding="utf-8")
+    previous_version = "0.0.0"
+    mgr.version_file.write_text(previous_version, encoding="utf-8")
     backup_dir = mgr.backup_if_needed()
 
     info = json.loads(
@@ -276,7 +276,7 @@ def test_backup_info_json_contains_all_fields(tmp_path: Path) -> None:
     ]
     for field in required_fields:
         assert field in info, f"Missing field: {field}"
-    assert info["previous_version"] == "2.5.0"
+    assert info["previous_version"] == previous_version
     assert info["plugin_version"] == PLUGIN_VERSION
     assert isinstance(info["backup_unix_time"], float)
 
