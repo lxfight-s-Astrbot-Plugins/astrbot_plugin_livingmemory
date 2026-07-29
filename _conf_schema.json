@@ -10,6 +10,31 @@
         ],
         "default": "zh"
     },
+    "access_control": {
+        "description": "记忆访问控制",
+        "hint": "限制哪些用户或会话可以使用长期记忆，并统一跨平台身份名称。",
+        "type": "object",
+        "items": {
+            "whitelist_enabled": {
+                "description": "启用记忆白名单",
+                "hint": "开启后，仅允许名单中的用户、群组或会话触发记忆捕获、总结、召回和 Agent 记忆工具。名单为空时拒绝所有记忆操作。",
+                "type": "bool",
+                "default": false
+            },
+            "allowed_ids": {
+                "description": "记忆白名单",
+                "hint": "每行填写一个用户 ID、平台:用户 ID、群组 ID 或完整会话 ID；也支持逗号和分号分隔。",
+                "type": "text",
+                "default": ""
+            },
+            "identity_aliases": {
+                "description": "用户身份别名",
+                "hint": "每行填写 source=统一名称。source 可使用平台:用户 ID、用户 ID 或当前用户名，例如 telegram:12345=小明。",
+                "type": "text",
+                "default": ""
+            }
+        }
+    },
     "provider_settings": {
         "description": "模型提供商",
         "hint": "配置记忆系统使用的 AI 模型",
@@ -247,9 +272,22 @@
             },
             "use_session_filtering": {
                 "description": "按会话隔离记忆",
-                "hint": "开启后每个会话的记忆独立存储，不同会话之间不共享记忆。",
+                "hint": "仅在记忆作用域模式为 legacy 时生效。开启后每个会话独立；关闭后不按会话过滤。",
                 "type": "bool",
                 "default": true
+            },
+            "memory_scope_mode": {
+                "description": "记忆作用域模式",
+                "hint": "legacy 保持旧版配置；session 按实际会话隔离；user 让同一平台用户跨私聊和群聊共享；global 全局共享。",
+                "type": "string",
+                "options": ["legacy", "session", "user", "global"],
+                "default": "legacy"
+            },
+            "isolated_sessions": {
+                "description": "强制隔离会话",
+                "hint": "每行填写一个完整会话 ID。这些会话始终使用独立记忆作用域，不受 user、global 或旧版关闭会话过滤设置影响。",
+                "type": "text",
+                "default": ""
             }
         }
     },

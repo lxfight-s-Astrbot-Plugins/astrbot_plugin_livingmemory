@@ -57,9 +57,16 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `filtering_settings.use_persona_filtering` | `true` | 只召回当前人格相关记忆 |
-| `filtering_settings.use_session_filtering` | `true` | 只召回当前会话相关记忆 |
+| `filtering_settings.memory_scope_mode` | `legacy` | `legacy` 保持旧行为；也可按会话、用户或全局共享 |
+| `filtering_settings.use_session_filtering` | `true` | 仅在 `legacy` 模式下控制会话过滤 |
+| `filtering_settings.isolated_sessions` | 空 | 始终强制隔离的完整会话 ID，每行一个 |
+| `access_control.whitelist_enabled` | `false` | 仅允许名单内身份使用长期记忆 |
+| `access_control.allowed_ids` | 空 | 用户 ID、`平台:用户 ID`、群组 ID 或完整会话 ID |
+| `access_control.identity_aliases` | 空 | `来源身份=统一名称`，每行一个 |
 
-如果你希望不同群或不同私聊共享同一批长期记忆，可以关闭会话隔离；如果机器人有多个明显不同的人格，建议始终开启人格隔离。
+`user` 模式让同一平台用户在不同群聊和私聊共享记忆；`global` 模式让所有非例外会话共享。`isolated_sessions` 的优先级最高；在 `legacy` 模式关闭会话过滤并配置例外后，非例外会话也会进入专用全局作用域，避免读取例外会话。开启白名单但名单为空会拒绝所有自动捕获、总结、召回和 Agent 记忆工具。
+
+身份别名按 `平台:用户 ID`、用户 ID、当前用户名的顺序匹配，并在对话总结前替换显示名称。作用域配置只影响升级后新写入的记忆，现有记忆不会自动迁移或重新生成向量。
 
 ## 总结与生命周期
 

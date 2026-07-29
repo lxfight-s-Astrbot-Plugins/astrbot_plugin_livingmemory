@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from astrbot.api.platform import MessageType
 
+from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.tools.memory_memorize_tool import (
     MemoryMemorizeTool,
 )
@@ -83,6 +84,37 @@ async def test_memory_memorize_tool_writes_current_session_and_persona(
     call_kwargs = memory_engine.add_memory.await_args.kwargs
     assert call_kwargs["session_id"] == "test:private:session-1"
     assert call_kwargs["persona_id"] == "persona_a"
+
+
+@pytest.mark.asyncio
+async def test_memory_memorize_tool_writes_resolved_user_scope(
+    memory_engine, memory_processor
+):
+    tool = MemoryMemorizeTool(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {"filtering_settings": {"memory_scope_mode": "user"}}
+        ),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+    )
+    run_context = _make_run_context()
+    event = run_context.context.event
+    event.get_platform_name = Mock(return_value="test")
+    event.get_sender_id = Mock(return_value="user-1")
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_memorize_tool.get_persona_id",
+        new_callable=AsyncMock,
+        return_value="persona_a",
+    ):
+        await tool.call(run_context, memory="remember this")
+
+    call_kwargs = memory_engine.add_memory.await_args.kwargs
+    assert call_kwargs["session_id"] == "livingmemory:user:test:user-1"
+    assert call_kwargs["metadata"]["source_session_id"] == (
+        "test:private:session-1"
+    )
 
 
 @pytest.mark.asyncio

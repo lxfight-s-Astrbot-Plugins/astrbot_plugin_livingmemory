@@ -1330,7 +1330,11 @@ class MemoryEngine:
             return cached_results
 
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
-        if session_id and ":" in session_id:
+        if (
+            session_id
+            and ":" in session_id
+            and not session_id.startswith("livingmemory:")
+        ):
             # 异步触发迁移，不阻塞查询
             self._create_tracked_task(self._migrate_session_data_if_needed(session_id))
 

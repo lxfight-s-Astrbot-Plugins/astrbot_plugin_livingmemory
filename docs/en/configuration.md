@@ -57,9 +57,16 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | Key | Default | Description |
 | --- | --- | --- |
 | `filtering_settings.use_persona_filtering` | `true` | Only recall memories for the current persona |
-| `filtering_settings.use_session_filtering` | `true` | Only recall memories for the current session |
+| `filtering_settings.memory_scope_mode` | `legacy` | Preserve legacy behavior, or scope by session, user, or globally |
+| `filtering_settings.use_session_filtering` | `true` | Controls session filtering only in `legacy` mode |
+| `filtering_settings.isolated_sessions` | Empty | Full session IDs that must always remain isolated, one per line |
+| `access_control.whitelist_enabled` | `false` | Allow only listed identities to use long-term memory |
+| `access_control.allowed_ids` | Empty | User ID, `platform:user ID`, group ID, or full session ID |
+| `access_control.identity_aliases` | Empty | One `source identity=canonical name` mapping per line |
 
-Disable session filtering only if you intentionally want different chats to share one long-term memory pool. Keep persona filtering enabled when the bot has distinct personas.
+`user` shares memory across private and group chats for the same platform user. `global` shares memory across every non-isolated session. `isolated_sessions` always takes precedence. In `legacy` mode with session filtering disabled, configuring any isolated session moves non-isolated writes into the dedicated global scope so they cannot read isolated data. Enabling the allowlist with an empty list denies automatic capture, summarization, recall, and Agent memory tools.
+
+Aliases are matched in this order: `platform:user ID`, user ID, then current username. The mapped display name is applied before summarization. Scope changes affect newly written memories only; existing memories are not migrated or re-embedded automatically.
 
 ## Reflection and lifecycle
 

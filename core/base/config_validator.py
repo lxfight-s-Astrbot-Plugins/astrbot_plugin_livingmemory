@@ -159,6 +159,18 @@ class FilteringConfig(BaseModel):
 
     use_persona_filtering: bool = Field(default=True, description="是否使用人格过滤")
     use_session_filtering: bool = Field(default=True, description="是否使用会话过滤")
+    memory_scope_mode: str = Field(
+        default="legacy", pattern="^(legacy|session|user|global)$"
+    )
+    isolated_sessions: str = Field(default="", description="强制隔离的会话列表")
+
+
+class AccessControlConfig(BaseModel):
+    """记忆访问控制与身份映射配置。"""
+
+    whitelist_enabled: bool = Field(default=False, description="是否启用记忆白名单")
+    allowed_ids: str = Field(default="", description="允许使用长期记忆的标识列表")
+    identity_aliases: str = Field(default="", description="跨平台用户身份别名")
 
 
 class ProviderConfig(BaseModel):
@@ -294,6 +306,7 @@ class LivingMemoryConfig(BaseModel):
     forgetting_agent: ForgettingAgentConfig = Field(
         default_factory=ForgettingAgentConfig
     )
+    access_control: AccessControlConfig = Field(default_factory=AccessControlConfig)
     filtering_settings: FilteringConfig = Field(default_factory=FilteringConfig)
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
     migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)

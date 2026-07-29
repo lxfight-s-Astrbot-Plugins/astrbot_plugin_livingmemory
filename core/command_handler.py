@@ -14,6 +14,7 @@ from .base.config_manager import ConfigManager
 from .i18n_backend import t, t_list
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
+from .memory_scope import is_event_memory_allowed, resolve_memory_scope
 from .validators.index_validator import IndexValidator
 
 
@@ -341,6 +342,11 @@ class CommandHandler:
 
         session_id = event.unified_msg_origin
         try:
+            if not is_event_memory_allowed(self.config_manager, event):
+                logger.debug("当前事件不在记忆白名单中，跳过手动总结")
+                yield event.plain_result(t("summarize.access_denied"))
+                return
+
             # 获取当前消息数和总结进度
             actual_count = await self.conversation_manager.store.get_message_count(
                 session_id
@@ -390,6 +396,9 @@ class CommandHandler:
             from .utils import get_persona_id
 
             persona_id = await get_persona_id(self.context, event)
+            memory_scope = (
+                resolve_memory_scope(self.config_manager, event) or session_id
+            )
 
             # 判断是否群聊
             is_group_chat = bool(
@@ -417,7 +426,7 @@ class CommandHandler:
             atoms = self._memory_processor.classify_atoms_from_metadata(
                 metadata=metadata,
                 parent_importance=importance,
-                session_id=session_id,
+                session_id=memory_scope,
                 persona_id=persona_id,
             )
 
@@ -428,10 +437,11 @@ class CommandHandler:
                 "message_count": actual_count - last_summarized_index,
                 "triggered_by": "manual",
             }
+            metadata["source_session_id"] = session_id
 
             await self.memory_engine.add_memory(
                 content=content,
-                session_id=session_id,
+                session_id=memory_scope,
                 persona_id=persona_id,
                 importance=importance,
                 metadata=metadata,

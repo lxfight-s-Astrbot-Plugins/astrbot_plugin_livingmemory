@@ -8,6 +8,8 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.event.filter import CustomFilter
 from astrbot.api.platform import MessageType
 
+from .memory_scope import is_event_memory_allowed
+
 SESSION_PLUGIN_NAMES = ("LivingMemory", "astrbot_plugin_livingmemory")
 _ACTIVE_PLUGIN_REF: weakref.ReferenceType | None = None
 
@@ -133,6 +135,9 @@ class PassiveGroupCaptureFilter(CustomFilter):
             return False
 
         if not self._passes_global_whitelist(event, cfg):
+            return False
+
+        if not is_event_memory_allowed(plugin.config_manager, event):
             return False
 
         plugin._schedule_passive_group_capture(event)
