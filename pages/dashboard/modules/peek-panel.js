@@ -124,6 +124,7 @@ export class PeekPanel {
     const keyFacts = detail.key_facts || [];
     const topics = detail.topics || [];
     const editHistory = detail.update_history || [];
+    const sourceMessages = Array.isArray(detail.source_messages) ? detail.source_messages : [];
     const graphCtx = detail.graph_context;
 
     document.getElementById("peek-badge").innerHTML = "";
@@ -141,12 +142,26 @@ export class PeekPanel {
     // 操作按钮
     html += '<div class="memory-detail-actions">';
     html += '<button class="btn btn-sm btn-secondary" id="peek-edit-btn"><i data-lucide="square-pen" aria-hidden="true"></i><span>' + window.t("detail.editBtn") + '</span></button>';
+    if (sourceMessages.length >= 2) {
+      html += '<button class="btn btn-sm btn-secondary" id="peek-resummarize-btn"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>' + window.t("detail.resummarizeBtn") + '</span></button>';
+    }
     html += '<button class="btn btn-sm btn-danger" id="peek-delete-btn"><i data-lucide="trash-2" aria-hidden="true"></i><span>' + window.t("detail.deleteBtn") + '</span></button>';
     html += '</div>';
 
     // 内容区域
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.content") + '</div>';
     html += '<div class="memory-detail-content" id="detail-content-display">' + esc(content) + '</div></div>';
+
+    if (sourceMessages.length) {
+      html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.sourceMessages", sourceMessages.length) + '</div><div class="edit-history-list">';
+      sourceMessages.forEach(message => {
+        const sender = message.sender_name || message.sender_id || message.role || "--";
+        const time = message.timestamp ? new Date(message.timestamp * 1000).toLocaleString() : "--";
+        html += '<div class="edit-history-item"><span class="edit-history-time">' + esc(time) + '</span>';
+        html += '<span class="edit-history-desc"><strong>' + esc(String(sender)) + '</strong> ' + esc(String(message.content || "")) + '</span></div>';
+      });
+      html += '</div></div>';
+    }
 
     // 图谱上下文小视图
     if (graphCtx && graphCtx.nodes && graphCtx.nodes.length) {
@@ -198,14 +213,30 @@ export class PeekPanel {
 
     // 绑定按钮事件
     const editBtn = document.getElementById("peek-edit-btn");
+    const resummarizeBtn = document.getElementById("peek-resummarize-btn");
     const delBtn = document.getElementById("peek-delete-btn");
     if (editBtn) editBtn.addEventListener("click", () => this.renderEditView(detail));
+    if (resummarizeBtn) resummarizeBtn.addEventListener("click", () => this.resummarizeMemory(id));
     if (delBtn) delBtn.addEventListener("click", () => this.deleteSingleMemory(parseInt(id)));
 
     // 加载图谱小视图
     const miniCanvas = document.getElementById("peek-mini-graph");
     if (miniCanvas && graphCtx && graphCtx.nodes && graphCtx.nodes.length) {
       this.loadMiniGraph(miniCanvas, graphCtx.nodes, graphCtx.edges);
+    }
+  }
+
+  async resummarizeMemory(memoryId) {
+    try {
+      const result = await this.api.post(
+        "memories/resummarize",
+        { memory_id: Number(memoryId) },
+        { retries: 0 }
+      );
+      this.showToast(window.t("detail.resummarizeSuccess", result.new_memory_id));
+      await this.renderMemory({ memory_id: result.new_memory_id });
+    } catch (error) {
+      this.showToast(error.message || window.t("detail.resummarizeFailed"), true);
     }
   }
 

@@ -752,6 +752,26 @@ class MemoryEngine:
         metadata = memory.get("metadata") or payload.get("metadata") or {}
         if not isinstance(metadata, dict):
             metadata = self._safe_json_dict(metadata)
+        if metadata.get("has_source") and not await self.get_memory_source(
+            int(memory_id)
+        ):
+            repaired_metadata = dict(metadata)
+            repaired_metadata["has_source"] = False
+            repaired_metadata["source_message_count"] = 0
+            if (
+                self.hybrid_retriever is None
+                or not await self.hybrid_retriever.update_metadata(
+                    int(memory_id), repaired_metadata
+                )
+            ):
+                raise RuntimeError("source metadata repair failed")
+            metadata = repaired_metadata
+            await self._advance_write_op(
+                op_id,
+                "source_metadata_repaired",
+                memory_id=int(memory_id),
+                error="retained source was unavailable after interrupted write",
+            )
         content = str(memory.get("text") or "")
         session_id = metadata.get("session_id") or payload.get("session_id")
         persona_id = metadata.get("persona_id") or payload.get("persona_id")
@@ -829,6 +849,11 @@ class MemoryEngine:
             )
             return False
 
+        if self.db_connection is not None:
+            await self.db_connection.execute(
+                "DELETE FROM memory_sources WHERE memory_id = ?", (int(memory_id),)
+            )
+            await self.db_connection.commit()
         if self.graph_memory_manager is not None:
             await self.graph_memory_manager.delete_memory(int(memory_id))
         if self.atom_store is not None:
@@ -914,6 +939,10 @@ class MemoryEngine:
 
         cursor = await self.db_connection.execute(
             f"DELETE FROM documents WHERE id IN ({placeholders})",
+            memory_ids,
+        )
+        await self.db_connection.execute(
+            f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
             memory_ids,
         )
         await self.db_connection.commit()
@@ -1032,6 +1061,15 @@ class MemoryEngine:
             ON documents(doc_id)
         """)
 
+            await self.db_connection.execute("""
+            CREATE TABLE IF NOT EXISTS memory_sources (
+                memory_id INTEGER PRIMARY KEY,
+                source_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+
             await self._create_write_ops_table()
 
             # 创建版本管理表
@@ -1109,6 +1147,7 @@ class MemoryEngine:
         metadata: dict[str, Any] | None = None,
         atoms: list | None = None,
         preserve_create_time: bool = False,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> int:
         """
         添加新记忆
@@ -1156,6 +1195,9 @@ class MemoryEngine:
         # 注意：先合并外部metadata，再确保时间字段不被覆盖
         if metadata:
             full_metadata.update(metadata)
+        if source_messages:
+            full_metadata["has_source"] = True
+            full_metadata["source_message_count"] = len(source_messages)
         if atoms:
             full_metadata["atom_types"] = sorted(
                 {
@@ -1288,6 +1330,34 @@ class MemoryEngine:
                 memory_id=doc_id,
             )
 
+        if source_messages:
+            try:
+                await self.save_memory_source(doc_id, source_messages)
+            except asyncio.CancelledError:
+                await asyncio.shield(self.delete_memory(doc_id))
+                await asyncio.shield(
+                    self._advance_write_op(
+                        op_id,
+                        "source_failed",
+                        status="failed",
+                        memory_id=doc_id,
+                        error="source write cancelled",
+                    )
+                )
+                raise
+            except Exception as exc:
+                await self._advance_write_op(
+                    op_id,
+                    "source_failed",
+                    status="failed",
+                    memory_id=doc_id,
+                    error=str(exc),
+                )
+                if not await self.delete_memory(doc_id):
+                    logger.error(
+                        f"[MemoryEngine] 原文写入失败且记忆回滚失败 (memory_id={doc_id})"
+                    )
+                raise
         if not needs_repair:
             await self._advance_write_op(
                 op_id,
@@ -1297,6 +1367,47 @@ class MemoryEngine:
             )
         self._invalidate_search_cache()
         return doc_id
+
+    async def save_memory_source(
+        self, memory_id: int, source_messages: list[dict[str, Any]]
+    ) -> None:
+        """Persist source messages outside retrieval metadata and indexes."""
+        if self.db_connection is None:
+            raise RuntimeError("数据库连接未初始化")
+        now = time.time()
+        await self.db_connection.execute(
+            """
+            INSERT INTO memory_sources(memory_id, source_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(memory_id) DO UPDATE SET
+                source_json = excluded.source_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                int(memory_id),
+                json.dumps(source_messages, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        await self.db_connection.commit()
+
+    async def get_memory_source(self, memory_id: int) -> list[dict[str, Any]]:
+        """Return structured source messages for one memory."""
+        if self.db_connection is None:
+            return []
+        cursor = await self.db_connection.execute(
+            "SELECT source_json FROM memory_sources WHERE memory_id = ?",
+            (int(memory_id),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return []
+        try:
+            value = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return value if isinstance(value, list) else []
 
     async def search_memories(
         self,
@@ -1558,6 +1669,7 @@ class MemoryEngine:
             raise ValueError("记忆内容不能为空")
 
         current_metadata = self._safe_json_dict(current.get("metadata"))
+        source_messages = await self.get_memory_source(memory_id)
         replacement_metadata = current_metadata.copy()
         replacement_metadata.update(metadata or {})
         replacement_metadata["previous_id"] = memory_id
@@ -1597,6 +1709,7 @@ class MemoryEngine:
                 metadata=replacement_metadata,
                 atoms=atoms,
                 preserve_create_time=True,
+                source_messages=source_messages or None,
             )
         )
         try:
@@ -1670,6 +1783,11 @@ class MemoryEngine:
             return False
 
         await self._advance_write_op(op_id, "document_deleted", memory_id=memory_id)
+        if self.db_connection is not None:
+            await self.db_connection.execute(
+                "DELETE FROM memory_sources WHERE memory_id = ?", (memory_id,)
+            )
+            await self.db_connection.commit()
 
         needs_repair = False
         try:
@@ -2093,6 +2211,10 @@ class MemoryEngine:
                 # 3. Batch delete from documents table
                 cursor = await self.db_connection.execute(
                     f"DELETE FROM documents WHERE id IN ({placeholders})",
+                    batch,
+                )
+                await self.db_connection.execute(
+                    f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
                     batch,
                 )
                 await self.db_connection.commit()

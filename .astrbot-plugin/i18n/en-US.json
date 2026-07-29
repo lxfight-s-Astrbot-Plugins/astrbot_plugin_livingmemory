@@ -223,6 +223,10 @@
       "include_source_time_tags": {
         "description": "Include Source Time Tags",
         "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."
+      },
+      "source_retention_importance_threshold": {
+        "description": "Source Retention Importance Threshold",
+        "hint": "Store original messages separately when summary importance reaches this value, enabling verification, detailed Agent recall, and re-summarization. Range 0-1; 1 keeps only maximum-importance memories."
       }
     },
     "agent_tools": {

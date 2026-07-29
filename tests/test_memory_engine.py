@@ -191,6 +191,123 @@ async def test_memory_engine_add_search_get_delete(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_memory_source_is_separate_transferred_and_deleted(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_source.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    source = [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "user",
+            "content": "exact source detail",
+            "sender_id": "u1",
+            "timestamp": 100.0,
+            "metadata": {},
+        }
+    ]
+    memory_id = await engine.add_memory(
+        content="summary",
+        session_id="s1",
+        metadata={},
+        source_messages=source,
+    )
+
+    stored = await engine.get_memory(memory_id)
+    assert stored["metadata"]["has_source"] is True
+    assert "exact source detail" not in str(stored["metadata"])
+    assert await engine.get_memory_source(memory_id) == source
+
+    new_id = await engine.replace_memory(
+        memory_id,
+        content="new summary",
+        importance=0.8,
+        metadata=stored["metadata"],
+    )
+    assert await engine.get_memory_source(memory_id) == []
+    assert await engine.get_memory_source(new_id) == source
+
+    assert await engine.delete_memory(new_id) is True
+    assert await engine.get_memory_source(new_id) == []
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_source_write_failure_rolls_back_indexed_memory(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_source_failure.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    engine.save_memory_source = AsyncMock(side_effect=RuntimeError("disk full"))
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await engine.add_memory(
+            content="summary",
+            session_id="s1",
+            source_messages=[{"role": "user", "content": "source"}],
+        )
+
+    assert await engine.get_memory(1) is None
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_repair_add_clears_unavailable_source_metadata(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_source_repair.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    memory_id = await engine.add_memory(content="summary", session_id="s1")
+    engine.faiss_db.docs[memory_id]["metadata"].update(
+        {"has_source": True, "source_message_count": 2}
+    )
+
+    async def _update_metadata(doc_id: int, metadata: dict) -> bool:
+        engine.faiss_db.docs[doc_id]["metadata"].update(metadata)
+        return True
+
+    engine.hybrid_retriever.update_metadata = AsyncMock(side_effect=_update_metadata)
+    op_id = await engine._start_write_op(
+        "add", {"session_id": "s1"}, memory_id=memory_id
+    )
+
+    assert await engine._repair_add_write_op(op_id, memory_id, {}) is True
+    repaired = await engine.get_memory(memory_id)
+    assert repaired["metadata"]["has_source"] is False
+    assert repaired["metadata"]["source_message_count"] == 0
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_repair_delete_removes_retained_source(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory_source_delete_repair.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    memory_id = await engine.add_memory(
+        content="summary",
+        session_id="s1",
+        source_messages=[{"role": "user", "content": "source"}],
+    )
+    op_id = await engine._start_write_op(
+        "delete", {"memory_id": memory_id}, memory_id=memory_id
+    )
+
+    assert await engine._repair_delete_write_op(op_id, memory_id) is True
+    assert await engine.get_memory_source(memory_id) == []
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_decay_and_cleanup(tmp_path: Path):
     db_path = tmp_path / "memory_decay.db"
     engine = MemoryEngine(
@@ -1175,6 +1292,10 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
                     json.dumps(doc["metadata"], ensure_ascii=False),
                 ),
             )
+            await engine.save_memory_source(
+                mid,
+                [{"role": "user", "content": f"source-{mid}"}],
+            )
         await engine.db_connection.commit()
 
     deleted = await engine.batch_delete_memories(ids)
@@ -1188,6 +1309,13 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
     # SQLite documents 表也应被清空
     cursor = await engine.db_connection.execute(
         f"SELECT COUNT(*) FROM documents WHERE id IN ({','.join('?' * len(ids))})",
+        ids,
+    )
+    row = await cursor.fetchone()
+    assert row[0] == 0
+
+    cursor = await engine.db_connection.execute(
+        f"SELECT COUNT(*) FROM memory_sources WHERE memory_id IN ({','.join('?' * len(ids))})",
         ids,
     )
     row = await cursor.fetchone()

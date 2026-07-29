@@ -211,6 +211,24 @@ async def test_summarize_no_unsummarized_messages():
 
 
 @pytest.mark.asyncio
+async def test_summarize_rejects_explicit_count_below_two():
+    conv_mgr = Mock()
+    conv_mgr.store = Mock()
+    conv_mgr.store.get_message_count = AsyncMock(return_value=10)
+    conv_mgr.get_session_metadata = AsyncMock(return_value=10)
+    conv_mgr.get_messages_range = AsyncMock()
+    handler = _make_command_handler(
+        memory_processor=Mock(),
+        conversation_manager=conv_mgr,
+    )
+
+    messages = [item async for item in handler.handle_summarize(_MockEvent(), 1)]
+
+    assert any("大于等于 2" in item for item in messages)
+    conv_mgr.get_messages_range.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_summarize_calls_processor_and_stores_memory():
     """handle_summarize should call process_conversation and add_memory."""
     memory_processor = Mock()
@@ -303,6 +321,40 @@ async def test_summarize_updates_last_summarized_index():
     conv_mgr.update_session_metadata.assert_any_await(
         _MockEvent.unified_msg_origin, "last_summarized_index", 10
     )
+
+
+@pytest.mark.asyncio
+async def test_summarize_explicit_count_ignores_completed_progress():
+    memory_processor = Mock()
+    memory_processor.process_conversation = AsyncMock(
+        return_value=("replacement summary", {"topics": []}, 0.5)
+    )
+    memory_processor.classify_atoms_from_metadata.return_value = []
+    conv_mgr = Mock()
+    conv_mgr.store = Mock()
+    conv_mgr.store.get_message_count = AsyncMock(return_value=10)
+    conv_mgr.get_session_metadata = AsyncMock(return_value=10)
+    conv_mgr.get_messages_range = AsyncMock(return_value=_make_private_messages())
+    conv_mgr.update_session_metadata = AsyncMock()
+    handler = _make_command_handler(
+        memory_processor=memory_processor,
+        conversation_manager=conv_mgr,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+        new=AsyncMock(return_value=None),
+    ):
+        messages = [
+            item async for item in handler.handle_summarize(_MockEvent(), 4)
+        ]
+
+    conv_mgr.get_messages_range.assert_awaited_once_with(
+        session_id=_MockEvent.unified_msg_origin,
+        start_index=6,
+        end_index=10,
+    )
+    assert any("总结完成" in item for item in messages)
 
 
 @pytest.mark.asyncio

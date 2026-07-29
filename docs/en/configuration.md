@@ -74,12 +74,15 @@ Aliases are matched in this order: `platform:user ID`, user ID, then current use
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | Number of conversation rounds before summarization |
 | `reflection_engine.include_source_time_tags` | `true` | Derives source date tags from original message timestamps |
+| `reflection_engine.source_retention_importance_threshold` | `0.8` | Retains original messages separately at or above the threshold |
 | `importance_decay.decay_rate` | `0.01` | Daily importance decay |
 | `importance_decay.access_decay_window_days` | `30.0` | Time window for access reinforcement |
 | `importance_decay.access_decay_max_count` | `10` | Maximum access reinforcement count |
 | `importance_decay.protected_importance_threshold` | `1.0` | Memories at or above this importance do not decay |
 
 Lower `summary_trigger_rounds` if you want the bot to remember faster. Raise it if you want fewer LLM calls.
+
+Retained source is written only to the SQLite `memory_sources` table, not to vector, BM25, graph, or atom indexes, so it does not increase vector count. It does increase database disk usage. Re-summarizing from Dashboard calls the LLM once, replaces the old memory, and regenerates its embedding and all derived indexes.
 
 ## Agent tools
 

@@ -66,6 +66,7 @@
   "summarize": {
     "action_name": "记忆总结",
     "access_denied": "当前用户或会话不在长期记忆白名单中。",
+    "invalid_count": "总结消息条数必须是大于等于 2 的整数。",
     "no_new": "当前没有需要总结的新对话。\n当前消息总数: {total}\n已总结到消息序号: {index}",
     "starting": "开始手动总结记忆...\n消息范围: [{start}:{end}]，共 {count} 条",
     "fetch_failed": "获取消息失败：未读取到可总结的消息。\n请确认当前会话存在历史消息后重试。",
@@ -89,7 +90,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize           立即触发当前会话的记忆总结\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",

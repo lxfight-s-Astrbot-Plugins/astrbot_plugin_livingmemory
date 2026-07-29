@@ -51,6 +51,9 @@ class FakeMemoryEngine:
     async def replace_memory(self, memory_id: int, **kwargs):
         return 999
 
+    async def get_memory_source(self, memory_id: int):
+        return []
+
     async def delete_memory(self, memory_id: int):
         return True
 
@@ -69,6 +72,7 @@ class FakeInitializer:
         self.memory_engine = FakeMemoryEngine()
         self.conversation_manager = None
         self.index_validator = None
+        self.memory_processor = None
         self.data_dir = "/tmp/test_plugin"
 
 
@@ -1248,13 +1252,14 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 15
+        assert len(plugin._api_routes) == 16
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
         assert f"{prefix}/stats" in paths
         assert f"{prefix}/memories" in paths
         assert f"{prefix}/memories/update" in paths
+        assert f"{prefix}/memories/resummarize" in paths
         assert f"{prefix}/memories/batch-delete" in paths
         assert f"{prefix}/recall/test" in paths
         assert f"{prefix}/graph/overview" in paths
@@ -1263,3 +1268,90 @@ class TestRouteRegistration:
 
     def test_route_prefix_contains_plugin_name(self):
         assert PLUGIN_NAME in PAGE_API_PREFIX
+
+
+@pytest.mark.asyncio
+async def test_memory_detail_includes_retained_source():
+    engine = FakeMemoryEngine()
+    engine.get_memory_source = AsyncMock(
+        return_value=[{"role": "user", "content": "exact detail"}]
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    api.memory_handler._get_memory_record = AsyncMock(
+        return_value={
+            "id": 7,
+            "doc_id": "memory-7",
+            "text": "summary",
+            "metadata": {"importance": 0.9},
+            "created_at": "2026-01-01",
+            "updated_at": "2026-01-01",
+        }
+    )
+    req = _mock_page_request(args={"memory_id": "7"})
+
+    with _patch_page_request(req):
+        result = await api.get_memory_detail()
+
+    assert result["status"] == "ok"
+    assert result["data"]["source_messages"] == [
+        {"role": "user", "content": "exact detail"}
+    ]
+    engine.get_memory_source.assert_awaited_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_resummarize_memory_rebuilds_from_retained_source():
+    engine = FakeMemoryEngine()
+    engine.get_memory = AsyncMock(
+        return_value={
+            "id": 7,
+            "text": "old summary",
+            "metadata": {"session_id": "s1", "persona_id": "p1"},
+        }
+    )
+    engine.get_memory_source = AsyncMock(
+        return_value=[
+            {
+                "id": 1,
+                "session_id": "s1",
+                "role": "user",
+                "content": "exact detail",
+                "sender_id": "u1",
+                "timestamp": 1.0,
+                "metadata": {},
+            },
+            {
+                "id": 2,
+                "session_id": "s1",
+                "role": "assistant",
+                "content": "response",
+                "sender_id": "bot",
+                "timestamp": 2.0,
+                "metadata": {"is_bot_message": True},
+            },
+        ]
+    )
+    engine.replace_memory = AsyncMock(return_value=8)
+    plugin = FakePlugin(memory_engine=engine)
+    processor = MagicMock()
+    processor.process_conversation = AsyncMock(
+        return_value=("new summary", {"topics": ["detail"]}, 0.9)
+    )
+    plugin.initializer.memory_processor = processor
+    api = PluginPageApi(plugin)
+    api.memory_handler._get_memory_record = AsyncMock(
+        return_value={
+            "id": 7,
+            "text": "old summary",
+            "metadata": {"session_id": "s1", "persona_id": "p1"},
+        }
+    )
+    req = _mock_page_request(get_json={"memory_id": 7})
+
+    with _patch_page_request(req):
+        result = await api.resummarize_memory()
+
+    assert result["status"] == "ok"
+    assert result["data"]["new_memory_id"] == 8
+    processor.process_conversation.assert_awaited_once()
+    engine.replace_memory.assert_awaited_once()

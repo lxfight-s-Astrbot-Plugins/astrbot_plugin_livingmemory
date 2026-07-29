@@ -54,6 +54,11 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "description": "Maximum number of memory items to return for one recall. Keep this small unless more evidence is needed.",
                     "default": 5,
                 },
+                "include_source": {
+                    "type": "boolean",
+                    "description": "Include retained original messages when exact details are needed. Use only after normal recall is insufficient.",
+                    "default": False,
+                },
             },
             "required": ["query"],
         }
@@ -64,6 +69,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
         context: ContextWrapper[AstrAgentContext],
         query: str,
         k: int = 5,
+        include_source: bool = False,
     ) -> ToolExecResult:
         """执行长期记忆回忆。"""
         cleaned_query = (query or "").strip()
@@ -134,18 +140,23 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             serialized_results = []
             for memory in memories:
                 metadata = memory.metadata if isinstance(memory.metadata, dict) else {}
-                serialized_results.append(
-                    {
-                        "id": memory.doc_id,
-                        "content": memory.content,
-                        "score": memory.final_score,
-                        "importance": metadata.get("importance"),
-                        "session_id": metadata.get("session_id"),
-                        "persona_id": metadata.get("persona_id"),
-                        "create_time": metadata.get("create_time"),
-                        "last_access_time": metadata.get("last_access_time"),
-                    }
-                )
+                item = {
+                    "id": memory.doc_id,
+                    "content": memory.content,
+                    "score": memory.final_score,
+                    "importance": metadata.get("importance"),
+                    "session_id": metadata.get("session_id"),
+                    "persona_id": metadata.get("persona_id"),
+                    "create_time": metadata.get("create_time"),
+                    "last_access_time": metadata.get("last_access_time"),
+                }
+                if include_source and metadata.get("has_source"):
+                    get_source = getattr(
+                        self.memory_engine, "get_memory_source", None
+                    )
+                    if callable(get_source):
+                        item["source_messages"] = await get_source(memory.doc_id)
+                serialized_results.append(item)
 
             return _json_result(
                 {

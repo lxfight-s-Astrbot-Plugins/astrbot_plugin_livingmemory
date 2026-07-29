@@ -124,6 +124,12 @@ class ReflectionEngineConfig(BaseModel):
     include_source_time_tags: bool = Field(
         default=True, description="是否从原始消息时间写入确定性时间标签"
     )
+    source_retention_importance_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="保留原始对话的重要性阈值",
+    )
 
 
 class AgentToolsConfig(BaseModel):

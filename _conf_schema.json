@@ -307,6 +307,12 @@
                 "hint": "根据原始消息时间确定性地写入日期范围，并加入检索摘要；不依赖大模型推断时间。",
                 "type": "bool",
                 "default": true
+            },
+            "source_retention_importance_threshold": {
+                "description": "原文保留重要性阈值",
+                "hint": "总结重要性达到该值时，将原始消息独立保存，供详情核验、Agent 深度回溯和重新总结。范围 0-1；设为 1 仅保留满分记忆。",
+                "type": "float",
+                "default": 0.8
             }
         }
     },

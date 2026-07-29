@@ -12,6 +12,7 @@ from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse
 
 from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
+from ..memory_source import serialize_source_messages
 from ..utils import get_persona_id
 
 _DEFAULT_MEMORY_SCOPE = object()
@@ -419,6 +420,17 @@ class MemoryReflection:
 
                 # 正常流程：添加到记忆引擎
                 if self.memory_engine:
+                    source_threshold = float(
+                        self.config_manager.get(
+                            "reflection_engine.source_retention_importance_threshold",
+                            0.8,
+                        )
+                    )
+                    source_messages = (
+                        serialize_source_messages(history_messages)
+                        if importance >= source_threshold
+                        else None
+                    )
                     await self.memory_engine.add_memory(
                         content=content,
                         session_id=memory_scope,
@@ -426,6 +438,7 @@ class MemoryReflection:
                         importance=importance,
                         metadata=metadata,
                         atoms=atoms,
+                        source_messages=source_messages,
                     )
 
                     logger.info(

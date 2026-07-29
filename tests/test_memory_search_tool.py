@@ -178,6 +178,7 @@ async def test_memory_search_tool_serializes_results(memory_engine, astr_context
             )
         ]
     )
+    memory_engine.get_memory_source = AsyncMock()
 
     with patch(
         "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
@@ -198,6 +199,44 @@ async def test_memory_search_tool_serializes_results(memory_engine, astr_context
         "create_time": 100.0,
         "last_access_time": 200.0,
     }
+    memory_engine.get_memory_source.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_includes_retained_source_on_request(
+    memory_engine, astr_context
+):
+    memory_engine.search_memories = AsyncMock(
+        return_value=[
+            Mock(
+                doc_id=9,
+                content="summary",
+                final_score=0.9,
+                metadata={"has_source": True},
+            )
+        ]
+    )
+    memory_engine.get_memory_source = AsyncMock(
+        return_value=[{"role": "user", "content": "exact detail"}]
+    )
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.tools.memory_search_tool.get_persona_id",
+        new=AsyncMock(return_value="persona_a"),
+    ):
+        result = json.loads(
+            await tool.call(
+                _make_run_context(), query="details", include_source=True
+            )
+        )
+
+    assert result["results"][0]["source_messages"][0]["content"] == "exact detail"
+    memory_engine.get_memory_source.assert_awaited_once_with(9)
 
 
 @pytest.mark.asyncio
