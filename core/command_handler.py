@@ -15,6 +15,7 @@ from .i18n_backend import t, t_list
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .memory_scope import is_event_memory_allowed, resolve_memory_scope
+from .memory_source import serialize_source_messages
 from .validators.index_validator import IndexValidator
 
 
@@ -329,7 +330,7 @@ class CommandHandler:
         yield event.plain_result(t("webui.guide"))
 
     async def handle_summarize(
-        self, event: AstrMessageEvent
+        self, event: AstrMessageEvent, message_count: int | None = None
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem summarize 命令 - 立即触发记忆总结"""
         if not self.conversation_manager or not self.memory_engine:
@@ -360,6 +361,16 @@ class CommandHandler:
                 last_summarized_index = int(last_summarized_index)
             except (TypeError, ValueError):
                 last_summarized_index = 0
+
+            if message_count is not None:
+                try:
+                    requested_count = int(message_count)
+                except (TypeError, ValueError):
+                    requested_count = 0
+                if requested_count < 2:
+                    yield event.plain_result(t("summarize.invalid_count"))
+                    return
+                last_summarized_index = max(0, actual_count - requested_count)
 
             unsummarized = actual_count - last_summarized_index
 
@@ -446,6 +457,17 @@ class CommandHandler:
                 importance=importance,
                 metadata=metadata,
                 atoms=atoms,
+                source_messages=(
+                    serialize_source_messages(history_messages)
+                    if importance
+                    >= float(
+                        self.config_manager.get(
+                            "reflection_engine.source_retention_importance_threshold",
+                            0.8,
+                        )
+                    )
+                    else None
+                ),
             )
 
             await self.conversation_manager.update_session_metadata(

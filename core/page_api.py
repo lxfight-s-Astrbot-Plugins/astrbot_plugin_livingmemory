@@ -82,6 +82,12 @@ class PluginPageApi:
             "LivingMemory Page update memory",
         )
         register(
+            f"{PAGE_API_PREFIX}/memories/resummarize",
+            self.resummarize_memory,
+            ["POST"],
+            "LivingMemory Page resummarize memory source",
+        )
+        register(
             f"{PAGE_API_PREFIX}/memories/batch-delete",
             self.batch_delete_memories,
             ["POST"],
@@ -179,6 +185,15 @@ class PluginPageApi:
             return error
         return await self.memory_handler.update_memory(ready["memory_engine"])
 
+    async def resummarize_memory(self):
+        """Regenerate one memory from its retained source messages."""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.resummarize_memory(
+            ready["memory_engine"], ready["memory_processor"]
+        )
+
     async def batch_delete_memories(self):
         """批量删除记忆"""
         ready, error = await self._ensure_plugin_ready()
@@ -258,4 +273,7 @@ class PluginPageApi:
             "memory_engine": memory_engine,
             "conversation_manager": self.plugin.initializer.conversation_manager,
             "index_validator": self.plugin.initializer.index_validator,
+            "memory_processor": getattr(
+                self.plugin.initializer, "memory_processor", None
+            ),
         }, None

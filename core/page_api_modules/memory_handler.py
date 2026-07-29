@@ -2,6 +2,7 @@
 记忆管理处理模块
 """
 
+import inspect
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -9,6 +10,8 @@ import aiosqlite
 from quart import request
 
 from astrbot.api import logger
+
+from ..memory_source import restore_source_messages
 
 if TYPE_CHECKING:
     from .utils import PageApiUtils
@@ -283,6 +286,11 @@ class MemoryHandler:
         metadata = self.utils.normalize_metadata(memory.get("metadata"))
 
         # 构建完整的详情数据
+        get_source = getattr(memory_engine, "get_memory_source", None)
+        source_result = get_source(memory_id) if callable(get_source) else []
+        source_messages = (
+            await source_result if inspect.isawaitable(source_result) else []
+        )
         detail = {
             "memory_id": memory.get("id"),
             "doc_id": memory.get("doc_id"),
@@ -301,6 +309,7 @@ class MemoryHandler:
             "create_time": metadata.get("create_time"),
             "last_access_time": metadata.get("last_access_time"),
             "update_history": metadata.get("update_history", []),
+            "source_messages": source_messages,
         }
 
         # 附加相关的图谱子图
@@ -324,6 +333,59 @@ class MemoryHandler:
             detail["graph_context"] = None
 
         return self.utils.ok(detail)
+
+    async def resummarize_memory(
+        self, memory_engine, memory_processor
+    ) -> dict[str, Any]:
+        payload = await request.get_json(silent=True) or {}
+        try:
+            memory_id = int(payload.get("memory_id"))
+        except (TypeError, ValueError):
+            return self.utils.error("memory_id 必须是整数")
+        if memory_processor is None:
+            return self.utils.error("记忆处理器未初始化")
+
+        memory = await self._get_memory_record(memory_id, memory_engine)
+        if not memory:
+            return self.utils.error("记忆不存在")
+        get_source = getattr(memory_engine, "get_memory_source", None)
+        source_result = get_source(memory_id) if callable(get_source) else []
+        source = await source_result if inspect.isawaitable(source_result) else []
+        if len(source) < 2:
+            return self.utils.error("该记忆没有可重新总结的完整原文")
+
+        messages = restore_source_messages(source)
+        current_metadata = self.utils.normalize_metadata(memory.get("metadata"))
+        is_group_chat = bool(messages[0].group_id if messages else False)
+        try:
+            content, metadata, importance = await memory_processor.process_conversation(
+                messages=messages,
+                is_group_chat=is_group_chat,
+                persona_id=current_metadata.get("persona_id"),
+            )
+            metadata["source_window"] = {
+                **(current_metadata.get("source_window") or {}),
+                "resummarized_from": memory_id,
+                "message_count": len(messages),
+            }
+            metadata["memory_origin"] = "source_resummarization"
+            new_memory_id = await memory_engine.replace_memory(
+                memory_id,
+                content=content,
+                importance=importance,
+                metadata={**current_metadata, **metadata},
+            )
+        except Exception as exc:
+            logger.error(f"[PageAPI] 重新总结记忆失败: {exc}", exc_info=True)
+            return self.utils.error(str(exc))
+
+        return self.utils.ok(
+            {
+                "message": "记忆已根据原文重新总结",
+                "old_memory_id": memory_id,
+                "new_memory_id": new_memory_id,
+            }
+        )
 
     async def update_memory(self, memory_engine) -> dict[str, Any]:
         """

@@ -398,16 +398,23 @@ async def test_storage_task_writes_source_window(
 
     captured_metadata = {}
     captured_scope = None
+    captured_source = None
 
     async def _capture_add_memory(
         content, session_id, persona_id, importance, metadata, atoms=None, **kwargs
     ):
-        nonlocal captured_scope
+        nonlocal captured_scope, captured_source
         captured_scope = session_id
+        captured_source = kwargs.get("source_messages")
         captured_metadata.update(metadata)
         return 1
 
     memory_engine.add_memory = AsyncMock(side_effect=_capture_add_memory)
+    handler._memory_reflection.memory_processor.process_conversation.return_value = (
+        "summary",
+        {"topics": ["t1"]},
+        0.9,
+    )
 
     await handler._memory_reflection._storage_task(
         session_id="s1",
@@ -420,12 +427,50 @@ async def test_storage_task_writes_source_window(
     )
 
     assert captured_scope == "livingmemory:user:test:u1"
+    assert [item["content"] for item in captured_source] == ["hello", "hi"]
     assert "source_window" in captured_metadata
     sw = captured_metadata["source_window"]
     assert sw["session_id"] == "s1"
     assert sw["start_index"] == 0
     assert sw["end_index"] == 2
     assert sw["message_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_storage_task_does_not_retain_source_below_threshold(
+    handler, memory_engine
+):
+    from astrbot_plugin_livingmemory.core.models.conversation_models import Message
+
+    messages = [
+        Message(
+            id=index,
+            session_id="s1",
+            role=role,
+            content=content,
+            sender_id=sender,
+        )
+        for index, role, content, sender in (
+            (1, "user", "hello", "u1"),
+            (2, "assistant", "hi", "bot"),
+        )
+    ]
+    handler._memory_reflection.memory_processor.process_conversation.return_value = (
+        "summary",
+        {"topics": ["t1"]},
+        0.79,
+    )
+
+    await handler._memory_reflection._storage_task(
+        session_id="s1",
+        history_messages=messages,
+        persona_id="p1",
+        start_index=0,
+        end_index=2,
+        retry_count=0,
+    )
+
+    assert memory_engine.add_memory.await_args.kwargs["source_messages"] is None
 
 
 @pytest.mark.asyncio

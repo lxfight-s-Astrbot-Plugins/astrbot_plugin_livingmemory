@@ -488,7 +488,7 @@ class LivingMemoryPlugin(Star):
     @permission_type(PermissionType.ADMIN)
     @lmem.command("summarize")
     async def summarize(
-        self, event: AstrMessageEvent
+        self, event: AstrMessageEvent, message_count: int | None = None
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Immediately trigger memory summarization for current session"""
         ready, message = await self._ensure_plugin_ready()
@@ -500,7 +500,9 @@ class LivingMemoryPlugin(Star):
             yield event.plain_result(self._command_handler_not_ready_message())
             return
 
-        async for message in self.command_handler.handle_summarize(event):
+        async for message in self.command_handler.handle_summarize(
+            event, message_count
+        ):
             yield message
 
     @permission_type(PermissionType.ADMIN)

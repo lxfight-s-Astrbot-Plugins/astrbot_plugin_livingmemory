@@ -74,12 +74,15 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | 达到多少轮对话后触发总结 |
 | `reflection_engine.include_source_time_tags` | `true` | 从原始消息时间写入来源日期标签 |
+| `reflection_engine.source_retention_importance_threshold` | `0.8` | 达到阈值时独立保留原始消息 |
 | `importance_decay.decay_rate` | `0.01` | 每日重要性衰减比例 |
 | `importance_decay.access_decay_window_days` | `30.0` | 访问强化的时间窗口 |
 | `importance_decay.access_decay_max_count` | `10` | 最大访问强化次数 |
 | `importance_decay.protected_importance_threshold` | `1.0` | 达到阈值的记忆不参与每日衰减 |
 
 如果你希望机器人更快记住短期上下文，可以降低 `summary_trigger_rounds`；如果希望减少 LLM 调用成本，可以提高它。
+
+保留的原文只写入 SQLite `memory_sources` 表，不进入向量、BM25、图或原子索引，因此不会增加向量数量。它会增加数据库磁盘占用。Dashboard 详情的重新总结会调用一次 LLM，并替换原记忆、重新生成 Embedding 和全部派生索引。
 
 ## Agent 主动工具
 
