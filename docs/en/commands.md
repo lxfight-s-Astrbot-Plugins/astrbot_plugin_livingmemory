@@ -8,7 +8,7 @@ LivingMemory commands use the `/lmem` prefix.
 | `/lmem search <query> [k]` | Search long-term memories; `k` defaults to 5 |
 | `/lmem forget <id>` | Delete a specific memory |
 | `/lmem rebuild-index` | Rebuild document indexes |
-| `/lmem rebuild-graph` | Rebuild graph memory indexes |
+| `/lmem rebuild-graph` | Rebuild and compact graph indexes into memory-level vectors |
 | `/lmem webui` | Show WebUI entry information |
 | `/lmem summarize` | Summarize the current session immediately |
 | `/lmem reset` | Reset current session memory context |

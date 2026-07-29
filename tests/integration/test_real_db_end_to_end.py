@@ -140,7 +140,7 @@ class _ContextPersonaManager:
 async def test_graph_memory_batches_real_faiss_index_writes(
     tmp_path: Path, monkeypatch
 ):
-    """Each per-memory bulk insert or delete persists the FAISS index once."""
+    """Graph vectors stay memory-grained and each operation saves at most once."""
     graph_store = GraphStore(str(tmp_path / "graph.db"))
     await graph_store.initialize()
 
@@ -184,21 +184,90 @@ async def test_graph_memory_batches_real_faiss_index_writes(
         await manager.index_memory(77, metadata["canonical_summary"], metadata)
         stats = await graph_store.get_memory_entry_stats()
         assert stats["graph_entries"] > 1
+        assert vector_db.embedding_storage.index.ntotal == 1
         assert len(write_paths) == 1
         assert index_path.stat().st_size > 0
 
         await manager.index_memory(77, metadata["canonical_summary"], metadata)
+        assert vector_db.embedding_storage.index.ntotal == 1
         assert len(write_paths) == 3
 
         await manager.delete_memory(77)
+        assert vector_db.embedding_storage.index.ntotal == 0
         assert len(write_paths) == 4
 
         await manager.index_memory(78, metadata["canonical_summary"], metadata)
         await manager.index_memory(79, metadata["canonical_summary"], metadata)
+        assert vector_db.embedding_storage.index.ntotal == 2
         assert len(write_paths) == 6
 
         await manager.batch_delete_memories([78, 79])
+        assert vector_db.embedding_storage.index.ntotal == 0
         assert len(write_paths) == 7
+    finally:
+        await vector_db.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_memory_full_rebuild_saves_real_faiss_twice(
+    tmp_path: Path, monkeypatch
+):
+    graph_store = GraphStore(str(tmp_path / "graph_rebuild.db"))
+    await graph_store.initialize()
+
+    index_path = tmp_path / "graph_rebuild.index"
+    vector_db = FaissVecDB(
+        doc_store_path=str(tmp_path / "graph_rebuild_documents.db"),
+        index_store_path=str(index_path),
+        embedding_provider=_DeterministicEmbeddingProvider(dim=24),
+    )
+    await vector_db.initialize()
+
+    write_paths: list[str] = []
+    original_write_index = vector_db.embedding_storage._write_index
+
+    def counted_write_index(index, path: str) -> None:
+        write_paths.append(path)
+        original_write_index(index, path)
+
+    monkeypatch.setattr(
+        vector_db.embedding_storage,
+        "_write_index",
+        counted_write_index,
+    )
+
+    manager = GraphMemoryManager(
+        graph_store=graph_store,
+        graph_vector_retriever=GraphVectorRetriever(vector_db),
+        graph_extractor=GraphExtractor(),
+    )
+    memories = [
+        (
+            memory_id,
+            f"Release planning memory {memory_id}",
+            {
+                "session_id": "test:private:rebuild",
+                "persona_id": "persona-rebuild",
+                "importance": 0.8,
+                "topics": ["release", f"phase-{memory_id}"],
+                "participants": ["Alice", "Bob"],
+                "key_facts": [
+                    f"Release phase {memory_id} is Friday",
+                    f"Bob owns deployment phase {memory_id}",
+                ],
+            },
+        )
+        for memory_id in range(1, 11)
+    ]
+
+    try:
+        result = await manager.rebuild_memories(memories)
+
+        stats = await graph_store.get_memory_entry_stats()
+        assert result == {"rebuilt": 10, "skipped": 0}
+        assert stats["graph_entries"] > result["rebuilt"]
+        assert vector_db.embedding_storage.index.ntotal == result["rebuilt"]
+        assert len(write_paths) == 2
     finally:
         await vector_db.close()
 

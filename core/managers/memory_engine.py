@@ -1600,8 +1600,7 @@ class MemoryEngine:
         )
         batch_size = 200
         offset = 0
-        rebuilt = 0
-        skipped = 0
+        memories: list[tuple[int, str, dict[str, Any]]] = []
 
         while offset < total_count:
             docs = await self.faiss_db.document_storage.get_documents(
@@ -1622,18 +1621,12 @@ class MemoryEngine:
                 elif not isinstance(metadata, dict):
                     metadata = {}
                 content = str(doc.get("text") or "")
-                if not content.strip():
-                    skipped += 1
-                    continue
-                await self.graph_memory_manager.index_memory(
-                    doc["id"], content, metadata
-                )
-                rebuilt += 1
+                memories.append((int(doc["id"]), content, metadata))
 
             offset += batch_size
 
         self._invalidate_search_cache()
-        return {"rebuilt": rebuilt, "skipped": skipped}
+        return await self.graph_memory_manager.rebuild_memories(memories)
 
     # ==================== 高级功能 ====================
 

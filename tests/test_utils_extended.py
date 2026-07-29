@@ -390,6 +390,40 @@ class TestFormatMemoriesForInjection:
         assert "事实检索摘要" not in result
         assert result.count("张三周五发布") == 1
 
+    def test_format_strips_exact_key_fact_suffix_from_legacy_v2_content(self):
+        memories = [
+            {
+                "content": "我记得张三周五要发布呀！ | 张三周五发布；需要准备清单",
+                "score": 0.9,
+                "metadata": {
+                    "summary_schema_version": "v2",
+                    "key_facts": ["张三周五发布", "需要准备清单"],
+                    "importance": 0.8,
+                },
+            }
+        ]
+
+        result = format_memories_for_injection(memories)
+
+        assert "我记得张三周五要发布呀！" in result
+        assert result.count("张三周五发布") == 1
+        assert result.count("需要准备清单") == 1
+
+    def test_format_preserves_nonmatching_legacy_content(self):
+        memories = [
+            {
+                "content": "普通旧记忆正文",
+                "metadata": {
+                    "summary_schema_version": "v2",
+                    "key_facts": ["另一个事实"],
+                },
+            }
+        ]
+
+        result = format_memories_for_injection(memories)
+
+        assert "普通旧记忆正文" in result
+
 
 class TestNumberUtils:
     """测试数字工具函数"""
