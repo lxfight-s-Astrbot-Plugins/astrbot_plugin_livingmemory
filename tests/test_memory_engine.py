@@ -344,6 +344,25 @@ async def test_memory_engine_search_updates_access_time_async(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_internal_memory_scope_skips_legacy_session_migration(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "internal_scope.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True},
+    )
+    await engine.initialize()
+    engine._migrate_session_data_if_needed = AsyncMock()
+
+    await engine.search_memories(
+        "shared memory",
+        session_id="livingmemory:user:test:user-1",
+    )
+
+    engine._migrate_session_data_if_needed.assert_not_awaited()
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_search_memories_filters_below_minimum_importance(tmp_path: Path):
     engine = MemoryEngine(
         db_path=str(tmp_path / "memory_threshold.db"),

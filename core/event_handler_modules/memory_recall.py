@@ -14,6 +14,7 @@ from astrbot.api.platform import MessageType
 from astrbot.api.provider import ProviderRequest
 from astrbot.core.agent.message import TextPart
 
+from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
 from ..utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
@@ -88,6 +89,9 @@ class MemoryRecall:
     ):
         """Query and inject long-term memory before LLM request"""
         try:
+            if not is_event_memory_allowed(self.config_manager, event):
+                logger.debug("当前事件不在记忆白名单中，跳过记忆召回")
+                return
             session_id = event.unified_msg_origin
             logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
 
@@ -167,9 +171,6 @@ class MemoryRecall:
                 use_persona_filtering = filtering_config.get(
                     "use_persona_filtering", True
                 )
-                use_session_filtering = filtering_config.get(
-                    "use_session_filtering", True
-                )
 
                 # 获取 persona_id，与 AstrBot 主流程保持一致的三级优先级：
                 # 1. session_service_config（最高）
@@ -179,7 +180,7 @@ class MemoryRecall:
                 # 因此不能直接依赖 req.system_prompt 已注入人格，需自行走完整优先级。
                 persona_id = await get_persona_id(self.context, event)
 
-                recall_session_id = session_id if use_session_filtering else None
+                recall_session_id = resolve_memory_scope(self.config_manager, event)
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # 使用原始用户输入作为召回关键字
@@ -310,7 +311,7 @@ class MemoryRecall:
                             memory_list,
                             query=actual_query,
                             k=self.config_manager.get("recall_engine.top_k", 5),
-                            session_filtered=use_session_filtering,
+                            session_filtered=recall_session_id is not None,
                             persona_filtered=use_persona_filtering,
                         )
                         if fake_messages:

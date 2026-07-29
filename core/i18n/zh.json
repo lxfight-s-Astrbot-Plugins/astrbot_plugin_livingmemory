@@ -65,6 +65,7 @@
   },
   "summarize": {
     "action_name": "记忆总结",
+    "access_denied": "当前用户或会话不在长期记忆白名单中。",
     "no_new": "当前没有需要总结的新对话。\n当前消息总数: {total}\n已总结到消息序号: {index}",
     "starting": "开始手动总结记忆...\n消息范围: [{start}:{end}]，共 {count} 条",
     "fetch_failed": "获取消息失败：未读取到可总结的消息。\n请确认当前会话存在历史消息后重试。",

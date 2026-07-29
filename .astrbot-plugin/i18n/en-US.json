@@ -19,6 +19,22 @@
         "Russian"
       ]
     },
+    "access_control": {
+      "description": "Memory Access Control",
+      "hint": "Limit who can use long-term memory and map identities to consistent names across platforms.",
+      "whitelist_enabled": {
+        "description": "Enable Memory Allowlist",
+        "hint": "When enabled, only listed users, groups, or sessions can capture, summarize, recall, or use Agent memory tools. An empty list denies all memory operations."
+      },
+      "allowed_ids": {
+        "description": "Memory Allowlist",
+        "hint": "Enter one user ID, platform:user ID, group ID, or full session ID per line. Commas and semicolons are also supported."
+      },
+      "identity_aliases": {
+        "description": "Identity Aliases",
+        "hint": "Enter one source=canonical name mapping per line. The source may be platform:user ID, user ID, or current username, for example telegram:12345=Alex."
+      }
+    },
     "provider_settings": {
       "description": "Model Provider",
       "hint": "Configure the AI models used by the memory system",
@@ -180,7 +196,21 @@
       },
       "use_session_filtering": {
         "description": "Isolate Memories by Session",
-        "hint": "When enabled, each session's memories are stored independently and not shared across sessions."
+        "hint": "Used only when Memory Scope Mode is Legacy. When enabled, each session is isolated; when disabled, memories are not filtered by session."
+      },
+      "memory_scope_mode": {
+        "description": "Memory Scope Mode",
+        "hint": "Legacy preserves existing settings; Per Session isolates each origin; Per User shares memory across chats for the same platform user; Global shares memory everywhere.",
+        "labels": [
+          "Legacy",
+          "Per Session",
+          "Per User",
+          "Global"
+        ]
+      },
+      "isolated_sessions": {
+        "description": "Forced Isolated Sessions",
+        "hint": "Enter one full session ID per line. These sessions always use their own memory scope, overriding Per User, Global, and disabled legacy session filtering."
       }
     },
     "reflection_engine": {

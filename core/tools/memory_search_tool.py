@@ -13,6 +13,7 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
+from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
 from ..utils import get_persona_id
 
 
@@ -92,18 +93,25 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
 
         try:
             event = context.context.event
+            if not is_event_memory_allowed(self.config_manager, event):
+                return _json_result(
+                    {
+                        "query": cleaned_query,
+                        "count": 0,
+                        "results": [],
+                        "error": "memory access is not allowed",
+                    }
+                )
             filtering_config = self.config_manager.filtering_settings
             use_persona_filtering = filtering_config.get("use_persona_filtering", True)
-            use_session_filtering = filtering_config.get("use_session_filtering", True)
 
-            session_id = event.unified_msg_origin
             persona_id = (
                 await get_persona_id(self.context, event)
                 if use_persona_filtering
                 else None
             )
 
-            recall_session_id = session_id if use_session_filtering else None
+            recall_session_id = resolve_memory_scope(self.config_manager, event)
             recall_persona_id = persona_id if use_persona_filtering else None
 
             default_k = int(self.config_manager.get("recall_engine.top_k", 5))
@@ -143,7 +151,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                 {
                     "query": cleaned_query,
                     "applied_filters": {
-                        "session_filtered": use_session_filtering,
+                        "session_filtered": recall_session_id is not None,
                         "persona_filtered": use_persona_filtering,
                     },
                     "count": len(serialized_results),

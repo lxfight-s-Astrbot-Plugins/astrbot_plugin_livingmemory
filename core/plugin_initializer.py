@@ -682,6 +682,9 @@ class PluginInitializer:
                 max_cache_size=session_config.get("max_sessions", 100),
                 context_window_size=session_config.get("context_window_size", 50),
                 session_ttl=session_config.get("session_ttl", 3600),
+                identity_aliases=self.config_manager.get(
+                    "access_control.identity_aliases", ""
+                ),
             )
             logger.info("ConversationManager 已初始化")
 

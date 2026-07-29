@@ -65,6 +65,7 @@
   },
   "summarize": {
     "action_name": "Memory summarization",
+    "access_denied": "The current user or session is not on the long-term memory allowlist.",
     "no_new": "No new conversations to summarize currently.\nTotal messages: {total}\nLast summarized message index: {index}",
     "starting": "Starting manual memory summarization...\nMessage range: [{start}:{end}], total {count} items",
     "fetch_failed": "Failed to fetch messages: no summarizable messages read.\nPlease confirm the current session has historical messages and retry.",

@@ -397,10 +397,13 @@ async def test_storage_task_writes_source_window(
     ]
 
     captured_metadata = {}
+    captured_scope = None
 
     async def _capture_add_memory(
         content, session_id, persona_id, importance, metadata, atoms=None, **kwargs
     ):
+        nonlocal captured_scope
+        captured_scope = session_id
         captured_metadata.update(metadata)
         return 1
 
@@ -413,8 +416,10 @@ async def test_storage_task_writes_source_window(
         start_index=0,
         end_index=2,
         retry_count=0,
+        memory_scope="livingmemory:user:test:u1",
     )
 
+    assert captured_scope == "livingmemory:user:test:u1"
     assert "source_window" in captured_metadata
     sw = captured_metadata["source_window"]
     assert sw["session_id"] == "s1"

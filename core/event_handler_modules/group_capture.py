@@ -10,6 +10,8 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 
+from ..memory_scope import is_event_memory_allowed
+
 if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
     from ..managers.conversation_manager import ConversationManager
@@ -47,6 +49,9 @@ class GroupCapture:
 
         # 只处理群聊消息
         if event.get_message_type() != MessageType.GROUP_MESSAGE:
+            return
+
+        if not is_event_memory_allowed(self.config_manager, event):
             return
 
         # 群聊中 Bot 自己的消息由 handle_memory_reflection 负责写入，此处跳过

@@ -46,7 +46,9 @@ def _simulate_waking_check_with_cfg(filters, event, cfg):
 def _make_plugin(initialized=True, runtime_ready=True):
     plugin = Mock()
     plugin.initializer = Mock(is_initialized=initialized)
-    plugin.config_manager.get.return_value = True
+    plugin.config_manager.get.side_effect = lambda key, default=None: (
+        True if key == "session_manager.enable_full_group_capture" else default
+    )
     plugin._schedule_passive_group_capture = Mock()
 
     async def _ensure_runtime_components():
@@ -103,12 +105,47 @@ def test_passive_group_capture_filter_ignores_uninitialized_plugin():
 
 def test_passive_group_capture_filter_ignores_disabled_capture_config():
     plugin = _make_plugin()
+    plugin.config_manager.get.side_effect = None
     plugin.config_manager.get.return_value = False
     event = _make_event()
     filter_ = PassiveGroupCaptureFilter(plugin)
 
     assert _simulate_waking_check([filter_], event) is False
     plugin._schedule_passive_group_capture.assert_not_called()
+
+
+def test_passive_group_capture_filter_respects_memory_allowlist():
+    plugin = _make_plugin()
+    values = {
+        "session_manager.enable_full_group_capture": True,
+        "access_control.whitelist_enabled": True,
+        "access_control.allowed_ids": "other-group",
+    }
+    plugin.config_manager.get.side_effect = lambda key, default=None: values.get(
+        key, default
+    )
+    event = _make_event()
+    filter_ = PassiveGroupCaptureFilter(plugin)
+
+    assert _simulate_waking_check([filter_], event) is False
+    plugin._schedule_passive_group_capture.assert_not_called()
+
+
+def test_passive_group_capture_filter_accepts_memory_allowlisted_group():
+    plugin = _make_plugin()
+    values = {
+        "session_manager.enable_full_group_capture": True,
+        "access_control.whitelist_enabled": True,
+        "access_control.allowed_ids": "group-1",
+    }
+    plugin.config_manager.get.side_effect = lambda key, default=None: values.get(
+        key, default
+    )
+    event = _make_event()
+    filter_ = PassiveGroupCaptureFilter(plugin)
+
+    assert _simulate_waking_check([filter_], event) is False
+    plugin._schedule_passive_group_capture.assert_called_once_with(event)
 
 
 def test_passive_group_capture_filter_respects_global_whitelist():

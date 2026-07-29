@@ -11,7 +11,10 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse
 
+from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
 from ..utils import get_persona_id
+
+_DEFAULT_MEMORY_SCOPE = object()
 
 if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
@@ -68,6 +71,10 @@ class MemoryReflection:
         logger.debug(
             f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
         )
+
+        if not is_event_memory_allowed(self.config_manager, event):
+            logger.debug("当前事件不在记忆白名单中，跳过记忆反思")
+            return
 
         if resp.role != "assistant":
             return
@@ -285,6 +292,10 @@ class MemoryReflection:
                                 start_index,
                                 end_index,
                                 retry_count,
+                                memory_scope=(
+                                    resolve_memory_scope(self.config_manager, event)
+                                    or session_id
+                                ),
                             )
                         )
                     except Exception:
@@ -309,9 +320,13 @@ class MemoryReflection:
         start_index: int,
         end_index: int,
         retry_count: int,
+        memory_scope: str | None | object = _DEFAULT_MEMORY_SCOPE,
     ):
         """后台存储任务"""
         from ..utils import OperationContext
+
+        if memory_scope is _DEFAULT_MEMORY_SCOPE:
+            memory_scope = session_id
 
         async with OperationContext("记忆存储", session_id):
             try:
@@ -372,7 +387,7 @@ class MemoryReflection:
                     atoms = self.memory_processor.classify_atoms_from_metadata(
                         metadata=metadata,
                         parent_importance=importance,
-                        session_id=session_id,
+                        session_id=memory_scope,
                         persona_id=persona_id,
                     )
 
@@ -383,6 +398,7 @@ class MemoryReflection:
                         "end_index": end_index,
                         "message_count": end_index - start_index,
                     }
+                    metadata["source_session_id"] = session_id
 
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "
@@ -405,7 +421,7 @@ class MemoryReflection:
                 if self.memory_engine:
                     await self.memory_engine.add_memory(
                         content=content,
-                        session_id=session_id,
+                        session_id=memory_scope,
                         persona_id=persona_id,
                         importance=importance,
                         metadata=metadata,

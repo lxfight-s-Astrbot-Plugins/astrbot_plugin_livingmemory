@@ -20,6 +20,7 @@ from astrbot.api import logger
 from astrbot.api.platform import MessageType
 
 from ...storage.conversation_store import ConversationStore
+from ..memory_scope import resolve_sender_alias
 from ..models.conversation_models import Message, Session
 
 
@@ -55,6 +56,7 @@ class ConversationManager:
         max_cache_size: int = 100,
         context_window_size: int = 50,
         session_ttl: int = 3600,
+        identity_aliases: str = "",
     ):
         """
         初始化会话管理器
@@ -69,6 +71,7 @@ class ConversationManager:
         self.max_cache_size = max_cache_size
         self.context_window_size = context_window_size
         self.session_ttl = session_ttl
+        self.identity_aliases = identity_aliases
 
         # LRU缓存: {session_id: (messages, last_access_time)}
         self._cache: OrderedDict = OrderedDict()
@@ -159,6 +162,13 @@ class ConversationManager:
             if hasattr(event, "get_platform_name")
             else "unknown"
         )
+        if role == "user":
+            sender_name = resolve_sender_alias(
+                self.identity_aliases,
+                str(platform),
+                str(sender_id),
+                sender_name,
+            )
 
         return await self.add_message(
             session_id=session_id,

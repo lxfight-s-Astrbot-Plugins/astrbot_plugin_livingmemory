@@ -30,6 +30,12 @@ EXPECTED_OPTION_LABELS = {
             "all": "All Memories",
             "event_only": "Events and Facts",
         },
+        "filtering_settings.memory_scope_mode": {
+            "legacy": "Legacy",
+            "session": "Per Session",
+            "user": "Per User",
+            "global": "Global",
+        },
     },
     "ru-RU": {
         "bot_language": {
@@ -50,6 +56,12 @@ EXPECTED_OPTION_LABELS = {
         "recall_engine.memory_type_filter": {
             "all": "Все воспоминания",
             "event_only": "События и факты",
+        },
+        "filtering_settings.memory_scope_mode": {
+            "legacy": "Legacy",
+            "session": "По сессии",
+            "user": "По пользователю",
+            "global": "Глобально",
         },
     },
 }

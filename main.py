@@ -243,6 +243,7 @@ class LivingMemoryPlugin(Star):
             tools.append(
                 MemoryMemorizeTool(
                     context=self.context,
+                    config_manager=self.config_manager,
                     memory_engine=self.initializer.memory_engine,
                     memory_processor=self.initializer.memory_processor,
                 )
