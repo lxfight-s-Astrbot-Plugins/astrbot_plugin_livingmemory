@@ -513,6 +513,22 @@ class GraphStore:
             )
             await db.commit()
 
+    async def clear_all(self) -> list[int]:
+        """Clear every graph artifact and return referenced vector document IDs."""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT DISTINCT vector_doc_id FROM graph_entries "
+                "WHERE vector_doc_id IS NOT NULL"
+            )
+            vector_doc_ids = [int(row[0]) for row in await cursor.fetchall()]
+            await db.execute("DELETE FROM livingmemory_graph_entries_fts")
+            await db.execute("DELETE FROM graph_entry_nodes")
+            await db.execute("DELETE FROM graph_entries")
+            await db.execute("DELETE FROM graph_edges")
+            await db.execute("DELETE FROM graph_nodes")
+            await db.commit()
+        return vector_doc_ids
+
     async def delete_memory(self, source_memory_id: int) -> list[int]:
         """Delete graph artifacts belonging to one source memory."""
         vector_doc_ids: list[int] = []

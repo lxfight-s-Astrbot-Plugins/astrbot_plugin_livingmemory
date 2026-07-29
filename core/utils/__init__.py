@@ -301,11 +301,26 @@ def get_now_datetime_from_context(context: Context) -> datetime:
 
 def _memory_injection_content(content: Any, metadata: Any) -> str:
     """Use the personality channel for injection while preserving legacy data."""
+    raw_content = str(content or "").strip()
     if isinstance(metadata, dict):
         persona_summary = metadata.get("persona_summary")
         if isinstance(persona_summary, str) and persona_summary.strip():
             return persona_summary.strip()
-    return str(content or "")
+
+        # Early v2 rows stored ``persona | key_facts`` as retrieval content but
+        # did not persist a usable persona channel. Strip only an exact suffix
+        # so ordinary legacy content is never shortened heuristically.
+        if metadata.get("summary_schema_version") == "v2":
+            key_facts = metadata.get("key_facts")
+            if isinstance(key_facts, list):
+                facts = [
+                    str(fact).strip() for fact in key_facts[:5] if str(fact).strip()
+                ]
+                for separator in ("；", "; "):
+                    suffix = " | " + separator.join(facts)
+                    if facts and raw_content.endswith(suffix):
+                        return raw_content[: -len(suffix)].strip()
+    return raw_content
 
 
 def format_memories_for_injection(memories: list) -> str:

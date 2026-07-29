@@ -61,6 +61,8 @@ class _FakeFaissDB:
     def __init__(self):
         self.docs: dict[int, dict] = {}
         self._next_id = 1
+        self.insert_batch_calls = 0
+        self.delete_documents_calls = 0
         self.document_storage = _FakeDocumentStorage(self)
 
     async def insert(self, content: str, metadata: dict) -> int:
@@ -73,6 +75,13 @@ class _FakeFaissDB:
             "metadata": dict(metadata),
         }
         return doc_id
+
+    async def insert_batch(self, contents: list[str], metadatas: list[dict]):
+        self.insert_batch_calls += 1
+        return [
+            await self.insert(content, metadata)
+            for content, metadata in zip(contents, metadatas, strict=True)
+        ]
 
     async def retrieve(
         self, query: str, k: int, fetch_k: int, rerank: bool, metadata_filters=None
@@ -113,6 +122,19 @@ class _FakeFaissDB:
         if target is not None:
             self.docs.pop(target, None)
 
+    async def delete_documents(self, metadata_filters: dict) -> None:
+        self.delete_documents_calls += 1
+        matching_ids = [
+            doc_id
+            for doc_id, doc in self.docs.items()
+            if all(
+                doc["metadata"].get(key) == value
+                for key, value in metadata_filters.items()
+            )
+        ]
+        for doc_id in matching_ids:
+            self.docs.pop(doc_id, None)
+
     async def close(self) -> None:
         return None
 
@@ -120,7 +142,7 @@ class _FakeFaissDB:
 @pytest.mark.asyncio
 async def test_graph_vector_retriever_uses_bulk_faiss_operations():
     vector_db = SimpleNamespace(
-        insert_batch=AsyncMock(return_value=[11, 12]),
+        insert_batch=AsyncMock(return_value=[11]),
         delete_documents=AsyncMock(),
     )
     retriever = GraphVectorRetriever(vector_db)
@@ -133,14 +155,48 @@ async def test_graph_vector_retriever_uses_bulk_faiss_operations():
     )
     await retriever.delete_entries(7, ids)
 
-    assert ids == [11, 12]
+    assert ids == [11]
     vector_db.insert_batch.assert_awaited_once_with(
-        contents=["entry one", "entry two"],
-        metadatas=[{"source_memory_id": 7}, {"source_memory_id": 7}],
+        contents=["entry one\nentry two"],
+        metadatas=[
+            {
+                "source_memory_id": 7,
+                "graph_vector_granularity": "memory",
+                "graph_entry_count": 2,
+            }
+        ],
     )
     vector_db.delete_documents.assert_awaited_once_with(
         metadata_filters={"source_memory_id": 7}
     )
+
+
+@pytest.mark.asyncio
+async def test_graph_vector_retriever_batches_multiple_memories_in_one_save():
+    vector_db = SimpleNamespace(insert_batch=AsyncMock(return_value=[11, 12]))
+    retriever = GraphVectorRetriever(vector_db)
+
+    ids = await retriever.add_memory_entries_batch(
+        [
+            [("memory one topic", {"source_memory_id": 7})],
+            [
+                ("memory two topic", {"source_memory_id": 8}),
+                ("memory two fact", {"source_memory_id": 8}),
+            ],
+        ]
+    )
+
+    assert ids == [11, 12]
+    vector_db.insert_batch.assert_awaited_once()
+    call = vector_db.insert_batch.await_args.kwargs
+    assert call["contents"] == [
+        "memory one topic",
+        "memory two topic\nmemory two fact",
+    ]
+    assert [metadata["source_memory_id"] for metadata in call["metadatas"]] == [
+        7,
+        8,
+    ]
 
 
 @pytest.mark.asyncio
@@ -184,9 +240,10 @@ async def test_graph_memory_manager_indexes_nodes_edges_and_entries(tmp_path: Pa
     graph_store = GraphStore(str(db_path))
     await graph_store.initialize()
 
+    vector_db = _FakeFaissDB()
     graph_manager = GraphMemoryManager(
         graph_store=graph_store,
-        graph_vector_retriever=GraphVectorRetriever(_FakeFaissDB()),
+        graph_vector_retriever=GraphVectorRetriever(vector_db),
         graph_extractor=GraphExtractor(),
     )
 
@@ -208,6 +265,10 @@ async def test_graph_memory_manager_indexes_nodes_edges_and_entries(tmp_path: Pa
     assert stats["graph_nodes"] >= 4
     assert stats["graph_edges"] >= 3
     assert stats["graph_entries"] >= 4
+    assert len(vector_db.docs) == 1
+    vector_doc = next(iter(vector_db.docs.values()))
+    assert vector_doc["metadata"]["graph_vector_granularity"] == "memory"
+    assert vector_doc["metadata"]["graph_entry_count"] == stats["graph_entries"]
 
 
 @pytest.mark.asyncio
@@ -502,10 +563,11 @@ async def test_memory_engine_dual_route_promotes_graph_hits(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
     doc_db_path = tmp_path / "memory_rebuild.db"
+    graph_vector_db = _FakeFaissDB()
     engine = MemoryEngine(
         db_path=str(doc_db_path),
         faiss_db=_FakeFaissDB(),
-        graph_vector_db=_FakeFaissDB(),
+        graph_vector_db=graph_vector_db,
         config={"fallback_enabled": True, "graph_memory_enabled": True},
     )
     await engine.initialize()
@@ -527,8 +589,14 @@ async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
     assert engine.graph_memory_manager is not None
     await engine.graph_memory_manager.delete_memory(memory_id)
 
+    graph_vector_db.insert_batch_calls = 0
+    graph_vector_db.delete_documents_calls = 0
+
     rebuild_result = await engine.rebuild_graph_index()
     assert rebuild_result["rebuilt"] >= 1
+    assert graph_vector_db.delete_documents_calls == 1
+    assert graph_vector_db.insert_batch_calls == 1
+    assert len(graph_vector_db.docs) == rebuild_result["rebuilt"]
 
     stats = await engine.get_statistics()
     assert stats.get("graph_entries", 0) >= 1

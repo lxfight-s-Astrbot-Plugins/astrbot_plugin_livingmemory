@@ -8,7 +8,7 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 | `/lmem search <query> [k]` | 搜索长期记忆，`k` 默认为 5 |
 | `/lmem forget <id>` | 删除指定记忆 |
 | `/lmem rebuild-index` | 重建文档索引 |
-| `/lmem rebuild-graph` | 重建图谱记忆索引 |
+| `/lmem rebuild-graph` | 重建并压缩图谱索引，迁移到记忆级图向量 |
 | `/lmem webui` | 查看 WebUI 入口信息 |
 | `/lmem summarize` | 立即总结当前会话 |
 | `/lmem reset` | 重置当前会话记忆上下文 |
