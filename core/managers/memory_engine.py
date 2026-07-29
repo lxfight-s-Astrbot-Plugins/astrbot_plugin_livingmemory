@@ -19,6 +19,7 @@ from ...storage.atom_store import AtomStore
 from ...storage.graph_store import GraphStore
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
 from ..managers.graph_memory_manager import GraphMemoryManager
+from ..memory_transfer import memory_import_key
 from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
 from ..processors.atom_classifier import classify_atoms
 from ..processors.graph_extractor import GraphExtractor
@@ -1408,6 +1409,96 @@ class MemoryEngine:
         except (json.JSONDecodeError, TypeError):
             return []
         return value if isinstance(value, list) else []
+
+    async def get_memory_transfer_records(
+        self, memory_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return portable memory records without retrieval-index internals."""
+        if self.db_connection is None:
+            return []
+
+        normalized_ids: list[int] | None = None
+        if memory_ids is not None:
+            normalized_ids = list(dict.fromkeys(int(item) for item in memory_ids))
+            if not normalized_ids:
+                return []
+
+        async def _fetch_rows(batch: list[int] | None):
+            params: list[Any] = []
+            where_clause = ""
+            if batch is not None:
+                placeholders = ",".join("?" * len(batch))
+                where_clause = f"WHERE d.id IN ({placeholders})"
+                params.extend(batch)
+            cursor = await self.db_connection.execute(
+                f"""
+            SELECT d.id, d.text, d.metadata, d.created_at, d.updated_at,
+                   s.source_json
+            FROM documents AS d
+            LEFT JOIN memory_sources AS s ON s.memory_id = d.id
+            {where_clause}
+            ORDER BY d.id ASC
+            """,
+                params,
+            )
+            return await cursor.fetchall()
+
+        if normalized_ids is None:
+            rows = await _fetch_rows(None)
+        else:
+            rows = []
+            for offset in range(0, len(normalized_ids), 500):
+                rows.extend(
+                    await _fetch_rows(normalized_ids[offset : offset + 500])
+                )
+            rows.sort(key=lambda row: int(row["id"]))
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            metadata = self._safe_json_dict(row["metadata"])
+            source_messages: list[dict[str, Any]] = []
+            if row["source_json"]:
+                try:
+                    parsed_source = json.loads(row["source_json"])
+                except (json.JSONDecodeError, TypeError):
+                    parsed_source = []
+                if isinstance(parsed_source, list):
+                    source_messages = parsed_source
+            records.append(
+                {
+                    "original_id": int(row["id"]),
+                    "content": str(row["text"] or ""),
+                    "importance": clamp_float(
+                        metadata.get("importance"), default=0.5
+                    ),
+                    "session_id": metadata.get("session_id"),
+                    "persona_id": metadata.get("persona_id"),
+                    "metadata": metadata,
+                    "source_messages": source_messages,
+                    "storage_created_at": row["created_at"],
+                    "storage_updated_at": row["updated_at"],
+                }
+            )
+        return records
+
+    async def get_memory_import_keys(self) -> set[tuple[str, str, str]]:
+        """Return duplicate keys for existing memories."""
+        if self.db_connection is None:
+            return set()
+        cursor = await self.db_connection.execute(
+            "SELECT text, metadata FROM documents"
+        )
+        rows = await cursor.fetchall()
+        keys: set[tuple[str, str, str]] = set()
+        for row in rows:
+            metadata = self._safe_json_dict(row["metadata"])
+            keys.add(
+                memory_import_key(
+                    str(row["text"] or ""),
+                    metadata.get("session_id"),
+                    metadata.get("persona_id"),
+                )
+            )
+        return keys
 
     async def search_memories(
         self,

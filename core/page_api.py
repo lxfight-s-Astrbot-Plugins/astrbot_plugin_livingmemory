@@ -88,6 +88,18 @@ class PluginPageApi:
             "LivingMemory Page resummarize memory source",
         )
         register(
+            f"{PAGE_API_PREFIX}/memories/export",
+            self.export_memories,
+            ["POST"],
+            "LivingMemory Page export memories",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/memories/import",
+            self.import_memories,
+            ["POST"],
+            "LivingMemory Page import memories",
+        )
+        register(
             f"{PAGE_API_PREFIX}/memories/batch-delete",
             self.batch_delete_memories,
             ["POST"],
@@ -191,6 +203,22 @@ class PluginPageApi:
         if error:
             return error
         return await self.memory_handler.resummarize_memory(
+            ready["memory_engine"], ready["memory_processor"]
+        )
+
+    async def export_memories(self):
+        """Export all or selected memories."""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.export_memories(ready["memory_engine"])
+
+    async def import_memories(self):
+        """Preview or import portable memory data."""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.memory_handler.import_memories(
             ready["memory_engine"], ready["memory_processor"]
         )
 

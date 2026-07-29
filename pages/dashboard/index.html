@@ -145,6 +145,23 @@
                 <option value="50" data-i18n="common.perPage50">50 per page</option>
                 <option value="100" data-i18n="common.perPage100">100 per page</option>
               </select>
+              <select id="mem-transfer-format" class="select input" style="width:auto" data-i18n-title="transfer.formatTitle">
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+              </select>
+              <select id="mem-import-duplicates" class="select input" style="width:auto" data-i18n-title="transfer.duplicateTitle">
+                <option value="skip" data-i18n="transfer.skipDuplicates">Skip duplicates</option>
+                <option value="allow" data-i18n="transfer.allowDuplicates">Allow duplicates</option>
+              </select>
+              <button class="btn btn-sm btn-secondary" id="mem-export" data-i18n-title="transfer.exportTitle">
+                <i data-lucide="download" aria-hidden="true"></i>
+                <span data-i18n="transfer.export">Export</span>
+              </button>
+              <button class="btn btn-sm btn-secondary" id="mem-import" data-i18n-title="transfer.importTitle">
+                <i data-lucide="upload" aria-hidden="true"></i>
+                <span data-i18n="transfer.import">Import</span>
+              </button>
+              <input type="file" id="mem-import-file" accept=".json,.csv,application/json,text/csv" hidden />
               <button class="btn btn-sm btn-danger" id="mem-delete-selected" disabled data-i18n-title="delete.selectedTitle">
                 <i data-lucide="trash-2" aria-hidden="true"></i>
                 <span id="mem-delete-selected-label" data-i18n="delete.selected">Delete selected</span>

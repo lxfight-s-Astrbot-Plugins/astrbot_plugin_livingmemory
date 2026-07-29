@@ -125,6 +125,22 @@
     "delete.none":        { zh: "没有删除任何记忆", en: "No memories were deleted", ru: "Ничего не удалено" },
     "delete.error":       { zh: "删除失败，请稍后重试", en: "Delete failed, please try again later", ru: "Ошибка удаления, попробуйте позже" },
 
+    /* ---- Import / Export ---- */
+    "transfer.formatTitle":{ zh: "导出文件格式", en: "Export file format", ru: "Формат экспорта" },
+    "transfer.duplicateTitle":{ zh: "导入重复项处理方式", en: "Duplicate handling during import", ru: "Обработка дубликатов при импорте" },
+    "transfer.skipDuplicates":{ zh: "跳过重复", en: "Skip duplicates", ru: "Пропускать дубликаты" },
+    "transfer.allowDuplicates":{ zh: "允许重复", en: "Allow duplicates", ru: "Разрешить дубликаты" },
+    "transfer.export":    { zh: "导出", en: "Export", ru: "Экспорт" },
+    "transfer.import":    { zh: "导入", en: "Import", ru: "Импорт" },
+    "transfer.exportTitle":{ zh: "有选中项时导出所选，否则导出全部", en: "Export selected memories, or all when none are selected", ru: "Экспортировать выбранные или все записи" },
+    "transfer.importTitle":{ zh: "导入 JSON 或 CSV 记忆文件", en: "Import a JSON or CSV memory file", ru: "Импорт файла памяти JSON или CSV" },
+    "transfer.exportSuccess":{ zh: "已导出 {0} 条记忆", en: "Exported {0} memories", ru: "Экспортировано записей: {0}" },
+    "transfer.importPreviewTitle":{ zh: "确认导入记忆", en: "Confirm Memory Import", ru: "Подтвердить импорт памяти" },
+    "transfer.importPreview":{ zh: "有效 {0} 条，计划导入 {1} 条，重复 {2} 条，无效 {3} 条，需要 LLM 总结 {4} 条。", en: "Valid: {0}; planned: {1}; duplicates: {2}; invalid: {3}; requiring LLM summaries: {4}.", ru: "Корректно: {0}; к импорту: {1}; дубликаты: {2}; ошибки: {3}; требуют LLM: {4}." },
+    "transfer.importSuccess":{ zh: "已导入 {0} 条，跳过重复 {1} 条，失败 {2} 条", en: "Imported {0}; skipped {1} duplicates; failed {2}", ru: "Импортировано: {0}; пропущено дубликатов: {1}; ошибок: {2}" },
+    "transfer.fileTooLarge":{ zh: "导入文件不能超过 50 MiB", en: "Import file must not exceed 50 MiB", ru: "Файл импорта не должен превышать 50 MiB" },
+    "transfer.failed":    { zh: "记忆导入或导出失败", en: "Memory import or export failed", ru: "Ошибка импорта или экспорта памяти" },
+
     /* ---- Archive ---- */
     "archive.success":    { zh: "已归档 {0} 条记忆", en: "Archived {0} memories", ru: "Архивировано {0} записей" },
     "archive.fail":       { zh: "归档失败", en: "Archive failed", ru: "Ошибка архивации" },

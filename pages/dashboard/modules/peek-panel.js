@@ -505,8 +505,9 @@ export class PeekPanel {
    * @param {string} message - 消息
    * @returns {Promise<boolean>} 用户是否确认
    */
-  showConfirmDialog(title, message) {
+  showConfirmDialog(title, message, options = {}) {
     return new Promise((resolve) => {
+      const destructive = options.destructive !== false;
       this._confirmResolve = resolve;
       this._prevPeekContent = document.getElementById("peek-body").innerHTML;
 
@@ -515,7 +516,7 @@ export class PeekPanel {
       html += '<div class="confirm-dialog-message">' + esc(message) + '</div>';
       html += '<div class="confirm-dialog-actions">';
       html += '<button class="btn btn-secondary" id="confirm-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span>' + window.t("common.cancel") + '</span></button>';
-      html += '<button class="btn btn-danger" id="confirm-ok-btn"><i data-lucide="trash-2" aria-hidden="true"></i><span>' + window.t("common.confirm") + '</span></button>';
+      html += '<button class="btn ' + (destructive ? 'btn-danger' : 'btn-primary') + '" id="confirm-ok-btn"><i data-lucide="' + (destructive ? 'trash-2' : 'check') + '" aria-hidden="true"></i><span>' + window.t("common.confirm") + '</span></button>';
       html += '</div></div>';
 
       document.getElementById("peek-body").innerHTML = html;
