@@ -21,7 +21,7 @@ export function normalizeImportance(value) {
  * @returns {string} 文本内容
  */
 export function getDetailText(detail) {
-  return detail.text || detail.content || detail.summary || "";
+  return detail.summary || detail.text || detail.content || "";
 }
 
 /**

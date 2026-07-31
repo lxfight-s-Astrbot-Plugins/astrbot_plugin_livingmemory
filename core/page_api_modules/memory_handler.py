@@ -303,7 +303,11 @@ class MemoryHandler:
             "memory_id": memory.get("id"),
             "doc_id": memory.get("doc_id"),
             "text": memory.get("text"),
-            "summary": metadata.get("canonical_summary") or memory.get("text", ""),
+            "summary": (
+                metadata.get("persona_summary")
+                or metadata.get("canonical_summary")
+                or memory.get("text", "")
+            ),
             "created_at": memory.get("created_at"),
             "updated_at": memory.get("updated_at"),
             "metadata": metadata,
