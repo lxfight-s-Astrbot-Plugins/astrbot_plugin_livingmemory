@@ -31,8 +31,57 @@ class GraphExtractor:
         and edges with per-atom confidence scores instead of hardcoded values.
         """
         if atoms:
-            return self._extract_from_atoms(source_memory_id, atoms)
+            return self._extract_from_atoms(source_memory_id, atoms, metadata)
         return self._extract_legacy(source_memory_id, content, metadata)
+
+    def _participant_nodes(
+        self, metadata: dict[str, Any]
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        """Return display name, canonical identity, and metadata for people."""
+        resolved: list[tuple[str, str, dict[str, Any]]] = []
+        identities = metadata.get("participant_identities")
+        if isinstance(identities, list):
+            seen: set[str] = set()
+            for item in identities:
+                if not isinstance(item, dict):
+                    continue
+                identity_key = EntityResolver.canonicalize(
+                    str(item.get("identity_key") or "")
+                )
+                display_name = str(
+                    item.get("display_name") or item.get("sender_id") or ""
+                ).strip()
+                if not identity_key or not display_name or identity_key in seen:
+                    continue
+                seen.add(identity_key)
+                aliases = EntityResolver.dedupe_preserve_order(
+                    [str(alias) for alias in item.get("aliases", []) if alias]
+                )
+                resolved.append(
+                    (
+                        display_name,
+                        f"account:{identity_key}",
+                        {
+                            "identity_key": identity_key,
+                            "sender_id": str(item.get("sender_id") or ""),
+                            "platform": str(item.get("platform") or "unknown"),
+                            "aliases": aliases,
+                            "is_bot": bool(item.get("is_bot", False)),
+                        },
+                    )
+                )
+                if len(resolved) >= self.max_participants:
+                    break
+        if resolved:
+            return resolved
+
+        participants = EntityResolver.dedupe_preserve_order(
+            [str(item) for item in metadata.get("participants", []) if item]
+        )[: self.max_participants]
+        return [
+            (participant, EntityResolver.canonicalize(participant), {})
+            for participant in participants
+        ]
 
     def _extract_legacy(
         self,
@@ -51,9 +100,7 @@ class GraphExtractor:
         topics = EntityResolver.dedupe_preserve_order(
             [str(item) for item in metadata.get("topics", []) if item]
         )[: self.max_topics]
-        participants = EntityResolver.dedupe_preserve_order(
-            [str(item) for item in metadata.get("participants", []) if item]
-        )[: self.max_participants]
+        participants = self._participant_nodes(metadata)
         key_facts = EntityResolver.dedupe_preserve_order(
             [str(item) for item in metadata.get("key_facts", []) if item]
         )[: self.max_facts]
@@ -79,9 +126,16 @@ class GraphExtractor:
             return node.node_key
 
         topic_keys = [_add_node("topic", topic) for topic in topics]
-        participant_keys = [
-            _add_node("person", participant) for participant in participants
-        ]
+        participant_keys = []
+        for participant, canonical_value, identity_metadata in participants:
+            node = GraphNode(
+                node_type="person",
+                value=participant,
+                canonical_value=canonical_value,
+                metadata=identity_metadata,
+            )
+            node_map[node.node_key] = node
+            participant_keys.append(node.node_key)
         fact_keys = [
             _add_node("fact", fact, {"summary": summary}) for fact in key_facts
         ]
@@ -247,10 +301,25 @@ class GraphExtractor:
         self,
         source_memory_id: int,
         atoms: list,
+        metadata: dict[str, Any] | None = None,
     ) -> ExtractedGraph:
         """Build graph from individual memory atoms with per-atom confidence."""
+        metadata = metadata or {}
         graph = ExtractedGraph()
         node_map: dict[str, GraphNode] = {}
+        participant_nodes = self._participant_nodes(metadata)
+        participant_values = {
+            EntityResolver.canonicalize(value)
+            for value in metadata.get("participants", [])
+            if value
+        }
+        for display_name, _, identity_metadata in participant_nodes:
+            participant_values.add(EntityResolver.canonicalize(display_name))
+            participant_values.update(
+                EntityResolver.canonicalize(alias)
+                for alias in identity_metadata.get("aliases", [])
+                if alias
+            )
 
         def _add_node(
             node_type: str, value: str, extra: dict[str, Any] | None = None
@@ -273,12 +342,27 @@ class GraphExtractor:
             persona_id = getattr(atom, "persona_id", None)
             entities = getattr(atom, "entities", []) or []
 
-            # Create entity nodes from atom.entities
+            # Atom entities mix topics and LLM participant labels. Stable sender
+            # identities replace the participant labels when they are available.
             entity_keys: list[str] = []
             for entity in entities:
+                if (
+                    participant_nodes
+                    and EntityResolver.canonicalize(str(entity)) in participant_values
+                ):
+                    continue
                 entity_key = _add_node("topic", entity)
                 if entity_key:
                     entity_keys.append(entity_key)
+            for display_name, canonical_value, identity_metadata in participant_nodes:
+                node = GraphNode(
+                    node_type="person",
+                    value=display_name,
+                    canonical_value=canonical_value,
+                    metadata=identity_metadata,
+                )
+                node_map[node.node_key] = node
+                entity_keys.append(node.node_key)
 
             # Create a fact node for the atom content
             atom_type = getattr(atom, "atom_type", "unknown")
@@ -314,19 +398,21 @@ class GraphExtractor:
             )
 
             # Link entities to the fact with atom confidence
-            for entity_key in entity_keys:
+            for entity_key in dict.fromkeys(entity_keys):
                 edge_confidence = atom_confidence * 0.9
+                is_person = node_map[entity_key].node_type == "person"
+                relation_type = "mentioned_in" if is_person else "describes"
                 graph.edges.append(
                     GraphEdge(
                         source_key=entity_key,
                         target_key=fact_key,
-                        relation_type="describes",
+                        relation_type=relation_type,
                         source_memory_id=source_memory_id,
                         confidence=edge_confidence,
                         metadata={"atom_content": atom.content},
                     )
                 )
-                edge_payload = f"edge|{source_memory_id}|describes|{entity_key}|{fact_key}|{atom.content}"
+                edge_payload = f"edge|{source_memory_id}|{relation_type}|{entity_key}|{fact_key}|{atom.content}"
                 edge_entry_key = hashlib.sha1(edge_payload.encode("utf-8")).hexdigest()
                 graph.entries.append(
                     GraphEntry(
@@ -335,13 +421,16 @@ class GraphExtractor:
                         session_id=session_id,
                         persona_id=persona_id,
                         entry_type="edge",
-                        content=f"Topic {entity_key} relates to fact: {atom.content}",
+                        content=(
+                            f"{'Participant' if is_person else 'Topic'} {node_map[entity_key].value} "
+                            f"relates to fact: {atom.content}"
+                        ),
                         metadata={
                             **entry_metadata,
                             "graph_confidence": edge_confidence,
                         },
                         node_keys=[entity_key, fact_key],
-                        relation_type="describes",
+                        relation_type=relation_type,
                     )
                 )
 
