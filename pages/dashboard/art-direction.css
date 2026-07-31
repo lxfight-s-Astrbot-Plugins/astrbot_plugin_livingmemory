@@ -632,6 +632,30 @@ input[type="range"] {
   border-color: var(--border-normal);
 }
 
+@media (min-width: 769px) and (max-width: 1600px) {
+  .graph-page-body {
+    grid-template-rows: minmax(360px, 1fr) auto auto;
+  }
+
+  .graph-legend {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .graph-toolbar {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    grid-template-columns: minmax(0, 1fr) minmax(110px, 140px) auto auto;
+  }
+
+  .graph-toolbar .input {
+    min-width: 0;
+    max-width: none;
+  }
+}
+
 .graph-tooltip {
   border-radius: 2px;
   box-shadow: 7px 7px 0 rgba(0, 0, 0, 0.18);
@@ -1047,6 +1071,20 @@ input[type="range"] {
 
   .graph-page-body {
     grid-template-columns: 142px minmax(0, 1fr);
+  }
+
+  .graph-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  #graph-query-input,
+  #graph-memory-id {
+    grid-column: 1 / -1;
+    width: 100% !important;
+  }
+
+  .graph-toolbar .btn {
+    width: 100%;
   }
 
   .stat-pill-value {
