@@ -1,0 +1,52 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout AstrBot
+        uses: actions/checkout@v5
+        with:
+          repository: AstrBotDevs/AstrBot
+          path: AstrBot
+
+      - name: Checkout LivingMemory
+        uses: actions/checkout@v5
+        with:
+          path: AstrBot/data/plugins/astrbot_plugin_livingmemory
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            AstrBot/requirements.txt
+            AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r AstrBot/requirements.txt
+          python -m pip install -r AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements.txt
+          python -m pip install pytest pytest-asyncio
+
+      - name: Run test suite
+        working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
+        run: python -m pytest -q

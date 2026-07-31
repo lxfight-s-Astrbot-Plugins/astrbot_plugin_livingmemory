@@ -442,6 +442,9 @@ class MemoryProcessor:
             content, metadata = self._build_storage_format(
                 fallback_excerpt, structured_data, is_group_chat
             )
+            metadata["participant_identities"] = self._extract_participant_identities(
+                messages
+            )
             content = self._apply_source_time_tags(content, metadata, messages)
             # 将质量标记写入 metadata
             metadata["summary_quality"] = structured_data.get("_quality", "normal")
@@ -523,6 +526,44 @@ class MemoryProcessor:
                     f"[_format_conversation] 消息#{i} 格式化结果(私聊): {sender_info[:50]}..."
                 )
         return "\n".join(formatted_lines)
+
+    @staticmethod
+    def _extract_participant_identities(
+        messages: list[Message],
+    ) -> list[dict[str, Any]]:
+        """Build stable graph identities from message sender IDs, not LLM names."""
+        identities: dict[str, dict[str, Any]] = {}
+        for message in messages:
+            if message.role == "system":
+                continue
+            sender_id = str(message.sender_id or "").strip()
+            if not sender_id:
+                continue
+            platform = str(message.platform or "unknown").strip().lower() or "unknown"
+            identity_key = f"{platform}:{sender_id}"
+            display_name = str(message.sender_name or sender_id).strip() or sender_id
+            is_bot = bool(
+                message.metadata.get("is_bot_message", False)
+                or message.role == "assistant"
+            )
+
+            identity = identities.setdefault(
+                identity_key,
+                {
+                    "identity_key": identity_key,
+                    "sender_id": sender_id,
+                    "platform": platform,
+                    "display_name": display_name,
+                    "aliases": [],
+                    "is_bot": is_bot,
+                },
+            )
+            identity["display_name"] = display_name
+            identity["is_bot"] = bool(identity["is_bot"] or is_bot)
+            if display_name not in identity["aliases"]:
+                identity["aliases"].append(display_name)
+
+        return list(identities.values())
 
     @staticmethod
     def _format_sender_info(msg: Message) -> str:

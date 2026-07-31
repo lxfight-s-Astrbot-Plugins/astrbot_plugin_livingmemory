@@ -49,7 +49,12 @@ export class MemoryPage {
       this.state.memory.items = (Array.isArray(data.items) ? data.items : []).map(item => ({
         memory_id: item.id,
         doc_id: item.doc_id,
-        summary: item.text || item.content || "",
+        summary:
+          (item.metadata && item.metadata.persona_summary) ||
+          item.summary ||
+          item.text ||
+          item.content ||
+          "",
         content: item.text || item.content,
         memory_type: (item.metadata && item.metadata.memory_type) || "GENERAL",
         importance: normalizeImportance(item.metadata && item.metadata.importance),

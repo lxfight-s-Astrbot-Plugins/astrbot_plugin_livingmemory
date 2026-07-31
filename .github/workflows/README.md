@@ -4,7 +4,17 @@
 
 ## 📋 工作流列表
 
-### 1. 自动发布 (`auto-release.yml`)
+### 1. 测试 (`test.yml`)
+
+**触发条件**: 向 `master` 推送、提交目标为 `master` 的 Pull Request，或手动触发
+
+**功能**:
+- 检出官方 AstrBot 和当前 LivingMemory 版本，复现真实插件目录结构
+- 使用 Python 3.12 安装依赖
+- 运行完整单元与集成测试集
+- 同一分支有新提交时取消旧的测试任务
+
+### 2. 自动发布 (`auto-release.yml`)
 
 **触发条件**: 当 `metadata.yaml` 文件中的版本号发生变化并推送到 `main` 或 `master` 分支时
 
@@ -32,7 +42,7 @@
 - 修复了 Bug C
 ```
 
-### 2. Issue 自动分类 (`auto-label-issues.yml`)
+### 3. Issue 自动分类 (`auto-label-issues.yml`)
 
 **触发条件**: 当有新 Issue 被创建或编辑时
 
@@ -59,7 +69,7 @@
 - `needs more info` - 需要更多信息
 - `good first issue` - 适合新手
 
-### 3. 自动添加到项目看板 (`auto-add-to-project.yml`)
+### 4. 自动添加到项目看板 (`auto-add-to-project.yml`)
 
 **触发条件**: 当带有 `enhancement` 或 `feature` 标签的 Issue 或 PR 被创建时
 
