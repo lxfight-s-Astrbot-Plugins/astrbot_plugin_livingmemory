@@ -2522,6 +2522,8 @@ class MemoryEngine:
         embedding_delete = getattr(embedding_storage, "delete", None)
         provider = getattr(self.faiss_db, "embedding_provider", None)
         get_embedding = getattr(provider, "get_embedding_with_retry", None)
+        if not callable(get_embedding):
+            get_embedding = getattr(provider, "get_embedding", None)
         if not callable(embedding_insert) or not callable(get_embedding):
             raise RuntimeError("当前 AstrBot 不支持恢复已归档向量")
 
