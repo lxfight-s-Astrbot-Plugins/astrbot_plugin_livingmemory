@@ -529,6 +529,147 @@ class GraphStore:
             await db.commit()
         return vector_doc_ids
 
+    async def list_vector_doc_ids(self) -> list[int]:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT DISTINCT vector_doc_id FROM graph_entries "
+                "WHERE vector_doc_id IS NOT NULL"
+            )
+            return [int(row[0]) for row in await cursor.fetchall()]
+
+    async def list_vector_doc_ids_by_source(self) -> dict[int, list[int]]:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT source_memory_id, vector_doc_id
+                FROM graph_entries
+                WHERE vector_doc_id IS NOT NULL
+                GROUP BY source_memory_id, vector_doc_id
+                """
+            )
+            result: dict[int, list[int]] = {}
+            for source_memory_id, vector_doc_id in await cursor.fetchall():
+                result.setdefault(int(source_memory_id), []).append(int(vector_doc_id))
+            return result
+
+    async def iter_memory_entry_groups(self, batch_size: int = 100):
+        """Yield graph-vector payloads grouped by source memory."""
+        last_memory_id = -1
+        while True:
+            async with self._connect() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT DISTINCT source_memory_id
+                    FROM graph_entries
+                    WHERE source_memory_id > ?
+                    ORDER BY source_memory_id
+                    LIMIT ?
+                    """,
+                    (last_memory_id, max(1, int(batch_size))),
+                )
+                memory_ids = [int(row[0]) for row in await cursor.fetchall()]
+                if not memory_ids:
+                    break
+
+                placeholders = ",".join("?" for _ in memory_ids)
+                entry_cursor = await db.execute(
+                    f"""
+                    SELECT id, source_memory_id, content, metadata
+                    FROM graph_entries
+                    WHERE source_memory_id IN ({placeholders})
+                    ORDER BY source_memory_id, id
+                    """,
+                    memory_ids,
+                )
+                rows = await entry_cursor.fetchall()
+
+            grouped: dict[int, list[tuple[int, str, dict[str, Any]]]] = {}
+            for entry_id, source_memory_id, content, metadata in rows:
+                grouped.setdefault(int(source_memory_id), []).append(
+                    (int(entry_id), str(content or ""), self._from_json(metadata))
+                )
+            yield [
+                (
+                    source_memory_id,
+                    entries[0][0],
+                    [(content, metadata) for _, content, metadata in entries],
+                )
+                for source_memory_id, entries in grouped.items()
+                if entries
+            ]
+            last_memory_id = memory_ids[-1]
+
+    async def replace_all_from(self, shadow_db_path: str) -> None:
+        """Atomically replace live graph tables from a fully built shadow DB."""
+        async with self._connect() as db:
+            await db.execute("PRAGMA foreign_keys = OFF")
+            await db.execute("ATTACH DATABASE ? AS shadow_graph", (shadow_db_path,))
+            try:
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute("DELETE FROM livingmemory_graph_entries_fts")
+                await db.execute("DELETE FROM graph_entry_nodes")
+                await db.execute("DELETE FROM graph_entries")
+                await db.execute("DELETE FROM graph_edges")
+                await db.execute("DELETE FROM graph_nodes")
+
+                await db.execute(
+                    """
+                    INSERT INTO graph_nodes(
+                        id, node_key, node_type, node_value, canonical_value,
+                        metadata, created_at, updated_at
+                    )
+                    SELECT id, node_key, node_type, node_value, canonical_value,
+                           metadata, created_at, updated_at
+                    FROM shadow_graph.graph_nodes
+                    """
+                )
+                await db.execute(
+                    """
+                    INSERT INTO graph_edges(
+                        id, edge_key, source_node_id, target_node_id,
+                        relation_type, source_memory_id, weight, confidence,
+                        status, metadata, created_at, updated_at
+                    )
+                    SELECT id, edge_key, source_node_id, target_node_id,
+                           relation_type, source_memory_id, weight, confidence,
+                           status, metadata, created_at, updated_at
+                    FROM shadow_graph.graph_edges
+                    """
+                )
+                await db.execute(
+                    """
+                    INSERT INTO graph_entries(
+                        id, entry_key, source_memory_id, session_id, persona_id,
+                        entry_type, relation_type, content, metadata, edge_id,
+                        vector_doc_id, created_at, updated_at
+                    )
+                    SELECT id, entry_key, source_memory_id, session_id, persona_id,
+                           entry_type, relation_type, content, metadata, edge_id,
+                           vector_doc_id, created_at, updated_at
+                    FROM shadow_graph.graph_entries
+                    """
+                )
+                await db.execute(
+                    """
+                    INSERT INTO graph_entry_nodes(entry_id, node_id)
+                    SELECT entry_id, node_id
+                    FROM shadow_graph.graph_entry_nodes
+                    """
+                )
+                await db.execute(
+                    """
+                    INSERT INTO livingmemory_graph_entries_fts(content, entry_id)
+                    SELECT content, entry_id
+                    FROM shadow_graph.livingmemory_graph_entries_fts
+                    """
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+            finally:
+                await db.execute("DETACH DATABASE shadow_graph")
+
     async def delete_memory(self, source_memory_id: int) -> list[int]:
         """Delete graph artifacts belonging to one source memory."""
         vector_doc_ids: list[int] = []
@@ -721,7 +862,9 @@ class GraphStore:
         rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            for start in range(0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE):
+            for start in range(
+                0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE
+            ):
                 batch = normalized_tokens[
                     start : start + self._NODE_TOKEN_QUERY_BATCH_SIZE
                 ]
@@ -1337,9 +1480,9 @@ class GraphStore:
         memories: list[dict[str, Any]] = []
         for row in memory_rows:
             metadata = self._from_json(row["metadata"])
-            summary = str(
-                metadata.get("canonical_summary") or row["content"] or ""
-            )[:500]
+            summary = str(metadata.get("canonical_summary") or row["content"] or "")[
+                :500
+            ]
             memories.append(
                 {
                     "memory_id": int(row["source_memory_id"]),
