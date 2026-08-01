@@ -2,7 +2,9 @@
 Tests for PluginInitializer state management and provider resolution.
 """
 
+import asyncio
 import subprocess
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import astrbot_plugin_livingmemory.core.plugin_initializer as plugin_initializer_mod
@@ -106,6 +108,132 @@ def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
     monkeypatch.setattr(plugin_initializer_mod, "FaissVecDB", FakeFaissVecDB)
 
     assert initializer._load_faiss_vec_db_class() is FakeFaissVecDB
+
+
+@pytest.mark.asyncio
+async def test_startup_index_rebuild_runs_in_background(initializer):
+    rebuild_started = asyncio.Event()
+    allow_rebuild_to_finish = asyncio.Event()
+
+    class _Validator:
+        async def get_migration_status(self):
+            return True, 120
+
+        async def rebuild_indexes(self, memory_engine, progress_callback=None):
+            del memory_engine
+            rebuild_started.set()
+            if progress_callback:
+                await progress_callback(50, 120, "halfway")
+            await allow_rebuild_to_finish.wait()
+            return {
+                "success": True,
+                "processed": 120,
+                "errors": 0,
+                "total": 120,
+                "partial": False,
+                "message": "done",
+            }
+
+    initializer.index_validator = _Validator()
+    initializer.memory_engine = SimpleNamespace(index_maintenance_status={})
+
+    await initializer._auto_rebuild_index_if_needed()
+    await asyncio.wait_for(rebuild_started.wait(), timeout=1)
+
+    assert initializer.index_maintenance_status["state"] == "rebuilding"
+    assert initializer.index_maintenance_status["current"] == 50
+    assert initializer._index_maintenance_task is not None
+    assert not initializer._index_maintenance_task.done()
+
+    task = initializer._index_maintenance_task
+    allow_rebuild_to_finish.set()
+    await task
+
+    assert initializer.index_maintenance_status["state"] == "ready"
+    assert initializer.index_maintenance_status["current"] == 120
+    assert initializer.memory_engine.index_maintenance_status["state"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_index_maintenance_reconciles_concurrent_writes_once(initializer):
+    inconsistent = SimpleNamespace(
+        is_consistent=False,
+        needs_rebuild=True,
+        reason="BM25索引缺失1条文档",
+    )
+    consistent = SimpleNamespace(
+        is_consistent=True,
+        needs_rebuild=False,
+        reason="索引状态正常",
+    )
+    rebuild_indexes = AsyncMock(
+        side_effect=[
+            {
+                "success": True,
+                "processed": 100,
+                "errors": 0,
+                "total": 100,
+                "partial": False,
+                "message": "first pass",
+            },
+            {
+                "success": True,
+                "processed": 1,
+                "errors": 0,
+                "total": 101,
+                "partial": False,
+                "message": "reconciled",
+            },
+        ]
+    )
+    initializer.index_validator = SimpleNamespace(
+        rebuild_indexes=rebuild_indexes,
+        check_consistency=AsyncMock(side_effect=[inconsistent, consistent]),
+    )
+    initializer.memory_engine = SimpleNamespace(index_maintenance_status={})
+
+    await initializer._run_scheduled_index_rebuild("repair", 100)
+
+    assert rebuild_indexes.await_count == 2
+    assert initializer.index_maintenance_status["state"] == "ready"
+    assert "reconciliation" in initializer.index_maintenance_status["result"]
+
+
+@pytest.mark.asyncio
+async def test_provider_change_rebuilds_document_and_graph_indexes(initializer):
+    consistent = SimpleNamespace(
+        is_consistent=True,
+        needs_rebuild=False,
+        reason="索引状态正常",
+        documents_count=3,
+    )
+    initializer.index_validator = SimpleNamespace(
+        provider_fingerprint_changed=AsyncMock(return_value=True),
+        check_consistency=AsyncMock(return_value=consistent),
+        rebuild_indexes=AsyncMock(
+            return_value={
+                "success": True,
+                "processed": 3,
+                "errors": 0,
+                "total": 3,
+                "partial": False,
+                "message": "done",
+            }
+        ),
+    )
+    initializer.memory_engine = SimpleNamespace(
+        index_maintenance_status={},
+        rebuild_graph_index=AsyncMock(return_value={"rebuilt": 3, "skipped": 0}),
+    )
+
+    await initializer._run_index_maintenance()
+
+    initializer.memory_engine.rebuild_graph_index.assert_awaited_once()
+    assert initializer.index_maintenance_status["state"] == "ready"
+    assert initializer.index_maintenance_status["result"]["graph_rebuild"] == {
+        "rebuilt": 3,
+        "skipped": 0,
+    }
 
 
 @pytest.mark.asyncio

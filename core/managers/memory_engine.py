@@ -153,6 +153,12 @@ class MemoryEngine:
             self.config.get("write_op_repair_enabled", True)
         )
         self._write_op_max_retries = int(self.config.get("write_op_max_retries", 3))
+        self.index_maintenance_status: dict[str, Any] = {
+            "state": "idle",
+            "current": 0,
+            "total": 0,
+            "message": "",
+        }
 
     async def initialize(self):
         """
@@ -2825,6 +2831,7 @@ class MemoryEngine:
                 stats["graph_memory_enabled"] = True
             else:
                 stats["graph_memory_enabled"] = False
+            stats["index_maintenance"] = dict(self.index_maintenance_status)
 
             return stats
         except asyncio.CancelledError:

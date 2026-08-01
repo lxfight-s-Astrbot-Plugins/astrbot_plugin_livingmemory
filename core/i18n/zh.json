@@ -27,7 +27,8 @@
   },
   "status": {
     "action_name": "获取状态",
-    "report": "LivingMemory 状态报告\n\n总记忆数: {total}\n会话数: {session_count}\n最后更新: {last_update}\n数据库大小: {db_size:.2f} MB\n\n可用操作:\n- /lmem search <关键词>"
+    "report": "LivingMemory 状态报告\n\n总记忆数: {total}\n会话数: {session_count}\n最后更新: {last_update}\n数据库大小: {db_size:.2f} MB\n\n可用操作:\n- /lmem search <关键词>",
+    "index_maintenance": "\n\n索引维护: {state} ({current}/{total})\n{message}"
   },
   "search": {
     "action_name": "搜索",
