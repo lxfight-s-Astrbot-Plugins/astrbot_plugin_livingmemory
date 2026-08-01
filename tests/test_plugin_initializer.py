@@ -4,6 +4,7 @@ Tests for PluginInitializer state management and provider resolution.
 
 import asyncio
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -81,8 +82,35 @@ def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
         plugin_initializer_mod.subprocess, "run", Mock(return_value=result)
     )
 
-    with pytest.raises(InitializationError, match="FAISS 初始化失败"):
+    with pytest.raises(InitializationError, match="CPU 或运行环境可能不兼容"):
         initializer._check_faiss_runtime()
+
+
+def test_check_faiss_runtime_reports_binding_mismatch(monkeypatch, initializer):
+    result = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout="",
+        stderr=(
+            "NameError: name 'SuperKMeans' is not defined. "
+            "Did you mean: 'SuperKmeans'?"
+        ),
+    )
+    run = Mock(return_value=result)
+    monkeypatch.setattr(plugin_initializer_mod.subprocess, "run", run)
+    monkeypatch.setattr(
+        plugin_initializer_mod.metadata, "version", Mock(return_value="1.14.2")
+    )
+
+    with pytest.raises(InitializationError) as exc_info:
+        initializer._check_faiss_runtime()
+
+    message = str(exc_info.value)
+    assert "faiss-cpu 1.14.2" in message
+    assert "不是 Embedding Provider 配置问题" in message
+    assert "AstrBot Desktop" in message
+    assert "1.14.3" in message
+    assert run.call_count == 1
 
 
 def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
@@ -99,6 +127,12 @@ def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
     assert plugin_initializer_mod.os.environ["FAISS_OPT_LEVEL"] == "generic"
     assert run.call_count == 2
     assert run.call_args_list[1].kwargs["env"]["FAISS_OPT_LEVEL"] == "generic"
+
+
+def test_requirements_excludes_broken_faiss_release():
+    requirements = (Path(__file__).parents[1] / "requirements.txt").read_text()
+
+    assert "faiss-cpu>=1.12.0,!=1.14.2" in requirements.splitlines()
 
 
 def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):

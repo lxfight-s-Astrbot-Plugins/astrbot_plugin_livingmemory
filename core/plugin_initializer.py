@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,19 @@ from .schedulers.decay_scheduler import DecayScheduler
 from .validators.index_validator import IndexValidator
 
 FaissVecDB: Any = None
+
+_FAISS_GENERIC_FALLBACK_MARKERS = (
+    "illegal instruction",
+    "optimized",
+    "avx",
+    "simd",
+    "dll load failed",
+    "cannot open shared object file",
+    "could not load library",
+    "image not found",
+    "symbol not found",
+    "undefined symbol",
+)
 
 # ── Faiss C++ fopen() 在 Windows 上使用 ANSI codepage ──
 # Python 传给 Faiss 的路径是 UTF-8 字节，Windows fopen 期望 ANSI 编码，
@@ -80,6 +94,38 @@ def _sanitize_path(path: str) -> str:
         elif not parts or parts[-1] != "[***]":
             parts.append("[***]")
     return "".join(parts)
+
+
+def _faiss_error_details(result: subprocess.CompletedProcess[str]) -> str:
+    """Extract useful diagnostics from a FAISS import probe."""
+    details = (result.stderr or result.stdout or "").strip()
+    if result.returncode < 0:
+        details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
+    return details
+
+
+def _is_faiss_binding_mismatch(details: str) -> bool:
+    """Identify known Python-wrapper/binary-extension mismatches."""
+    lowered = details.lower()
+    return "superkmeans" in lowered or (
+        "python binding" in lowered and "mismatch" in lowered
+    )
+
+
+def _should_try_faiss_generic(result: subprocess.CompletedProcess[str]) -> bool:
+    """Return whether a generic-instruction-set probe can plausibly help."""
+    if result.returncode < 0:
+        return True
+    details = _faiss_error_details(result).lower()
+    return any(marker in details for marker in _FAISS_GENERIC_FALLBACK_MARKERS)
+
+
+def _installed_faiss_version() -> str:
+    """Read package metadata without importing a potentially broken FAISS module."""
+    try:
+        return metadata.version("faiss-cpu")
+    except metadata.PackageNotFoundError:
+        return "未知"
 
 
 class PluginInitializer:
@@ -384,9 +430,27 @@ class PluginInitializer:
         if result.returncode == 0:
             return
 
+        details = _faiss_error_details(result)
+        if _is_faiss_binding_mismatch(details):
+            version = _installed_faiss_version()
+            raise InitializationError(
+                "FAISS 初始化失败：Python 封装与二进制扩展不匹配"
+                f"（检测到 faiss-cpu {version}）。这不是 Embedding Provider 配置问题。"
+                "AstrBot Desktop 用户请升级或修复内置 Python 环境；"
+                "请避免 faiss-cpu 1.14.2，并在同一环境中干净重装兼容版本"
+                "（建议 1.14.3 或更高版本）。"
+                f"{' 原始错误: ' + details if details else ''}"
+            )
+
+        if not _should_try_faiss_generic(result):
+            raise InitializationError(
+                "FAISS 初始化失败，faiss-cpu 无法在当前 Python 环境中加载。"
+                "请检查安装是否完整，并确保 Python 封装与二进制扩展来自同一版本。"
+                f"{' 原始错误: ' + details if details else ''}"
+            )
+
         # Some faiss-cpu wheels select an optimized extension that is incompatible
-        # with the current CPU or mismatched with the installed Python wrappers.
-        # Probe the generic extension in a child process before changing this process.
+        # with the current CPU. Probe the generic extension before changing this process.
         generic_env = os.environ.copy()
         generic_env["FAISS_OPT_LEVEL"] = "generic"
         try:
@@ -408,13 +472,8 @@ class PluginInitializer:
             )
             return
 
-        details = (result.stderr or result.stdout or "").strip()
-        if result.returncode < 0:
-            details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
         if generic_result is not None:
-            generic_details = (
-                generic_result.stderr or generic_result.stdout or ""
-            ).strip()
+            generic_details = _faiss_error_details(generic_result)
             if generic_details and generic_details != details:
                 details = f"{details}；generic 模式: {generic_details}".strip("；")
         raise InitializationError(
