@@ -27,7 +27,8 @@
   },
   "status": {
     "action_name": "Status fetch",
-    "report": "LivingMemory Status Report\n\nTotal memories: {total}\nSessions: {session_count}\nLast update: {last_update}\nDatabase size: {db_size:.2f} MB\n\nAvailable operations:\n- /lmem search <keyword>"
+    "report": "LivingMemory Status Report\n\nTotal memories: {total}\nSessions: {session_count}\nLast update: {last_update}\nDatabase size: {db_size:.2f} MB\n\nAvailable operations:\n- /lmem search <keyword>",
+    "index_maintenance": "\n\nIndex maintenance: {state} ({current}/{total})\n{message}"
   },
   "search": {
     "action_name": "Search",

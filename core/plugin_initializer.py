@@ -47,7 +47,11 @@ def _safe_temp_dir() -> str:
     if os.name == "nt":
         root = os.environ.get("SystemRoot", r"C:\Windows")
         temp_dir = os.path.join(root, "Temp")
-        if temp_dir.isascii() and os.path.isdir(temp_dir) and os.access(temp_dir, os.W_OK):
+        if (
+            temp_dir.isascii()
+            and os.path.isdir(temp_dir)
+            and os.access(temp_dir, os.W_OK)
+        ):
             return temp_dir
         tmp = tempfile.gettempdir()
         if tmp.isascii():
@@ -115,6 +119,18 @@ class PluginInitializer:
         self._provider_check_attempts = 0
         self._max_provider_attempts = 60
         self._retry_task: asyncio.Task | None = None
+        self._index_maintenance_task: asyncio.Task | None = None
+        self._graph_index_requires_rebuild = False
+        self._index_maintenance_status: dict[str, Any] = {
+            "state": "idle",
+            "reason": "",
+            "current": 0,
+            "total": 0,
+            "message": "",
+            "started_at": None,
+            "finished_at": None,
+            "result": None,
+        }
 
     async def initialize(self) -> bool:
         """
@@ -503,7 +519,9 @@ class PluginInitializer:
             # 检查索引文件维度与当前 embedding provider 维度是否一致
             await self._check_and_fix_dimension_mismatch(str(index_path))
             if graph_memory_enabled:
-                await self._check_and_fix_dimension_mismatch(str(graph_index_path))
+                self._graph_index_requires_rebuild = (
+                    await self._check_and_fix_dimension_mismatch(str(graph_index_path))
+                )
 
             self.db = faiss_vec_db_cls(
                 str(db_path),
@@ -787,9 +805,70 @@ class PluginInitializer:
             logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
 
     async def _auto_rebuild_index_if_needed(self):
-        """自动检查并重建索引"""
+        """Schedule index checking without blocking core plugin readiness."""
+        if self._index_maintenance_task and not self._index_maintenance_task.done():
+            return
+        if not self.index_validator or not self.memory_engine:
+            return
+
+        self._set_index_maintenance_status(
+            state="checking",
+            reason="startup consistency check",
+            current=0,
+            total=0,
+            message="正在检查索引一致性",
+            started_at=time.time(),
+            finished_at=None,
+            result=None,
+        )
+        self._index_maintenance_task = asyncio.create_task(
+            self._run_index_maintenance()
+        )
+        self._index_maintenance_task.add_done_callback(self._on_index_maintenance_done)
+
+    def _set_index_maintenance_status(self, **updates: Any) -> None:
+        self._index_maintenance_status.update(updates)
+        if self.memory_engine is not None:
+            self.memory_engine.index_maintenance_status = dict(
+                self._index_maintenance_status
+            )
+
+    @property
+    def index_maintenance_status(self) -> dict[str, Any]:
+        return dict(self._index_maintenance_status)
+
+    def _on_index_maintenance_done(self, task: asyncio.Task) -> None:
+        if self._index_maintenance_task is task:
+            self._index_maintenance_task = None
+        if task.cancelled():
+            return
+        try:
+            exception = task.exception()
+        except Exception:
+            return
+        if exception:
+            logger.error(f"索引维护任务异常退出: {exception}", exc_info=exception)
+
+    async def _run_index_maintenance(self) -> None:
+        """Check and repair indexes while the plugin remains available."""
         try:
             if not self.index_validator or not self.memory_engine:
+                return
+
+            fingerprint_changed = False
+            check_fingerprint = getattr(
+                self.index_validator, "provider_fingerprint_changed", None
+            )
+            if callable(check_fingerprint):
+                fingerprint_changed = bool(await check_fingerprint())
+            if fingerprint_changed:
+                status = await self.index_validator.check_consistency()
+                await self._run_scheduled_index_rebuild(
+                    "Embedding Provider 指纹已变化",
+                    status.documents_count,
+                    force_full_vector=True,
+                    rebuild_graph=True,
+                )
                 return
 
             # 检查v1迁移状态
@@ -799,17 +878,8 @@ class PluginInitializer:
             ) = await self.index_validator.get_migration_status()
 
             if needs_migration_rebuild:
-                logger.info(f"检测到 v1 迁移数据需要重建索引（{pending_count} 条文档）")
-                logger.info("开始自动重建索引。")
-
-                result = await self.index_validator.rebuild_indexes(self.memory_engine)
-
-                if result["success"]:
-                    logger.info(
-                        f"索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
-                    )
-                else:
-                    logger.error(f"索引自动重建失败: {result.get('message')}")
+                reason = f"v1 迁移数据需要重建索引（{pending_count} 条文档）"
+                await self._run_scheduled_index_rebuild(reason, pending_count)
                 return
 
             # 检查索引一致性
@@ -817,24 +887,142 @@ class PluginInitializer:
 
             if not status.is_consistent and status.needs_rebuild:
                 logger.warning(f"检测到索引不一致: {status.reason}")
-                logger.info(
-                    f"当前索引计数 - Documents: {status.documents_count}, BM25: {status.bm25_count}, Vector: {status.vector_count}"
+                await self._run_scheduled_index_rebuild(
+                    status.reason, status.documents_count
                 )
-                logger.info("开始自动重建索引。")
-
-                result = await self.index_validator.rebuild_indexes(self.memory_engine)
-
-                if result["success"]:
-                    logger.info(
-                        f"索引自动重建完成: 成功 {result['processed']} 条, 失败 {result['errors']} 条"
-                    )
-                else:
-                    logger.error(f"索引自动重建失败: {result.get('message')}")
             else:
                 logger.info(f"索引一致性检查通过: {status.reason}")
+                graph_result = None
+                if self._graph_index_requires_rebuild:
+                    graph_result = await self._run_graph_index_rebuild()
+                self._set_index_maintenance_status(
+                    state="ready",
+                    reason=status.reason,
+                    current=status.documents_count,
+                    total=status.documents_count,
+                    message=(
+                        "索引一致性检查通过，图谱索引已重建"
+                        if graph_result is not None
+                        else "索引一致性检查通过"
+                    ),
+                    finished_at=time.time(),
+                    result=(
+                        {"success": True, "graph_rebuild": graph_result}
+                        if graph_result is not None
+                        else None
+                    ),
+                )
 
+        except asyncio.CancelledError:
+            self._set_index_maintenance_status(
+                state="cancelled",
+                message="索引维护已取消",
+                finished_at=time.time(),
+            )
+            raise
         except Exception as e:
             logger.error(f"自动重建索引失败: {e}", exc_info=True)
+            self._set_index_maintenance_status(
+                state="failed",
+                message=str(e),
+                finished_at=time.time(),
+                result={"success": False, "error": str(e)},
+            )
+
+    async def _run_scheduled_index_rebuild(
+        self,
+        reason: str,
+        expected_total: int,
+        *,
+        force_full_vector: bool = False,
+        rebuild_graph: bool = False,
+    ) -> None:
+        if not self.index_validator or not self.memory_engine:
+            return
+
+        self._set_index_maintenance_status(
+            state="rebuilding",
+            reason=reason,
+            current=0,
+            total=max(0, int(expected_total)),
+            message="开始后台重建索引",
+        )
+        logger.info(f"开始后台索引维护: {reason}")
+
+        async def update_progress(current: int, total: int, message: str) -> None:
+            self._set_index_maintenance_status(
+                current=max(0, int(current)),
+                total=max(0, int(total)),
+                message=message,
+            )
+
+        rebuild_kwargs: dict[str, Any] = {"progress_callback": update_progress}
+        if force_full_vector:
+            rebuild_kwargs["force_full_vector"] = True
+        result = await self.index_validator.rebuild_indexes(
+            self.memory_engine, **rebuild_kwargs
+        )
+        success = bool(result.get("success"))
+        partial = bool(result.get("partial"))
+
+        check_consistency = getattr(self.index_validator, "check_consistency", None)
+        if success and callable(check_consistency):
+            final_status = await check_consistency()
+            if not final_status.is_consistent and final_status.needs_rebuild:
+                logger.info(
+                    "索引维护期间检测到并发写入，执行一次收尾补偿: "
+                    f"{final_status.reason}"
+                )
+                reconciliation = await self.index_validator.rebuild_indexes(
+                    self.memory_engine,
+                    progress_callback=update_progress,
+                )
+                result["reconciliation"] = dict(reconciliation)
+                success = bool(reconciliation.get("success"))
+                partial = partial or bool(reconciliation.get("partial"))
+                if success:
+                    final_status = await check_consistency()
+
+            if success and not final_status.is_consistent:
+                partial = True
+                result["post_check"] = {
+                    "consistent": False,
+                    "reason": final_status.reason,
+                }
+
+        if (
+            success
+            and not partial
+            and (rebuild_graph or self._graph_index_requires_rebuild)
+        ):
+            result["graph_rebuild"] = await self._run_graph_index_rebuild()
+
+        result["success"] = success
+        result["partial"] = partial
+        state = "partial" if success and partial else "ready" if success else "failed"
+        self._set_index_maintenance_status(
+            state=state,
+            current=int(result.get("processed", 0) or 0),
+            total=int(result.get("total", expected_total) or 0),
+            message=str(result.get("message") or "索引维护完成"),
+            finished_at=time.time(),
+            result=dict(result),
+        )
+        if success:
+            logger.info(
+                f"索引后台维护完成: 成功 {result.get('processed', 0)} 条, "
+                f"失败 {result.get('errors', 0)} 条"
+            )
+        else:
+            logger.error(f"索引后台维护失败: {result.get('message')}")
+
+    async def _run_graph_index_rebuild(self) -> dict[str, int]:
+        if self.memory_engine is None:
+            return {"rebuilt": 0, "skipped": 0}
+        self._set_index_maintenance_status(message="正在重建图谱索引")
+        result = await self.memory_engine.rebuild_graph_index()
+        self._graph_index_requires_rebuild = False
+        return result
 
     async def _repair_message_counts(self, conversation_store: ConversationStore):
         """修复会话表中 message_count 与实际消息数量不一致的问题"""
@@ -891,7 +1079,7 @@ class PluginInitializer:
 
         return self._initialization_complete
 
-    async def _check_and_fix_dimension_mismatch(self, index_path: str) -> None:
+    async def _check_and_fix_dimension_mismatch(self, index_path: str) -> bool:
         """
         检查 FAISS 索引维度与当前 embedding provider 维度是否一致
 
@@ -903,19 +1091,19 @@ class PluginInitializer:
             index_path: FAISS 索引文件路径
         """
         if not os.path.exists(index_path):
-            return
+            return False
 
         # 空文件不是有效索引，直接删除让 initialize() 重建，避免 faiss 抛异常
         try:
             if os.path.getsize(index_path) == 0:
                 os.remove(index_path)
                 logger.debug(f"已删除空索引文件: {_sanitize_path(index_path)}")
-                return
+                return True
         except OSError:
             pass
 
         try:
-            import faiss
+            import faiss  # noqa: F401
         except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
             raise InitializationError(
                 "FAISS 初始化失败，无法读取索引文件。"
@@ -932,8 +1120,10 @@ class PluginInitializer:
             # 文件在 os.path.exists 和 faiss.read_index 之间消失（如被外部进程删除），
             # 这不是坏文件，不需要隔离，让 initialize() 自动重建即可
             if "No such file" in error_msg or "could not open" in error_msg:
-                logger.debug(f"FAISS 索引文件({_sanitize_path(index_path)})在检查时不可访问，将由 initialize() 重建: {e}")
-                return
+                logger.debug(
+                    f"FAISS 索引文件({_sanitize_path(index_path)})在检查时不可访问，将由 initialize() 重建: {e}"
+                )
+                return False
             # 真正的坏文件：直接删除（系统会自动重建），避免累积 .corrupt_* 文件
             try:
                 os.remove(index_path)
@@ -947,7 +1137,7 @@ class PluginInitializer:
                     f"检查索引维度时出错，且删除坏索引失败: {e}",
                     exc_info=True,
                 )
-            return
+            return True
 
         # 对比维度 — 放在坏索引处理之外，避免 embedding_provider 异常误删健康索引
         old_dim = old_index.d
@@ -959,13 +1149,15 @@ class PluginInitializer:
                 f"当前 Embedding Provider 维度={new_dim}"
             )
             logger.warning(
-                "这通常由 Embedding 模型切换导致。"
-                "旧索引将被删除，系统会自动重建索引。"
+                "这通常由 Embedding 模型切换导致。旧索引将被删除，系统会自动重建索引。"
             )
 
             os.remove(index_path)
             logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
             logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+            return True
+
+        return False
 
     @staticmethod
     def _faiss_read_index_safe(index_path: str):
@@ -975,11 +1167,13 @@ class PluginInitializer:
         """
         if not _needs_bridge(index_path):
             import faiss
+
             return faiss.read_index(index_path)
         tmp = _make_temp_file("_faiss_read")
         try:
             shutil.copy2(index_path, tmp)
             import faiss
+
             return faiss.read_index(tmp)
         finally:
             if os.path.exists(tmp):
@@ -996,6 +1190,14 @@ class PluginInitializer:
 
     async def stop_background_tasks(self) -> None:
         """停止初始化阶段的后台任务（如Provider重试）"""
+        if self._index_maintenance_task and not self._index_maintenance_task.done():
+            self._index_maintenance_task.cancel()
+            try:
+                await self._index_maintenance_task
+            except asyncio.CancelledError:
+                pass
+        self._index_maintenance_task = None
+
         if self._retry_task and not self._retry_task.done():
             self._retry_task.cancel()
             try:

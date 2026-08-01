@@ -27,7 +27,8 @@
   },
   "status": {
     "action_name": "Получение статуса",
-    "report": "Отчёт о состоянии LivingMemory\n\nВсего памяти: {total}\nСессий: {session_count}\nПоследнее обновление: {last_update}\nРазмер БД: {db_size:.2f} MB\n\nДоступные операции:\n- /lmem search <ключевое слово>"
+    "report": "Отчёт о состоянии LivingMemory\n\nВсего памяти: {total}\nСессий: {session_count}\nПоследнее обновление: {last_update}\nРазмер БД: {db_size:.2f} MB\n\nДоступные операции:\n- /lmem search <ключевое слово>",
+    "index_maintenance": "\n\nОбслуживание индекса: {state} ({current}/{total})\n{message}"
   },
   "search": {
     "action_name": "Поиск",

@@ -153,6 +153,12 @@ class MemoryEngine:
             self.config.get("write_op_repair_enabled", True)
         )
         self._write_op_max_retries = int(self.config.get("write_op_max_retries", 3))
+        self.index_maintenance_status: dict[str, Any] = {
+            "state": "idle",
+            "current": 0,
+            "total": 0,
+            "message": "",
+        }
 
     async def initialize(self):
         """
@@ -1932,42 +1938,53 @@ class MemoryEngine:
         return success
 
     async def rebuild_graph_index(self) -> dict[str, int]:
-        """Rebuild graph-memory artifacts from stored documents."""
+        """Stream active documents into a safe graph-memory rebuild."""
         if self.graph_memory_manager is None:
             return {"rebuilt": 0, "skipped": 0}
 
-        total_count = await self.faiss_db.document_storage.count_documents(
-            metadata_filters={}
-        )
-        batch_size = 200
-        offset = 0
-        memories: list[tuple[int, str, dict[str, Any]]] = []
+        if self.db_connection is None:
+            raise RuntimeError("memory database is not initialized")
 
-        while offset < total_count:
-            docs = await self.faiss_db.document_storage.get_documents(
-                metadata_filters={},
-                limit=batch_size,
-                offset=offset,
-            )
-            if not docs:
-                break
+        async def active_memory_batches():
+            last_id = 0
+            batch_size = 200
+            while True:
+                cursor = await self.db_connection.execute(
+                    """
+                    SELECT id, text, metadata
+                    FROM documents
+                    WHERE id > ?
+                      AND COALESCE(
+                          json_extract(metadata, '$.status'), 'active'
+                      ) = 'active'
+                    ORDER BY id
+                    LIMIT ?
+                    """,
+                    (last_id, batch_size),
+                )
+                rows = await cursor.fetchall()
+                if not rows:
+                    break
 
-            for doc in docs:
-                metadata = doc.get("metadata") or {}
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except (json.JSONDecodeError, TypeError):
+                batch: list[tuple[int, str, dict[str, Any]]] = []
+                for row in rows:
+                    metadata = row["metadata"] or {}
+                    if isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except (json.JSONDecodeError, TypeError):
+                            metadata = {}
+                    elif not isinstance(metadata, dict):
                         metadata = {}
-                elif not isinstance(metadata, dict):
-                    metadata = {}
-                content = str(doc.get("text") or "")
-                memories.append((int(doc["id"]), content, metadata))
+                    batch.append((int(row["id"]), str(row["text"] or ""), metadata))
 
-            offset += batch_size
+                last_id = int(rows[-1]["id"])
+                yield batch
 
         self._invalidate_search_cache()
-        return await self.graph_memory_manager.rebuild_memories(memories)
+        return await self.graph_memory_manager.rebuild_memory_batches(
+            active_memory_batches()
+        )
 
     # ==================== 高级功能 ====================
 
@@ -2825,6 +2842,7 @@ class MemoryEngine:
                 stats["graph_memory_enabled"] = True
             else:
                 stats["graph_memory_enabled"] = False
+            stats["index_maintenance"] = dict(self.index_maintenance_status)
 
             return stats
         except asyncio.CancelledError:

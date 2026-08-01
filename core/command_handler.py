@@ -114,6 +114,17 @@ class CommandHandler:
                 db_size=db_size,
             )
 
+            maintenance = stats.get("index_maintenance") or {}
+            maintenance_state = str(maintenance.get("state") or "idle")
+            if maintenance_state not in {"idle", "ready"}:
+                message += t(
+                    "status.index_maintenance",
+                    state=maintenance_state,
+                    current=int(maintenance.get("current", 0) or 0),
+                    total=int(maintenance.get("total", 0) or 0),
+                    message=str(maintenance.get("message") or ""),
+                )
+
             yield event.plain_result(message)
         except Exception as e:
             logger.error(f"获取状态失败: {e}", exc_info=True)

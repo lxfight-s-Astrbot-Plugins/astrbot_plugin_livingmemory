@@ -3,7 +3,10 @@
 """
 
 import asyncio
+import hashlib
+import json
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -43,6 +46,7 @@ class IndexValidator:
         """
         self.db_path = db_path
         self.faiss_db = faiss_db
+        self._maintenance_lock = asyncio.Lock()
 
     DEFAULT_REBUILD_BATCH_SIZE = 50
     DEFAULT_EMBEDDING_BATCH_SIZE = 8
@@ -53,6 +57,100 @@ class IndexValidator:
     DEFAULT_REQUEST_DELAY = 5.0
     RATE_LIMIT_RETRY_MIN_DELAY = 30.0
     DEFAULT_MAX_FAILURE_RATIO = 0.02
+    VECTOR_SCHEMA_VERSION = "document-vector-v2"
+    ACTIVE_DOCUMENT_SQL = (
+        "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'"
+    )
+
+    def get_provider_fingerprint(self) -> str:
+        provider = getattr(self.faiss_db, "embedding_provider", None)
+        provider_config = getattr(provider, "provider_config", {}) or {}
+        if not isinstance(provider_config, dict):
+            provider_config = {}
+
+        get_model = getattr(provider, "get_model", None)
+        try:
+            model = get_model() if callable(get_model) else None
+        except Exception:
+            model = None
+        model = (
+            model
+            or getattr(provider, "model", None)
+            or getattr(provider, "model_name", None)
+            or provider_config.get("embedding_model")
+            or provider_config.get("model")
+            or "unknown"
+        )
+
+        get_dim = getattr(provider, "get_dim", None)
+        try:
+            dimension = int(get_dim()) if callable(get_dim) else 0
+        except Exception:
+            dimension = 0
+        if dimension <= 0:
+            storage = getattr(self.faiss_db, "embedding_storage", None)
+            dimension = int(getattr(storage, "dimension", 0) or 0)
+
+        payload = {
+            "schema": self.VECTOR_SCHEMA_VERSION,
+            "provider_class": (
+                f"{type(provider).__module__}.{type(provider).__qualname__}"
+                if provider is not None
+                else "unknown"
+            ),
+            "provider_id": provider_config.get("id", "unknown"),
+            "provider_type": provider_config.get("type", "unknown"),
+            "model": str(model),
+            "dimension": dimension,
+            "dimensions_mode": provider_config.get("embedding_dimensions_mode"),
+            "input_type": provider_config.get("input_type"),
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    async def provider_fingerprint_changed(self) -> bool:
+        """Adopt legacy indexes once, then detect semantic provider changes."""
+        current = self.get_provider_fingerprint()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS migration_status (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+            cursor = await db.execute(
+                "SELECT value FROM migration_status WHERE key = ?",
+                ("document_vector_provider_fingerprint",),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                await db.execute(
+                    """
+                    INSERT INTO migration_status(key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                    """,
+                    ("document_vector_provider_fingerprint", current),
+                )
+                await db.commit()
+                return False
+            return str(row[0] or "") != current
+
+    async def record_provider_fingerprint(self) -> None:
+        current = self.get_provider_fingerprint()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO migration_status(key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                """,
+                ("document_vector_provider_fingerprint", current),
+            )
+            await db.commit()
 
     async def _clear_bm25_with_retry(
         self, table_name: str = "livingmemory_memories_fts", max_attempts: int = 5
@@ -82,6 +180,53 @@ class IndexValidator:
                     continue
                 raise
 
+    async def _create_bm25_shadow(self, table_name: str) -> str:
+        """Create a fresh FTS5 table without touching the live index."""
+        shadow_table = f"{table_name}_rebuild"
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute(f"DROP TABLE IF EXISTS {shadow_table}")
+            await db.execute(
+                f"""
+                CREATE VIRTUAL TABLE {shadow_table}
+                USING fts5(
+                    content,
+                    doc_id UNINDEXED,
+                    tokenize='unicode61'
+                )
+                """
+            )
+            await db.commit()
+        return shadow_table
+
+    async def _drop_bm25_shadow(self, shadow_table: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute(f"DROP TABLE IF EXISTS {shadow_table}")
+            await db.commit()
+
+    async def _switch_bm25_shadow(self, live_table: str, shadow_table: str) -> None:
+        """Atomically replace the live FTS table after a complete build."""
+        old_table = f"{live_table}_previous"
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.execute(f"DROP TABLE IF EXISTS {old_table}")
+                await db.execute(f"ALTER TABLE {live_table} RENAME TO {old_table}")
+                await db.execute(f"ALTER TABLE {shadow_table} RENAME TO {live_table}")
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+        # Keep the switch transaction short. The previous generation can be
+        # dropped after readers have observed the new schema.
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute(f"DROP TABLE IF EXISTS {old_table}")
+            await db.commit()
+
     async def check_consistency(self) -> IndexStatus:
         """
         检查索引一致性
@@ -92,11 +237,15 @@ class IndexValidator:
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 # 1. 获取documents表中的文档数和ID集合
-                cursor = await db.execute("SELECT COUNT(*) FROM documents")
+                cursor = await db.execute(
+                    f"SELECT COUNT(*) FROM documents WHERE {self.ACTIVE_DOCUMENT_SQL}"
+                )
                 count_result = await cursor.fetchone()
                 documents_count = count_result[0] if count_result else 0
 
-                cursor = await db.execute("SELECT id FROM documents")
+                cursor = await db.execute(
+                    f"SELECT id FROM documents WHERE {self.ACTIVE_DOCUMENT_SQL}"
+                )
                 doc_ids = {row[0] for row in await cursor.fetchall()}
 
                 # 2. 检查BM25索引（livingmemory_memories_fts表）
@@ -328,13 +477,17 @@ class IndexValidator:
 
     async def _get_document_count(self) -> int:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM documents")
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM documents WHERE {self.ACTIVE_DOCUMENT_SQL}"
+            )
             row = await cursor.fetchone()
             return int(row[0]) if row else 0
 
     async def _get_document_ids(self) -> set[int]:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT id FROM documents")
+            cursor = await db.execute(
+                f"SELECT id FROM documents WHERE {self.ACTIVE_DOCUMENT_SQL}"
+            )
             return {int(row[0]) for row in await cursor.fetchall()}
 
     async def _iter_document_batches(
@@ -354,6 +507,7 @@ class IndexValidator:
                         SELECT id, doc_id, text, metadata
                         FROM documents
                         WHERE id IN ({placeholders})
+                          AND {self.ACTIVE_DOCUMENT_SQL}
                         ORDER BY id
                         """,
                         chunk,
@@ -366,10 +520,11 @@ class IndexValidator:
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("PRAGMA busy_timeout = 10000")
                 cursor = await db.execute(
-                    """
+                    f"""
                     SELECT id, doc_id, text, metadata
                     FROM documents
                     WHERE id > ?
+                      AND {self.ACTIVE_DOCUMENT_SQL}
                     ORDER BY id
                     LIMIT ?
                     """,
@@ -389,9 +544,8 @@ class IndexValidator:
             return 0
         return int(getattr(index, "ntotal", 0))
 
-    def _get_vector_ids(self) -> set[int] | None:
-        embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
-        index = getattr(embedding_storage, "index", None)
+    @staticmethod
+    def _get_ids_from_index(index: Any) -> set[int] | None:
         if index is None:
             return set()
         try:
@@ -405,6 +559,11 @@ class IndexValidator:
         except Exception as e:
             logger.debug(f"读取向量ID失败: {e}")
         return None
+
+    def _get_vector_ids(self) -> set[int] | None:
+        embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
+        index = getattr(embedding_storage, "index", None)
+        return self._get_ids_from_index(index)
 
     async def _rebuild_bm25_index(
         self,
@@ -424,69 +583,83 @@ class IndexValidator:
         batch_size = int(options["batch_size"])
         max_failure_ratio = float(options["max_failure_ratio"])
 
-        await self._clear_bm25_with_retry(table_name)
+        shadow_table = await self._create_bm25_shadow(table_name)
         processed = 0
         failed_ids: set[int] = set()
+        switched = False
 
-        async for batch in self._iter_document_batches(batch_size):
-            rows_to_insert: list[tuple[int, str]] = []
-            for doc_id, _doc_uuid, text, _metadata_json in batch:
-                try:
-                    if hasattr(text_processor, "preprocess_for_bm25"):
-                        processed_content = text_processor.preprocess_for_bm25(
-                            text or ""
-                        )
-                    else:
-                        tokens = text_processor.tokenize(text or "", True)
-                        processed_content = " ".join(tokens)
-                    rows_to_insert.append((int(doc_id), processed_content))
-                except Exception as e:
-                    failed_ids.add(int(doc_id))
-                    logger.error(f"BM25 预处理失败 doc_id={doc_id}: {e}")
+        try:
+            async for batch in self._iter_document_batches(batch_size):
+                rows_to_insert: list[tuple[int, str]] = []
+                for doc_id, _doc_uuid, text, _metadata_json in batch:
+                    try:
+                        if hasattr(text_processor, "preprocess_for_bm25"):
+                            processed_content = text_processor.preprocess_for_bm25(
+                                text or ""
+                            )
+                        else:
+                            tokens = text_processor.tokenize(text or "", True)
+                            processed_content = " ".join(tokens)
+                        rows_to_insert.append((int(doc_id), processed_content))
+                    except Exception as e:
+                        failed_ids.add(int(doc_id))
+                        logger.error(f"BM25 预处理失败 doc_id={doc_id}: {e}")
 
-            if rows_to_insert:
-                try:
-                    async with aiosqlite.connect(self.db_path) as db:
-                        await db.execute("PRAGMA busy_timeout = 10000")
-                        await db.executemany(
-                            f"INSERT INTO {table_name}(doc_id, content) VALUES (?, ?)",
-                            rows_to_insert,
+                if rows_to_insert:
+                    try:
+                        async with aiosqlite.connect(self.db_path) as db:
+                            await db.execute("PRAGMA busy_timeout = 10000")
+                            await db.executemany(
+                                f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
+                                rows_to_insert,
+                            )
+                            await db.commit()
+                        processed += len(rows_to_insert)
+                    except Exception as batch_error:
+                        logger.warning(
+                            f"BM25 shadow 批量写入失败，将逐条重试: {batch_error}"
                         )
-                        await db.commit()
-                    processed += len(rows_to_insert)
-                except Exception as batch_error:
-                    logger.warning(f"BM25 批量写入失败，将逐条重试: {batch_error}")
-                    for row_doc_id, processed_content in rows_to_insert:
-                        try:
-                            async with aiosqlite.connect(self.db_path) as db:
-                                await db.execute("PRAGMA busy_timeout = 10000")
-                                await db.execute(
-                                    f"INSERT INTO {table_name}(doc_id, content) VALUES (?, ?)",
-                                    (row_doc_id, processed_content),
+                        for row_doc_id, processed_content in rows_to_insert:
+                            try:
+                                async with aiosqlite.connect(self.db_path) as db:
+                                    await db.execute("PRAGMA busy_timeout = 10000")
+                                    await db.execute(
+                                        f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
+                                        (row_doc_id, processed_content),
+                                    )
+                                    await db.commit()
+                                processed += 1
+                            except Exception as e:
+                                failed_ids.add(int(row_doc_id))
+                                logger.error(
+                                    f"BM25 shadow 写入失败 doc_id={row_doc_id}: {e}"
                                 )
-                                await db.commit()
-                            processed += 1
-                        except Exception as e:
-                            failed_ids.add(int(row_doc_id))
-                            logger.error(f"BM25 写入失败 doc_id={row_doc_id}: {e}")
 
-            if progress_callback:
-                await progress_callback(
-                    processed,
-                    total,
-                    f"BM25 已处理 {processed}/{total} 条",
-                )
+                if progress_callback:
+                    await progress_callback(
+                        processed,
+                        total,
+                        f"BM25 已处理 {processed}/{total} 条",
+                    )
 
-            if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
-                logger.error(
-                    f"BM25 重建失败率过高: {len(failed_ids)}/{total}，停止后续重建"
-                )
-                break
+                if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
+                    logger.error(
+                        f"BM25 重建失败率过高: {len(failed_ids)}/{total}，停止后续重建"
+                    )
+                    break
+
+            if self._failure_ratio(len(failed_ids), total) <= max_failure_ratio:
+                await self._switch_bm25_shadow(table_name, shadow_table)
+                switched = True
+        finally:
+            if not switched:
+                await self._drop_bm25_shadow(shadow_table)
 
         return {
             "processed": processed,
             "errors": len(failed_ids),
             "failed_ids": failed_ids,
+            "switched": switched,
         }
 
     async def _embed_batch_with_retry(
@@ -502,23 +675,33 @@ class IndexValidator:
         retry_base_delay = float(options["retry_base_delay"])
         embedding_batch_size = int(options["embedding_batch_size"])
         request_delay = float(options["request_delay"])
+        tasks_limit = max(1, int(options.get("tasks_limit", 1)))
         vectors: list[Any] = []
+        chunks = [
+            contents[start : start + embedding_batch_size]
+            for start in range(0, len(contents), embedding_batch_size)
+        ]
 
-        for start in range(0, len(contents), embedding_batch_size):
-            chunk = contents[start : start + embedding_batch_size]
+        for wave_start in range(0, len(chunks), tasks_limit):
+            wave = chunks[wave_start : wave_start + tasks_limit]
             logger.debug(
-                "Embedding 子请求: "
-                f"offset={start}, size={len(chunk)}, total={len(contents)}"
+                "Embedding 并发窗口: "
+                f"offset={wave_start}, requests={len(wave)}, total_requests={len(chunks)}"
             )
-            vectors.extend(
-                await self._embed_request_with_retry(
-                    provider,
-                    chunk,
-                    max_retries=max_retries,
-                    retry_base_delay=retry_base_delay,
+            wave_results = await asyncio.gather(
+                *(
+                    self._embed_request_with_retry(
+                        provider,
+                        chunk,
+                        max_retries=max_retries,
+                        retry_base_delay=retry_base_delay,
+                    )
+                    for chunk in wave
                 )
             )
-            if request_delay > 0 and start + embedding_batch_size < len(contents):
+            for result in wave_results:
+                vectors.extend(result)
+            if request_delay > 0 and wave_start + tasks_limit < len(chunks):
                 await asyncio.sleep(request_delay)
 
         return vectors
@@ -666,69 +849,134 @@ class IndexValidator:
         if dimension <= 0:
             raise RuntimeError("无法重建向量索引：索引维度无效")
 
-        temp_index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
-        processed = 0
+        index_path = getattr(embedding_storage, "path", None)
+        temp_path = f"{index_path}.rebuild.tmp" if index_path else None
+        metadata_path = f"{temp_path}.json" if temp_path else None
+        provider_fingerprint = self.get_provider_fingerprint()
+        active_document_ids = await self._get_document_ids()
+
+        temp_index = None
+        if temp_path and metadata_path and os.path.exists(temp_path):
+            try:
+                with open(metadata_path, encoding="utf-8") as metadata_file:
+                    checkpoint_metadata = json.load(metadata_file)
+                if (
+                    checkpoint_metadata.get("provider_fingerprint")
+                    == provider_fingerprint
+                    and int(checkpoint_metadata.get("dimension", 0)) == dimension
+                ):
+                    candidate = await asyncio.to_thread(faiss.read_index, temp_path)
+                    if int(getattr(candidate, "d", 0)) == dimension:
+                        temp_index = candidate
+                        logger.info(f"恢复向量重建检查点: vectors={candidate.ntotal}")
+            except Exception as e:
+                logger.warning(f"忽略无法恢复的向量重建检查点: {e}")
+
+        if temp_index is None:
+            temp_index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+            for stale_path in (temp_path, metadata_path):
+                if stale_path and os.path.exists(stale_path):
+                    try:
+                        os.remove(stale_path)
+                    except OSError:
+                        pass
+
+        checkpoint_ids = self._get_ids_from_index(temp_index) or set()
+        checkpoint_ids &= active_document_ids
+        remaining_ids = active_document_ids - checkpoint_ids
+        processed = len(checkpoint_ids)
         failed_ids: set[int] = set()
         batch_delay = float(options["batch_delay"])
         max_failure_ratio = float(options["max_failure_ratio"])
         batch_index = 0
 
-        async for batch in self._iter_document_batches(int(options["batch_size"])):
-            batch_index += 1
-            ids = [int(row[0]) for row in batch]
-            contents = [row[2] or "" for row in batch]
-            logger.info(
-                "向量重建批次开始: "
-                f"batch={batch_index}, size={len(ids)}, "
-                f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
-                f"failed={len(failed_ids)}"
-            )
-            try:
-                vectors = await self._embed_batch_with_retry(
-                    provider, contents, options
+        async def persist_checkpoint() -> None:
+            if not temp_path or not metadata_path:
+                return
+            writing_path = f"{temp_path}.writing"
+            await asyncio.to_thread(faiss.write_index, temp_index, writing_path)
+            os.replace(writing_path, temp_path)
+            checkpoint_metadata = {
+                "provider_fingerprint": provider_fingerprint,
+                "dimension": dimension,
+                "processed": int(temp_index.ntotal),
+                "updated_at": time.time(),
+            }
+            metadata_writing_path = f"{metadata_path}.writing"
+            with open(metadata_writing_path, "w", encoding="utf-8") as metadata_file:
+                json.dump(checkpoint_metadata, metadata_file, ensure_ascii=True)
+            os.replace(metadata_writing_path, metadata_path)
+
+        try:
+            async for batch in self._iter_document_batches(
+                int(options["batch_size"]), remaining_ids
+            ):
+                batch_index += 1
+                ids = [int(row[0]) for row in batch]
+                contents = [row[2] or "" for row in batch]
+                logger.info(
+                    "向量重建批次开始: "
+                    f"batch={batch_index}, size={len(ids)}, "
+                    f"id_range={ids[0]}-{ids[-1]}, processed={processed}/{total}, "
+                    f"failed={len(failed_ids)}"
                 )
-                vectors_array = np.asarray(vectors, dtype=np.float32)
-                if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
-                    raise ValueError(
-                        f"Embedding 返回数量不匹配: 期望 {len(ids)}，实际 {len(vectors_array)}"
+                try:
+                    vectors = await self._embed_batch_with_retry(
+                        provider, contents, options
                     )
-                if vectors_array.shape[1] != dimension:
-                    raise ValueError(
-                        f"Embedding 维度不匹配: 期望 {dimension}，实际 {vectors_array.shape[1]}"
+                    vectors_array = np.asarray(vectors, dtype=np.float32)
+                    if vectors_array.ndim != 2 or len(vectors_array) != len(ids):
+                        raise ValueError(
+                            f"Embedding 返回数量不匹配: 期望 {len(ids)}，实际 {len(vectors_array)}"
+                        )
+                    if vectors_array.shape[1] != dimension:
+                        raise ValueError(
+                            f"Embedding 维度不匹配: 期望 {dimension}，实际 {vectors_array.shape[1]}"
+                        )
+                    temp_index.add_with_ids(
+                        vectors_array, np.asarray(ids, dtype=np.int64)
                     )
-                temp_index.add_with_ids(vectors_array, np.asarray(ids, dtype=np.int64))
-                processed += len(ids)
-            except Exception as e:
-                failed_ids.update(ids)
-                logger.error(f"向量重建批次失败 ids={ids[:3]}...: {e}", exc_info=True)
+                    processed += len(ids)
+                except Exception as e:
+                    failed_ids.update(ids)
+                    logger.error(
+                        f"向量重建批次失败 ids={ids[:3]}...: {e}", exc_info=True
+                    )
 
-            if progress_callback:
-                await progress_callback(
-                    processed,
-                    total,
-                    f"向量索引已处理 {processed}/{total} 条",
+                if progress_callback:
+                    await progress_callback(
+                        processed,
+                        total,
+                        f"向量索引已处理 {processed}/{total} 条",
+                    )
+
+                logger.info(
+                    "向量重建进度: "
+                    f"processed={processed}/{total}, failed={len(failed_ids)}, "
+                    f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
                 )
 
-            logger.info(
-                "向量重建进度: "
-                f"processed={processed}/{total}, failed={len(failed_ids)}, "
-                f"failure_ratio={self._failure_ratio(len(failed_ids), total):.2%}"
-            )
+                if batch_index % 10 == 0:
+                    await persist_checkpoint()
 
-            if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
-                logger.error(
-                    f"向量重建失败率过高: {len(failed_ids)}/{total}，不会切换新索引"
-                )
-                return {
-                    "mode": "full",
-                    "processed": processed,
-                    "errors": len(failed_ids),
-                    "failed_ids": failed_ids,
-                    "switched": False,
-                    "partial": True,
-                }
-            if batch_delay > 0:
-                await asyncio.sleep(batch_delay)
+                if self._failure_ratio(len(failed_ids), total) > max_failure_ratio:
+                    logger.error(
+                        f"向量重建失败率过高: {len(failed_ids)}/{total}，不会切换新索引"
+                    )
+                    await persist_checkpoint()
+                    return {
+                        "mode": "full",
+                        "processed": processed,
+                        "errors": len(failed_ids),
+                        "failed_ids": failed_ids,
+                        "switched": False,
+                        "partial": True,
+                    }
+                if batch_delay > 0:
+                    await asyncio.sleep(batch_delay)
+        except asyncio.CancelledError:
+            await asyncio.shield(persist_checkpoint())
+            raise
 
         if total > 0 and processed == 0:
             return {
@@ -740,18 +988,12 @@ class IndexValidator:
                 "partial": True,
             }
 
-        index_path = getattr(embedding_storage, "path", None)
         if index_path:
-            temp_path = f"{index_path}.rebuild.tmp"
-            try:
-                faiss.write_index(temp_index, temp_path)
+            await persist_checkpoint()
+            if temp_path:
                 os.replace(temp_path, index_path)
-            finally:
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except OSError:
-                        pass
+            if metadata_path and os.path.exists(metadata_path):
+                os.remove(metadata_path)
 
         embedding_storage.index = temp_index
         return {
@@ -769,7 +1011,14 @@ class IndexValidator:
         total: int,
         options: dict[str, Any],
         progress_callback=None,
+        force_full: bool = False,
     ) -> dict[str, Any]:
+        if force_full:
+            logger.info("Embedding Provider 指纹已变化，执行安全全量向量重建")
+            return await self._rebuild_vector_index_full(
+                memory_engine, total, options, progress_callback
+            )
+
         document_ids = await self._get_document_ids()
         if not document_ids:
             return {
@@ -857,7 +1106,11 @@ class IndexValidator:
             logger.warning(f"更新迁移状态失败: {e}")
 
     async def rebuild_indexes(
-        self, memory_engine: Any, progress_callback=None
+        self,
+        memory_engine: Any,
+        progress_callback=None,
+        *,
+        force_full_vector: bool = False,
     ) -> dict[str, Any]:
         """
         分批安全重建索引
@@ -875,6 +1128,20 @@ class IndexValidator:
         Returns:
             Dict: 重建结果
         """
+        async with self._maintenance_lock:
+            return await self._rebuild_indexes_locked(
+                memory_engine,
+                progress_callback=progress_callback,
+                force_full_vector=force_full_vector,
+            )
+
+    async def _rebuild_indexes_locked(
+        self,
+        memory_engine: Any,
+        progress_callback=None,
+        *,
+        force_full_vector: bool = False,
+    ) -> dict[str, Any]:
         try:
             logger.info("开始分批安全重建索引。")
             options = self._get_rebuild_options(memory_engine)
@@ -929,7 +1196,11 @@ class IndexValidator:
                 }
 
             vector_result = await self._rebuild_or_repair_vector_index(
-                memory_engine, total, options, progress_callback
+                memory_engine,
+                total,
+                options,
+                progress_callback,
+                force_full=force_full_vector,
             )
             vector_failed_ids = set(vector_result["failed_ids"])
             failed_ids = bm25_failed_ids | vector_failed_ids
@@ -941,6 +1212,8 @@ class IndexValidator:
                 await self._update_migration_rebuild_status(
                     "partial" if partial else "true"
                 )
+                if not partial:
+                    await self.record_provider_fingerprint()
                 message = (
                     "索引重建完成"
                     if not partial

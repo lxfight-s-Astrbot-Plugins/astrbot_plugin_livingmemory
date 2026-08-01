@@ -209,7 +209,7 @@ async def test_graph_memory_batches_real_faiss_index_writes(
 
 
 @pytest.mark.asyncio
-async def test_graph_memory_full_rebuild_saves_real_faiss_twice(
+async def test_graph_memory_full_rebuild_saves_real_faiss_once(
     tmp_path: Path, monkeypatch
 ):
     graph_store = GraphStore(str(tmp_path / "graph_rebuild.db"))
@@ -267,7 +267,7 @@ async def test_graph_memory_full_rebuild_saves_real_faiss_twice(
         assert result == {"rebuilt": 10, "skipped": 0}
         assert stats["graph_entries"] > result["rebuilt"]
         assert vector_db.embedding_storage.index.ntotal == result["rebuilt"]
-        assert len(write_paths) == 2
+        assert len(write_paths) == 1
     finally:
         await vector_db.close()
 
