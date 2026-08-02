@@ -25,12 +25,14 @@ class _Event:
         sender_name: str = "Original Name",
         platform: str = "test",
         group_id: str = "",
+        self_id: str = "bot-1",
     ) -> None:
         self.unified_msg_origin = session_id
         self.sender_id = sender_id
         self.sender_name = sender_name
         self.platform = platform
         self.group_id = group_id
+        self.self_id = self_id
 
     def get_sender_id(self):
         return self.sender_id
@@ -40,6 +42,12 @@ class _Event:
 
     def get_platform_name(self):
         return self.platform
+
+    def get_platform_id(self):
+        return f"{self.platform}-instance"
+
+    def get_self_id(self):
+        return self.self_id
 
     def get_group_id(self):
         return self.group_id
@@ -186,5 +194,6 @@ async def test_conversation_manager_applies_user_alias_only_to_user_messages(tmp
     assistant_message = await manager.add_message_from_event(event, "assistant", "hi")
 
     assert user_message.sender_name == "Canonical Name"
-    assert assistant_message.sender_name == "Original Name"
+    assert assistant_message.sender_id == "bot-1"
+    assert assistant_message.sender_name == "bot-1"
     await store.close()

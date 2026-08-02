@@ -15,9 +15,15 @@ from astrbot.api.platform import MessageType
 
 
 class _DummyEvent:
-    def __init__(self, session_id: str, group: bool = False):
+    def __init__(
+        self,
+        session_id: str,
+        group: bool = False,
+        self_id: str = "bot-1",
+    ):
         self.unified_msg_origin = session_id
         self._group = group
+        self.self_id = self_id
         self.sender_id = "u1"
         self.sender_name = "Tester"
 
@@ -26,6 +32,12 @@ class _DummyEvent:
 
     def get_sender_name(self):
         return "Tester"
+
+    def get_self_id(self):
+        return self.self_id
+
+    def get_platform_id(self):
+        return "test-instance"
 
     def get_message_type(self):
         return MessageType.GROUP_MESSAGE if self._group else MessageType.FRIEND_MESSAGE
@@ -76,8 +88,18 @@ async def test_conversation_manager_add_and_get_context(tmp_path: Path):
     manager = ConversationManager(store=store, max_cache_size=2, context_window_size=10)
 
     event = _DummyEvent("test:private:s1", group=False)
-    await manager.add_message_from_event(event, role="user", content="hello")
-    await manager.add_message_from_event(event, role="assistant", content="world")
+    user_message = await manager.add_message_from_event(
+        event, role="user", content="hello"
+    )
+    assistant_message = await manager.add_message_from_event(
+        event, role="assistant", content="world"
+    )
+
+    assert user_message.sender_id == "u1"
+    assert user_message.sender_name == "Tester"
+    assert assistant_message.sender_id == "bot-1"
+    assert assistant_message.sender_name == "bot-1"
+    assert assistant_message.metadata == {"is_bot_message": True}
 
     context = await manager.get_context("test:private:s1")
     assert len(context) == 2
@@ -90,6 +112,43 @@ async def test_conversation_manager_add_and_get_context(tmp_path: Path):
     assert session is not None
     assert session.message_count == 2
 
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_private_assistant_uses_explicit_bot_fallback_without_self_id(
+    tmp_path: Path,
+):
+    store = ConversationStore(str(tmp_path / "bot-fallback.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    event = _DummyEvent("test:private:s-fallback", self_id="")
+
+    message = await manager.add_message_from_event(
+        event, role="assistant", content="world"
+    )
+
+    assert message.sender_id == "bot:test-instance"
+    assert message.sender_name == "Bot"
+    assert message.group_id is None
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_group_assistant_replaces_user_name_with_bot_name(tmp_path: Path):
+    store = ConversationStore(str(tmp_path / "group-bot.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    event = _DummyEvent("test:group:g1", group=True)
+    event.bot_name = "LivingMemory Bot"
+
+    message = await manager.add_message_from_event(
+        event, role="assistant", content="world"
+    )
+
+    assert message.sender_id == "bot-1"
+    assert message.sender_name == "LivingMemory Bot"
+    assert message.group_id == "test:group:g1"
     await store.close()
 
 
