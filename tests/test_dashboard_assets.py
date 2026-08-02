@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pages" / "dashboard"
 
@@ -93,3 +92,17 @@ def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
     assert "onRenderRequest" in graph_2d
     assert "this._running = false" in graph_2d
     assert "Graph2D.prototype.getDiagnostics" in graph_2d
+
+
+def test_dashboard_hides_inactive_panels_from_keyboard_navigation() -> None:
+    index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+    peek_panel = (DASHBOARD / "modules" / "peek-panel.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="modal-overlay"' not in index
+    assert 'id="peek-panel" aria-hidden="true" inert' in index
+    assert 'panel.removeAttribute("inert")' in peek_panel
+    assert 'panel.setAttribute("aria-hidden", "false")' in peek_panel
+    assert 'panel.setAttribute("inert", "")' in peek_panel
+    assert 'panel.setAttribute("aria-hidden", "true")' in peek_panel

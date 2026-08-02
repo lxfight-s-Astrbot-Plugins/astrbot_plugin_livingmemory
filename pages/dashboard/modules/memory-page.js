@@ -17,12 +17,14 @@ export class MemoryPage {
     // 虚拟滚动配置
     this.ROW_HEIGHT = 56;
     this.SCROLL_BUFFER = 15;
+    this._fetchGeneration = 0;
   }
 
   /**
    * 获取记忆列表
    */
   async fetch() {
+    const fetchGeneration = ++this._fetchGeneration;
     const params = {
       page: String(this.state.memory.page),
       page_size: String(this.state.memory.pageSize)
@@ -42,6 +44,7 @@ export class MemoryPage {
 
     try {
       const data = await this.api.get("memories", params);
+      if (fetchGeneration !== this._fetchGeneration) return;
 
       this.state.memory.total = data.total || 0;
       this.state.memory.hasMore = data.has_more || false;
@@ -77,6 +80,7 @@ export class MemoryPage {
       this.renderVirtual({ resetScroll: true });
       this.updatePagination();
     } catch (e) {
+      if (fetchGeneration !== this._fetchGeneration) return;
       this.showToast(e.message || window.t("misc.fetchMemoriesFail"), true);
       this.renderEmpty();
     }
@@ -88,65 +92,73 @@ export class MemoryPage {
    * @param {boolean} options.resetScroll - 是否重置滚动位置
    */
   renderVirtual(options = {}) {
-    const tbody = document.getElementById("memories-body");
     const scrollEl = document.getElementById("memories-scroll");
+    if (scrollEl && options.resetScroll) scrollEl.scrollTop = 0;
 
     if (!this.state.memory.items.length) {
       this.renderEmpty();
       return;
     }
 
-    const totalHeight = this.state.memory.items.length * this.ROW_HEIGHT;
-    if (scrollEl && options.resetScroll) scrollEl.scrollTop = 0;
-
-    const renderSlice = () => {
-      const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-      const viewHeight = scrollEl ? scrollEl.clientHeight : 600;
-      const start = Math.max(0, Math.floor(scrollTop / this.ROW_HEIGHT) - this.SCROLL_BUFFER);
-      const end = Math.min(
-        this.state.memory.items.length,
-        Math.ceil((scrollTop + viewHeight) / this.ROW_HEIGHT) + this.SCROLL_BUFFER
-      );
-      const padTop = start * this.ROW_HEIGHT;
-      const padBottom = totalHeight - end * this.ROW_HEIGHT;
-
-      let html = "";
-      for (let i = start; i < end; i++) {
-        const item = this.state.memory.items[i];
-        const key = "m:" + item.memory_id;
-        const imp = item.importance != null ? Number(item.importance).toFixed(1) : "5.0";
-        const impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
-        const impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
-
-        const selected = this.state.memory.selectedIds.has(item.memory_id);
-        html += '<tr data-key="' + key + '" class="' + (selected ? 'is-selected' : '') + '" style="height:' + this.ROW_HEIGHT + 'px">';
-        html += '<td class="cell-select"><input type="checkbox" class="memory-select" data-memory-id="' + item.memory_id + '" ' + (selected ? 'checked' : '') + ' aria-label="' + esc(window.t("delete.selectOne", item.memory_id)) + '" /></td>';
-        html += '<td class="cell-mono cell-id">' + item.memory_id + '</td>';
-        html += '<td class="cell-summary"><div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
-        html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
-        html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
-        html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';
-        html += '<span style="font-size:12px;color:var(--text-secondary)">' + imp + '</span></div></td>';
-        html += '<td class="cell-status">' + statusPill(item.status) + '</td>';
-        html += '<td class="cell-created text-secondary" style="font-size:12px">' + esc(item.created_at) + '</td>';
-        html += '</tr>';
-      }
-
-      tbody.innerHTML = html;
-      tbody.style.paddingTop = padTop + "px";
-      tbody.style.paddingBottom = padBottom + "px";
-      this.updateSelectionControls();
-    };
-
     // 绑定滚动事件（仅绑定一次）
     if (scrollEl && !scrollEl._virtualScrollBound) {
       scrollEl._virtualScrollBound = true;
       scrollEl.addEventListener("scroll", () => {
-        window.requestAnimationFrame(renderSlice);
+        window.requestAnimationFrame(() => this.renderVirtualSlice());
       }, { passive: true });
     }
 
-    renderSlice();
+    this.renderVirtualSlice();
+  }
+
+  renderVirtualSlice() {
+    const tbody = document.getElementById("memories-body");
+    const scrollEl = document.getElementById("memories-scroll");
+    if (!this.state.memory.items.length) {
+      this.renderEmpty();
+      return;
+    }
+
+    const totalHeight = this.state.memory.items.length * this.ROW_HEIGHT;
+    const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    const viewHeight = scrollEl ? scrollEl.clientHeight : 600;
+    const start = Math.max(0, Math.floor(scrollTop / this.ROW_HEIGHT) - this.SCROLL_BUFFER);
+    const end = Math.min(
+      this.state.memory.items.length,
+      Math.ceil((scrollTop + viewHeight) / this.ROW_HEIGHT) + this.SCROLL_BUFFER
+    );
+    const padTop = start * this.ROW_HEIGHT;
+    const padBottom = totalHeight - end * this.ROW_HEIGHT;
+    const spacerRow = (height) => height > 0
+      ? '<tr class="virtual-spacer" aria-hidden="true" style="height:' + height + 'px"><td colspan="7" style="height:' + height + 'px;padding:0;border:0"></td></tr>'
+      : "";
+
+    let html = spacerRow(padTop);
+    for (let i = start; i < end; i++) {
+      const item = this.state.memory.items[i];
+      const key = "m:" + item.memory_id;
+      const imp = item.importance != null ? Number(item.importance).toFixed(1) : "5.0";
+      const impNum = Math.min(10, Math.max(0, parseFloat(imp) || 0));
+      const impCls = impNum >= 7 ? "high" : impNum >= 4 ? "medium" : "low";
+
+      const selected = this.state.memory.selectedIds.has(item.memory_id);
+      html += '<tr data-key="' + key + '" class="' + (selected ? 'is-selected' : '') + '" style="height:' + this.ROW_HEIGHT + 'px">';
+      html += '<td class="cell-select"><input type="checkbox" class="memory-select" data-memory-id="' + item.memory_id + '" ' + (selected ? 'checked' : '') + ' aria-label="' + esc(window.t("delete.selectOne", item.memory_id)) + '" /></td>';
+      html += '<td class="cell-mono cell-id">' + item.memory_id + '</td>';
+      html += '<td class="cell-summary"><div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
+      html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
+      html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
+      html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';
+      html += '<span style="font-size:12px;color:var(--text-secondary)">' + imp + '</span></div></td>';
+      html += '<td class="cell-status">' + statusPill(item.status) + '</td>';
+      html += '<td class="cell-created text-secondary" style="font-size:12px">' + esc(item.created_at) + '</td>';
+      html += '</tr>';
+    }
+
+    tbody.innerHTML = html + spacerRow(padBottom);
+    tbody.style.paddingTop = "0";
+    tbody.style.paddingBottom = "0";
+    this.updateSelectionControls();
   }
 
   /**
