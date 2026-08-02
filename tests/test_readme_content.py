@@ -1,12 +1,11 @@
 """Content contracts for the multilingual project overview."""
 
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-README_NAMES = ("README.md", "README_zh.md", "README_ru.md")
-LANGUAGE_LINKS = ("README.md", "README_zh.md", "README_ru.md")
+README_NAMES = ("README.md", "README_en.md", "README_ru.md")
+LANGUAGE_LINKS = README_NAMES
 LOCAL_IMAGE_RE = re.compile(r'<img\s+[^>]*src="([^"]+)"', re.IGNORECASE)
 EMOJI_RE = re.compile(
     "["
@@ -66,3 +65,9 @@ def test_readmes_do_not_claim_a_3d_graph() -> None:
     for name, content in _read_readmes().items():
         outdated_claim = re.search(r"(?<![%\w])3D(?![%\w])", content)
         assert outdated_claim is None, f"{name} contains an outdated graph claim"
+
+
+def test_legacy_chinese_readme_points_to_default_homepage() -> None:
+    content = (ROOT / "README_zh.md").read_text(encoding="utf-8")
+
+    assert "[README.md](README.md)" in content

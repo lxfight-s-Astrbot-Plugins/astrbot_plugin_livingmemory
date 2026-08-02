@@ -1,76 +1,76 @@
 <div align="center">
 
-<p><a href="README_zh.md">中文</a> &nbsp;/&nbsp; <strong>English</strong> &nbsp;/&nbsp; <a href="README_ru.md">Русский</a></p>
+<p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a> &nbsp;/&nbsp; <a href="README_ru.md">Русский</a></p>
 
 <h1>LivingMemory</h1>
 
-<p><strong>Long-term memory for AstrBot that recalls with precision and evolves with every conversation.</strong></p>
+<p><strong>为 AstrBot 构建的长期记忆：精准召回，并在每次对话中持续演化。</strong></p>
 
-<p><sub>CAPTURE &nbsp;&nbsp; RETRIEVE &nbsp;&nbsp; CONNECT &nbsp;&nbsp; EVOLVE</sub></p>
+<p><sub>捕获 &nbsp;&nbsp; 检索 &nbsp;&nbsp; 连接 &nbsp;&nbsp; 演化</sub></p>
 
 <p>
-  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><img src="https://img.shields.io/github/v/release/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?style=flat-square&color=5f7f79" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-e9f1ef?style=flat-square&labelColor=263a36" alt="Python 3.10 or later">
-  <img src="https://img.shields.io/badge/AstrBot-%3E%3D%204.24.2-f3eee4?style=flat-square&labelColor=544c3d" alt="AstrBot 4.24.2 or later">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-f2e8e5?style=flat-square&labelColor=5b403a" alt="AGPL-3.0 license"></a>
+  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><img src="https://img.shields.io/github/v/release/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?style=flat-square&color=5f7f79" alt="最新版本"></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-e9f1ef?style=flat-square&labelColor=263a36" alt="Python 3.10 或更高版本">
+  <img src="https://img.shields.io/badge/AstrBot-%3E%3D%204.24.2-f3eee4?style=flat-square&labelColor=544c3d" alt="AstrBot 4.24.2 或更高版本">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-f2e8e5?style=flat-square&labelColor=5b403a" alt="AGPL-3.0 许可证"></a>
 </p>
 
-<img src="docs/public/images/retrieval-flow.svg" width="100%" alt="LivingMemory dual-route retrieval flow">
+<img src="docs/public/images/retrieval-flow.svg" width="100%" alt="LivingMemory 双路检索流程">
 
 </div>
 
-## Memory, with structure
+## 让记忆形成结构
 
 <table>
 <tr>
-<td width="33%"><strong>PRECISE RECALL</strong><br><br>BM25 and vector search run across document and graph routes, then converge through ranked fusion.</td>
-<td width="33%"><strong>LIVING CONTEXT</strong><br><br>Facts become independent memory atoms with importance, TTL, reinforcement, and temporal decay.</td>
-<td width="33%"><strong>VISIBLE SCALE</strong><br><br>Explore the complete relationship graph through a responsive canvas with communities and level of detail.</td>
+<td width="33%"><strong>精准召回</strong><br><br>BM25 与向量检索同时覆盖文档路和图路，最终通过融合排序收敛为可靠结果。</td>
+<td width="33%"><strong>动态上下文</strong><br><br>事实被拆分为独立记忆原子，分别拥有重要度、TTL、强化机制与时间衰减。</td>
+<td width="33%"><strong>全量可见</strong><br><br>通过社区结构与多级细节，在高性能画布中探索完整的记忆关系图谱。</td>
 </tr>
 </table>
 
-## One memory system
+## 一套完整的记忆系统
 
-| Recall | Intelligence | Control |
+| 召回 | 智能 | 控制 |
 | :--- | :--- | :--- |
-| **Hybrid retrieval**<br>Keyword and semantic search across two routes. | **Dual summaries**<br>Facts and persona context remain independently useful. | **Safe operations**<br>Backups, transactional deletion, and rebuild rollback. |
-| **Agent-native tools**<br>`recall_long_term_memory` and `memorize_long_term_memory`. | **Temporal graph**<br>Confidence evolves as evidence accumulates or fades. | **Focused dashboard**<br>Manage memory, debug recall, and inspect the full graph. |
+| **混合检索**<br>关键词与语义检索覆盖两条数据路径。 | **双通道总结**<br>事实信息与人格上下文保持独立价值。 | **安全操作**<br>自动备份、事务删除与重建失败回滚。 |
+| **Agent 原生工具**<br>`recall_long_term_memory` 与 `memorize_long_term_memory`。 | **时间感知图谱**<br>关系置信度随证据累积或消退动态变化。 | **专注的管理界面**<br>管理记忆、调试召回并检查完整图谱。 |
 
 ```mermaid
 flowchart LR
-    A[Conversation] --> B[Summarize]
-    B --> C[Atomize and index]
-    C --> D[Hybrid recall]
-    D --> E[Reinforce]
-    C --> F[Decay or expire]
+    A[对话] --> B[总结]
+    B --> C[原子化与索引]
+    C --> D[混合召回]
+    D --> E[强化]
+    C --> F[衰减或过期]
     E --> C
 ```
 
-## Start in three moves
+## 三步开始
 
-1. Install the plugin from the AstrBot plugin marketplace, or place it in `data/plugins`.
-2. Reload AstrBot and open the LivingMemory configuration page.
-3. Select the providers below; everything else has practical defaults.
+1. 从 AstrBot 插件市场安装，或将插件放入 `data/plugins`。
+2. 重载 AstrBot，进入 LivingMemory 配置页面。
+3. 选择下方两个 Provider；其余配置均提供实用默认值。
 
-| Setting | Purpose |
+| 配置项 | 用途 |
 | :--- | :--- |
-| `embedding_provider_id` | Embedding model; leave empty to use the AstrBot default. |
-| `llm_provider_id` | Summarization model; leave empty to use the AstrBot default. |
+| `embedding_provider_id` | 嵌入模型；留空则使用 AstrBot 默认配置。 |
+| `llm_provider_id` | 总结模型；留空则使用 AstrBot 默认配置。 |
 
-Open the visual workspace at `Plugins -> LivingMemory -> Pages -> dashboard`. Plugin Pages requires **AstrBot 4.24.2 or later**.
+可视化工作区入口为 `插件 -> LivingMemory -> Pages -> dashboard`。插件 Pages 需要 **AstrBot 4.24.2 或更高版本**。
 
-## Go deeper
+## 深入了解
 
-| Learn | Configure | Operate | Understand |
+| 入门 | 配置 | 使用 | 原理 |
 | :--- | :--- | :--- | :--- |
-| [Quick start](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started) | [Configuration](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Commands](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands) | [Architecture](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
+| [快速开始](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/guide/getting-started) | [完整配置](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/configuration) | [命令列表](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/commands) | [技术架构](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/architecture) |
 
-Upgrading from v1.4.0-v1.4.2? Review the [backup and migration settings](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup) first.
+从 v1.4.0-v1.4.2 升级？请先检查[备份、迁移与清理配置](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/configuration#备份迁移与清理)。
 
-## Project
+## 项目
 
-[Documentation](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/) · [Releases](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
+[完整文档](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/) · [版本发布](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [更新记录](CHANGELOG.md) · [问题反馈](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
 
-Community support: [QQ group 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Password: `lxfight`
+社区支持：[QQ 群 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · 口令：`lxfight`
 
-LivingMemory is released under the [AGPL-3.0 license](LICENSE).
+LivingMemory 使用 [AGPL-3.0 许可证](LICENSE)发布。
