@@ -102,6 +102,11 @@ class ConversationManager:
         """
         # 使用 unified_msg_origin 作为会话ID，确保多Bot场景下的唯一性
         session_id = event.unified_msg_origin
+        platform = (
+            event.get_platform_name()
+            if hasattr(event, "get_platform_name")
+            else "unknown"
+        )
 
         # 提取发送者信息
         sender_id = None
@@ -136,18 +141,10 @@ class ConversationManager:
             if is_group:
                 group_id = session_id  # 群聊时session_id即为group_id
 
-        # 群聊中助手消息：sender_name 使用 Bot 自身昵称（如果可获取）
+        # 助手消息必须使用 Bot 自身身份，不能继承触发事件中的用户身份。
         is_bot_message = role == "assistant"
-        if is_bot_message and is_group:
-            bot_name = None
-            if hasattr(event, "get_self_id"):
-                bot_name = event.get_self_id()
-            # 尝试从 context 获取 Bot 昵称（AstrBot 通常在 message_obj 中有 self_id）
-            if hasattr(event, "message_obj") and hasattr(event.message_obj, "self_id"):
-                bot_name = str(event.message_obj.self_id)
-            if bot_name:
-                sender_id = bot_name
-                sender_name = sender_name or bot_name
+        if is_bot_message:
+            sender_id, sender_name = self._resolve_bot_identity(event, str(platform))
 
         # 调试日志：记录最终获取到的发送者信息
         logger.debug(
@@ -156,12 +153,6 @@ class ConversationManager:
             f"role={role}, is_group={is_group}, group_id={group_id}"
         )
 
-        # 获取平台名称（字符串）
-        platform = (
-            event.get_platform_name()
-            if hasattr(event, "get_platform_name")
-            else "unknown"
-        )
         if role == "user":
             sender_name = resolve_sender_alias(
                 self.identity_aliases,
@@ -265,6 +256,51 @@ class ConversationManager:
         if isinstance(obj, dict):
             return obj.get(key)
         return getattr(obj, key, None)
+
+    @classmethod
+    def _call_event_getter(cls, event, method_name: str):
+        getter = getattr(event, method_name, None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except Exception as exc:
+            logger.debug(f"读取事件方法 {method_name} 失败: {exc}")
+            return None
+
+    @classmethod
+    def _resolve_bot_identity(cls, event, platform: str) -> tuple[str, str]:
+        """Resolve a Bot identity without falling back to the triggering user."""
+        message_obj = getattr(event, "message_obj", None)
+        raw_message = getattr(message_obj, "raw_message", None)
+
+        bot_id = None
+        for candidate in (
+            cls._call_event_getter(event, "get_self_id"),
+            cls._raw_get(message_obj, "self_id"),
+            cls._raw_get(raw_message, "self_id"),
+        ):
+            bot_id = cls._normalize_sender_name(candidate)
+            if bot_id:
+                break
+
+        bot_name = None
+        for source in (event, message_obj, raw_message):
+            for key in ("bot_name", "bot_nickname", "self_name"):
+                bot_name = cls._normalize_sender_name(cls._raw_get(source, key))
+                if bot_name:
+                    break
+            if bot_name:
+                break
+
+        if bot_id:
+            return bot_id, bot_name or bot_id
+
+        platform_id = cls._normalize_sender_name(
+            cls._call_event_getter(event, "get_platform_id")
+        )
+        fallback_scope = platform_id or cls._normalize_sender_name(platform) or "unknown"
+        return f"bot:{fallback_scope}", bot_name or "Bot"
 
     @classmethod
     def _format_raw_user_name(cls, raw_user, sender_id: str | None) -> str | None:
