@@ -294,7 +294,7 @@
 
     <!-- Peek Panel -->
     <div class="peek-overlay" id="peek-overlay"></div>
-    <aside class="peek-panel" id="peek-panel">
+    <aside class="peek-panel" id="peek-panel" aria-hidden="true" inert>
       <div class="peek-header">
         <div>
           <div id="peek-badge"></div>
@@ -306,57 +306,6 @@
       </div>
       <div class="peek-body" id="peek-body"></div>
     </aside>
-
-    <!-- Edit Modal -->
-    <div class="modal-overlay" id="modal-overlay">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title" data-i18n="edit.title">Edit Memory</div>
-          <button class="modal-close" id="modal-close" data-i18n-title="common.close" aria-label="Close">
-            <i data-lucide="x" aria-hidden="true"></i>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label" data-i18n="edit.field">Field</label>
-            <select id="edit-field" class="select input">
-              <option value="content" data-i18n="edit.fieldContent">Content</option>
-              <option value="importance" data-i18n="edit.fieldImportance">Importance</option>
-              <option value="type" data-i18n="edit.fieldType">Type</option>
-              <option value="status" data-i18n="edit.fieldStatus">Status</option>
-            </select>
-          </div>
-          <div class="form-group" id="edit-group-content">
-            <label class="form-label" data-i18n="edit.newContent">New Content</label>
-            <textarea id="edit-value-content" class="input textarea" rows="5" data-i18n-placeholder="edit.newContentPh" placeholder="Enter new memory content"></textarea>
-          </div>
-          <div class="form-group hidden" id="edit-group-importance">
-            <label class="form-label" data-i18n="edit.newImportance">Importance (0-10)</label>
-            <input type="number" id="edit-value-importance" class="input" min="0" max="10" step="0.1" value="5" />
-          </div>
-          <div class="form-group hidden" id="edit-group-type">
-            <label class="form-label" data-i18n="edit.newType">New Type</label>
-            <input type="text" id="edit-value-type" class="input" data-i18n-placeholder="edit.typePh" placeholder="e.g. FACT, PREFERENCE, EVENT" />
-          </div>
-          <div class="form-group hidden" id="edit-group-status">
-            <label class="form-label" data-i18n="edit.newStatus">New Status</label>
-            <select id="edit-value-status" class="select input">
-              <option value="active" data-i18n="edit.statusPh">Active</option>
-              <option value="archived" data-i18n="edit.statusArchived">Archived</option>
-              <option value="deleted" data-i18n="edit.statusDeleted">Deleted</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" data-i18n="edit.reason">Update Reason (optional)</label>
-            <input type="text" id="edit-reason" class="input" data-i18n-placeholder="edit.reasonPh" placeholder="Reason for this update" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" id="cancel-edit"><i data-lucide="x" aria-hidden="true"></i><span data-i18n="common.cancel">Cancel</span></button>
-          <button class="btn btn-primary" id="save-edit"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
-        </div>
-      </div>
-    </div>
 
     <!-- Toast -->
     <div class="toast" id="toast"></div>

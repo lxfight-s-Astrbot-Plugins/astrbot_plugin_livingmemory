@@ -28,6 +28,8 @@ export class PeekPanel {
    */
   open(isWide = false) {
     const panel = document.getElementById("peek-panel");
+    panel.removeAttribute("inert");
+    panel.setAttribute("aria-hidden", "false");
     panel.classList.add("visible");
     if (isWide) {
       panel.classList.add("wide");
@@ -47,6 +49,8 @@ export class PeekPanel {
     }
     const panel = document.getElementById("peek-panel");
     panel.classList.remove("visible", "wide");
+    panel.setAttribute("inert", "");
+    panel.setAttribute("aria-hidden", "true");
     document.getElementById("peek-overlay").classList.remove("visible");
     this.state.selectedMemory = null;
     this.state.isEditing = false;
