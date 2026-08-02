@@ -1,6 +1,6 @@
 <div align="center">
 
-<p><a href="README_zh.md">中文</a> &nbsp;/&nbsp; <a href="README.md">English</a> &nbsp;/&nbsp; <strong>Русский</strong></p>
+<p><a href="README.md">中文</a> &nbsp;/&nbsp; <a href="README_en.md">English</a> &nbsp;/&nbsp; <strong>Русский</strong></p>
 
 <h1>LivingMemory</h1>
 
