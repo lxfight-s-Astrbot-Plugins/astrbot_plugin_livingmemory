@@ -27,6 +27,9 @@ LivingMemory is not just a chat log. It transforms conversations into searchable
 | --- | --- | --- |
 | Automatic reflection | Conversation reaches the configured summary rounds | Long-term preferences, project context, relationships, durable facts |
 | Agent write tool | The model calls `memorize_long_term_memory` | Explicit "remember this" requests, important agreements, long-running tasks |
+| Manual administrator summary | `/lmem summarize [message_count]` | Save the current context immediately or re-summarize the latest N messages |
+
+Summarization keeps both a factual `canonical_summary` and a persona-oriented `persona_summary`. Memories above the source-retention threshold also store their source messages separately in SQLite. Those messages are not indexed for normal recall, but remain available for Dashboard review, re-summarization, and deep source retrieval by the Agent recall tool.
 
 ## How recall works
 
@@ -43,6 +46,22 @@ Ranking combines:
 | Graph relationships | Entities and cross-memory edges add structure across facts |
 | Importance | Durable preferences and agreements are favored |
 | Time decay | Old memories gradually lose weight unless repeatedly accessed or reinforced |
+| Retrieval boundaries | Candidates can be filtered by minimum importance, vector similarity, and memory type |
+| Recent-memory reserve | Dedicated slots keep recent in-scope memories from being displaced by similarity ranking alone |
+| Recent context | Recall can include recent conversation within a configured age limit to reduce topic drift |
+
+## Who can access which memories?
+
+The same boundaries apply to both memory writes and recall:
+
+| Capability | Behavior |
+| --- | --- |
+| Memory scopes | `session` isolates each conversation, `user` shares across private and group chats for one platform user, `global` shares broadly, and `legacy` preserves earlier behavior |
+| Forced isolation | Selected conversations always keep an independent scope, even when a shared mode is active |
+| Memory allowlist | Limits capture, summarization, recall, and Agent memory tools to selected users, groups, or complete session IDs |
+| Identity aliases | Maps platform identities to stable names before summarization; graph participants also reuse stable identities instead of splitting on nickname changes |
+
+Scope changes affect newly written memories only. Existing data is not migrated automatically.
 
 ## Lifecycle behavior
 
@@ -53,5 +72,23 @@ Ranking combines:
 | Importance decay | Reduces the weight of old low-value memories |
 | Access reinforcement | Frequently recalled memories are more likely to stay relevant |
 | Atom TTL | Different fact types can age differently |
-| Automatic cleanup | Removes expired or low-value memory to control database size |
+| Cleanup or archiving | Low-value memory can be deleted permanently or removed from recall indexes while retained as a recoverable archive |
+| Important-memory protection | Memories above a configured threshold are excluded from daily importance decay |
+| Source retention | High-importance memories can retain source messages for audit and re-summarization |
 | Safe backups | Creates backups before version updates and migrations |
+
+Archived memories do not participate in normal recall. Restoring one from the Dashboard regenerates its embedding and rebuilds BM25, graph, atom, and other derived indexes.
+
+## How large index maintenance stays available
+
+After startup, LivingMemory checks document, vector, BM25, and graph indexes in the background instead of blocking plugin readiness when extensive repairs are required:
+
+| Mechanism | Purpose |
+| --- | --- |
+| Provider fingerprint | A changed embedding provider or model triggers a full vector generation rebuild, even when dimensions are unchanged |
+| Batching and checkpoints | Read size, embedding batches, concurrency, and delays are bounded; full vector rebuilds can continue from checkpoints |
+| Shadow indexes | BM25, FAISS, and graph data are built in a separate generation and switched only after success; failures leave the live generation intact |
+| Concurrent-write reconciliation | A final consistency pass repairs data written or changed while maintenance was running |
+| Visible status | `/lmem status` reports checking, rebuilding, partial, failed, and cancelled states with progress |
+
+See [WebUI management](/en/webui) for data operations and [Configuration](/en/configuration) for all related settings.
