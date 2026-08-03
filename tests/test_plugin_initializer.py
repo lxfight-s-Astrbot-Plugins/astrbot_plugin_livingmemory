@@ -129,10 +129,10 @@ def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
     assert run.call_args_list[1].kwargs["env"]["FAISS_OPT_LEVEL"] == "generic"
 
 
-def test_requirements_excludes_broken_faiss_release():
+def test_requirements_matches_astrbot_faiss_baseline():
     requirements = (Path(__file__).parents[1] / "requirements.txt").read_text()
 
-    assert "faiss-cpu>=1.12.0,!=1.14.2" in requirements.splitlines()
+    assert "faiss-cpu>=1.14.3" in requirements.splitlines()
 
 
 def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
