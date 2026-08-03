@@ -37,6 +37,30 @@ Document memories and graph memories are searched through two routes:
 
 `RRFFusion` merges the ranked lists, then the runtime applies importance, time decay, session filtering, and persona filtering.
 
+## Background index maintenance
+
+Plugin readiness is separated from index maintenance. After core storage is initialized, startup consistency checks run as a background task. Even extensive repairs do not have to finish before the plugin becomes available.
+
+```mermaid
+flowchart LR
+    A[Background consistency check] --> B{Rebuild required?}
+    B -- No --> C[ready]
+    B -- Yes --> D[Build shadow generation]
+    D --> E[Final consistency check]
+    E --> F{Passed?}
+    F -- Yes --> G[Atomic cutover]
+    F -- No --> H[Keep live generation]
+```
+
+| Stage | Design |
+| --- | --- |
+| Change detection | Stores an embedding-provider fingerprint; a provider or model change triggers a full vector rebuild even when dimensions match |
+| Documents and vectors | Reads in batches with bounded embedding size, concurrency, retries, and delays; full vector rebuilds persist checkpoints |
+| BM25 and FAISS | Builds a shadow generation and switches only after failure-ratio requirements and consistency checks pass |
+| Graph | Streams active memories by primary key into shadow storage and replays writes made during the rebuild before cutover |
+| Final reconciliation | Checks consistency again and repairs concurrent changes made while maintenance was running |
+| Observability | Exposes state through `MemoryEngine`; `/lmem status` reports checking, rebuilding, partial, failed, or cancelled states and progress |
+
 ## Memory data model
 
 | Type | Description |
@@ -52,6 +76,6 @@ Document memories and graph memories are searched through two routes:
 | --- | --- |
 | Plugin version change | Startup creates a version-tagged backup |
 | Database migration | Backup before migration |
-| Index rebuild | Batched rebuild with rollback on failure |
+| Index rebuild | Builds shadow generations in batches, keeps live data on failure, atomically switches on success, and reconciles concurrent writes |
 | Memory deletion | Transactional deletion of related records |
 | Dashboard operations | Pages API reuses MemoryEngine and GraphStore instead of bypassing backend safety logic |
