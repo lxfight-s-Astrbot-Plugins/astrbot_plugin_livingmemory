@@ -36,6 +36,12 @@
 | **Гибридный поиск**<br>Ключевые слова и семантика в двух контурах. | **Два вида сводок**<br>Факты и контекст личности сохраняют отдельную ценность. | **Безопасные операции**<br>Резервные копии, транзакционное удаление и откат. |
 | **Инструменты для Agent**<br>`recall_long_term_memory` и `memorize_long_term_memory`. | **Временной граф**<br>Достоверность связей меняется по мере накопления и затухания свидетельств. | **Сфокусированная панель**<br>Управление памятью, отладка поиска и просмотр полного графа. |
 
+## Новые возможности
+
+| Восстанавливаемая память | Управляемые границы | Обслуживание без остановки |
+| :--- | :--- | :--- |
+| **Исходные сообщения и архив**<br>Для важных воспоминаний можно сохранить исходные сообщения, проверить их и повторно создать сводку; малоценные записи можно архивировать и восстанавливать. | **Области и контроль доступа**<br>Память можно разделять по диалогу, пользователю или глобально, используя принудительную изоляцию, белые списки и псевдонимы. | **Безопасная перестройка индексов**<br>Проверки и крупные исправления выполняются в фоне с пакетной обработкой, отображением прогресса, откатом и теневыми индексами. |
+
 ```mermaid
 flowchart LR
     A[Диалог] --> B[Сводка]
@@ -63,7 +69,7 @@ flowchart LR
 
 | Начало работы | Настройка | Команды | Архитектура |
 | :--- | :--- | :--- | :--- |
-| [Краткое руководство](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started) | [Конфигурация](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Список команд](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands) | [Устройство системы](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
+| [Краткое руководство](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started)<br>[Обзор функций](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/features) | [Конфигурация](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Список команд](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands)<br>[Руководство WebUI](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui) | [Устройство системы](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
 
 Обновляетесь с v1.4.0-v1.4.2? Сначала проверьте [настройки резервного копирования и миграции](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup).
 

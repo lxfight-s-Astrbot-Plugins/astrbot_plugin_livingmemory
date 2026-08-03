@@ -36,6 +36,12 @@
 | **Hybrid retrieval**<br>Keyword and semantic search across two routes. | **Dual summaries**<br>Facts and persona context remain independently useful. | **Safe operations**<br>Backups, transactional deletion, and rebuild rollback. |
 | **Agent-native tools**<br>`recall_long_term_memory` and `memorize_long_term_memory`. | **Temporal graph**<br>Confidence evolves as evidence accumulates or fades. | **Focused dashboard**<br>Manage memory, debug recall, and inspect the full graph. |
 
+## Recent capabilities
+
+| Recoverable memory | Controlled boundaries | Online maintenance |
+| :--- | :--- | :--- |
+| **Sources and archives**<br>Important memories can retain source messages for review and re-summarization; low-value memories can be archived and restored instead of deleted. | **Scopes and access control**<br>Share memory by session, user, or globally, with explicit isolation, allowlists, and identity aliases. | **Safe index rebuilds**<br>Startup checks and large repairs run in the background with batching, progress status, rollback, and shadow-index cutover. |
+
 ```mermaid
 flowchart LR
     A[Conversation] --> B[Summarize]
@@ -63,7 +69,7 @@ Open the visual workspace at `Plugins -> LivingMemory -> Pages -> dashboard`. Pl
 
 | Learn | Configure | Operate | Understand |
 | :--- | :--- | :--- | :--- |
-| [Quick start](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started) | [Configuration](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Commands](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands) | [Architecture](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
+| [Quick start](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started)<br>[Feature overview](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/features) | [Configuration](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Commands](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands)<br>[WebUI guide](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui) | [Architecture](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
 
 Upgrading from v1.4.0-v1.4.2? Review the [backup and migration settings](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup) first.
 
