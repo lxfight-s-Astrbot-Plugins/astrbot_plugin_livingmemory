@@ -85,6 +85,24 @@ class RecallEngineConfig(BaseModel):
             "system_prompt(已废弃，自动回退至extra_user_content)"
         ),
     )
+    injection_budget_chars: int = Field(
+        default=1500,
+        ge=0,
+        le=100000,
+        description="每轮注入的记忆正文字符总预算，按召回权重分配；0 表示关闭预算控制",
+    )
+    injection_min_chars_per_memory: int = Field(
+        default=250,
+        ge=0,
+        le=10000,
+        description="预算分配时每条记忆的保底字符额度",
+    )
+    injection_max_chars_per_memory: int = Field(
+        default=600,
+        ge=0,
+        le=10000,
+        description="预算分配时每条记忆的最大字符额度",
+    )
     auto_remove_injected: bool = Field(
         default=True, description="是否自动删除对话历史中已注入的记忆片段"
     )
