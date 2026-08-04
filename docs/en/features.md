@@ -8,8 +8,8 @@ LivingMemory is not just a chat log. It transforms conversations into searchable
     <p>After the configured number of rounds, the plugin asks the LLM to summarize recent conversation into structured memory.</p>
   </div>
   <div>
-    <h3>Dual-channel summaries</h3>
-    <p><code>canonical_summary</code> is optimized for factual retrieval. <code>persona_summary</code> is optimized for prompt injection and persona expression.</p>
+    <h3>Rich retrieval content</h3>
+    <p>Retrieval and injection content is assembled from <code>summary</code> + <code>key_facts</code> to preserve information density. <code>persona_summary</code> powers dashboard display and persona expression.</p>
   </div>
   <div>
     <h3>Agent memory tools</h3>
@@ -29,7 +29,7 @@ LivingMemory is not just a chat log. It transforms conversations into searchable
 | Agent write tool | The model calls `memorize_long_term_memory` | Explicit "remember this" requests, important agreements, long-running tasks |
 | Manual administrator summary | `/lmem summarize [message_count]` | Save the current context immediately or re-summarize the latest N messages |
 
-Summarization keeps both a factual `canonical_summary` and a persona-oriented `persona_summary`. Memories above the source-retention threshold also store their source messages separately in SQLite. Those messages are not indexed for normal recall, but remain available for Dashboard review, re-summarization, and deep source retrieval by the Agent recall tool.
+Summarization produces a persona-styled `summary` used for dashboard display (`persona_summary`), while retrieval and injection content is assembled by code from `summary` and `key_facts` so a single compressed summary cannot drain information density. Custom prompts may still emit a factual `canonical_summary` for consumers such as graph extraction. Memories above the source-retention threshold also store their source messages separately in SQLite. Those messages are not indexed for normal recall, but remain available for Dashboard review, re-summarization, and deep source retrieval by the Agent recall tool.
 
 ## How recall works
 
