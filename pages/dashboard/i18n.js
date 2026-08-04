@@ -125,6 +125,21 @@
     "delete.none":        { zh: "没有删除任何记忆", en: "No memories were deleted", ru: "Ничего не удалено" },
     "delete.error":       { zh: "删除失败，请稍后重试", en: "Delete failed, please try again later", ru: "Ошибка удаления, попробуйте позже" },
 
+    "batchEdit.button":   { zh: "批量编辑 ({0})", en: "Batch edit ({0})", ru: "Массовое редактирование ({0})" },
+    "batchEdit.title":    { zh: "批量编辑 {0} 条记忆", en: "Batch edit {0} memories", ru: "Массовое редактирование {0} записей" },
+    "batchEdit.field":    { zh: "编辑字段", en: "Field to edit", ru: "Поле для изменения" },
+    "batchEdit.importance":{ zh: "重要性", en: "Importance", ru: "Важность" },
+    "batchEdit.status":   { zh: "状态", en: "Status", ru: "Статус" },
+    "batchEdit.type":     { zh: "类型", en: "Type", ru: "Тип" },
+    "batchEdit.value":    { zh: "新值", en: "New value", ru: "Новое значение" },
+    "batchEdit.typePlaceholder":{ zh: "如 FACT / EVENT / PREFERENCE", en: "e.g. FACT / EVENT / PREFERENCE", ru: "напр. FACT / EVENT / PREFERENCE" },
+    "batchEdit.apply":    { zh: "应用", en: "Apply", ru: "Применить" },
+    "batchEdit.success":  { zh: "已成功更新 {0} 条记忆", en: "Successfully updated {0} memories", ru: "Обновлено {0} записей" },
+    "batchEdit.partialFailed":{ zh: "部分更新失败：成功 {0} 条，失败 {1} 条", en: "Partial failure: {0} succeeded, {1} failed", ru: "Частичная ошибка: {0} обновлено, {1} не обновлено" },
+    "batchEdit.error":    { zh: "批量编辑失败，请稍后重试", en: "Batch edit failed, please try again later", ru: "Ошибка массового редактирования, попробуйте позже" },
+    "batchEdit.valueRequired":{ zh: "请输入新值", en: "Please enter a new value", ru: "Введите новое значение" },
+    "batchEdit.importanceRange":{ zh: "重要性必须在 0-10 之间", en: "Importance must be between 0 and 10", ru: "Важность должна быть от 0 до 10" },
+
     /* ---- Import / Export ---- */
     "transfer.formatTitle":{ zh: "导出文件格式", en: "Export file format", ru: "Формат экспорта" },
     "transfer.duplicateTitle":{ zh: "导入重复项处理方式", en: "Duplicate handling during import", ru: "Обработка дубликатов при импорте" },

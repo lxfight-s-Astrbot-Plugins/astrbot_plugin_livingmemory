@@ -187,6 +187,11 @@ export class MemoryPage {
     if (deleteButton) deleteButton.disabled = selectedIds.size === 0;
     const deleteLabel = document.getElementById("mem-delete-selected-label");
     if (deleteLabel) deleteLabel.textContent = window.t("delete.selected", selectedIds.size);
+
+    const batchEditButton = document.getElementById("mem-batch-edit");
+    if (batchEditButton) batchEditButton.disabled = selectedIds.size === 0;
+    const batchEditLabel = document.getElementById("mem-batch-edit-label");
+    if (batchEditLabel) batchEditLabel.textContent = window.t("batchEdit.button", selectedIds.size);
   }
 
   toggleAllOnPage(checked) {
@@ -232,6 +237,44 @@ export class MemoryPage {
     } catch (error) {
       this.peek.close();
       this.showToast(error.message || window.t("delete.error"), true);
+      this.updateSelectionControls();
+    }
+  }
+
+  async batchEdit() {
+    const ids = Array.from(this.state.memory.selectedIds);
+    if (!ids.length) return;
+
+    this.peek.open();
+    const edit = await this.peek.showBatchEditDialog(ids.length);
+    if (!edit) {
+      this.peek.close();
+      return;
+    }
+
+    const button = document.getElementById("mem-batch-edit");
+    if (button) button.disabled = true;
+    try {
+      const payload = { memory_ids: ids, field: edit.field, value: edit.value };
+      if (edit.value_scale) payload.value_scale = edit.value_scale;
+      const result = await this.api.post(
+        "memories/batch-update",
+        payload,
+        { retries: 0 }
+      );
+      const updated = Number(result.updated_count || 0);
+      const failed = Number(result.failed_count || 0);
+      if (failed > 0) {
+        this.showToast(window.t("batchEdit.partialFailed", updated, failed), true);
+      } else {
+        this.showToast(window.t("batchEdit.success", updated));
+      }
+      this.state.memory.selectedIds.clear();
+      this.peek.close();
+      await this.fetch();
+    } catch (error) {
+      this.peek.close();
+      this.showToast(error.message || window.t("batchEdit.error"), true);
       this.updateSelectionControls();
     }
   }
@@ -383,6 +426,10 @@ export class MemoryPage {
 
     document.getElementById("mem-delete-selected").addEventListener("click", () => {
       this.deleteSelected();
+    });
+
+    document.getElementById("mem-batch-edit").addEventListener("click", () => {
+      this.batchEdit();
     });
 
     document.getElementById("mem-export").addEventListener("click", () => {

@@ -557,6 +557,127 @@ export class PeekPanel {
   }
 
   /**
+   * 显示批量编辑对话框
+   *
+   * 复用 peek-body 渲染表单，供 MemoryPage 批量更新
+   * importance / status / type 字段。
+   *
+   * @param {number} count - 选中记忆数量
+   * @returns {Promise<{field: string, value: any, value_scale: string}|null>}
+   *   用户点击应用时 resolve 编辑参数，取消时 resolve null
+   */
+  showBatchEditDialog(count) {
+    return new Promise((resolve) => {
+      this._batchEditResolve = resolve;
+      this._prevPeekContent = document.getElementById("peek-body").innerHTML;
+
+      let html = '<div class="confirm-dialog">';
+      html += '<div class="confirm-dialog-title">' + esc(window.t("batchEdit.title", count)) + '</div>';
+      html += '<div class="batch-edit-form">';
+      html += '<label class="batch-edit-label" for="batch-edit-field">' + esc(window.t("batchEdit.field")) + '</label>';
+      html += '<select id="batch-edit-field" class="input">';
+      html += '<option value="importance" selected>' + esc(window.t("batchEdit.importance")) + '</option>';
+      html += '<option value="status">' + esc(window.t("batchEdit.status")) + '</option>';
+      html += '<option value="type">' + esc(window.t("batchEdit.type")) + '</option>';
+      html += '</select>';
+      html += '<div id="batch-edit-value-wrap"></div>';
+      html += '</div>';
+      html += '<div class="confirm-dialog-actions">';
+      html += '<button class="btn btn-secondary" id="batch-edit-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span>' + window.t("common.cancel") + '</span></button>';
+      html += '<button class="btn btn-primary" id="batch-edit-apply-btn"><i data-lucide="check" aria-hidden="true"></i><span>' + window.t("batchEdit.apply") + '</span></button>';
+      html += '</div></div>';
+
+      document.getElementById("peek-body").innerHTML = html;
+      if (window.lmHydrateIcons) window.lmHydrateIcons();
+
+      const fieldSelect = document.getElementById("batch-edit-field");
+      if (fieldSelect) {
+        fieldSelect.addEventListener("change", () => this._renderBatchEditValueInput(fieldSelect.value));
+      }
+      this._renderBatchEditValueInput("importance");
+
+      const applyBtn = document.getElementById("batch-edit-apply-btn");
+      const cancelBtn = document.getElementById("batch-edit-cancel-btn");
+      if (applyBtn) applyBtn.addEventListener("click", () => this._submitBatchEdit());
+      if (cancelBtn) cancelBtn.addEventListener("click", () => this._closeBatchEditDialog(null));
+    });
+  }
+
+  /**
+   * 按所选字段渲染对应的值输入控件
+   * @param {string} field - importance | status | type
+   */
+  _renderBatchEditValueInput(field) {
+    const wrap = document.getElementById("batch-edit-value-wrap");
+    if (!wrap) return;
+
+    let html = '<label class="batch-edit-label" for="batch-edit-value">' + esc(window.t("batchEdit.value")) + '</label>';
+    if (field === "status") {
+      html += '<select id="batch-edit-value" class="input">';
+      for (const status of ["active", "archived", "deleted"]) {
+        html += '<option value="' + status + '">' + esc(window.t("status." + status)) + '</option>';
+      }
+      html += '</select>';
+    } else if (field === "importance") {
+      html += '<input type="number" id="batch-edit-value" class="input" min="0" max="10" step="0.1" placeholder="0-10" />';
+    } else {
+      html += '<input type="text" id="batch-edit-value" class="input" placeholder="' + esc(window.t("batchEdit.typePlaceholder")) + '" />';
+    }
+    wrap.innerHTML = html;
+  }
+
+  /**
+   * 收集并校验批量编辑输入，成功则关闭对话框并返回编辑参数
+   */
+  _submitBatchEdit() {
+    const fieldSelect = document.getElementById("batch-edit-field");
+    const valueEl = document.getElementById("batch-edit-value");
+    const field = fieldSelect ? fieldSelect.value : "importance";
+    const rawValue = valueEl ? String(valueEl.value).trim() : "";
+
+    if (!rawValue) {
+      this.showToast(window.t("batchEdit.valueRequired"), true);
+      return;
+    }
+
+    let value = rawValue;
+    let value_scale = "auto";
+    if (field === "importance") {
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) {
+        this.showToast(window.t("batchEdit.importanceRange"), true);
+        return;
+      }
+      value = parsed;
+      value_scale = "display";
+    }
+
+    this._closeBatchEditDialog({ field, value, value_scale });
+  }
+
+  /**
+   * 关闭批量编辑对话框并恢复原 peek 内容
+   * @param {{field: string, value: any, value_scale: string}|null} result
+   */
+  _closeBatchEditDialog(result) {
+    const peekBody = document.getElementById("peek-body");
+
+    if (this._prevPeekContent && peekBody) {
+      peekBody.innerHTML = this._prevPeekContent;
+      // 重新绑定详情视图按钮
+      if (this.state._detailCache && !this.state.isEditing) {
+        this.renderDetailView(this.state._detailCache);
+      }
+    }
+    this._prevPeekContent = null;
+
+    if (this._batchEditResolve) {
+      this._batchEditResolve(result);
+      this._batchEditResolve = null;
+    }
+  }
+
+  /**
    * 显示 Toast 提示
    * @param {string} message - 提示消息
    * @param {boolean} isError - 是否为错误
