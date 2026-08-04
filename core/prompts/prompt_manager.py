@@ -21,7 +21,8 @@ from astrbot.api import logger
 # 每个条目定义了一个可自定义的提示词，包含：
 #   id          - 唯一标识符
 #   name/name_en - 中英文名称
-#   description  - 中文描述
+#   description/description_en - 中英文描述
+#   usage_note/usage_note_en   - 中英文使用说明
 #   category     - 分类（用于前端分组）
 #   file         - 对应的文件名
 #   variables    - 模板中可用的变量列表
@@ -34,7 +35,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "群聊记忆总结 Prompt",
         "name_en": "Group Chat Memory Prompt",
         "description": "群聊场景下总结对话历史、提取结构化记忆的提示词模板",
+        "description_en": "Template for summarizing group chat history and extracting structured memories",
         "usage_note": "⚠️ 必须要求 LLM 输出 JSON：summary/topics/key_facts/sentiment/importance/participants。格式错误将导致记忆写入失败。",
+        "usage_note_en": "⚠️ MUST require the LLM to output JSON: summary/topics/key_facts/sentiment/importance/participants. Malformed output breaks memory writing.",
         "category": "memory_processing",
         "file": "group_chat_prompt.txt",
         "variables": ["{conversation}", "{current_date}"],
@@ -44,7 +47,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "私聊记忆总结 Prompt",
         "name_en": "Private Chat Memory Prompt",
         "description": "私聊场景下总结对话历史、提取结构化记忆的提示词模板",
+        "description_en": "Template for summarizing private chat history and extracting structured memories",
         "usage_note": "⚠️ 必须要求 LLM 输出 JSON：summary/topics/key_facts/sentiment/importance。格式错误将导致记忆写入失败。",
+        "usage_note_en": "⚠️ MUST require the LLM to output JSON: summary/topics/key_facts/sentiment/importance. Malformed output breaks memory writing.",
         "category": "memory_processing",
         "file": "private_chat_prompt.txt",
         "variables": ["{conversation}", "{current_date}"],
@@ -54,7 +59,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "记忆处理器基础 System Prompt",
         "name_en": "Memory System Prompt (Base)",
         "description": "记忆总结时使用的系统提示词基础模板（无人格附加内容）",
+        "description_en": "Base system prompt template used for memory summarization (without persona content)",
         "usage_note": "每次记忆总结时作为 system prompt 发送给 LLM，告知 LLM 其角色和任务。{current_date} 会被当前时间替换。",
+        "usage_note_en": "Sent as the system prompt to the LLM on every memory summarization, describing its role and task. {current_date} is replaced with the current time.",
         "category": "system_prompt",
         "file": "memory_system_prompt_base.txt",
         "variables": ["{current_date}"],
@@ -71,7 +78,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "记忆处理器人格 System Prompt",
         "name_en": "Memory System Prompt (With Persona)",
         "description": "记忆总结时使用的系统提示词完整模板，包含人格设定部分",
+        "description_en": "Full system prompt template used for memory summarization, including the persona section",
         "usage_note": "仅当用户配置了 Bot 人格时使用。{base_prompt}/{persona_prompt}/{current_date} 会被对应内容替换。",
+        "usage_note_en": "Used only when a bot persona is configured. {base_prompt}/{persona_prompt}/{current_date} are replaced with the corresponding content.",
         "category": "system_prompt",
         "file": "memory_system_prompt_with_persona.txt",
         "variables": ["{base_prompt}", "{persona_prompt}", "{current_date}"],
@@ -98,7 +107,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "记忆注入头部文本",
         "name_en": "Memory Injection Header",
         "description": "向 LLM 注入历史记忆时使用的头部说明文本，告知 LLM 如何处理历史记忆",
+        "description_en": "Header text used when injecting historical memories, telling the LLM how to treat them",
         "usage_note": "在每次对话中自动拼接到 LLM 上下文的最前面，告知 LLM 这些是历史记忆参考。不是 JSON 输出模板。",
+        "usage_note_en": "Automatically prepended to the LLM context in every conversation, marking these as historical memory references. Not a JSON output template.",
         "category": "memory_injection",
         "file": "memory_injection_header.txt",
         "variables": [],
@@ -123,7 +134,9 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name": "记忆注入尾部文本",
         "name_en": "Memory Injection Footer",
         "description": "向 LLM 注入历史记忆时使用的尾部提醒文本，提醒 LLM 关注当前对话",
+        "description_en": "Footer text used when injecting historical memories, reminding the LLM to focus on the current conversation",
         "usage_note": "在记忆内容末尾自动拼接，提醒 LLM 以上是历史记录，应以当前对话为准。不是 JSON 输出模板。",
+        "usage_note_en": "Automatically appended after the memory content, reminding the LLM that the above is historical and the current conversation takes precedence. Not a JSON output template.",
         "category": "memory_injection",
         "file": "memory_injection_footer.txt",
         "variables": [],
@@ -141,16 +154,19 @@ PROMPT_CATEGORIES: dict[str, dict[str, str]] = {
         "name": "记忆处理",
         "name_en": "Memory Processing",
         "description": "控制记忆提取与结构化总结的提示词",
+        "description_en": "Prompts controlling memory extraction and structured summarization",
     },
     "system_prompt": {
         "name": "系统提示词",
         "name_en": "System Prompt",
         "description": "记忆处理器内部使用的系统提示词模板",
+        "description_en": "System prompt templates used inside the memory processor",
     },
     "memory_injection": {
         "name": "记忆注入",
         "name_en": "Memory Injection",
         "description": "向 LLM 上下文注入历史记忆时的说明与提醒文本",
+        "description_en": "Explanatory and reminder text injected into the LLM context with historical memories",
     },
 }
 
