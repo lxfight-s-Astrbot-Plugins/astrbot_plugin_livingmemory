@@ -16,10 +16,16 @@ from astrbot_plugin_livingmemory.core.prompts.prompt_manager import (
 
 class TestPromptRegistry:
     def test_all_prompts_have_required_fields(self):
-        required = {"id", "name", "name_en", "description", "category", "file", "variables"}
+        required = {
+            "id", "name", "name_en",
+            "description", "description_en",
+            "category", "file", "variables",
+        }
         for pid, meta in PROMPT_REGISTRY.items():
             missing = required - set(meta.keys())
             assert not missing, f"{pid} 缺少字段: {missing}"
+            if "usage_note" in meta:
+                assert "usage_note_en" in meta, f"{pid} 缺少 usage_note_en"
 
     def test_prompt_ids_match_registry_keys(self):
         for pid, meta in PROMPT_REGISTRY.items():
@@ -30,11 +36,17 @@ class TestPromptRegistry:
         for pid, meta in PROMPT_REGISTRY.items():
             assert meta["category"] in valid, f"{pid} category '{meta['category']}' invalid"
 
+    def test_categories_have_bilingual_fields(self):
+        for cat_id, cat_info in PROMPT_CATEGORIES.items():
+            for field in ("name", "name_en", "description", "description_en"):
+                assert cat_info.get(field), f"分类 {cat_id} 缺少 {field}"
+
     def test_memory_processing_has_json_warning(self):
         for pid, meta in PROMPT_REGISTRY.items():
             if meta["category"] == "memory_processing":
                 assert "usage_note" in meta
                 assert "JSON" in meta["usage_note"]
+                assert "JSON" in meta["usage_note_en"]
 
 
 class TestPromptManagerBasics:

@@ -17,6 +17,19 @@ export class PromptPage {
   }
 
   /**
+   * 按当前语言选择中/英文文案
+   * 非中文语言优先英文字段，缺失时回退中文
+   * @param {string} zhText - 中文字段
+   * @param {string} enText - 英文字段
+   * @returns {string}
+   */
+  _pickLang(zhText, enText) {
+    const lang = window.getLanguage ? window.getLanguage() : "zh";
+    if (lang === "zh") return zhText || enText || "";
+    return enText || zhText || "";
+  }
+
+  /**
    * 获取提示词列表
    */
   async fetch() {
@@ -65,9 +78,13 @@ export class PromptPage {
 
     for (const [catId, prompts] of Object.entries(grouped)) {
       const catInfo = this.categories.find((c) => c.id === catId) || {};
-      const catName = catInfo.name || catId;
-      const catNameEn = catInfo.name_en || "";
-      const catDesc = catInfo.description || "";
+      const catName = this._pickLang(catInfo.name, catInfo.name_en) || catId;
+      // 中文界面附英文副标题，其他语言只显示当前语言名称
+      const catNameAlt =
+        (window.getLanguage ? window.getLanguage() : "zh") === "zh"
+          ? catInfo.name_en || ""
+          : "";
+      const catDesc = this._pickLang(catInfo.description, catInfo.description_en);
 
       html += '<div class="prompt-category">';
       html +=
@@ -75,9 +92,9 @@ export class PromptPage {
         '<span class="prompt-category-name">' +
         esc(catName) +
         "</span>";
-      if (catNameEn)
+      if (catNameAlt)
         html +=
-          ' <span class="prompt-category-name-en">' + esc(catNameEn) + "</span>";
+          ' <span class="prompt-category-name-en">' + esc(catNameAlt) + "</span>";
       if (catDesc)
         html +=
           '<p class="prompt-category-desc">' + esc(catDesc) + "</p>";
@@ -99,7 +116,7 @@ export class PromptPage {
         const varList = (p.variables || [])
           .map((v) => '<code>' + esc(v) + "</code>")
           .join(" ");
-        const descText = p.description || "";
+        const descText = this._pickLang(p.description, p.description_en);
 
         html +=
           '<div class="prompt-item" data-id="' +
@@ -107,18 +124,22 @@ export class PromptPage {
           '">' +
           '<div class="prompt-item-header">' +
           '<span class="prompt-item-name">' +
-          esc(p.name) +
+          esc(this._pickLang(p.name, p.name_en) || p.id) +
           jsonBadge +
           customBadge +
-          "</span>" +
-          '<span class="prompt-item-name-en">' +
-          esc(p.name_en || "") +
-          "</span>" +
-          "</div>";
+          "</span>";
+        const nameAlt =
+          (window.getLanguage ? window.getLanguage() : "zh") === "zh"
+            ? p.name_en || ""
+            : "";
+        if (nameAlt)
+          html +=
+            '<span class="prompt-item-name-en">' + esc(nameAlt) + "</span>";
+        html += "</div>";
         if (descText)
           html +=
             '<p class="prompt-item-desc">' + esc(descText) + "</p>";
-        const usageNote = p.usage_note || "";
+        const usageNote = this._pickLang(p.usage_note, p.usage_note_en);
         if (usageNote)
           html +=
             '<p class="prompt-item-usage">' + esc(usageNote) + "</p>";
@@ -171,7 +192,7 @@ export class PromptPage {
       if (!editorEl) return;
 
       document.getElementById("prompt-editor-title").textContent =
-        prompt.name + (prompt.name_en ? " / " + prompt.name_en : "");
+        this._pickLang(prompt.name, prompt.name_en) || prompt.id;
       document.getElementById("prompt-editor-textarea").value =
         this.editContent;
       document.getElementById("prompt-editor-vars").innerHTML = (
@@ -301,6 +322,18 @@ export class PromptPage {
     if (editorEl) editorEl.classList.add("hidden");
     this.editingId = null;
     this.editContent = null;
+  }
+
+  /**
+   * 语言切换后刷新已打开编辑器的标题
+   */
+  refreshEditorTitle() {
+    if (!this.editingId) return;
+    const prompt = this.prompts.find((p) => p.id === this.editingId);
+    const titleEl = document.getElementById("prompt-editor-title");
+    if (prompt && titleEl) {
+      titleEl.textContent = this._pickLang(prompt.name, prompt.name_en) || prompt.id;
+    }
   }
 
   /**
