@@ -110,8 +110,13 @@ def test_graph_toolbar_has_intermediate_desktop_breakpoints() -> None:
     assert "#graph-memory-id" in css
 
 
-def test_summary_prompts_keep_persona_and_canonical_channels_distinct() -> None:
+def test_summary_prompts_keep_persona_voice_and_single_summary_output() -> None:
+    """内置提示词保留人格化主观视角要求，且只要求输出一份 summary。
+
+    2.4.0 曾让模型同时产出 summary 与 canonical_summary 两份风格相反的摘要，
+    导致总结质量下降；回退后检索语料由代码从 summary + key_facts 组装。
+    """
     for prompt_name in ("private_chat_prompt.txt", "group_chat_prompt.txt"):
         prompt = (ROOT / "core" / "prompts" / prompt_name).read_text(encoding="utf-8")
         assert "主观回忆" in prompt
-        assert "只有`canonical_summary`需要保持客观中性" in prompt
+        assert "canonical_summary" not in prompt

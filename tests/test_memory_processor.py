@@ -151,7 +151,8 @@ async def test_persona_prompt_is_included_when_available():
 async def test_dual_channel_summary_stores_canonical_and_persona():
     """
     process_conversation 应在 metadata 中同时存储
-    canonical_summary（检索用）和 persona_summary（人格风格用）。
+    canonical_summary（供图抽取等中性消费方）和 persona_summary（人格风格展示用），
+    且检索内容 content 恒为 summary + key_facts 的富文本。
     """
     llm = _DummyLLMProvider(
         """{
@@ -171,19 +172,21 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
         persona_id=None,
     )
 
-    # canonical_summary 应存在且包含事实内容
+    # canonical_summary 应保留 LLM 输出（自定义提示词兼容）
     assert "canonical_summary" in metadata
-    assert len(metadata["canonical_summary"]) > 0
+    assert "呀" not in metadata["canonical_summary"]
+    assert metadata["canonical_summary"] == "张三明天下午三点开会，Bot 已确认提醒"
 
     # persona_summary 应存在（等于原始 LLM summary）
     assert "persona_summary" in metadata
     assert "张三" in metadata["persona_summary"]
     assert "呀" in metadata["persona_summary"]
-    assert "呀" not in metadata["canonical_summary"]
-    assert metadata["canonical_summary"] == "张三明天下午三点开会，Bot 已确认提醒"
 
-    # content 应使用 canonical_summary（事实导向）
-    assert content == metadata["canonical_summary"]
+    # content 应为 summary + key_facts 富文本（检索语料）
+    assert (
+        content
+        == "张三明天下午三点要开会呀，我已经认真记下来啦！ | 张三明天下午三点开会"
+    )
 
     # schema 版本标记
     assert metadata.get("summary_schema_version") == "v2"
@@ -203,7 +206,7 @@ async def test_source_time_tags_come_from_message_timestamps_without_rewriting_s
 
     content, metadata, _ = await processor.process_conversation(messages)
 
-    assert content == "发布计划已确认"
+    assert content == "记住这件事 | 发布计划已确认"
     assert metadata["canonical_summary"] == "发布计划已确认"
     assert metadata["time_tags"] == ["2025-05-01", "2025-05-02"]
     assert metadata["source_time_label"] == "2025-05-01 - 2025-05-02"
@@ -223,8 +226,8 @@ def test_atom_classification_persists_parent_memory_types():
 
 
 @pytest.mark.asyncio
-async def test_canonical_summary_falls_back_to_key_facts():
-    """旧 Prompt 缺少 canonical_summary 时应使用事实而非人格摘要。"""
+async def test_canonical_summary_falls_back_to_rich_text():
+    """旧/自定义 Prompt 缺少 canonical_summary 时应回退为 summary + key_facts 富文本。"""
     llm = _DummyLLMProvider(
         """{
             "summary":"用户提到了一个重要事项",
@@ -243,10 +246,11 @@ async def test_canonical_summary_falls_back_to_key_facts():
         persona_id=None,
     )
 
-    # canonical_summary 应包含 key_facts 内容
+    # 回退应同时包含 summary 与 key_facts，保证检索语料信息密度
     assert "明天下午三点开会" in metadata["canonical_summary"]
     assert "需要准备PPT" in metadata["canonical_summary"]
-    assert "用户提到了一个重要事项" not in metadata["canonical_summary"]
+    assert "用户提到了一个重要事项" in metadata["canonical_summary"]
+    assert content == metadata["canonical_summary"]
 
 
 @pytest.mark.asyncio

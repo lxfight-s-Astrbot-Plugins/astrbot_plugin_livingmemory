@@ -1819,6 +1819,18 @@ body {
   gap: var(--space-2);
 }
 
+.batch-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.batch-edit-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* ----- Toast --------------------------------------------------- */
 .toast {
   position: fixed;

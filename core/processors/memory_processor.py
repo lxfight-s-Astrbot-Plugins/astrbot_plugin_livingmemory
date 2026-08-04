@@ -828,20 +828,22 @@ class MemoryProcessor:
         summary = str(structured_data.get("summary", "")).strip()
         key_facts = structured_data.get("key_facts", [])
 
-        # New prompts provide a factual, style-neutral retrieval summary. Custom
-        # and older prompts may omit it, so use key facts rather than the
-        # personality-styled summary whenever facts are available.
-        canonical_summary = str(structured_data.get("canonical_summary") or "").strip()
-        if not canonical_summary and key_facts:
-            canonical_summary = "；".join(str(f) for f in key_facts[:5] if f)
-        if not canonical_summary:
-            canonical_summary = summary
+        # 检索内容恒为 summary + key_facts 的富文本：content 是 BM25/FAISS 的
+        # 索引语料，也是 Agent 主动召回工具直接返回给 LLM 的内容，必须保证信息
+        # 密度。不依赖模型输出的压缩摘要，也不退化为纯事实的机械拼接。
+        # （自动注入链路优先使用 metadata 中的 persona_summary，不受此影响。）
+        rich_parts = [summary] if summary else []
+        if key_facts:
+            rich_parts.append("；".join(str(f) for f in key_facts[:5] if f))
+        rich_content = " | ".join(rich_parts)
 
-        # content 字段使用 canonical_summary，提升检索稳定性
-        if canonical_summary:
-            content = canonical_summary
-        else:
-            content = fallback_excerpt
+        content = rich_content if rich_content else fallback_excerpt
+
+        # canonical_summary：自定义提示词若输出了该字段则保留（供图抽取等使用），
+        # 否则回退为与 content 一致的富文本，保持 v2 metadata 结构兼容。
+        canonical_summary = str(structured_data.get("canonical_summary") or "").strip()
+        if not canonical_summary:
+            canonical_summary = rich_content
 
         # metadata字段:存储结构化信息
         # 注意：不要在这里设置 create_time 和 last_access_time
@@ -851,7 +853,8 @@ class MemoryProcessor:
             "key_facts": key_facts,
             "sentiment": structured_data.get("sentiment", "neutral"),
             "interaction_type": "group_chat" if is_group_chat else "private_chat",
-            # 双通道：canonical 用于检索，persona_summary 保留原始人格风格摘要
+            # 双通道：canonical_summary 供图抽取等中性文本消费方使用，
+            # persona_summary 保留人格风格摘要供面板展示
             "canonical_summary": canonical_summary,
             "persona_summary": summary,
             "summary_schema_version": "v2",
