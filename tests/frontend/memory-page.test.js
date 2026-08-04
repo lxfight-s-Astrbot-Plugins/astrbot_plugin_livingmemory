@@ -148,3 +148,85 @@ test("the bound scroll listener uses the current item count", () => {
     delete globalThis.window;
   }
 });
+
+test("batchEdit posts the dialog result to memories/batch-update", async () => {
+  const state = createState();
+  state.memory.selectedIds = new Set([11, 12]);
+
+  const posts = [];
+  const api = {
+    post(path, payload) {
+      posts.push({ path, payload });
+      return Promise.resolve({ updated_count: 2, failed_count: 0, total: 2 });
+    },
+  };
+  const peek = {
+    open() {},
+    close() {},
+    showBatchEditDialog(count) {
+      assert.equal(count, 2);
+      return Promise.resolve({ field: "importance", value: 7, value_scale: "display" });
+    },
+  };
+  const page = new MemoryPage(state, api, peek);
+  let fetched = false;
+  page.fetch = async () => { fetched = true; };
+  page.showToast = () => {};
+  globalThis.window = {
+    t(key, ...args) {
+      return [key, ...args].join(" ");
+    },
+  };
+  globalThis.document = {
+    getElementById() {
+      return { disabled: false };
+    },
+  };
+
+  try {
+    await page.batchEdit();
+  } finally {
+    delete globalThis.document;
+    delete globalThis.window;
+  }
+
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].path, "memories/batch-update");
+  assert.deepEqual(posts[0].payload, {
+    memory_ids: [11, 12],
+    field: "importance",
+    value: 7,
+    value_scale: "display",
+  });
+  assert.equal(state.memory.selectedIds.size, 0);
+  assert.equal(fetched, true);
+});
+
+test("batchEdit aborts without posting when the dialog is cancelled", async () => {
+  const state = createState();
+  state.memory.selectedIds = new Set([11]);
+
+  let posted = false;
+  let closed = false;
+  const api = {
+    post() {
+      posted = true;
+      return Promise.resolve({});
+    },
+  };
+  const peek = {
+    open() {},
+    close() { closed = true; },
+    showBatchEditDialog() {
+      return Promise.resolve(null);
+    },
+  };
+  const page = new MemoryPage(state, api, peek);
+  page.fetch = async () => {};
+
+  await page.batchEdit();
+
+  assert.equal(posted, false);
+  assert.equal(closed, true);
+  assert.equal(state.memory.selectedIds.size, 1);
+});
