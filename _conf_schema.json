@@ -207,7 +207,49 @@
                 "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。",
                 "type": "int",
                 "default": 256
+            },
+            "access_boost": {
+                "description": "访问驱动权重提升",
+                "hint": "同一条记忆被多次调用时，自动提高其重要性分数。30次后极小加分（锁定保护）。",
+                "type": "object",
+                "items": {
+                    "enabled": {
+                        "description": "启用访问权重提升",
+                        "hint": "开启后，记忆被成功召回注入时，会自动提升 importance 分数防止衰减删除。",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "lock_protection": {
+                        "description": "启用30次锁定保护",
+                        "hint": "开启后，调用满30次的记忆将不再衰减、不被删除。关闭后所有记忆正常衰减。",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "boost_factor": {
+                        "description": "涨分系数",
+                        "hint": "每次成功召回时的涨分幅度。推荐 0.02。",
+                        "type": "float",
+                        "default": 0.02
+                    },
+                    "formula": {
+                        "description": "涨分公式",
+                        "hint": "对数（推荐）：分越低涨越快。线性：固定幅度涨分。",
+                        "type": "string",
+                        "options": [
+                            "linear",
+                            "logarithmic"
+                        ],
+                        "default": "logarithmic"
+                    },
+                    "high_access_threshold": {
+                        "description": "高访问阈值（锁定保护）",
+                        "hint": "调用次数达到此值后锁定：不再衰减、不被删除、涨分极小（默认30）。",
+                        "type": "int",
+                        "default": 30
+                    }
+                }
             }
+
         }
     },
     "importance_decay": {
