@@ -245,6 +245,10 @@ import {
     if (state.page === "system" && state._systemCache) {
       systemPage.render(state._systemCache.data);
     }
+    if (state.page === "prompts" && promptPage.prompts.length) {
+      promptPage.render();
+      promptPage.refreshEditorTitle();
+    }
 
     const peekPanelEl = document.getElementById("peek-panel");
     const peekVisible = peekPanelEl && peekPanelEl.classList.contains("visible");
