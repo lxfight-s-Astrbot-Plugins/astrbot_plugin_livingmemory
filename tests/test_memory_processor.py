@@ -152,7 +152,7 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
     """
     process_conversation 应在 metadata 中同时存储
     canonical_summary（供图抽取等中性消费方）和 persona_summary（人格风格展示用），
-    且检索/注入内容 content 恒为 summary + key_facts 的富文本。
+    且检索内容 content 恒为 summary + key_facts 的富文本。
     """
     llm = _DummyLLMProvider(
         """{
@@ -182,7 +182,7 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
     assert "张三" in metadata["persona_summary"]
     assert "呀" in metadata["persona_summary"]
 
-    # content 应为 summary + key_facts 富文本（检索与注入语料）
+    # content 应为 summary + key_facts 富文本（检索语料）
     assert (
         content
         == "张三明天下午三点要开会呀，我已经认真记下来啦！ | 张三明天下午三点开会"

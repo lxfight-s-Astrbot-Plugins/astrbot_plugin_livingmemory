@@ -9,7 +9,7 @@ LivingMemory 的目标不是简单保存聊天记录，而是把对话转化为�
   </div>
   <div>
     <h3>富检索内容</h3>
-    <p>检索与注入内容由 <code>summary</code> + <code>key_facts</code> 组装，保证信息密度；<code>persona_summary</code> 面向面板展示和人格表达。</p>
+    <p>检索内容由 <code>summary</code> + <code>key_facts</code> 组装，保证信息密度；<code>persona_summary</code> 面向记忆注入、面板展示和人格表达。</p>
   </div>
   <div>
     <h3>主动记忆工具</h3>
@@ -31,7 +31,7 @@ LivingMemory 的目标不是简单保存聊天记录，而是把对话转化为�
 | Agent 主动写入 | 模型调用 `memorize_long_term_memory` | 用户明确要求“记住”、关键约定、长期任务 |
 | 管理员手动总结 | `/lmem summarize [message_count]` | 立即保存当前上下文，或重新总结最近 N 条消息 |
 
-总结产出的人格化 `summary` 用于面板展示（`persona_summary`），检索与注入内容由代码从 `summary` 和 `key_facts` 组装，避免单一压缩摘要损失信息密度；自定义提示词也可以额外输出事实型 `canonical_summary`，供图抽取等场景使用。达到原文保留阈值的记忆还会把来源消息独立写入 SQLite；这些原文不进入检索索引，但可用于 Dashboard 核验、重新总结，以及 Agent 主动回忆时的深度回溯。
+总结产出的人格化 `summary` 同时用于记忆注入与面板展示（`persona_summary`），检索内容由代码从 `summary` 和 `key_facts` 组装，避免单一压缩摘要损失信息密度；自定义提示词也可以额外输出事实型 `canonical_summary`，供图抽取等场景使用。达到原文保留阈值的记忆还会把来源消息独立写入 SQLite；这些原文不进入检索索引，但可用于 Dashboard 核验、重新总结，以及 Agent 主动回忆时的深度回溯。
 
 ## 记忆如何被召回？
 

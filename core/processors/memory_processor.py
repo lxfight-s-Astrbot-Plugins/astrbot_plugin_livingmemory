@@ -828,9 +828,10 @@ class MemoryProcessor:
         summary = str(structured_data.get("summary", "")).strip()
         key_facts = structured_data.get("key_facts", [])
 
-        # 检索/注入内容恒为 summary + key_facts 的富文本：content 同时是
-        # BM25/FAISS 的索引语料和召回时注入 LLM 的背景信息，必须保证信息密度。
-        # 不依赖模型输出的压缩摘要，也不退化为纯事实的机械拼接。
+        # 检索内容恒为 summary + key_facts 的富文本：content 是 BM25/FAISS 的
+        # 索引语料，也是 Agent 主动召回工具直接返回给 LLM 的内容，必须保证信息
+        # 密度。不依赖模型输出的压缩摘要，也不退化为纯事实的机械拼接。
+        # （自动注入链路优先使用 metadata 中的 persona_summary，不受此影响。）
         rich_parts = [summary] if summary else []
         if key_facts:
             rich_parts.append("；".join(str(f) for f in key_facts[:5] if f))
