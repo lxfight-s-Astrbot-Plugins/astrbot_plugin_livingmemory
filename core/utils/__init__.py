@@ -323,6 +323,55 @@ def _memory_injection_content(content: Any, metadata: Any) -> str:
     return raw_content
 
 
+def apply_injection_budget(
+    memory_list: list,
+    budget_chars: int,
+    min_per: int,
+    max_per: int,
+) -> list:
+    """按召回权重为每条记忆的注入正文分配字符额度。
+
+    只约束注入正文（persona_summary）总和，元数据行与头尾文案不受影响。
+    budget_chars<=0 时原样返回，行为与未启用预算时完全一致。
+    截断结果写入 metadata 浅拷贝，绝不原地修改 memory_list 中的原对象，
+    避免污染检索缓存。
+    """
+    if budget_chars is None or budget_chars <= 0 or not memory_list:
+        return memory_list
+
+    # 延迟导入避免循环依赖
+    from .injection_budget import (
+        allocate_char_budgets,
+        estimate_chars,
+        truncate_display_text,
+    )
+
+    displays = [
+        _memory_injection_content(mem.get("content", ""), mem.get("metadata", {}))
+        for mem in memory_list
+    ]
+    quotas = allocate_char_budgets(
+        [mem.get("score", 0.0) for mem in memory_list],
+        [estimate_chars(text) for text in displays],
+        budget_chars,
+        min_per,
+        max_per,
+    )
+
+    result = []
+    for mem, display, quota in zip(memory_list, displays, quotas):
+        truncated = truncate_display_text(display, quota)
+        if truncated == display:
+            result.append(mem)
+            continue
+        new_mem = dict(mem)
+        metadata_copy = dict(mem.get("metadata") or {})
+        metadata_copy["persona_summary"] = truncated
+        new_mem["metadata"] = metadata_copy
+        result.append(new_mem)
+    return result
+
+
 def format_memories_for_injection(memories: list) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。

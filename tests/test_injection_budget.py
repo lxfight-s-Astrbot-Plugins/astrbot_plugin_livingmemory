@@ -83,7 +83,7 @@ class TestAllocateCharBudgets:
         result = allocate_char_budgets(
             [1.0, 1.0], [1000.0, 1000.0], 1000, 0, 10000
         )
-        assert sum(result) <= 1000
+        assert sum(result) <= 1000 + 1e-6
         assert abs(result[0] - result[1]) <= 1
 
     def test_higher_score_gets_more(self):
@@ -96,7 +96,7 @@ class TestAllocateCharBudgets:
         result = allocate_char_budgets(
             [1.0, 1.0], [5000.0, 5000.0], 3000, 0, 600
         )
-        assert all(b <= 600 for b in result)
+        assert all(b <= 600 + 1e-9 for b in result)
 
     def test_min_per_memory_floor(self):
         # 一条高分一条低分，低分也应有保底额度
@@ -114,14 +114,14 @@ class TestAllocateCharBudgets:
         scores = [0.9, 0.7, 0.5, 0.3, 0.2]
         lengths = [800.0, 600.0, 500.0, 400.0, 300.0]
         result = allocate_char_budgets(scores, lengths, 1500, 250, 600)
-        assert sum(result) <= 1500
+        assert sum(result) <= 1500 + 1e-6
 
     def test_negative_scores_treated_as_zero(self):
         result = allocate_char_budgets(
             [-0.5, -0.1], [1000.0, 1000.0], 1000, 0, 10000
         )
         # 全零权重退化为均等分配
-        assert sum(result) <= 1000
+        assert sum(result) <= 1000 + 1e-6
         assert abs(result[0] - result[1]) <= 1
 
     def test_floors_exceed_total_falls_back_to_proportional(self):
@@ -129,7 +129,7 @@ class TestAllocateCharBudgets:
         result = allocate_char_budgets(
             [1.0, 1.0, 1.0], [1000.0, 1000.0, 1000.0], 500, 250, 10000
         )
-        assert sum(result) <= 500
+        assert sum(result) <= 500 + 1e-6
         assert all(b > 0 for b in result)
 
     def test_surplus_redistributed_from_short_memories(self):

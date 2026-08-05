@@ -81,7 +81,7 @@ def allocate_char_budgets(
     total: float,
     min_per: float,
     max_per: float,
-) -> list[int]:
+) -> list[float]:
     """按召回权重为每条记忆分配字符额度。
 
     Args:
@@ -92,7 +92,7 @@ def allocate_char_budgets(
         max_per: 单条上限额度；短于该值的记忆按实际长度放行
 
     Returns:
-        与输入顺序一致的每条记忆字符额度列表。
+        与输入顺序一致的每条记忆字符额度列表（浮点额度，供截断比较）。
 
     分配规则：先为每条预留保底额度（Σfloor 超过总预算时跳过保底），
     剩余额度按权重在未达上限的记忆间水填分配。
@@ -101,7 +101,7 @@ def allocate_char_budgets(
     if n == 0:
         return []
     if total <= 0:
-        return [int(max(0.0, length)) for length in est_lengths]
+        return [max(0.0, float(length)) for length in est_lengths]
 
     weights = [max(float(score), 0.0) for score in scores]
     if sum(weights) <= 0:
@@ -131,4 +131,4 @@ def allocate_char_budgets(
         if not progressed:
             break
 
-    return [int(budget) for budget in budgets]
+    return budgets

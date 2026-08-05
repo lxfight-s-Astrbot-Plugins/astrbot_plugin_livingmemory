@@ -17,6 +17,7 @@ from astrbot.core.agent.message import TextPart
 from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
 from ..utils import (
     OperationContext,
+    apply_injection_budget,
     format_memories_for_fake_tool_call,
     format_memories_for_injection,
     get_persona_id,
@@ -260,6 +261,21 @@ class MemoryRecall:
                         }
                         for mem in recalled_memories
                     ]
+
+                    # 应用注入字符预算：按召回权重为每条记忆的正文分配额度
+                    # （budget=0 时原样返回，行为与未启用预算一致）
+                    memory_list = apply_injection_budget(
+                        memory_list,
+                        self.config_manager.get(
+                            "recall_engine.injection_budget_chars", 1500
+                        ),
+                        self.config_manager.get(
+                            "recall_engine.injection_min_chars_per_memory", 250
+                        ),
+                        self.config_manager.get(
+                            "recall_engine.injection_max_chars_per_memory", 600
+                        ),
+                    )
 
                     # 输出详细记忆信息
                     for i, mem in enumerate(recalled_memories, 1):
