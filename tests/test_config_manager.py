@@ -21,6 +21,9 @@ def test_config_manager_loads_defaults() -> None:
     assert manager.get("recall_engine.recent_memory_count") == 2
     assert manager.get("recall_engine.memory_type_filter") == "all"
     assert manager.get("recall_engine.recent_context_max_age_seconds") == 7200
+    assert manager.get("recall_engine.injection_budget_chars") == 1500
+    assert manager.get("recall_engine.injection_min_chars_per_memory") == 250
+    assert manager.get("recall_engine.injection_max_chars_per_memory") == 600
     assert manager.get("fusion_strategy.rrf_k") == 60
     assert manager.get("session_manager.max_sessions") == 100
     assert manager.get("session_manager.max_messages_per_session") == 1000
@@ -107,6 +110,28 @@ def test_validate_config_accepts_recent_context_max_age() -> None:
     )
 
     assert config.recall_engine.recent_context_max_age_seconds == 3600
+
+
+def test_validate_config_accepts_injection_budget() -> None:
+    config = validate_config(
+        {
+            "recall_engine": {
+                "injection_budget_chars": 2000,
+                "injection_min_chars_per_memory": 300,
+                "injection_max_chars_per_memory": 800,
+            }
+        }
+    )
+
+    assert config.recall_engine.injection_budget_chars == 2000
+    assert config.recall_engine.injection_min_chars_per_memory == 300
+    assert config.recall_engine.injection_max_chars_per_memory == 800
+
+
+def test_validate_config_accepts_injection_budget_disabled() -> None:
+    config = validate_config({"recall_engine": {"injection_budget_chars": 0}})
+
+    assert config.recall_engine.injection_budget_chars == 0
 
 
 def test_config_manager_graph_memory_property() -> None:
