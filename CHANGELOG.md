@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 新增
+- **记忆注入预算控制**: 新增 `recall_engine.injection_budget_chars`（默认 1500，0 关闭）、`injection_min_chars_per_memory`（默认 250）、`injection_max_chars_per_memory`（默认 600）三项配置。每轮注入时按召回权重在各条记忆的正文（persona_summary）间动态分配字符额度，超出部分在句子边界处截断；元数据行与头尾说明文案不计入预算、始终完整。覆盖全部四种注入位置，关闭时行为与之前完全一致
+
+### 测试
+- 新增长度估算 / 句子边界截断 / 预算分配的单元测试与注入链路行为测试；完整 Python 测试集 740 项通过
+
 ## [2.5.7] - 2026-08-04
 
 ### 修复

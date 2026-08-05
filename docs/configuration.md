@@ -47,10 +47,15 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.memory_type_filter` | `all` | 设为 `event_only` 可排除明确的纯偏好/关系记忆 |
 | `recall_engine.fallback_to_vector` | `true` | 混合检索失败时降级到向量检索 |
 | `recall_engine.injection_method` | `extra_user_content` | 记忆注入到 LLM 请求的位置或形式 |
+| `recall_engine.injection_budget_chars` | `1500` | 每轮注入的记忆正文总字符预算，按召回权重分配；`0` 关闭预算控制 |
+| `recall_engine.injection_min_chars_per_memory` | `250` | 预算分配时单条记忆的保底额度 |
+| `recall_engine.injection_max_chars_per_memory` | `600` | 预算分配时单条记忆的上限额度 |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
 | `recall_engine.search_cache_enabled` | `true` | 是否启用短期检索缓存 |
 
 `extra_user_content` 是最稳妥的默认注入方式。Gemini Provider 下选择 `fake_tool_call` 会自动降级到 `extra_user_content`；DeepSeek V4 thinking 模式现在可以直接使用普通 `fake_tool_call`，旧的 `fake_tool_call_deepseek_v4` 仅作为兼容别名保留，并会自动回退到 `fake_tool_call`。
+
+注入预算只约束各条记忆正文（persona_summary）的总长度：按召回得分在记忆间动态分配额度，超出的正文在句子边界处截断；元数据行与头尾说明文案不计入预算、始终完整展示。短于额度的记忆原样注入。将 `injection_budget_chars` 设为 `0` 可完全关闭预算控制，恢复全量注入。
 
 ## 记忆隔离
 
