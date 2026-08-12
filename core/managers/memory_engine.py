@@ -2113,53 +2113,38 @@ class MemoryEngine:
         return await self._update_access_time_internal(memory_id)
 
     async def _update_access_time_internal(self, memory_id: int) -> bool:
-        """内部方法:更新访问时间（直接更新documents表，不经过FAISS）"""
-        import json
-
+        """Atomically bump last_access_time and access_count in one UPDATE."""
         current_time = time.time()
 
         try:
             if self.db_connection is None:
                 return False
 
-            # 直接更新 documents 表，不经过 FAISS
-            # 1. 获取当前 metadata
+            # 使用单条原子 SQL 避免并发召回任务对同一记忆产生丢失更新。
             cursor = await self.db_connection.execute(
-                "SELECT metadata FROM documents WHERE id = ?", (memory_id,)
-            )
-            row = await cursor.fetchone()
-
-            if not row:
-                return False
-
-            # 2. 解析并更新 metadata
-            metadata_str = row[0] if row and row[0] else "{}"
-            try:
-                metadata = (
-                    json.loads(metadata_str)
-                    if isinstance(metadata_str, str)
-                    else metadata_str
-                )
-                if not isinstance(metadata, dict):
-                    metadata = {}
-            except (json.JSONDecodeError, TypeError):
-                metadata = {}
-
-            metadata["last_access_time"] = current_time
-            try:
-                access_count = int(metadata.get("access_count", 0) or 0)
-            except (TypeError, ValueError):
-                access_count = 0
-            metadata["access_count"] = min(access_count + 1, 1_000_000)
-
-            # 3. 写回 documents 表
-            await self.db_connection.execute(
-                "UPDATE documents SET metadata = ? WHERE id = ?",
-                (json.dumps(metadata, ensure_ascii=False), memory_id),
+                """
+                UPDATE documents
+                SET metadata = CASE
+                    WHEN json_valid(metadata) THEN json_set(
+                        json_set(metadata, '$.last_access_time', ?),
+                        '$.access_count',
+                        MIN(
+                            COALESCE(
+                                CAST(json_extract(metadata, '$.access_count') AS INTEGER),
+                                0
+                            ) + 1,
+                            1000000
+                        )
+                    )
+                    ELSE json_set('{}', '$.last_access_time', ?, '$.access_count', 1)
+                END
+                WHERE id = ?
+                """,
+                (current_time, current_time, memory_id),
             )
             await self.db_connection.commit()
 
-            return True
+            return cursor.rowcount > 0
 
         except asyncio.CancelledError:
             raise
