@@ -1541,10 +1541,11 @@ class MemoryEngine:
         cache_key = self._search_cache_key(query, k, session_id, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
-            for result in cached_results:
-                self._create_tracked_task(
-                    self._update_access_time_internal(result.doc_id)
+            self._create_tracked_task(
+                self._update_access_times_internal(
+                    [result.doc_id for result in cached_results]
                 )
+            )
             return cached_results
 
         # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
@@ -1584,8 +1585,10 @@ class MemoryEngine:
         )
 
         # 异步更新访问时间(不阻塞返回)
-        for result in results:
-            self._create_tracked_task(self._update_access_time_internal(result.doc_id))
+        if results:
+            self._create_tracked_task(
+                self._update_access_times_internal([r.doc_id for r in results])
+            )
 
         self._set_cached_search_results(cache_key, results)
         return results
@@ -2113,16 +2116,33 @@ class MemoryEngine:
         return await self._update_access_time_internal(memory_id)
 
     async def _update_access_time_internal(self, memory_id: int) -> bool:
-        """Atomically bump last_access_time and access_count in one UPDATE."""
+        """Atomically bump a single memory's access time and count."""
+        return await self._update_access_times_internal([memory_id])
+
+    async def _update_access_times_internal(self, doc_ids: list[int]) -> bool:
+        """Atomically bump access time and count for multiple memories in one UPDATE.
+
+        Args:
+            doc_ids: Document ids to update.
+
+        Returns:
+            bool: True if at least one row was updated.
+        """
+        unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
+        if not unique_ids:
+            return False
+
         current_time = time.time()
 
         try:
             if self.db_connection is None:
                 return False
 
-            # 使用单条原子 SQL 避免并发召回任务对同一记忆产生丢失更新。
+            # 单条原子 SQL，避免并发召回任务对同一记忆产生丢失更新，
+            # 同时将多条结果合并为一次 commit 以降低写放大。
+            placeholders = ",".join("?" * len(unique_ids))
             cursor = await self.db_connection.execute(
-                """
+                f"""
                 UPDATE documents
                 SET metadata = CASE
                     WHEN json_valid(metadata) THEN json_set(
@@ -2136,11 +2156,11 @@ class MemoryEngine:
                             1000000
                         )
                     )
-                    ELSE json_set('{}', '$.last_access_time', ?, '$.access_count', 1)
+                    ELSE json_set('{{}}', '$.last_access_time', ?, '$.access_count', 1)
                 END
-                WHERE id = ?
+                WHERE id IN ({placeholders})
                 """,
-                (current_time, current_time, memory_id),
+                (current_time, current_time, *unique_ids),
             )
             await self.db_connection.commit()
 
@@ -2151,7 +2171,7 @@ class MemoryEngine:
         except Exception as e:
             # 记录错误但不影响查询流程
             logger.warning(
-                f"更新访问时间失败 (memory_id={memory_id}): {e}",
+                f"批量更新访问时间失败 (doc_ids={unique_ids}): {e}",
                 exc_info=True,
             )
             return False
