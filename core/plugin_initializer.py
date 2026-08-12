@@ -216,7 +216,10 @@ class PluginInitializer:
                 return False
 
             # 2. Provider 就绪，继续完整初始化
-            await self._complete_initialization()
+            async with self._initialization_lock:
+                if self._initialization_complete or self._initialization_failed:
+                    return self._initialization_complete
+                await self._complete_initialization()
             return True
 
         except Exception as e:
