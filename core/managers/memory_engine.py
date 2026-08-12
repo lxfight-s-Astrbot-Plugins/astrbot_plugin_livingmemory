@@ -257,11 +257,12 @@ class MemoryEngine:
         if self.graph_vector_db is not None:
             await self.graph_vector_db.close()
 
-    def _create_tracked_task(self, coro) -> None:
+    def _create_tracked_task(self, coro) -> asyncio.Task:
         """Create and track a background task, auto-discarding on completion."""
         task = asyncio.create_task(coro)
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+        return task
 
     async def _create_write_ops_table(self) -> None:
         """Create the resumable write-operation log."""
@@ -1810,7 +1811,7 @@ class MemoryEngine:
             )
 
         new_memory_id: int | None = None
-        add_task = asyncio.create_task(
+        add_task = self._create_tracked_task(
             self.add_memory(
                 content=content,
                 session_id=session_id,
