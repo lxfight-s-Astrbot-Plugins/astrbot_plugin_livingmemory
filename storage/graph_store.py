@@ -320,7 +320,7 @@ class GraphStore:
             old_conf = float(semantic_row[1] or 0.8)
             old_weight = float(semantic_row[2] or 1.0)
             merged_confidence = old_conf * 0.7 + edge.confidence * 0.3
-            merged_weight = old_weight + 0.15
+            merged_weight = old_weight + edge.weight * 0.15
             await db.execute(
                 """
                 UPDATE graph_edges
