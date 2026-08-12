@@ -29,6 +29,7 @@ class GraphStore:
         try:
             await db.execute("PRAGMA journal_mode = WAL")
             await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute("PRAGMA foreign_keys = ON")
             yield db
         finally:
             await db.close()
@@ -56,9 +57,6 @@ class GraphStore:
     async def initialize(self) -> None:
         """Create tables used by the graph-memory layer."""
         async with self._connect() as db:
-            await db.execute("PRAGMA journal_mode = WAL")
-            await db.execute("PRAGMA busy_timeout = 10000")
-            await db.execute("PRAGMA foreign_keys = ON")
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS graph_nodes (
