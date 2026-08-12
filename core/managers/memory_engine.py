@@ -857,6 +857,16 @@ class MemoryEngine:
             return False
 
         if self.db_connection is not None:
+            # Replay the document/vector/BM25 delete first, mirroring the normal
+            # delete flow. If the process crashed before or during that step, the
+            # document must be removed here too; otherwise the memory stays
+            # searchable while its derived graph/atom/source data is already gone.
+            cursor = await self.db_connection.execute(
+                "SELECT 1 FROM documents WHERE id = ?", (int(memory_id),)
+            )
+            if await cursor.fetchone() is not None and self.hybrid_retriever is not None:
+                await self.hybrid_retriever.delete_memory(int(memory_id))
+
             await self.db_connection.execute(
                 "DELETE FROM memory_sources WHERE memory_id = ?", (int(memory_id),)
             )
