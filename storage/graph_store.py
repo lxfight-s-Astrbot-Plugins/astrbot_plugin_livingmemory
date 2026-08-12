@@ -338,6 +338,12 @@ class GraphStore:
                 source_memory_id, weight, confidence, status,
                 metadata, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(edge_key) DO UPDATE SET
+                weight = excluded.weight,
+                confidence = excluded.confidence,
+                status = excluded.status,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
             """,
             (
                 edge.edge_key,
@@ -353,7 +359,12 @@ class GraphStore:
                 now,
             ),
         )
-        return int(cursor.lastrowid)
+        cursor = await db.execute(
+            "SELECT id FROM graph_edges WHERE edge_key = ?",
+            (edge.edge_key,),
+        )
+        row = await cursor.fetchone()
+        return int(row[0])
 
     async def add_entry(
         self,
