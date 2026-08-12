@@ -148,17 +148,23 @@ class ConversationStore:
         if self.connection is None:
             raise RuntimeError("数据库连接未初始化")
         async with self._write_lock:
-            cursor = await self.connection.execute(
+            await self.connection.execute(
                 """
                 INSERT INTO sessions (session_id, platform, created_at, last_active_at, message_count, participants, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO NOTHING
             """,
                 (session_id, platform, now, now, 0, "[]", "{}"),
             )
             await self.connection.commit()
 
+        session = await self.get_session(session_id)
+        if session is not None:
+            logger.debug(f"[ConversationStore] 会话已存在: {session_id}")
+            return session
+
         session = Session(
-            id=cursor.lastrowid if cursor.lastrowid else 0,
+            id=0,
             session_id=session_id,
             platform=platform,
             created_at=now,
