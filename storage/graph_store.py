@@ -816,20 +816,24 @@ class GraphStore:
 
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                f"""
-                SELECT ge.id, ge.source_memory_id, ge.content, ge.metadata,
-                       ge.entry_type, ge.relation_type, ge.session_id, ge.persona_id,
-                       bm25(livingmemory_graph_entries_fts) AS score
-                FROM livingmemory_graph_entries_fts
-                JOIN graph_entries ge ON ge.id = livingmemory_graph_entries_fts.entry_id
-                WHERE livingmemory_graph_entries_fts MATCH ? {where_clause}
-                ORDER BY score ASC
-                LIMIT ?
-                """,
-                (*params, limit),
-            )
-            rows = await cursor.fetchall()
+            try:
+                cursor = await db.execute(
+                    f"""
+                    SELECT ge.id, ge.source_memory_id, ge.content, ge.metadata,
+                           ge.entry_type, ge.relation_type, ge.session_id, ge.persona_id,
+                           bm25(livingmemory_graph_entries_fts) AS score
+                    FROM livingmemory_graph_entries_fts
+                    JOIN graph_entries ge ON ge.id = livingmemory_graph_entries_fts.entry_id
+                    WHERE livingmemory_graph_entries_fts MATCH ? {where_clause}
+                    ORDER BY score ASC
+                    LIMIT ?
+                    """,
+                    (*params, limit),
+                )
+                rows = await cursor.fetchall()
+            except Exception as e:
+                logger.warning(f"[GraphStore] FTS 检索失败，已跳过图关键词路: {e}")
+                rows = []
 
         if not rows:
             return []
