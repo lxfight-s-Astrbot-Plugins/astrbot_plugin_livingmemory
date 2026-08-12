@@ -357,18 +357,26 @@ class MemoryEngine:
                         current_payload = {}
                 current_payload.update(payload_patch)
 
-            fields = ["status = ?", "step = ?", "updated_at = ?"]
-            params: list[Any] = [status, step, time.time()]
+            fields = ["step = ?", "updated_at = ?"]
+            params: list[Any] = [step, time.time()]
             if memory_id is not None:
                 fields.append("memory_id = ?")
                 params.append(memory_id)
             if error is not None:
                 fields.append("error = ?")
                 params.append(error[:1000])
-                if status != "completed":
-                    fields.append("retry_count = retry_count + 1")
-            elif status == "completed":
-                fields.append("error = NULL")
+                fields.append("retry_count = retry_count + 1")
+                # 达到重试上限后转为终态 failed，避免待修复记录永久滞留。
+                fields.append(
+                    "status = CASE WHEN retry_count + 1 >= ? THEN 'failed' ELSE ? END"
+                )
+                params.append(self._write_op_max_retries)
+                params.append(status)
+            else:
+                fields.append("status = ?")
+                params.append(status)
+                if status == "completed":
+                    fields.append("error = NULL")
             if payload_patch:
                 fields.append("payload = ?")
                 params.append(json.dumps(current_payload, ensure_ascii=False))
