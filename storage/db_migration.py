@@ -752,6 +752,7 @@ class DBMigration:
                         WHERE json_valid(
                             COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}')
                         )
+                          AND json_extract(metadata, '$.access_count') IS NULL
                         """
                     )
 
