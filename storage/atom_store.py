@@ -375,6 +375,8 @@ class AtomStore:
         now = time.time()
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
+            # 抢占写锁，避免并发 reinforce 对同一 atom 产生读-改-写丢失更新。
+            await db.execute("BEGIN IMMEDIATE")
             cursor = await db.execute(
                 "SELECT reinforcement_count, importance, confidence, atom_type, event_time FROM memory_atoms WHERE id = ?",
                 (atom_id,),
