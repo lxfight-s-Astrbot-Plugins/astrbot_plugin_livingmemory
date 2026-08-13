@@ -359,7 +359,10 @@ class LivingMemoryPlugin(Star):
     @filter.after_message_sent()
     async def handle_session_reset(self, event: AstrMessageEvent, *_args):
         """[Event Hook] After message sent, check if plugin session context needs clearing (/reset or /new)"""
-        if not event.get_extra("_clean_ltm_session", False):
+        if not (
+            event.get_extra("_clean_group_context_session", False)
+            or event.get_extra("_clean_ltm_session", False)
+        ):
             return
 
         ready, _ = await self._ensure_plugin_ready()
