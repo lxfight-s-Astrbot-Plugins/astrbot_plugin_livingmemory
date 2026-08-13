@@ -593,41 +593,45 @@ class ConversationStore:
         if self.connection is None or delete_count <= 0:
             return 0
 
-        async with self.connection.execute(
-            """
-            SELECT
-                s.metadata,
-                COUNT(m.id) AS actual_count
-            FROM sessions s
-            LEFT JOIN messages m ON m.session_id = s.session_id
-            WHERE s.session_id = ?
-            GROUP BY s.session_id
-            """,
-            (session_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
+        # 整个读-改-写都在写锁内完成，避免与 add_message 交错导致
+        # message_count / last_summarized_index 漂移（TOCTOU）。
+        async with self._write_lock:
+            async with self.connection.execute(
+                """
+                SELECT
+                    s.metadata,
+                    COUNT(m.id) AS actual_count
+                FROM sessions s
+                LEFT JOIN messages m ON m.session_id = s.session_id
+                WHERE s.session_id = ?
+                GROUP BY s.session_id
+                """,
+                (session_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
 
-        if not row:
-            return 0
+            if not row:
+                return 0
 
-        try:
-            metadata = json.loads(row["metadata"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            metadata = {}
-        if not isinstance(metadata, dict):
-            metadata = {}
+            try:
+                metadata = json.loads(row["metadata"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
 
-        try:
-            last_summarized_index = int(metadata.get("last_summarized_index", 0) or 0)
-        except (TypeError, ValueError):
-            last_summarized_index = 0
-        last_summarized_index = max(0, last_summarized_index)
+            try:
+                last_summarized_index = int(
+                    metadata.get("last_summarized_index", 0) or 0
+                )
+            except (TypeError, ValueError):
+                last_summarized_index = 0
+            last_summarized_index = max(0, last_summarized_index)
 
-        actual_count = int(row["actual_count"] or 0)
+            actual_count = int(row["actual_count"] or 0)
 
-        if last_summarized_index > actual_count:
-            metadata["last_summarized_index"] = 0
-            async with self._write_lock:
+            if last_summarized_index > actual_count:
+                metadata["last_summarized_index"] = 0
                 await self.connection.execute(
                     """
                     UPDATE sessions
@@ -642,17 +646,16 @@ class ConversationStore:
                     ),
                 )
                 await self.connection.commit()
-            logger.warning(
-                f"[ConversationStore] 阻止清理未总结消息并重置 last_summarized_index: "
-                f"{session_id} ({last_summarized_index} > {actual_count})"
-            )
-            return 0
+                logger.warning(
+                    f"[ConversationStore] 阻止清理未总结消息并重置 last_summarized_index: "
+                    f"{session_id} ({last_summarized_index} > {actual_count})"
+                )
+                return 0
 
-        safe_delete_count = min(delete_count, last_summarized_index)
-        if safe_delete_count <= 0:
-            return 0
+            safe_delete_count = min(delete_count, last_summarized_index)
+            if safe_delete_count <= 0:
+                return 0
 
-        async with self._write_lock:
             cursor = await self.connection.execute(
                 """
                 DELETE FROM messages
