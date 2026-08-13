@@ -27,6 +27,21 @@ def _is_wide_char(char: str) -> bool:
     )
 
 
+def _is_ascii_word_char(char: str) -> bool:
+    """判断是否为 ASCII 单词内字符（字母/数字）。"""
+    return char.isascii() and char.isalnum()
+
+
+def _backtrack_ascii_word(text: str, cut: int) -> int:
+    """从 cut 向前回溯到 ASCII 单词边界，避免截断半个英文单词。"""
+    if cut <= 0 or not _is_ascii_word_char(text[cut - 1]):
+        return cut
+    i = cut - 1
+    while i > 0 and _is_ascii_word_char(text[i - 1]):
+        i -= 1
+    return i
+
+
 def estimate_chars(text: str) -> float:
     """混合长度估算：CJK 字符计 1.0，其余字符计 0.25。
 
@@ -70,6 +85,12 @@ def truncate_display_text(text: str, budget_units: float) -> str:
             boundary_pos = i
     if boundary_pos >= 0:
         return prefix[: boundary_pos + 1] + ELLIPSIS
+    if not prefix:
+        return ELLIPSIS
+
+    # 无句子边界时回溯到 ASCII 单词边界，避免把英文单词从中间截断
+    cut = _backtrack_ascii_word(text, cut)
+    prefix = text[:cut]
     if not prefix:
         return ELLIPSIS
     return prefix + ELLIPSIS

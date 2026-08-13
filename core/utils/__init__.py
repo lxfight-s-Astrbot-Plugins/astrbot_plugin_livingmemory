@@ -323,6 +323,45 @@ def _memory_injection_content(content: Any, metadata: Any) -> str:
     return raw_content
 
 
+def _memory_metadata_rows(metadata: dict) -> list[str]:
+    """构建记忆条目的元数据描述行（Topics/Participants/Key facts/Source time）。
+
+    供 format_memories_for_injection 与 apply_injection_budget 共用，
+    保证预算估算与实际格式化结果一致。
+    """
+    rows: list[str] = []
+
+    topics = metadata.get("topics", [])
+    if topics and isinstance(topics, list) and len(topics) > 0:
+        topics_str = "、".join(str(t) for t in topics if t)
+        if topics_str:
+            rows.append(f"Topics: {topics_str}")
+
+    participants = metadata.get("participants", [])
+    if participants and isinstance(participants, list) and len(participants) > 0:
+        participants_str = "、".join(str(p) for p in participants if p)
+        if participants_str:
+            rows.append(f"Participants: {participants_str}")
+
+    key_facts = metadata.get("key_facts", [])
+    if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
+        facts_str = "; ".join(str(f) for f in key_facts if f)
+        if facts_str:
+            rows.append(f"Key facts: {facts_str}")
+
+    time_tags = metadata.get("time_tags", [])
+    if time_tags and isinstance(time_tags, list):
+        tags_str = " - ".join(str(value) for value in time_tags if value)
+        if tags_str:
+            rows.append(f"Source time: {tags_str}")
+
+    return rows
+
+
+# 每条记忆条目固定部分（重要性行）的估算额度，用于从预算中扣除
+_ENTRY_FIXED_OVERHEAD = 30.0
+
+
 def apply_injection_budget(
     memory_list: list,
     budget_chars: int,
@@ -331,7 +370,7 @@ def apply_injection_budget(
 ) -> list:
     """按召回权重为每条记忆的注入正文分配字符额度。
 
-    只约束注入正文（persona_summary）总和，元数据行与头尾文案不受影响。
+    预算约束「重要性行 + 元数据行 + 摘要」的总和，头部/尾部固定文案不计入。
     budget_chars<=0 时原样返回，行为与未启用预算时完全一致。
     截断结果写入 metadata 浅拷贝，绝不原地修改 memory_list 中的原对象，
     避免污染检索缓存。
@@ -350,13 +389,29 @@ def apply_injection_budget(
         _memory_injection_content(mem.get("content", ""), mem.get("metadata", {}))
         for mem in memory_list
     ]
-    quotas = allocate_char_budgets(
-        [mem.get("score", 0.0) for mem in memory_list],
-        [estimate_chars(text) for text in displays],
-        budget_chars,
-        min_per,
-        max_per,
-    )
+
+    # 每条记忆的固定开销（重要性行 + 元数据行）从总预算中扣除，
+    # 使预算真正约束注入总量，而非仅约束摘要部分。
+    overheads = []
+    for mem in memory_list:
+        metadata = mem.get("metadata") or {}
+        rows = _memory_metadata_rows(metadata)
+        overheads.append(
+            estimate_chars(" | ".join(rows)) + _ENTRY_FIXED_OVERHEAD
+        )
+
+    summary_budget = float(budget_chars) - sum(overheads)
+    if summary_budget <= 0:
+        # 元数据开销已耗尽预算：摘要全部退化为省略号
+        quotas = [0.0] * len(displays)
+    else:
+        quotas = allocate_char_budgets(
+            [mem.get("score", 0.0) for mem in memory_list],
+            [estimate_chars(text) for text in displays],
+            summary_budget,
+            min_per,
+            max_per,
+        )
 
     result = []
     for mem, display, quota in zip(memory_list, displays, quotas):
@@ -449,38 +504,7 @@ def format_memories_for_injection(memories: list) -> str:
             ]
 
             # 添加元数据信息
-            metadata_parts = []
-
-            # 添加主题
-            topics = metadata.get("topics", [])
-            if topics and isinstance(topics, list) and len(topics) > 0:
-                topics_str = "、".join(str(t) for t in topics if t)
-                if topics_str:
-                    metadata_parts.append(f"Topics: {topics_str}")
-
-            # 添加参与者（仅群聊）
-            participants = metadata.get("participants", [])
-            if (
-                participants
-                and isinstance(participants, list)
-                and len(participants) > 0
-            ):
-                participants_str = "、".join(str(p) for p in participants if p)
-                if participants_str:
-                    metadata_parts.append(f"Participants: {participants_str}")
-
-            # 添加关键事实
-            key_facts = metadata.get("key_facts", [])
-            if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
-                facts_str = "; ".join(str(f) for f in key_facts if f)
-                if facts_str:
-                    metadata_parts.append(f"Key facts: {facts_str}")
-
-            time_tags = metadata.get("time_tags", [])
-            if time_tags and isinstance(time_tags, list):
-                tags_str = " - ".join(str(value) for value in time_tags if value)
-                if tags_str:
-                    metadata_parts.append(f"Source time: {tags_str}")
+            metadata_parts = _memory_metadata_rows(metadata)
 
             # 组装元数据行
             if metadata_parts:

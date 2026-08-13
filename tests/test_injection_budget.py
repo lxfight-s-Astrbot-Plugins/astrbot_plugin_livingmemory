@@ -64,6 +64,20 @@ class TestTruncateDisplayText:
         assert result.endswith("…")
         assert result.startswith("第一行内容\n")
 
+    def test_ascii_word_not_split(self):
+        text = "This is a long English sentence without punctuation marks"
+        result = truncate_display_text(text, 8.0)
+        assert result.endswith("…")
+        prefix = result[:-1]
+        # 回溯到单词边界，不应以半个英文单词结尾
+        assert prefix == "" or prefix[-1] == " "
+        assert estimate_chars(result) <= 8.0
+
+    def test_ascii_single_long_word_falls_back_to_ellipsis(self):
+        text = "Supercalifragilisticexpialidocious"
+        result = truncate_display_text(text, 2.0)
+        assert result == "…"
+
 
 class TestAllocateCharBudgets:
     def test_empty_input(self):
