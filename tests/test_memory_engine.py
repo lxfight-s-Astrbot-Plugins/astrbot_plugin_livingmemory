@@ -1903,3 +1903,87 @@ async def test_batch_delete_faiss_failure_is_marked_for_repair(tmp_path: Path):
         assert op_row["step"] == "batch_delete_failed"
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_access_time_updates_do_not_lose_counts(tmp_path: Path):
+    """并发访问时间更新应原子递增 access_count，不产生丢失更新。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "concurrent_access.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    memory_id = 1
+    await engine.db_connection.execute(
+        """
+        INSERT OR REPLACE INTO documents(id, doc_id, text, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (
+            memory_id,
+            "uuid-1",
+            "并发访问",
+            json.dumps({"importance": 0.5, "last_access_time": 0, "access_count": 0}),
+        ),
+    )
+    await engine.db_connection.commit()
+
+    await asyncio.gather(
+        *[engine._update_access_time_internal(memory_id) for _ in range(20)]
+    )
+
+    cursor = await engine.db_connection.execute(
+        "SELECT metadata FROM documents WHERE id = ?", (memory_id,)
+    )
+    row = await cursor.fetchone()
+    assert json.loads(row["metadata"])["access_count"] == 20
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_get_session_memories_sorted_by_create_time_desc(tmp_path: Path):
+    """get_session_memories 应按 session_id 过滤并按 create_time 降序返回。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "session_sort.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    now = time.time()
+    for i in range(3):
+        await engine.db_connection.execute(
+            """
+            INSERT INTO documents(id, doc_id, text, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (
+                i + 1,
+                f"uuid-{i + 1}",
+                f"memory-{i}",
+                json.dumps({"session_id": "s1", "create_time": now + i}),
+            ),
+        )
+    await engine.db_connection.execute(
+        """
+        INSERT INTO documents(id, doc_id, text, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (
+            100,
+            "uuid-100",
+            "other-session",
+            json.dumps({"session_id": "s2", "create_time": now + 100}),
+        ),
+    )
+    await engine.db_connection.commit()
+
+    memories = await engine.get_session_memories("s1", limit=10)
+
+    assert [m["id"] for m in memories] == [3, 2, 1]
+    assert all(m["metadata"]["session_id"] == "s1" for m in memories)
+
+    await engine.close()

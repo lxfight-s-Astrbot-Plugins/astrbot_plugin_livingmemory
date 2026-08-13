@@ -605,3 +605,114 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
     assert init.memory_engine.graph_vector_db is None
     assert init.memory_engine.config["graph_memory_enabled"] is False
     init._check_and_fix_dimension_mismatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_initialize_failure_starts_retry_not_permanent(
+    monkeypatch, mock_context, tmp_path
+):
+    """瞬态初始化失败不应永久禁用插件，而是清理后转交后台重试。"""
+    init = PluginInitializer(mock_context, ConfigManager(), str(tmp_path))
+    init._wait_for_providers_non_blocking = AsyncMock(return_value=True)
+    init._complete_initialization = AsyncMock(
+        side_effect=InitializationError("transient boom")
+    )
+    init._teardown_partial_init = AsyncMock()
+    start_retry = Mock()
+    monkeypatch.setattr(init, "_start_retry_task_if_needed", start_retry)
+
+    ok = await init.initialize()
+
+    assert ok is False
+    assert init.is_failed is False
+    assert init.error_message == "transient boom"
+    init._teardown_partial_init.assert_awaited_once()
+    start_retry.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_retry_initialization_recovers_after_transient_failure(
+    monkeypatch, mock_context, tmp_path
+):
+    """首次完整初始化失败后，重试任务应继续尝试并最终成功。"""
+    init = PluginInitializer(mock_context, ConfigManager(), str(tmp_path))
+    init.embedding_provider = Mock()
+    init.llm_provider = Mock()
+    init._max_provider_attempts = 3
+    init._initialize_providers = Mock()
+    init._teardown_partial_init = AsyncMock()
+    monkeypatch.setattr(plugin_initializer_mod.asyncio, "sleep", AsyncMock())
+
+    attempts = 0
+
+    async def fake_complete():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise InitializationError("transient")
+        init._initialization_complete = True
+
+    init._complete_initialization = fake_complete
+
+    await init._retry_initialization()
+
+    assert attempts == 2
+    assert init.is_initialized is True
+    assert init.is_failed is False
+    init._teardown_partial_init.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_teardown_partial_init_closes_resources(initializer):
+    """清理半初始化资源时应关闭已创建的组件并置空引用。"""
+    engine = Mock()
+    engine.close = AsyncMock()
+    db = Mock()
+    db.close = AsyncMock()
+    graph_db = Mock()
+    graph_db.close = AsyncMock()
+    store = Mock()
+    store.close = AsyncMock()
+    conv_mgr = Mock()
+    conv_mgr.store = store
+    scheduler = Mock()
+    scheduler.stop = AsyncMock()
+
+    initializer.memory_engine = engine
+    initializer.db = db
+    initializer.graph_db = graph_db
+    initializer.conversation_manager = conv_mgr
+    initializer.decay_scheduler = scheduler
+
+    await initializer._teardown_partial_init()
+
+    scheduler.stop.assert_awaited_once()
+    store.close.assert_awaited_once()
+    engine.close.assert_awaited_once()
+    db.close.assert_awaited_once()
+    # graph_db 由 memory_engine.close() 关闭（graph_vector_db），不应重复关闭。
+    graph_db.close.assert_not_called()
+    assert initializer.memory_engine is None
+    assert initializer.db is None
+    assert initializer.graph_db is None
+    assert initializer.conversation_manager is None
+    assert initializer.decay_scheduler is None
+
+
+@pytest.mark.asyncio
+async def test_teardown_partial_init_closes_orphan_graph_db(initializer):
+    """memory_engine 未创建时，graph_db 应被显式关闭。"""
+    graph_db = Mock()
+    graph_db.close = AsyncMock()
+    db = Mock()
+    db.close = AsyncMock()
+
+    initializer.graph_db = graph_db
+    initializer.db = db
+
+    await initializer._teardown_partial_init()
+
+    graph_db.close.assert_awaited_once()
+    db.close.assert_awaited_once()
+    assert initializer.graph_db is None
+    assert initializer.db is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from unittest.mock import Mock
@@ -299,6 +300,29 @@ async def test_atom_store_reinforce(tmp_path: Path) -> None:
     # EMA: 0.7 * 0.7 + 0.9 * 0.3 = 0.49 + 0.27 = 0.76
     assert 0.7 < reinforced.confidence < 0.85
     assert reinforced.ttl_days > original_ttl
+
+
+@pytest.mark.asyncio
+async def test_atom_store_reinforce_concurrent_no_lost_updates(tmp_path: Path) -> None:
+    """并发 reinforce 应通过写锁串行化，不丢失 reinforcement_count 更新。"""
+    db_path = str(tmp_path / "test_atoms_reinforce_concurrent.db")
+    store = AtomStore(db_path)
+    await store.initialize()
+
+    atom = MemoryAtom(
+        parent_memory_id=1,
+        atom_type=AtomType.FACTUAL,
+        content="test",
+        importance=0.8,
+        confidence=0.7,
+    )
+    atom_id = await store.insert(atom)
+
+    await asyncio.gather(*[store.reinforce(atom_id) for _ in range(10)])
+
+    reinforced = await store.get(atom_id)
+    assert reinforced is not None
+    assert reinforced.reinforcement_count == 10
 
 
 @pytest.mark.asyncio
@@ -685,6 +709,51 @@ async def test_graph_store_semantic_edge_merge(tmp_path: Path) -> None:
 
     await store.delete_memory(1)
     await store.delete_memory(2)
+
+
+@pytest.mark.asyncio
+async def test_graph_store_semantic_merge_factors_edge_weight(tmp_path: Path) -> None:
+    """语义合并的权重累积应按 incoming edge.weight 缩放，而非固定 +0.15。"""
+    from astrbot_plugin_livingmemory.core.models.graph_models import (
+        GraphEdge,
+        GraphNode,
+    )
+    from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
+
+    db_path = str(tmp_path / "test_semantic_edge_weight.db")
+    store = GraphStore(db_path)
+    await store.initialize()
+
+    node_a = GraphNode(node_type="topic", value="A", canonical_value="a")
+    node_b = GraphNode(node_type="fact", value="B", canonical_value="b")
+    node_map = await store.upsert_nodes([node_a, node_b])
+
+    edge1 = GraphEdge(
+        source_key=node_a.node_key,
+        target_key=node_b.node_key,
+        relation_type="describes",
+        source_memory_id=1,
+        weight=1.0,
+    )
+    edge2 = GraphEdge(
+        source_key=node_a.node_key,
+        target_key=node_b.node_key,
+        relation_type="describes",
+        source_memory_id=2,
+        weight=3.0,
+    )
+    e1_id = await store.add_edge(edge1, node_map)
+    e2_id = await store.add_edge(edge2, node_map)
+    assert e1_id == e2_id
+
+    async with store._connect() as db:
+        cursor = await db.execute(
+            "SELECT weight FROM graph_edges WHERE id = ?", (e1_id,)
+        )
+        row = await cursor.fetchone()
+
+    # 1.0 + 3.0 * 0.15 = 1.45
+    assert float(row[0]) == pytest.approx(1.45)
 
 
 @pytest.mark.asyncio

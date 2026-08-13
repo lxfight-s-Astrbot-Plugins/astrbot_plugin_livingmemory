@@ -195,3 +195,27 @@ async def test_conversation_store_ranges_and_stats(tmp_path: Path):
     assert isinstance(fixed, dict)
 
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_create_session_is_idempotent(tmp_path: Path):
+    """重复创建同一会话应返回同一记录，不抛异常也不产生重复行。"""
+    db_path = tmp_path / "create_session.db"
+    store = ConversationStore(str(db_path))
+    await store.initialize()
+
+    first = await store.create_session("sess-dup", "test")
+    second = await store.create_session("sess-dup", "test")
+
+    assert first.session_id == "sess-dup"
+    assert second.session_id == "sess-dup"
+    assert first.id == second.id
+
+    cursor = await store.connection.execute(
+        "SELECT COUNT(*) FROM sessions WHERE session_id = ?", ("sess-dup",)
+    )
+    row = await cursor.fetchone()
+
+    assert row[0] == 1
+
+    await store.close()

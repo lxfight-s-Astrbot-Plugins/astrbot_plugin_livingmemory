@@ -74,3 +74,69 @@ async def test_search_nodes_by_tokens_batches_large_token_lists(tmp_path):
         "needle beta",
         "needle alpha",
     }
+
+
+@pytest.mark.asyncio
+async def test_foreign_keys_cascade_on_runtime_connection(tmp_path):
+    """运行时连接应开启外键级联，删除节点时关联边被自动清理。"""
+    from astrbot_plugin_livingmemory.core.models.graph_models import GraphEdge
+
+    store = GraphStore(str(tmp_path / "graph_fk_cascade.db"))
+    await store.initialize()
+
+    node_a = GraphNode("topic", "Alpha", "alpha")
+    node_b = GraphNode("topic", "Beta", "beta")
+    node_map = await store.upsert_nodes([node_a, node_b])
+
+    edge = GraphEdge(
+        source_key=node_a.node_key,
+        target_key=node_b.node_key,
+        relation_type="relates",
+        source_memory_id=1,
+    )
+    edge_id = await store.add_edge(edge, node_map)
+    assert edge_id > 0
+
+    async with store._connect() as db:
+        await db.execute(
+            "DELETE FROM graph_nodes WHERE id = ?", (node_map[node_a.node_key],)
+        )
+        await db.commit()
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE id = ?", (edge_id,)
+        )
+        row = await cursor.fetchone()
+
+    assert row[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_add_edge_upsert_same_edge_key_is_idempotent(tmp_path):
+    """同一 edge_key 重复写入应返回同一 id 且不产生重复边。"""
+    from astrbot_plugin_livingmemory.core.models.graph_models import GraphEdge
+
+    store = GraphStore(str(tmp_path / "graph_edge_upsert.db"))
+    await store.initialize()
+
+    node_a = GraphNode("topic", "Alpha", "alpha")
+    node_b = GraphNode("topic", "Beta", "beta")
+    node_map = await store.upsert_nodes([node_a, node_b])
+
+    edge = GraphEdge(
+        source_key=node_a.node_key,
+        target_key=node_b.node_key,
+        relation_type="relates",
+        source_memory_id=1,
+        weight=1.0,
+    )
+    first_id = await store.add_edge(edge, node_map)
+    second_id = await store.add_edge(edge, node_map)
+
+    assert first_id == second_id
+
+    async with store._connect() as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM graph_edges")
+        row = await cursor.fetchone()
+
+    assert row[0] == 1
