@@ -2721,10 +2721,10 @@ class MemoryEngine:
                 await self.db_connection.commit()
                 return
 
-            logger.info(f"[自动迁移] 找到 {len(list(rows))} 条旧数据需要迁移")
+            logger.info(f"[自动迁移] 找到 {len(rows)} 条旧数据需要迁移")
 
             # 5. 批量更新
-            updated_count = 0
+            updates: list[tuple[str, int]] = []
             for row in rows:
                 doc_id = row[0]
                 metadata_str = row[1]
@@ -2741,12 +2741,14 @@ class MemoryEngine:
                 metadata["migrated_at"] = time.time()
                 metadata["old_session_id"] = old_session_id  # 保留旧值便于追溯
 
-                # 写回数据库
-                await self.db_connection.execute(
+                updates.append((json.dumps(metadata, ensure_ascii=False), doc_id))
+
+            if updates:
+                await self.db_connection.executemany(
                     "UPDATE documents SET metadata = ? WHERE id = ?",
-                    (json.dumps(metadata, ensure_ascii=False), doc_id),
+                    updates,
                 )
-                updated_count += 1
+            updated_count = len(updates)
 
             # 6. 提交更新
             await self.db_connection.commit()
