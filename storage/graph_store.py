@@ -564,8 +564,8 @@ class GraphStore:
     async def iter_memory_entry_groups(self, batch_size: int = 100):
         """Yield graph-vector payloads grouped by source memory."""
         last_memory_id = -1
-        while True:
-            async with self._connect() as db:
+        async with self._connect() as db:
+            while True:
                 cursor = await db.execute(
                     """
                     SELECT DISTINCT source_memory_id
@@ -592,21 +592,21 @@ class GraphStore:
                 )
                 rows = await entry_cursor.fetchall()
 
-            grouped: dict[int, list[tuple[int, str, dict[str, Any]]]] = {}
-            for entry_id, source_memory_id, content, metadata in rows:
-                grouped.setdefault(int(source_memory_id), []).append(
-                    (int(entry_id), str(content or ""), self._from_json(metadata))
-                )
-            yield [
-                (
-                    source_memory_id,
-                    entries[0][0],
-                    [(content, metadata) for _, content, metadata in entries],
-                )
-                for source_memory_id, entries in grouped.items()
-                if entries
-            ]
-            last_memory_id = memory_ids[-1]
+                grouped: dict[int, list[tuple[int, str, dict[str, Any]]]] = {}
+                for entry_id, source_memory_id, content, metadata in rows:
+                    grouped.setdefault(int(source_memory_id), []).append(
+                        (int(entry_id), str(content or ""), self._from_json(metadata))
+                    )
+                yield [
+                    (
+                        source_memory_id,
+                        entries[0][0],
+                        [(content, metadata) for _, content, metadata in entries],
+                    )
+                    for source_memory_id, entries in grouped.items()
+                    if entries
+                ]
+                last_memory_id = memory_ids[-1]
 
     async def replace_all_from(self, shadow_db_path: str) -> None:
         """Atomically replace live graph tables from a fully built shadow DB."""
