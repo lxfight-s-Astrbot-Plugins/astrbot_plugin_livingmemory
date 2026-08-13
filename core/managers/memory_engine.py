@@ -2783,10 +2783,12 @@ class MemoryEngine:
                 - newest_memory: 最新记忆时间
         """
         try:
-            # 使用 count_documents() 高效获取总数（不加载数据）
-            total_count = await self.faiss_db.document_storage.count_documents(
-                metadata_filters={}
-            )
+            if self.db_connection is None:
+                raise RuntimeError("数据库连接未初始化")
+
+            cursor = await self.db_connection.execute("SELECT COUNT(*) FROM documents")
+            row = await cursor.fetchone()
+            total_count = int(row[0]) if row and row[0] is not None else 0
 
             stats = {}
             stats["total_memories"] = total_count
@@ -2800,30 +2802,35 @@ class MemoryEngine:
                 "0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0,
                 "5-6": 0, "6-7": 0, "7-8": 0, "8-9": 0, "9-10": 0,
             }
+            bucket_keys = [
+                "0-1", "1-2", "2-3", "3-4", "4-5",
+                "5-6", "6-7", "7-8", "8-9", "9-10",
+            ]
             oldest_time = None
             newest_time = None
 
-            # 分批处理，每次加载500条，避免内存问题
+            # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             batch_size = 500
-            offset = 0
+            last_id = 0
+            safe_json_dict = self._safe_json_dict
 
-            while offset < total_count:
-                # 获取一批文档
-                batch_docs = await self.faiss_db.document_storage.get_documents(
-                    metadata_filters={}, limit=batch_size, offset=offset
+            while True:
+                cursor = await self.db_connection.execute(
+                    "SELECT id, metadata FROM documents WHERE id > ? ORDER BY id LIMIT ?",
+                    (last_id, batch_size),
                 )
-
-                if not batch_docs:
+                rows = await cursor.fetchall()
+                if not rows:
                     break
+                last_id = int(rows[-1]["id"])
 
-                # 通过线程池批量规范化 metadata（避免大量 json.loads 阻塞事件循环）
-                batch_docs = await asyncio.to_thread(
-                    self._normalize_batch_metadata, batch_docs
+                # 通过线程池批量解析 metadata（避免大量 json.loads 阻塞事件循环）
+                raw_metadata = [r["metadata"] for r in rows]
+                parsed = await asyncio.to_thread(
+                    lambda: [safe_json_dict(m) for m in raw_metadata]
                 )
 
-                for doc in batch_docs:
-                    metadata = doc["metadata"]
-
+                for metadata in parsed:
                     # 统计会话（直接使用session_id分组）
                     session_id = metadata.get("session_id")
                     if session_id:
@@ -2848,10 +2855,6 @@ class MemoryEngine:
                         # 分桶统计 (0-10 归一化)
                         display_importance = clamped * 10 if clamped <= 1 else clamped
                         bucket_idx = min(9, max(0, int(display_importance)))
-                        bucket_keys = [
-                            "0-1", "1-2", "2-3", "3-4", "4-5",
-                            "5-6", "6-7", "7-8", "8-9", "9-10",
-                        ]
                         importance_distribution[bucket_keys[bucket_idx]] += 1
 
                     # 统计时间
@@ -2862,9 +2865,6 @@ class MemoryEngine:
                             oldest_time = create_time
                         if newest_time is None or create_time > newest_time:
                             newest_time = create_time
-
-                # 移动到下一批
-                offset += batch_size
 
             stats["sessions"] = session_counts
             stats["status_breakdown"] = status_breakdown
