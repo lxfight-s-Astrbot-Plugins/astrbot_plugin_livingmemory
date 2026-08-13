@@ -224,8 +224,10 @@ class PluginInitializer:
 
         except Exception as e:
             logger.error(f"LivingMemory 插件初始化失败: {e}", exc_info=True)
-            self._initialization_failed = True
             self._initialization_error = str(e)
+            # 清理半初始化资源并交由后台重试，避免瞬态错误永久禁用插件。
+            await self._teardown_partial_init()
+            self._start_retry_task_if_needed()
             return False
 
     def _start_retry_task_if_needed(self) -> None:
@@ -315,29 +317,36 @@ class PluginInitializer:
                             await self._complete_initialization()
                 except Exception as e:
                     logger.error(f"重试初始化失败: {e}", exc_info=True)
-                    self._initialization_failed = True
                     self._initialization_error = str(e)
-                break
+                    # 清理半初始化资源后继续重试，避免瞬态错误永久禁用插件。
+                    await self._teardown_partial_init()
+                else:
+                    break
 
             # 指数退避，最大30秒
             current_interval = min(current_interval * 1.5, max_interval)
 
-        if not self._initialization_complete and not self._initialization_failed:
+        if not self._initialization_complete:
             missing = []
             if not self.embedding_provider:
                 missing.append("Embedding Provider（请配置向量嵌入模型）")
             if not self.llm_provider:
                 missing.append("LLM Provider（请配置语言模型）")
-            logger.error(
-                f"以下 Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败: "
-                f"{', '.join(missing) if missing else '未知'}"
-            )
+            if missing:
+                logger.error(
+                    f"以下 Provider 在 {self._provider_check_attempts} 次尝试后仍未就绪，初始化失败: "
+                    f"{', '.join(missing)}"
+                )
+                self._initialization_error = (
+                    "Provider 初始化超时。"
+                    f"未就绪 Provider: {', '.join(missing)}。"
+                    "请检查 provider_settings 配置和 AstrBot 默认 Provider。"
+                )
+            else:
+                logger.error(
+                    f"初始化在 {self._provider_check_attempts} 次尝试后仍失败"
+                )
             self._initialization_failed = True
-            self._initialization_error = (
-                "Provider 初始化超时。"
-                f"未就绪 Provider: {', '.join(missing) if missing else '未知'}。"
-                "请检查 provider_settings 配置和 AstrBot 默认 Provider。"
-            )
 
     def _initialize_providers(self, silent: bool = False):
         """初始化 Embedding 和 LLM provider"""
@@ -831,8 +840,6 @@ class PluginInitializer:
 
         except Exception as e:
             logger.error(f"完整初始化流程失败: {e}", exc_info=True)
-            self._initialization_failed = True
-            self._initialization_error = str(e)
             raise InitializationError(f"初始化失败: {e}") from e
 
     async def _check_and_migrate_database(self):
@@ -1267,3 +1274,43 @@ class PluginInitializer:
             except asyncio.CancelledError:
                 pass
         self._retry_task = None
+
+    async def _teardown_partial_init(self) -> None:
+        """关闭初始化过程中已创建的资源，使后续重试可以从干净状态开始。"""
+        if self.decay_scheduler is not None:
+            try:
+                await self.decay_scheduler.stop()
+            except Exception:
+                logger.warning("停止衰减调度器失败", exc_info=True)
+            self.decay_scheduler = None
+
+        if self.conversation_manager is not None:
+            if getattr(self.conversation_manager, "store", None) is not None:
+                try:
+                    await self.conversation_manager.store.close()
+                except Exception:
+                    logger.warning("关闭 ConversationManager 失败", exc_info=True)
+            self.conversation_manager = None
+
+        if self.memory_engine is not None:
+            try:
+                await self.memory_engine.close()
+            except Exception:
+                logger.warning("关闭 MemoryEngine 失败", exc_info=True)
+            self.memory_engine = None
+            # memory_engine.close() 已关闭 graph_vector_db（即 self.graph_db）
+            self.graph_db = None
+
+        if self.graph_db is not None:
+            try:
+                await self.graph_db.close()
+            except Exception:
+                logger.warning("关闭图 FaissVecDB 失败", exc_info=True)
+            self.graph_db = None
+
+        if self.db is not None:
+            try:
+                await self.db.close()
+            except Exception:
+                logger.warning("关闭 FaissVecDB 失败", exc_info=True)
+            self.db = None
