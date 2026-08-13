@@ -5,13 +5,34 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.6.0-beta.1] - 2026-08-13
 
 ### 新增
 - **记忆注入预算控制**: 新增 `recall_engine.injection_budget_chars`（默认 1500，0 关闭）、`injection_min_chars_per_memory`（默认 250）、`injection_max_chars_per_memory`（默认 600）三项配置。每轮注入时按召回权重在各条记忆的正文（persona_summary）间动态分配字符额度，超出部分在句子边界处截断；元数据行与头尾说明文案不计入预算、始终完整。覆盖全部四种注入位置，关闭时行为与之前完全一致
 
+### 修复
+- **图存储外键级联**: 运行时连接此前未开启 `PRAGMA foreign_keys`，导致 `ON DELETE CASCADE` 在运行期失效；现在每个连接都显式开启，删除节点时关联边会被正确级联清理
+- **图边写入竞态**: `_add_edge` 改用 `INSERT ... ON CONFLICT(edge_key)` 原子写入，避免并发下撞唯一约束导致回滚；语义合并的权重累积改为按 `edge.weight` 缩放而非固定 +0.15
+- **图 FTS 检索兜底**: `search_entries_by_bm25` 增加异常兜底，非法 FTS 查询不再中断整条图路由检索
+- **删除崩溃恢复补全**: 删除操作的写日志重放现在会先补删 documents 表与向量/BM25 索引，避免崩溃后记忆仍可检索、图/原子却已删除的不一致
+- **访问时间原子化**: 召回路径的访问时间/访问计数更新合并为单条原子 SQL（`json_set`），消除并发下的读改写丢失更新，并批量提交降低写放大
+- **会话/原子并发安全**: `create_session` 幂等化（`ON CONFLICT DO NOTHING`）；`trim_session_messages` 的读改写整体纳入写锁；`reinforce` 用 `BEGIN IMMEDIATE` 抢占写锁避免计数丢失
+- **初始化可重试**: 完整初始化失败不再永久禁用插件——清理半初始化资源后转交后台重试（带上限），瞬态错误（如数据库锁、索引重建失败）可在进程内恢复
+- **迁移与启动修复**: 全新数据库（空版本表）不再误判为 v1 跑完整迁移链；v7→v8 只回填缺失的 `access_count` 字段；重试耗尽后的写操作日志正确进入终态 `failed`
+
+### 性能
+- 召回热路径批量更新访问时间（单次 commit 替代逐条 commit）
+- 每日衰减的逐行 JSON 计算卸载到线程池
+- `get_statistics`/`cleanup_old_memories` 由 O(N²) OFFSET 分页改为主键 keyset 流式分页
+- `get_session_memories` 改为单条 SQL 过滤+排序+分页
+- 旧数据会话迁移、索引重建、图入口分组遍历均复用连接并批量写入
+- 一致性检查的 BM25 缺失计数改为 SQL 层计算，避免加载全量 ID 集合
+
+### 代码清理
+- 移除废弃的 `cleanup_injected_memories` 与不可达的 `_try_restore_from_backup` 死代码
+
 ### 测试
-- 新增长度估算 / 句子边界截断 / 预算分配的单元测试与注入链路行为测试；完整 Python 测试集 740 项通过
+- 新增针对外键级联、图边幂等、会话幂等、访问计数并发、原子强化并发、初始化重试、会话记忆排序、语义合并权重等 11 项回归测试；完整 Python 测试集 751 项通过
 
 ## [2.5.7] - 2026-08-04
 
