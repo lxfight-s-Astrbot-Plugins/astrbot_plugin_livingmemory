@@ -5,10 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [2.6.0-beta.1] - 2026-08-13
+## [Unreleased]
 
-### 新增
-- **记忆注入预算控制**: 新增 `recall_engine.injection_budget_chars`（默认 1500，0 关闭）、`injection_min_chars_per_memory`（默认 250）、`injection_max_chars_per_memory`（默认 600）三项配置。每轮注入时按召回权重在各条记忆的正文（persona_summary）间动态分配字符额度，超出部分在句子边界处截断；元数据行与头尾说明文案不计入预算、始终完整。覆盖全部四种注入位置，关闭时行为与之前完全一致
+### 移除
+- **记忆注入预算控制**: 移除 2.6.0-beta.1 引入的注入预算控制（`recall_engine.injection_budget_chars` / `injection_min_chars_per_memory` / `injection_max_chars_per_memory` 及配套截断逻辑）。硬截断会丢失语义连贯性与结尾信息，改为在记忆库层面定期整理聚合（后续版本提供）
+
+## [2.6.0-beta.1] - 2026-08-13
 
 ### 修复
 - **图存储外键级联**: 运行时连接此前未开启 `PRAGMA foreign_keys`，导致 `ON DELETE CASCADE` 在运行期失效；现在每个连接都显式开启，删除节点时关联边会被正确级联清理

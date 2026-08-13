@@ -130,18 +130,6 @@
           "System Prompt (deprecated)"
         ]
       },
-      "injection_budget_chars": {
-        "description": "Injection Character Budget",
-        "hint": "Total character limit for injected memory bodies per round, dynamically distributed across memories by recall score. Only memory bodies are truncated; metadata lines and surrounding text stay intact. Set to 0 to disable budget control."
-      },
-      "injection_min_chars_per_memory": {
-        "description": "Minimum Injection Chars Per Memory",
-        "hint": "Minimum characters guaranteed for each memory during budget allocation, so low-scoring memories are not squeezed too short. Memories with shorter bodies pass through unchanged."
-      },
-      "injection_max_chars_per_memory": {
-        "description": "Maximum Injection Chars Per Memory",
-        "hint": "Maximum characters any single memory can receive during budget allocation, preventing one high-scoring memory from consuming the whole budget. Memories with shorter bodies pass through unchanged."
-      },
       "auto_remove_injected": {
         "description": "Auto-Clear Old Injection Fragments",
         "hint": "Automatically remove previously injected memory fragments from history before injecting new ones, preventing duplicate accumulation and token waste. Recommended to keep enabled."

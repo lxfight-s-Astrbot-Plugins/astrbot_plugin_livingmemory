@@ -47,15 +47,10 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.memory_type_filter` | `all` | Use `event_only` to exclude known preference-only or relationship-only memories |
 | `recall_engine.fallback_to_vector` | `true` | Falls back to vector search if hybrid retrieval fails |
 | `recall_engine.injection_method` | `extra_user_content` | Where or how recalled memories are injected |
-| `recall_engine.injection_budget_chars` | `1500` | Total character budget for injected memory bodies per round, distributed by recall score; `0` disables it |
-| `recall_engine.injection_min_chars_per_memory` | `250` | Guaranteed minimum budget per memory during allocation |
-| `recall_engine.injection_max_chars_per_memory` | `600` | Maximum budget any single memory can receive |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
 
 `extra_user_content` is the safest default. Gemini providers automatically fall back from `fake_tool_call` to `extra_user_content`. DeepSeek V4 thinking mode can now use normal `fake_tool_call` on recent AstrBot versions; the legacy `fake_tool_call_deepseek_v4` option is kept only as a compatibility alias and automatically falls back to `fake_tool_call`.
-
-The injection budget only constrains the combined length of memory bodies (persona_summary): the total budget is distributed across memories by recall score, and oversized bodies are truncated at sentence boundaries. Metadata lines and the surrounding header/footer text are never counted against the budget and always stay intact. Memories shorter than their quota are injected unchanged. Set `injection_budget_chars` to `0` to disable budget control and restore full injection.
 
 ## Memory isolation
 

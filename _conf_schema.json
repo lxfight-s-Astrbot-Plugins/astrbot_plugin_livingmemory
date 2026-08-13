@@ -172,24 +172,6 @@
                     "system_prompt"
                 ]
             },
-            "injection_budget_chars": {
-                "description": "记忆注入字符预算",
-                "hint": "每轮注入的记忆正文总字符上限，按召回权重在各条记忆间动态分配。只截断记忆正文，元数据行与头尾说明文案保持完整。设为 0 可关闭预算控制。",
-                "type": "int",
-                "default": 1500
-            },
-            "injection_min_chars_per_memory": {
-                "description": "单条记忆保底注入额度",
-                "hint": "预算分配时每条记忆至少获得的字符数，保证低分记忆不被压缩得过短。正文短于该值的记忆按实际长度放行。",
-                "type": "int",
-                "default": 250
-            },
-            "injection_max_chars_per_memory": {
-                "description": "单条记忆上限注入额度",
-                "hint": "预算分配时每条记忆最多获得的字符数，防止单条高分记忆占据整个预算。正文短于该值的记忆按实际长度放行。",
-                "type": "int",
-                "default": 600
-            },
             "auto_remove_injected": {
                 "description": "自动清除旧注入片段",
                 "hint": "注入新记忆前自动删除历史中已注入的旧记忆片段，避免重复累积和 token 浪费。建议开启。",

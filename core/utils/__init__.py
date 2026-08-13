@@ -326,8 +326,7 @@ def _memory_injection_content(content: Any, metadata: Any) -> str:
 def _memory_metadata_rows(metadata: dict) -> list[str]:
     """构建记忆条目的元数据描述行（Topics/Participants/Key facts/Source time）。
 
-    供 format_memories_for_injection 与 apply_injection_budget 共用，
-    保证预算估算与实际格式化结果一致。
+    供 format_memories_for_injection 使用。
     """
     rows: list[str] = []
 
@@ -356,75 +355,6 @@ def _memory_metadata_rows(metadata: dict) -> list[str]:
             rows.append(f"Source time: {tags_str}")
 
     return rows
-
-
-# 每条记忆条目固定部分（重要性行）的估算额度，用于从预算中扣除
-_ENTRY_FIXED_OVERHEAD = 30.0
-
-
-def apply_injection_budget(
-    memory_list: list,
-    budget_chars: int,
-    min_per: int,
-    max_per: int,
-) -> list:
-    """按召回权重为每条记忆的注入正文分配字符额度。
-
-    预算约束「重要性行 + 元数据行 + 摘要」的总和，头部/尾部固定文案不计入。
-    budget_chars<=0 时原样返回，行为与未启用预算时完全一致。
-    截断结果写入 metadata 浅拷贝，绝不原地修改 memory_list 中的原对象，
-    避免污染检索缓存。
-    """
-    if budget_chars is None or budget_chars <= 0 or not memory_list:
-        return memory_list
-
-    # 延迟导入避免循环依赖
-    from .injection_budget import (
-        allocate_char_budgets,
-        estimate_chars,
-        truncate_display_text,
-    )
-
-    displays = [
-        _memory_injection_content(mem.get("content", ""), mem.get("metadata", {}))
-        for mem in memory_list
-    ]
-
-    # 每条记忆的固定开销（重要性行 + 元数据行）从总预算中扣除，
-    # 使预算真正约束注入总量，而非仅约束摘要部分。
-    overheads = []
-    for mem in memory_list:
-        metadata = mem.get("metadata") or {}
-        rows = _memory_metadata_rows(metadata)
-        overheads.append(
-            estimate_chars(" | ".join(rows)) + _ENTRY_FIXED_OVERHEAD
-        )
-
-    summary_budget = float(budget_chars) - sum(overheads)
-    if summary_budget <= 0:
-        # 元数据开销已耗尽预算：摘要全部退化为省略号
-        quotas = [0.0] * len(displays)
-    else:
-        quotas = allocate_char_budgets(
-            [mem.get("score", 0.0) for mem in memory_list],
-            [estimate_chars(text) for text in displays],
-            summary_budget,
-            min_per,
-            max_per,
-        )
-
-    result = []
-    for mem, display, quota in zip(memory_list, displays, quotas):
-        truncated = truncate_display_text(display, quota)
-        if truncated == display:
-            result.append(mem)
-            continue
-        new_mem = dict(mem)
-        metadata_copy = dict(mem.get("metadata") or {})
-        metadata_copy["persona_summary"] = truncated
-        new_mem["metadata"] = metadata_copy
-        result.append(new_mem)
-    return result
 
 
 def format_memories_for_injection(memories: list) -> str:

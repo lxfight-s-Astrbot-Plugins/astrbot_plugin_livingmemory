@@ -440,69 +440,6 @@ class TestFormatMemoriesForInjection:
         assert "Source time: 2025-05-01 - 2025-05-02" in result
 
 
-class TestInjectionBudgetIntegration:
-    """测试注入预算与格式化的一致性。"""
-
-    def test_metadata_overhead_reduces_summary_budget(self):
-        from astrbot_plugin_livingmemory.core.utils import apply_injection_budget
-        from astrbot_plugin_livingmemory.core.utils.injection_budget import (
-            estimate_chars,
-        )
-
-        summary = "这是一段非常长的记忆摘要内容。" * 20
-
-        def make_mem(key_facts):
-            return {
-                "id": 1,
-                "content": summary,
-                "score": 1.0,
-                "metadata": {
-                    "persona_summary": summary,
-                    "key_facts": key_facts,
-                },
-            }
-
-        no_meta = apply_injection_budget([make_mem([])], 150, 50, 600)
-        with_meta = apply_injection_budget(
-            [make_mem(["很长的关键事实内容" * 5])], 150, 50, 600
-        )
-
-        no_meta_summary = no_meta[0]["metadata"]["persona_summary"]
-        with_meta_summary = with_meta[0]["metadata"]["persona_summary"]
-
-        # 携带大型 key_facts 的记忆，元数据开销更大，摘要被截断得更短
-        assert estimate_chars(with_meta_summary) < estimate_chars(no_meta_summary)
-
-    def test_budget_zero_returns_original(self):
-        from astrbot_plugin_livingmemory.core.utils import apply_injection_budget
-
-        mem = {
-            "id": 1,
-            "content": "内容",
-            "score": 1.0,
-            "metadata": {"persona_summary": "内容"},
-        }
-        result = apply_injection_budget([mem], 0, 250, 600)
-        assert result == [mem]
-
-    def test_metadata_exceeding_budget_drops_summary(self):
-        from astrbot_plugin_livingmemory.core.utils import apply_injection_budget
-
-        summary = "这是一段很长的摘要内容" * 10
-        mem = {
-            "id": 1,
-            "content": summary,
-            "score": 1.0,
-            "metadata": {
-                "persona_summary": summary,
-                "key_facts": ["很长的关键事实" * 20],
-            },
-        }
-        result = apply_injection_budget([mem], 50, 250, 600)
-        # 元数据开销超过预算，摘要退化为省略号
-        assert result[0]["metadata"]["persona_summary"] == "…"
-
-
 class TestNumberUtils:
     """测试数字工具函数"""
 
