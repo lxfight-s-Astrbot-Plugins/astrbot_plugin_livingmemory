@@ -149,7 +149,10 @@
                 "description": "记忆类型过滤",
                 "hint": "all 召回全部记忆；event_only 排除可明确识别为纯偏好或纯关系的记忆。旧记录没有类型元数据时保持可召回。",
                 "type": "string",
-                "options": ["all", "event_only"],
+                "options": [
+                    "all",
+                    "event_only"
+                ],
                 "default": "all"
             },
             "fallback_to_vector": {
@@ -262,6 +265,43 @@
                 "hint": "重要性达到该值的记忆不参与每日重要性衰减。范围 0-1，默认 1.0 仅保护满分记忆。",
                 "type": "float",
                 "default": 1.0
+            },
+            "access_boost": {
+                "description": "访问驱动的记忆重要性提升（access_boost）",
+                "hint": "记忆被成功召回时自动提升重要性，访问越频繁提升越多，满30次后锁定保护：不衰减、不删除。",
+                "type": "object",
+                "items": {
+                    "enabled": {
+                        "description": "启用访问驱动的重要性提升",
+                        "hint": "开启后，每次记忆被成功召回时自动提升 importance。",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "lock_protection": {
+                        "description": "启用30次锁定保护",
+                        "hint": "开启后，调用满30次的记忆将不再衰减、不被删除。关闭后所有记忆正常衰减。",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "boost_factor": {
+                        "description": "涨分系数",
+                        "hint": "每次涨分的基础幅度。推荐 0.02，设 0 可禁用涨分。",
+                        "type": "float",
+                        "default": 0.02
+                    },
+                    "formula": {
+                        "description": "涨分公式",
+                        "hint": "logarithmic：低分涨得快、高分涨得慢（推荐）；linear：固定幅度涨分。",
+                        "type": "string",
+                        "default": "logarithmic"
+                    },
+                    "high_access_threshold": {
+                        "description": "锁定保护阈值（访问次数）",
+                        "hint": "调用次数达到此值后锁定保护（不衰减、不删除）。默认30次。",
+                        "type": "int",
+                        "default": 30
+                    }
+                }
             }
         }
     },
@@ -298,7 +338,12 @@
                 "description": "记忆作用域模式",
                 "hint": "legacy 保持旧版配置；session 按实际会话隔离；user 让同一平台用户跨私聊和群聊共享；global 全局共享。",
                 "type": "string",
-                "options": ["legacy", "session", "user", "global"],
+                "options": [
+                    "legacy",
+                    "session",
+                    "user",
+                    "global"
+                ],
                 "default": "legacy"
             },
             "isolated_sessions": {

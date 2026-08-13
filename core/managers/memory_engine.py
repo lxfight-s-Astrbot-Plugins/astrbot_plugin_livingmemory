@@ -2184,6 +2184,18 @@ class MemoryEngine:
             )
             await self.db_connection.commit()
 
+            # ===== access_boost: 访问驱动的 importance 提升（独立原子 SQL） =====
+            # 在官方原子更新 last_access_time/access_count 之后单独执行,
+            # 自身也是单条 UPDATE + json_set, 不会重新引入读改写竞态。
+            if self.config.get("access_boost", {}).get("enabled", True):
+                try:
+                    await self._apply_access_boost(unique_ids)
+                except Exception as e:
+                    logger.warning(
+                        f"access_boost 失败 (doc_ids={unique_ids}): {e}",
+                        exc_info=True,
+                    )
+
             return cursor.rowcount > 0
 
         except asyncio.CancelledError:
@@ -2194,6 +2206,45 @@ class MemoryEngine:
                 f"批量更新访问时间失败 (doc_ids={unique_ids}): {e}",
                 exc_info=True,
             )
+            return False
+
+    async def _apply_access_boost(self, doc_ids: list[int]) -> bool:
+        try:
+            unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
+            if not unique_ids:
+                return False
+            boost_config = self.config.get("access_boost", {}) if isinstance(self.config.get("access_boost"), dict) else {}
+            if not boost_config.get("enabled", True):
+                return False
+            boost_factor = float(boost_config.get("boost_factor", 0.02))
+            high_access_threshold = int(boost_config.get("high_access_threshold", 30))
+            lock_protection = bool(boost_config.get("lock_protection", True))
+            if self.db_connection is None or boost_factor <= 0:
+                return False
+            placeholders = ",".join("?" * len(unique_ids))
+            normal_boost = repr(boost_factor) + " * (1.0 - CAST(json_extract(metadata, '$.importance') AS REAL)) * ln(CAST(json_extract(metadata, '$.access_count') AS INTEGER) + 2)"
+            extra_where = ""
+            extra_params = []
+            if lock_protection:
+                extra_where = " AND CAST(json_extract(metadata, '$.access_count') AS INTEGER) < ?"
+                extra_params = [high_access_threshold]
+            cursor = await self.db_connection.execute(
+                "UPDATE documents SET metadata = CASE WHEN json_valid(metadata) THEN json_set(metadata, '$.importance', CASE WHEN COALESCE(CAST(json_extract(metadata, '$.importance') AS REAL), 0.5) + ("
+                + normal_boost
+                + ") > 1.0 THEN 1.0 ELSE COALESCE(CAST(json_extract(metadata, '$.importance') AS REAL), 0.5) + ("
+                + normal_boost
+                + ") END) ELSE metadata END WHERE id IN ("
+                + placeholders
+                + ")"
+                + extra_where,
+                unique_ids + extra_params
+            )
+            await self.db_connection.commit()
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"access_boost 更新失败 (doc_ids={unique_ids}): {e}", exc_info=True)
             return False
 
     async def get_session_memories(
@@ -2452,6 +2503,13 @@ class MemoryEngine:
                     doc_importance = clamp_float(
                         metadata.get("importance"), default=0.5
                     )
+                    # access_boost 锁定保护：高频访问的记忆不清理
+                    boost_config = self.config.get("access_boost", {})
+                    if isinstance(boost_config, dict) and boost_config.get("lock_protection", True):
+                        high_access_threshold = int(boost_config.get("high_access_threshold", 30))
+                        access_count = safe_float(metadata.get("access_count"), 0.0)
+                        if access_count >= high_access_threshold:
+                            continue
                     if create_time < cutoff_time and doc_importance < importance:
                         candidates.append(int(row["id"]))
 

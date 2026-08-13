@@ -189,6 +189,30 @@
       "protected_importance_threshold": {
         "description": "Protected Importance Threshold",
         "hint": "Memories at or above this importance do not participate in daily importance decay."
+      },
+      "access_boost": {
+        "description": "Access-driven importance boost",
+        "hint": "Boost memory importance on each recall, lock after hitting threshold",
+        "enabled": {
+          "description": "Enable access_boost",
+          "hint": "When enabled, recalled memories get importance boost automatically"
+        },
+        "lock_protection": {
+          "description": "Lock protection (30+ accesses)",
+          "hint": "When enabled, memories with 30+ accesses are locked: no decay, no deletion"
+        },
+        "boost_factor": {
+          "description": "Boost factor",
+          "hint": "Coefficient for importance growth (default: 0.02)"
+        },
+        "formula": {
+          "description": "Boost formula",
+          "hint": "logarithmic: score-based boost; linear: flat boost"
+        },
+        "high_access_threshold": {
+          "description": "Lock threshold",
+          "hint": "Access count after which memory is locked (default: 30)"
+        }
       }
     },
     "fusion_strategy": {
