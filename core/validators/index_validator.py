@@ -495,13 +495,15 @@ class IndexValidator:
         batch_size: int,
         document_ids: set[int] | None = None,
     ):
-        if document_ids is not None:
-            sorted_ids = sorted(int(doc_id) for doc_id in document_ids)
-            for start in range(0, len(sorted_ids), batch_size):
-                chunk = sorted_ids[start : start + batch_size]
-                placeholders = ",".join("?" for _ in chunk)
-                async with aiosqlite.connect(self.db_path) as db:
-                    await db.execute("PRAGMA busy_timeout = 10000")
+        # 复用单个连接遍历所有批次，避免每批重建连接带来的开销。
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+
+            if document_ids is not None:
+                sorted_ids = sorted(int(doc_id) for doc_id in document_ids)
+                for start in range(0, len(sorted_ids), batch_size):
+                    chunk = sorted_ids[start : start + batch_size]
+                    placeholders = ",".join("?" for _ in chunk)
                     cursor = await db.execute(
                         f"""
                         SELECT id, doc_id, text, metadata
@@ -513,12 +515,10 @@ class IndexValidator:
                         chunk,
                     )
                     yield await cursor.fetchall()
-            return
+                return
 
-        last_id = 0
-        while True:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("PRAGMA busy_timeout = 10000")
+            last_id = 0
+            while True:
                 cursor = await db.execute(
                     f"""
                     SELECT id, doc_id, text, metadata
@@ -531,11 +531,10 @@ class IndexValidator:
                     (last_id, batch_size),
                 )
                 rows = await cursor.fetchall()
-
-            if not rows:
-                break
-            last_id = int(rows[-1][0])
-            yield rows
+                if not rows:
+                    break
+                last_id = int(rows[-1][0])
+                yield rows
 
     def _get_vector_count(self) -> int:
         embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
@@ -588,6 +587,8 @@ class IndexValidator:
         failed_ids: set[int] = set()
         switched = False
 
+        insert_db = await aiosqlite.connect(self.db_path)
+        await insert_db.execute("PRAGMA busy_timeout = 10000")
         try:
             async for batch in self._iter_document_batches(batch_size):
                 rows_to_insert: list[tuple[int, str]] = []
@@ -607,29 +608,33 @@ class IndexValidator:
 
                 if rows_to_insert:
                     try:
-                        async with aiosqlite.connect(self.db_path) as db:
-                            await db.execute("PRAGMA busy_timeout = 10000")
-                            await db.executemany(
-                                f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
-                                rows_to_insert,
-                            )
-                            await db.commit()
+                        await insert_db.executemany(
+                            f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
+                            rows_to_insert,
+                        )
+                        await insert_db.commit()
                         processed += len(rows_to_insert)
                     except Exception as batch_error:
                         logger.warning(
                             f"BM25 shadow 批量写入失败，将逐条重试: {batch_error}"
                         )
+                        try:
+                            await insert_db.rollback()
+                        except Exception:
+                            pass
                         for row_doc_id, processed_content in rows_to_insert:
                             try:
-                                async with aiosqlite.connect(self.db_path) as db:
-                                    await db.execute("PRAGMA busy_timeout = 10000")
-                                    await db.execute(
-                                        f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
-                                        (row_doc_id, processed_content),
-                                    )
-                                    await db.commit()
+                                await insert_db.execute(
+                                    f"INSERT INTO {shadow_table}(doc_id, content) VALUES (?, ?)",
+                                    (row_doc_id, processed_content),
+                                )
+                                await insert_db.commit()
                                 processed += 1
                             except Exception as e:
+                                try:
+                                    await insert_db.rollback()
+                                except Exception:
+                                    pass
                                 failed_ids.add(int(row_doc_id))
                                 logger.error(
                                     f"BM25 shadow 写入失败 doc_id={row_doc_id}: {e}"
@@ -652,6 +657,7 @@ class IndexValidator:
                 await self._switch_bm25_shadow(table_name, shadow_table)
                 switched = True
         finally:
+            await insert_db.close()
             if not switched:
                 await self._drop_bm25_shadow(shadow_table)
 
