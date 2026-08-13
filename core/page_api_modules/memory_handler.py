@@ -322,6 +322,8 @@ class MemoryHandler:
             "last_access_time": metadata.get("last_access_time"),
             "update_history": metadata.get("update_history", []),
             "source_messages": source_messages,
+            "consolidated_from": metadata.get("consolidated_from", []),
+            "consolidated_at": metadata.get("consolidated_at"),
         }
 
         # 附加相关的图谱子图

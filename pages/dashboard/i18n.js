@@ -22,6 +22,8 @@
     "common.perPage20":   { zh: "20 条/页", en: "20 per page", ru: "20 на стр." },
     "common.perPage50":   { zh: "50 条/页", en: "50 per page", ru: "50 на стр." },
     "common.perPage100":  { zh: "100 条/页", en: "100 per page", ru: "100 на стр." },
+    "common.enabled":     { zh: "已启用", en: "Enabled", ru: "Включено" },
+    "common.disabled":    { zh: "未启用", en: "Disabled", ru: "Отключено" },
 
     /* ---- Title / Header ---- */
     "page.title":         { zh: "LivingMemory 控制台", en: "LivingMemory Console", ru: "Консоль LivingMemory" },
@@ -96,6 +98,8 @@
     "table.noData":       { zh: "暂无数据", en: "No data", ru: "Нет данных" },
     "table.na":           { zh: "--", en: "--", ru: "--" },
     "table.updated":      { zh: "更新于 {0}", en: "Updated {0}", ru: "Обновлено {0}" },
+    "table.consolidated": { zh: "整合 {0}", en: "Merged {0}", ru: "Объединено {0}" },
+    "table.consolidatedTitle":{ zh: "由记忆整合合并产生", en: "Produced by memory consolidation", ru: "Создано консолидацией памяти" },
 
     /* ---- Pagination ---- */
     "pagination.prev":    { zh: "上一页", en: "Previous", ru: "Пред." },
@@ -421,6 +425,22 @@
     "system.atomPreference":{ zh: "偏好", en: "Preference", ru: "Предпочтения" },
     "system.atomRelational":{ zh: "关系", en: "Relational", ru: "Связи" },
     "system.atomPlanned": { zh: "计划", en: "Planned", ru: "Планы" },
+    "system.consolidationTitle":{ zh: "记忆整合", en: "Memory Consolidation", ru: "Консолидация памяти" },
+    "system.consolidatedCount":{ zh: "已整合", en: "Consolidated", ru: "Консолидировано" },
+    "system.consolidationRun":{ zh: "立即整合", en: "Run Now", ru: "Запустить" },
+    "system.consStatus":  { zh: "状态", en: "Status", ru: "Статус" },
+    "system.consTrigger": { zh: "触发", en: "Trigger", ru: "Запуск" },
+    "system.consTriggerDaily":{ zh: "每日", en: "Daily", ru: "Ежедневно" },
+    "system.consTriggerReflection":{ zh: "反思时", en: "On reflection", ru: "При рефлексии" },
+    "system.consGranularity":{ zh: "粒度", en: "Granularity", ru: "Гранулярность" },
+    "system.consGranularitySession":{ zh: "同会话", en: "Same session", ru: "По сессии" },
+    "system.consGranularitySemantic":{ zh: "语义聚类", en: "Semantic", ru: "Семантическая" },
+    "system.consKeep":    { zh: "旧记忆", en: "Originals", ru: "Исходные" },
+    "system.consKeepArchive":{ zh: "归档", en: "Archive", ru: "Архивировать" },
+    "system.consKeepDelete":{ zh: "删除", en: "Delete", ru: "Удалить" },
+    "system.consRunning": { zh: "整合中...", en: "Consolidating...", ru: "Консолидация..." },
+    "system.consSkipped": { zh: "已跳过（未启用或冷却中）", en: "Skipped (disabled or cooling down)", ru: "Пропущено (отключено или охлаждение)" },
+    "system.consResult":  { zh: "整合完成：{0} 组、合并 {1} 条、归档 {2}、删除 {3}、失败 {4}", en: "Done: {0} groups, {1} merged, {2} archived, {3} deleted, {4} failed", ru: "Готово: групп {0}, объединено {1}, архив {2}, удалено {3}, ошибок {4}" },
 
     /* ---- Atom labels ---- */
     "atom.entity":        { zh: "实体", en: "Entity", ru: "Сущность" },
@@ -440,6 +460,7 @@
     "detail.editBtn":     { zh: "编辑", en: "Edit", ru: "Редактировать" },
     "detail.resummarizeBtn":{ zh: "重新总结", en: "Re-summarize", ru: "Пересуммировать" },
     "detail.sourceMessages":{ zh: "原始消息（{0} 条）", en: "Source messages ({0})", ru: "Исходные сообщения ({0})" },
+    "detail.consolidatedFrom":{ zh: "来源记忆（整合自 {0} 条）", en: "Consolidated from {0} memories", ru: "Объединено из {0} памятей" },
     "detail.resummarizeSuccess":{ zh: "已重新总结（新 ID：{0}）", en: "Re-summarized (new ID: {0})", ru: "Пересуммировано (новый ID: {0})" },
     "detail.resummarizeFailed":{ zh: "重新总结失败", en: "Failed to re-summarize", ru: "Не удалось пересуммировать" },
     "detail.deleteBtn":   { zh: "删除", en: "Delete", ru: "Удалить" },

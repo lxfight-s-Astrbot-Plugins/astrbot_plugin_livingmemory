@@ -1258,7 +1258,7 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 18
+        assert len(plugin._api_routes) == 20
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1273,6 +1273,8 @@ class TestRouteRegistration:
         assert f"{prefix}/graph/overview" in paths
         assert f"{prefix}/graph/query" in paths
         assert f"{prefix}/backups" in paths
+        assert f"{prefix}/consolidation/status" in paths
+        assert f"{prefix}/consolidation/run" in paths
 
     def test_route_prefix_contains_plugin_name(self):
         assert PLUGIN_NAME in PAGE_API_PREFIX
@@ -1552,3 +1554,65 @@ async def test_import_failure_does_not_stop_later_entries():
         {"index": 0, "error": "write failed"}
     ]
     assert engine.add_memory.await_count == 2
+
+
+class TestConsolidationHandler:
+    @pytest.mark.asyncio
+    async def test_run_delegates_to_manager(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules.consolidation_handler import (
+            ConsolidationHandler,
+        )
+        from astrbot_plugin_livingmemory.core.page_api_modules.utils import PageApiUtils
+
+        handler = ConsolidationHandler(PageApiUtils())
+        manager = AsyncMock()
+        manager.run_consolidation = AsyncMock(
+            return_value={"groups": 2, "merged": 6, "archived": 6}
+        )
+        result = await handler.run(manager)
+        assert result["status"] == "ok"
+        assert result["data"]["merged"] == 6
+        manager.run_consolidation.assert_awaited_once_with(force=True)
+
+    @pytest.mark.asyncio
+    async def test_run_returns_error_when_manager_none(self):
+        from astrbot_plugin_livingmemory.core.page_api_modules.consolidation_handler import (
+            ConsolidationHandler,
+        )
+        from astrbot_plugin_livingmemory.core.page_api_modules.utils import PageApiUtils
+
+        handler = ConsolidationHandler(PageApiUtils())
+        result = await handler.run(None)
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_get_status_returns_counts(self, tmp_path):
+        from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+        from astrbot_plugin_livingmemory.core.page_api_modules.consolidation_handler import (
+            ConsolidationHandler,
+        )
+        from astrbot_plugin_livingmemory.core.page_api_modules.utils import PageApiUtils
+
+        db_path = str(tmp_path / "cons.db")
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+            )
+            await db.execute(
+                "INSERT INTO documents(text, metadata) VALUES ('a', ?)",
+                (json.dumps({"consolidated_from": [1, 2], "status": "active"}),),
+            )
+            await db.execute(
+                "INSERT INTO documents(text, metadata) VALUES ('b', ?)",
+                (json.dumps({"status": "archived"}),),
+            )
+            await db.commit()
+
+        engine = SimpleNamespace(db_path=db_path)
+        handler = ConsolidationHandler(PageApiUtils())
+        result = await handler.get_status(engine, None, ConfigManager())
+
+        assert result["status"] == "ok"
+        assert result["data"]["consolidated_count"] == 1
+        assert result["data"]["archived_count"] == 1
+        assert result["data"]["config"]["enabled"] is False

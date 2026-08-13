@@ -73,6 +73,9 @@ export class MemoryPage {
         last_access: (item.metadata && item.metadata.last_access_time)
           ? new Date(item.metadata.last_access_time * 1000).toLocaleString()
           : "--",
+        consolidated_count: (item.metadata && Array.isArray(item.metadata.consolidated_from))
+          ? item.metadata.consolidated_from.length
+          : 0,
         raw: item,
       }));
       this.state.memory.selectedIds.clear();
@@ -145,7 +148,10 @@ export class MemoryPage {
       html += '<tr data-key="' + key + '" class="' + (selected ? 'is-selected' : '') + '" style="height:' + this.ROW_HEIGHT + 'px">';
       html += '<td class="cell-select"><input type="checkbox" class="memory-select" data-memory-id="' + item.memory_id + '" ' + (selected ? 'checked' : '') + ' aria-label="' + esc(window.t("delete.selectOne", item.memory_id)) + '" /></td>';
       html += '<td class="cell-mono cell-id">' + item.memory_id + '</td>';
-      html += '<td class="cell-summary"><div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
+      const consBadge = item.consolidated_count > 0
+        ? '<span class="type-tag cons-badge" title="' + esc(window.t("table.consolidatedTitle")) + '">' + window.t("table.consolidated", item.consolidated_count) + '</span> '
+        : "";
+      html += '<td class="cell-summary">' + consBadge + '<div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
       html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
       html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
       html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';

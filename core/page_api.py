@@ -13,6 +13,7 @@ from typing import Any
 
 from .page_api_modules import (
     BackupHandler,
+    ConsolidationHandler,
     GraphHandler,
     MemoryHandler,
     PageApiUtils,
@@ -40,6 +41,7 @@ class PluginPageApi:
         self.recall_handler = RecallHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
         self.prompt_handler = PromptHandler(self.utils)
+        self.consolidation_handler = ConsolidationHandler(self.utils)
 
         # BackupHandler 需要 data_dir，延迟初始化
         self._backup_handler = None
@@ -165,6 +167,18 @@ class PluginPageApi:
             ["GET"],
             "LivingMemory Page get prompt default content",
         )
+        register(
+            f"{PAGE_API_PREFIX}/consolidation/status",
+            self.get_consolidation_status,
+            ["GET"],
+            "LivingMemory Page consolidation status",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/consolidation/run",
+            self.run_consolidation,
+            ["POST"],
+            "LivingMemory Page run consolidation",
+        )
 
     # ==================== 路由处理方法 ====================
     # 所有方法都委托给相应的处理器
@@ -278,6 +292,26 @@ class PluginPageApi:
     async def get_prompt_default(self):
         return await self.prompt_handler.get_prompt_default()
 
+    # ---- 记忆整合路由 ----
+
+    async def get_consolidation_status(self):
+        """获取记忆整合配置与统计"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.consolidation_handler.get_status(
+            ready["memory_engine"],
+            ready["consolidation_manager"],
+            ready["config_manager"],
+        )
+
+    async def run_consolidation(self):
+        """手动触发一轮记忆整合"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.consolidation_handler.run(ready["consolidation_manager"])
+
     # ==================== 辅助方法 ====================
 
     async def _ensure_plugin_ready(self) -> tuple[dict[str, Any] | None, dict | None]:
@@ -304,4 +338,9 @@ class PluginPageApi:
             "memory_processor": getattr(
                 self.plugin.initializer, "memory_processor", None
             ),
+            "consolidation_manager": getattr(
+                self.plugin.initializer, "consolidation_manager", None
+            ),
+            "config_manager": getattr(self.plugin, "config_manager", None)
+            or getattr(self.plugin.initializer, "config_manager", None),
         }, None

@@ -129,6 +129,11 @@ export class PeekPanel {
     const topics = detail.topics || [];
     const editHistory = detail.update_history || [];
     const sourceMessages = Array.isArray(detail.source_messages) ? detail.source_messages : [];
+    const consolidatedFrom = Array.isArray(detail.consolidated_from)
+      ? detail.consolidated_from
+      : (detail.metadata && Array.isArray(detail.metadata.consolidated_from))
+        ? detail.metadata.consolidated_from
+        : [];
     const graphCtx = detail.graph_context;
 
     document.getElementById("peek-badge").innerHTML = "";
@@ -184,6 +189,14 @@ export class PeekPanel {
     html += metaItem(window.t("detail.created"), esc(created));
     html += metaItem(window.t("detail.updated"), esc(updated));
     html += '</div></div>';
+
+    // 来源记忆（整合产生）
+    if (consolidatedFrom.length) {
+      html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.consolidatedFrom", consolidatedFrom.length) + '</div>';
+      html += '<div class="peek-fact-list">';
+      consolidatedFrom.forEach(id => { html += '<div class="peek-fact-item"># ' + esc(String(id)) + '</div>'; });
+      html += '</div></div>';
+    }
 
     // 关键事实
     if (keyFacts.length) {

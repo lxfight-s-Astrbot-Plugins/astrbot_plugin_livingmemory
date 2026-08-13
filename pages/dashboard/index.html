@@ -260,6 +260,19 @@
               <div class="system-panel-title" data-i18n="system.activeSessions">Active Sessions</div>
               <div class="session-list" id="session-list"></div>
             </div>
+            <div class="system-panel mb-6">
+              <div class="system-panel-title" data-i18n="system.consolidationTitle">Memory Consolidation</div>
+              <div class="consolidation-meta" id="consolidation-meta"></div>
+              <div class="stat-pills" style="margin-top:10px">
+                <div class="stat-pill"><div class="stat-pill-value" id="cons-consolidated">--</div><div class="stat-pill-label" data-i18n="system.consolidatedCount">consolidated</div></div>
+                <div class="stat-pill"><div class="stat-pill-value" id="cons-archived">--</div><div class="stat-pill-label" data-i18n="stats.archived">Archived</div></div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="cons-run-btn" style="margin-top:12px">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span data-i18n="system.consolidationRun">Run Now</span>
+              </button>
+              <span class="text-tertiary" id="cons-run-result" style="margin-left:10px;font-size:12px"></span>
+            </div>
             <div class="system-panel">
               <div class="system-panel-title" data-i18n="system.versionBackups">Version Backups</div>
               <div class="backup-list" id="backup-list"></div>
