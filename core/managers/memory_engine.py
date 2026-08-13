@@ -2214,70 +2214,35 @@ class MemoryEngine:
         # 【关键修改】不再提取UUID，直接使用完整的session_id进行匹配
         # 因为现在数据库中存储的就是完整的unified_msg_origin格式
 
-        # 使用数据库层面的排序和分页，避免加载所有数据
+        # 使用数据库层面的过滤、排序和分页，避免加载所有数据
         try:
-            # 先获取总数判断是否需要分批
-            total_count = await self.faiss_db.document_storage.count_documents(
-                metadata_filters={"session_id": session_id}
-            )
-
-            if total_count == 0:
+            if self.db_connection is None:
                 return []
 
-            # 如果总数小于等于limit，直接一次性获取
-            if total_count <= limit:
-                all_docs = await self.faiss_db.document_storage.get_documents(
-                    metadata_filters={"session_id": session_id},
-                    limit=limit,
-                    offset=0,
-                )
-                # 通过线程池批量规范化 metadata（避免大量 json.loads 阻塞事件循环）
-                all_docs = await asyncio.to_thread(
-                    self._normalize_batch_metadata, all_docs
-                )
-                sorted_docs = sorted(
-                    all_docs,
-                    key=lambda d: safe_float(
-                        d.get("metadata", {}).get("create_time"), 0.0
-                    ),
-                    reverse=True,
-                )
-            else:
-                all_docs = []
-                batch_size = 500
-                offset = 0
+            cursor = await self.db_connection.execute(
+                """
+                SELECT id, text, metadata
+                FROM documents
+                WHERE json_extract(metadata, '$.session_id') = ?
+                ORDER BY CAST(json_extract(metadata, '$.create_time') AS REAL) DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            )
+            rows = await cursor.fetchall()
 
-                while offset < total_count:
-                    batch = await self.faiss_db.document_storage.get_documents(
-                        metadata_filters={"session_id": session_id},
-                        limit=batch_size,
-                        offset=offset,
-                    )
-
-                    if not batch:
-                        break
-
-                    batch = await asyncio.to_thread(
-                        self._normalize_batch_metadata, batch
-                    )
-                    all_docs.extend(batch)
-                    offset += batch_size
-
-                sorted_docs = sorted(
-                    all_docs,
-                    key=lambda d: safe_float(
-                        d.get("metadata", {}).get("create_time"), 0.0
-                    ),
-                    reverse=True,
-                )[:limit]
+            safe_json_dict = self._safe_json_dict
+            parsed = await asyncio.to_thread(
+                lambda: [safe_json_dict(r["metadata"]) for r in rows]
+            )
 
             memories = []
-            for doc in sorted_docs:
+            for row, metadata in zip(rows, parsed):
                 memories.append(
                     {
-                        "id": doc["id"],
-                        "text": doc["text"],
-                        "metadata": doc["metadata"],
+                        "id": int(row["id"]),
+                        "text": row["text"],
+                        "metadata": metadata,
                     }
                 )
 
@@ -2456,26 +2421,31 @@ class MemoryEngine:
         cutoff_time = time.time() - (days * 86400)
 
         try:
-            total_count = await self.faiss_db.document_storage.count_documents(
-                metadata_filters={}
-            )
-            if total_count == 0:
+            if self.db_connection is None:
                 return 0
 
             batch_size = 500
-            offset = 0
+            last_id = 0
             candidates: list[int] = []
-            while offset < total_count:
-                batch_docs = await self.faiss_db.document_storage.get_documents(
-                    metadata_filters={}, limit=batch_size, offset=offset
+            safe_json_dict = self._safe_json_dict
+
+            # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
+            while True:
+                cursor = await self.db_connection.execute(
+                    "SELECT id, metadata FROM documents WHERE id > ? ORDER BY id LIMIT ?",
+                    (last_id, batch_size),
                 )
-                if not batch_docs:
+                rows = await cursor.fetchall()
+                if not rows:
                     break
-                batch_docs = await asyncio.to_thread(
-                    self._normalize_batch_metadata, batch_docs
+                last_id = int(rows[-1]["id"])
+
+                raw_metadata = [r["metadata"] for r in rows]
+                parsed = await asyncio.to_thread(
+                    lambda: [safe_json_dict(m) for m in raw_metadata]
                 )
-                for doc in batch_docs:
-                    metadata = doc["metadata"]
+
+                for row, metadata in zip(rows, parsed):
                     if str(metadata.get("status") or "active") != "active":
                         continue
                     create_time = safe_float(metadata.get("create_time"), time.time())
@@ -2483,10 +2453,7 @@ class MemoryEngine:
                         metadata.get("importance"), default=0.5
                     )
                     if create_time < cutoff_time and doc_importance < importance:
-                        candidates.append(doc["id"])
-                offset += len(batch_docs)
-                if len(batch_docs) < batch_size:
-                    break
+                        candidates.append(int(row["id"]))
 
             if not candidates:
                 return 0
@@ -2952,21 +2919,3 @@ class MemoryEngine:
         except Exception as e:
             logger.error(f"[StorageMaintenance] 执行存储维护失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
-
-    @staticmethod
-    def _normalize_batch_metadata(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Normalize metadata from JSON strings to dicts for a batch of documents.
-
-        Offloaded to thread pool in batch processing paths to avoid blocking
-        the event loop with hundreds of json.loads calls.
-        """
-        for doc in docs:
-            metadata = doc.get("metadata")
-            if isinstance(metadata, str):
-                try:
-                    doc["metadata"] = json.loads(metadata)
-                except (json.JSONDecodeError, TypeError):
-                    doc["metadata"] = {}
-            elif not isinstance(metadata, dict):
-                doc["metadata"] = {}
-        return docs
