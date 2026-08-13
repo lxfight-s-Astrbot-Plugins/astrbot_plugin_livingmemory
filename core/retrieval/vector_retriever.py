@@ -398,3 +398,75 @@ class VectorRetriever:
         for doc_id in deleted_ids:
             self._id_cache.pop(doc_id, None)
         return deleted_ids
+
+    async def find_similar_pairs(
+        self,
+        doc_ids: list[int],
+        threshold: float,
+        k: int = 5,
+        batch_size: int = 1024,
+    ) -> list[tuple[int, int, float]]:
+        """在给定 doc_ids 之间批量查找相似对（供记忆整合的语义聚类使用）。
+
+        直接复用索引中已存储的向量（index.reconstruct），不重复调用 Embedding API，
+        并用 Faiss 的批量搜索在候选间找相似对，可扩展到上万条记忆。
+
+        Args:
+            doc_ids: 参与聚类的文档 id 列表。
+            threshold: 相似度阈值（余弦近似，与 retrieve 归一化一致）。
+            k: 每个向量查找的邻居数。
+            batch_size: 每次批量搜索的查询向量数（控制内存峰值）。
+
+        Returns:
+            [(a, b, similarity), ...]，其中 a < b 且 similarity >= threshold，去重。
+        """
+        import numpy as np
+
+        unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
+        if len(unique_ids) < 2:
+            return []
+
+        index = self.faiss_db.embedding_storage.index
+        if index is None:
+            return []
+
+        vectors: list[np.ndarray] = []
+        valid_ids: list[int] = []
+        for doc_id in unique_ids:
+            try:
+                vectors.append(index.reconstruct(doc_id))
+                valid_ids.append(doc_id)
+            except Exception:
+                # 向量缺失（如从未写入或已删除）的文档跳过，不参与语义聚类
+                continue
+
+        if len(valid_ids) < 2:
+            return []
+
+        pairs: list[tuple[int, int, float]] = []
+        seen: set[tuple[int, int]] = set()
+        valid_id_set = set(valid_ids)
+
+        for start in range(0, len(valid_ids), batch_size):
+            chunk_ids = valid_ids[start : start + batch_size]
+            matrix = np.stack(vectors[start : start + batch_size]).astype("float32")
+            try:
+                scores, indices = index.search(matrix, k + 1)
+            except Exception as e:
+                logger.warning(f"[VectorRetriever] 批量向量检索失败: {e}")
+                continue
+            similarities = 1.0 - scores / 2.0
+            for i, doc_id in enumerate(chunk_ids):
+                for j in range(indices.shape[1]):
+                    nb_id = int(indices[i][j])
+                    if nb_id < 0 or nb_id == doc_id or nb_id not in valid_id_set:
+                        continue
+                    sim = float(similarities[i][j])
+                    if sim < threshold:
+                        continue
+                    a, b = (doc_id, nb_id) if doc_id < nb_id else (nb_id, doc_id)
+                    if (a, b) not in seen:
+                        seen.add((a, b))
+                        pairs.append((a, b, sim))
+
+        return pairs

@@ -157,8 +157,29 @@ class MemoryConsolidationManager:
     async def _group_semantic(
         self, candidates: list[dict[str, Any]], cfg: dict[str, Any]
     ) -> list[list[dict[str, Any]]]:
-        """跨会话语义聚类：用向量检索做连通分量合并。"""
+        """跨会话语义聚类：复用索引内向量批量查找相似对，再做连通分量合并。
+
+        可扩展到上万条候选：不逐条调用 Embedding API，而是批量 reconstruct + 批量
+        Faiss 搜索，内存峰值由 vector_retriever 的分块控制。
+        """
         threshold = float(cfg.get("semantic_similarity_threshold", 0.7))
+        candidate_ids = [mem["id"] for mem in candidates]
+
+        pairs: list[tuple[int, int, float]] = []
+        try:
+            vector_retriever = getattr(self.memory_engine, "vector_retriever", None)
+            if vector_retriever is None:
+                return self._group_by_session(candidates)
+            pairs = await vector_retriever.find_similar_pairs(
+                candidate_ids, threshold
+            )
+        except Exception as e:
+            logger.warning(f"[记忆整合] 语义聚类失败，回退到同会话聚合: {e}")
+            return self._group_by_session(candidates)
+
+        if not pairs:
+            return []
+
         parent: dict[int, int] = {mem["id"]: mem["id"] for mem in candidates}
 
         def find(x: int) -> int:
@@ -172,18 +193,8 @@ class MemoryConsolidationManager:
             if ra != rb:
                 parent[ra] = rb
 
-        # 控制复杂度：最多对前 N 条候选做向量检索
-        for mem in candidates[:200]:
-            try:
-                results = await self.memory_engine.search_memories(
-                    query=mem["content"], k=10, session_id=None, persona_id=None
-                )
-            except Exception as e:
-                logger.debug(f"[记忆整合] 语义检索失败 (id={mem['id']}): {e}")
-                continue
-            for r in results:
-                if r.doc_id in parent and r.final_score >= threshold:
-                    union(mem["id"], r.doc_id)
+        for a, b, _sim in pairs:
+            union(a, b)
 
         groups: dict[int, list[dict[str, Any]]] = {}
         for mem in candidates:

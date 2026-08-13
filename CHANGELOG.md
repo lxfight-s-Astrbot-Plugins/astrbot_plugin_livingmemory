@@ -8,13 +8,13 @@
 ## [Unreleased]
 
 ### 新增
-- **记忆库定期整合**: 新增 `memory_consolidation` 配置节，从源头控制记忆库规模——把零散的低价值记忆聚合、整理、总结为更精炼的一条，替代注入时的硬截断方案。支持按同一会话（`granularity=session`）或跨会话语义聚类（`granularity=semantic`）聚合，整合后旧记忆可归档（`keep_original=archive`）或删除（`keep_original=delete`），触发方式可选每日定时（`trigger=daily`）或每次反思时顺带执行（`trigger=reflection`，带 6 小时冷却）。整合结果由 LLM 无损合并生成，写入新记忆并保留 `consolidated_from` 溯源
+- **记忆库定期整合**: 新增 `memory_consolidation` 配置节，从源头控制记忆库规模——把零散的低价值记忆聚合、整理、总结为更精炼的一条，替代注入时的硬截断方案。支持按同一会话（`granularity=session`）或跨会话语义聚类（`granularity=semantic`）聚合，整合后旧记忆可归档（`keep_original=archive`）或删除（`keep_original=delete`），触发方式可选每日定时（`trigger=daily`）或每次反思时顺带执行（`trigger=reflection`，带 6 小时冷却）。语义聚类直接复用索引内已存向量做批量 Faiss 搜索（分块、无 Embedding API 重复调用），可扩展到上万条记忆；整合结果由 LLM 无损合并生成，写入新记忆并保留 `consolidated_from` 溯源
 
 ### 移除
 - **记忆注入预算控制**: 移除 2.6.0-beta.1 引入的注入预算控制（`recall_engine.injection_budget_chars` / `injection_min_chars_per_memory` / `injection_max_chars_per_memory` 及配套截断逻辑）。硬截断会丢失语义连贯性与结尾信息，改为在记忆库层面定期整理聚合
 
 ### 测试
-- 新增记忆整合分组 / 语义聚类 / 合并解析 / 归档删除等 13 项测试；完整 Python 测试集 736 项通过
+- 新增记忆整合分组 / 语义聚类 / 合并解析 / 归档删除 / 向量批量相似对等 17 项测试；完整 Python 测试集 740 项通过
 
 ## [2.6.0-beta.1] - 2026-08-13
 

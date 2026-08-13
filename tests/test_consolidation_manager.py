@@ -161,6 +161,10 @@ class TestGroupSemantic:
     async def test_union_by_similarity(self):
         config = _make_cfg(granularity="semantic")
         engine = Mock()
+        engine.vector_retriever = Mock()
+        engine.vector_retriever.find_similar_pairs = AsyncMock(
+            return_value=[(1, 2, 0.9)]
+        )
         mgr = _make_manager(config, engine=engine)
 
         candidates = [
@@ -169,21 +173,117 @@ class TestGroupSemantic:
             {"id": 3, "content": "c", "metadata": {}},
         ]
 
-        class _Res:
-            def __init__(self, doc_id, score):
-                self.doc_id = doc_id
-                self.final_score = score
+        groups = await mgr._group_semantic(candidates, mgr.config)
 
-        async def _search(query, k, session_id, persona_id):
-            if query == "a":
-                return [_Res(2, 0.9)]
-            return []
+        assert {len(g) for g in groups} == {2, 1}
 
-        engine.search_memories = _search
+    @pytest.mark.asyncio
+    async def test_falls_back_to_session_when_no_vector_retriever(self):
+        config = _make_cfg(granularity="semantic")
+        engine = Mock()
+        engine.vector_retriever = None
+        mgr = _make_manager(config, engine=engine)
+
+        candidates = [
+            {"id": 1, "content": "a", "metadata": {"session_id": "s1"}},
+            {"id": 2, "content": "b", "metadata": {"session_id": "s1"}},
+            {"id": 3, "content": "c", "metadata": {"session_id": "s2"}},
+        ]
 
         groups = await mgr._group_semantic(candidates, mgr.config)
 
         assert {len(g) for g in groups} == {2, 1}
+
+    @pytest.mark.asyncio
+    async def test_falls_back_on_clustering_error(self):
+        config = _make_cfg(granularity="semantic")
+        engine = Mock()
+        engine.vector_retriever = Mock()
+        engine.vector_retriever.find_similar_pairs = AsyncMock(
+            side_effect=RuntimeError("faiss unavailable")
+        )
+        mgr = _make_manager(config, engine=engine)
+
+        candidates = [
+            {"id": 1, "content": "a", "metadata": {"session_id": "s1"}},
+            {"id": 2, "content": "b", "metadata": {"session_id": "s1"}},
+        ]
+
+        groups = await mgr._group_semantic(candidates, mgr.config)
+
+        assert [len(g) for g in groups] == [2]
+
+
+class TestVectorRetrieverSimilarPairs:
+    @pytest.mark.asyncio
+    async def test_find_similar_pairs_thresholds_and_dedupes(self):
+        import numpy as np
+
+        from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import (
+            VectorRetriever,
+        )
+
+        class _Idx:
+            def __init__(self):
+                self.vecs = {
+                    1: np.array([1.0, 0.0], dtype=np.float32),
+                    2: np.array([1.0, 0.1], dtype=np.float32),
+                    3: np.array([0.0, 1.0], dtype=np.float32),
+                }
+
+            def reconstruct(self, doc_id):
+                return self.vecs[doc_id]
+
+            def search(self, matrix, k):
+                ids = list(self.vecs.keys())
+                all_vecs = np.stack([self.vecs[i] for i in ids]).astype("float32")
+                diff = matrix[:, None, :] - all_vecs[None, :, :]
+                dist = (diff**2).sum(-1)
+                order = np.argsort(dist, axis=1)[:, :k]
+                d = np.take_along_axis(dist, order, axis=1)
+                i = np.array(ids)[order]
+                return d.astype("float32"), i.astype("int64")
+
+        class _Storage:
+            def __init__(self):
+                self.index = _Idx()
+
+        class _FaissDB:
+            def __init__(self):
+                self.embedding_storage = _Storage()
+
+        retriever = VectorRetriever(_FaissDB())
+        pairs = await retriever.find_similar_pairs([1, 2, 3], threshold=0.9, k=2)
+
+        sims = {tuple(sorted((a, b))): s for a, b, s in pairs}
+        assert (1, 2) in sims
+        assert sims[(1, 2)] >= 0.9
+        assert (1, 3) not in sims
+        assert (2, 3) not in sims
+
+    @pytest.mark.asyncio
+    async def test_find_similar_pairs_skips_missing_vectors(self):
+        from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import (
+            VectorRetriever,
+        )
+
+        index = Mock()
+        index.reconstruct = Mock(
+            side_effect=lambda doc_id: (_ for _ in ()).throw(RuntimeError("missing"))
+        )
+
+        class _Storage:
+            def __init__(self):
+                self.index = index
+
+        class _FaissDB:
+            def __init__(self):
+                self.embedding_storage = _Storage()
+
+        retriever = VectorRetriever(_FaissDB())
+        pairs = await retriever.find_similar_pairs([1, 2], threshold=0.9)
+
+        assert pairs == []
 
 
 class TestMemoryProcessorMerge:
