@@ -396,6 +396,30 @@
         "description": "Cleanup Importance Threshold",
         "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance."
       }
+    },
+    "importance_decay.access_boost": {
+      "description": "Access-driven importance boost",
+      "hint": "Boost memory importance on each recall, lock after hitting threshold"
+    },
+    "importance_decay.access_boost.enabled": {
+      "description": "Enable access_boost",
+      "hint": "When enabled, recalled memories get importance boost automatically"
+    },
+    "importance_decay.access_boost.lock_protection": {
+      "description": "Lock protection (30+ accesses)",
+      "hint": "When enabled, memories with 30+ accesses are locked: no decay, no deletion"
+    },
+    "importance_decay.access_boost.boost_factor": {
+      "description": "Boost factor",
+      "hint": "Coefficient for importance growth (default: 0.02)"
+    },
+    "importance_decay.access_boost.formula": {
+      "description": "Boost formula",
+      "hint": "logarithmic: score-based boost; linear: flat boost"
+    },
+    "importance_decay.access_boost.high_access_threshold": {
+      "description": "Lock threshold",
+      "hint": "Access count after which memory is locked (default: 30)"
     }
   }
 }
