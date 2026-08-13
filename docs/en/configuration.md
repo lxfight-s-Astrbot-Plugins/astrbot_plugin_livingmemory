@@ -122,6 +122,22 @@ For relationship-heavy use, increase graph-route weight or set `expansion_hops` 
 
 With automatic archiving enabled, source documents remain visible and restorable in the Dashboard. Restoring regenerates the embedding and rebuilds BM25, graph, and memory-atom indexes.
 
+## Memory store consolidation
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `memory_consolidation.enabled` | `false` | Enables periodic memory-store consolidation |
+| `memory_consolidation.trigger` | `daily` | Trigger mode: `daily` = daily schedule, `reflection` = piggyback on each reflection |
+| `memory_consolidation.granularity` | `session` | Aggregation granularity: `session` = same session, `semantic` = cross-session semantic clustering |
+| `memory_consolidation.keep_original` | `archive` | Handling of originals after merge: `archive` = keep archived, `delete` = remove permanently |
+| `memory_consolidation.min_memories_per_group` | `3` | Minimum memories per group to trigger consolidation |
+| `memory_consolidation.min_age_days` | `7` | Only consolidate memories older than this many days |
+| `memory_consolidation.max_importance` | `0.5` | Only consolidate memories below this importance |
+| `memory_consolidation.max_groups_per_run` | `5` | Maximum groups consolidated per run |
+| `memory_consolidation.semantic_similarity_threshold` | `0.7` | Minimum similarity in semantic clustering mode |
+
+Memory consolidation controls the memory-store size at the source: scattered low-value memories are aggregated, organized, and summarized into a single concise memory, avoiding information loss from hard truncation at injection time. The merged result is written as a new memory and the originals are archived or deleted according to `keep_original`. With `trigger=reflection`, a 6-hour cooldown prevents per-message triggering.
+
 ## Index rebuild tuning
 
 | Key | Default | Description |

@@ -205,6 +205,7 @@ class LivingMemoryPlugin(Star):
                     memory_engine=self.initializer.memory_engine,  # type: ignore[arg-type]
                     memory_processor=self.initializer.memory_processor,  # type: ignore[arg-type]
                     conversation_manager=self.initializer.conversation_manager,  # type: ignore[arg-type]
+                    consolidation_manager=self.initializer.consolidation_manager,
                 )
 
             # 创建命令处理器（幂等）

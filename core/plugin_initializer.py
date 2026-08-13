@@ -23,6 +23,7 @@ from ..storage.db_migration import DBMigration
 from .base.config_manager import ConfigManager
 from .base.exceptions import InitializationError, ProviderNotReadyError
 from .managers.conversation_manager import ConversationManager
+from .managers.consolidation_manager import MemoryConsolidationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
 from .schedulers.decay_scheduler import DecayScheduler
@@ -155,6 +156,7 @@ class PluginInitializer:
         self.conversation_manager: ConversationManager | None = None
         self.index_validator: IndexValidator | None = None
         self.decay_scheduler: DecayScheduler | None = None
+        self.consolidation_manager: MemoryConsolidationManager | None = None
 
         # 初始化状态
         self._initialization_complete = False
@@ -798,6 +800,13 @@ class PluginInitializer:
             )
             logger.info("MemoryProcessor 已初始化")
 
+            # 初始化记忆整合管理器
+            self.consolidation_manager = MemoryConsolidationManager(
+                self.memory_engine,
+                self.memory_processor,
+                self.config_manager,
+            )
+
             # 初始化索引验证器并自动重建索引
             self.index_validator = IndexValidator(str(db_path), self.db)
             await self._auto_rebuild_index_if_needed()
@@ -815,7 +824,16 @@ class PluginInitializer:
             auto_cleanup_enabled = self.config_manager.get(
                 "forgetting_agent.auto_cleanup_enabled", True
             )
-            if self.memory_engine and (decay_rate > 0 or auto_cleanup_enabled):
+            consolidation_daily = (
+                self.config_manager.get("memory_consolidation.enabled", False)
+                and self.config_manager.get(
+                    "memory_consolidation.trigger", "daily"
+                )
+                == "daily"
+            )
+            if self.memory_engine and (
+                decay_rate > 0 or auto_cleanup_enabled or consolidation_daily
+            ):
                 backup_enabled = self.config_manager.get(
                     "backup_settings.enabled", True
                 )
@@ -829,6 +847,7 @@ class PluginInitializer:
                     db_migration=self.db_migration,
                     backup_enabled=backup_enabled,
                     backup_keep_days=backup_keep_days,
+                    consolidation_manager=self.consolidation_manager,
                 )
                 await scheduler.start()
                 self.decay_scheduler = scheduler

@@ -39,6 +39,7 @@ class MemoryReflection:
         storage_tasks: set[asyncio.Task],
         storage_sessions_inflight: set[str],
         storage_state_lock: asyncio.Lock,
+        consolidation_manager=None,
     ):
         """
         初始化记忆反思模块
@@ -53,6 +54,7 @@ class MemoryReflection:
             storage_tasks: 后台存储任务集合（共享状态）
             storage_sessions_inflight: 正在处理的会话集合（共享状态）
             storage_state_lock: 存储状态锁（共享状态）
+            consolidation_manager: 记忆整合管理器（用于反思触发）
         """
         self.context = context
         self.config_manager = config_manager
@@ -63,7 +65,16 @@ class MemoryReflection:
         self._storage_tasks = storage_tasks
         self._storage_sessions_inflight = storage_sessions_inflight
         self._storage_state_lock = storage_state_lock
+        self.consolidation_manager = consolidation_manager
         self._shutting_down = False
+
+    def _schedule_consolidation(self) -> None:
+        """反思触发时在后台顺带检查记忆整合（带冷却，不会频繁执行）。"""
+        if self.consolidation_manager is None or self._shutting_down:
+            return
+        task = asyncio.create_task(self.consolidation_manager.maybe_run("reflection"))
+        self._storage_tasks.add(task)
+        task.add_done_callback(self._storage_tasks.discard)
 
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
@@ -217,6 +228,8 @@ class MemoryReflection:
                 logger.info(
                     f"[{session_id}] 未总结轮数达到 {unsummarized_rounds} 轮，启动记忆反思任务"
                 )
+
+                self._schedule_consolidation()
 
                 # 计算总结范围（考虑待处理的失败总结）
                 start_index = last_summarized_index

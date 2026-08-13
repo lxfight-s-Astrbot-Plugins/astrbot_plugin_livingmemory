@@ -555,5 +555,78 @@
                 "default": 0.3
             }
         }
+    },
+    "memory_consolidation": {
+        "description": "记忆库定期整合",
+        "hint": "定期把零散的低价值记忆聚合、整理、总结为更精炼的记忆，从源头控制记忆库规模",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "启用记忆库定期整合",
+                "hint": "开启后按触发方式自动聚合符合条件的零散记忆。建议在记忆库较大时开启。",
+                "type": "bool",
+                "default": false
+            },
+            "trigger": {
+                "description": "触发方式",
+                "hint": "daily=每日定时执行；reflection=每次反思时顺带检查并执行。",
+                "type": "string",
+                "options": [
+                    "daily",
+                    "reflection"
+                ],
+                "default": "daily"
+            },
+            "granularity": {
+                "description": "聚合粒度",
+                "hint": "session=按同一会话聚合；semantic=跨会话按语义相似度聚类聚合。",
+                "type": "string",
+                "options": [
+                    "session",
+                    "semantic"
+                ],
+                "default": "session"
+            },
+            "keep_original": {
+                "description": "整合后旧记忆的处理",
+                "hint": "archive=归档保留（可从检索索引移除并恢复）；delete=直接删除。",
+                "type": "string",
+                "options": [
+                    "archive",
+                    "delete"
+                ],
+                "default": "archive"
+            },
+            "min_memories_per_group": {
+                "description": "每组最少记忆数",
+                "hint": "一组中记忆数达到该值才触发整合，避免为少量记忆做无谓的 LLM 调用。",
+                "type": "int",
+                "default": 3
+            },
+            "min_age_days": {
+                "description": "最小记忆年龄（天）",
+                "hint": "只整合创建时间早于该天数的记忆，避免整合还在活跃更新的近期记忆。",
+                "type": "int",
+                "default": 7
+            },
+            "max_importance": {
+                "description": "最大重要性",
+                "hint": "只整合重要性低于该值的记忆，高重要性记忆保持不变。",
+                "type": "float",
+                "default": 0.5
+            },
+            "max_groups_per_run": {
+                "description": "每次最多整合组数",
+                "hint": "限制单次运行整合的组数，避免一次性触发过多 LLM 调用。",
+                "type": "int",
+                "default": 5
+            },
+            "semantic_similarity_threshold": {
+                "description": "语义聚类相似度阈值",
+                "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。",
+                "type": "float",
+                "default": 0.7
+            }
+        }
     }
 }

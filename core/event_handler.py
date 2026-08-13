@@ -54,6 +54,7 @@ class EventHandler:
         memory_engine: MemoryEngine,
         memory_processor: MemoryProcessor,
         conversation_manager: ConversationManager,
+        consolidation_manager=None,
     ):
         """
         初始化事件处理器
@@ -64,6 +65,7 @@ class EventHandler:
             memory_engine: 记忆引擎
             memory_processor: 记忆处理器
             conversation_manager: 会话管理器
+            consolidation_manager: 记忆整合管理器（用于反思触发）
         """
         self.context = context
         self.config_manager = config_manager
@@ -102,6 +104,7 @@ class EventHandler:
             self._storage_tasks,
             self._storage_sessions_inflight,
             self._storage_state_lock,
+            consolidation_manager,
         )
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):

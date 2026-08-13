@@ -361,6 +361,86 @@ class MemoryProcessor:
 
         return fixed
 
+    async def merge_memories(self, memories: list[dict]) -> dict[str, Any]:
+        """把一组零散记忆合并为一条精炼记忆（供记忆库整合使用）。
+
+        Args:
+            memories: 待合并的记忆列表，每条为 {"content": str, "metadata": dict}。
+
+        Returns:
+            包含 summary/key_facts/topics/importance 的字典。
+
+        Raises:
+            RuntimeError: LLM 不可用或解析失败时抛出。
+        """
+        items: list[dict[str, Any]] = []
+        for i, mem in enumerate(memories, 1):
+            metadata = mem.get("metadata") or {}
+            summary = str(
+                metadata.get("persona_summary")
+                or str(mem.get("content", "")).strip()
+            ).strip()
+            items.append(
+                {
+                    "id": i,
+                    "summary": summary,
+                    "key_facts": metadata.get("key_facts") or [],
+                    "topics": metadata.get("topics") or [],
+                }
+            )
+
+        system_prompt = (
+            "你是记忆整理助手。把多条关于同一主题或会话的零散记忆合并为一条精炼、"
+            "信息无损的记忆摘要。保留所有关键事实与具体细节，去重并消除相互矛盾，"
+            "避免泛化和丢失专有名词。只输出 JSON，不要输出任何其他内容。"
+        )
+        prompt = (
+            f"以下是一组需要合并的记忆（共 {len(items)} 条）：\n"
+            f"{json.dumps(items, ensure_ascii=False, indent=2)}\n\n"
+            "请将它们合并为一条记忆，按如下 JSON 格式输出：\n"
+            '{"summary": "合并后的精炼摘要", "key_facts": ["事实1", "事实2"], '
+            '"topics": ["主题1"], "importance": 0.5}'
+        )
+
+        text = await self._call_llm_with_retry(prompt, system_prompt)
+        data = self._parse_merge_response(text)
+
+        summary = str(data.get("summary", "")).strip()
+        if not summary:
+            raise RuntimeError("合并结果缺少 summary")
+
+        return {
+            "summary": summary,
+            "key_facts": self._ensure_list(data.get("key_facts", []))[:5],
+            "topics": self._ensure_list(data.get("topics", []))[:5],
+            "importance": self._validate_importance(data.get("importance", 0.5)),
+        }
+
+    def _parse_merge_response(self, text: str) -> dict[str, Any]:
+        """解析合并 LLM 响应中的 JSON，失败时抛出异常。"""
+        candidates = [text]
+        fixed = self._try_fix_json(text)
+        if fixed != text.strip():
+            candidates.append(fixed)
+
+        from ..utils import extract_json_from_response
+
+        extracted = extract_json_from_response(text)
+        if extracted != text.strip():
+            candidates.append(extracted)
+
+        last_error: Exception | None = None
+        for candidate in candidates:
+            try:
+                data = json.loads(self._try_fix_json(candidate))
+            except (json.JSONDecodeError, TypeError) as e:
+                last_error = e
+                continue
+            if isinstance(data, dict):
+                return data
+
+        raise RuntimeError(f"合并结果 JSON 解析失败: {last_error}")
+
     async def process_conversation(
         self,
         messages: list[Message],

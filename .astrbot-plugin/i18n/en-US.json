@@ -384,6 +384,58 @@
         "description": "Cleanup Importance Threshold",
         "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance."
       }
+    },
+    "memory_consolidation": {
+      "description": "Memory Store Consolidation",
+      "hint": "Periodically aggregate, organize, and summarize scattered low-value memories into more concise ones to control memory store size at the source",
+      "enabled": {
+        "description": "Enable Periodic Consolidation",
+        "hint": "When enabled, eligible scattered memories are automatically merged into concise summaries. Recommended when the memory store grows large."
+      },
+      "trigger": {
+        "description": "Trigger Mode",
+        "hint": "daily = run on the daily schedule; reflection = also check and run alongside each reflection.",
+        "labels": [
+          "Daily",
+          "On Reflection"
+        ]
+      },
+      "granularity": {
+        "description": "Consolidation Granularity",
+        "hint": "session = aggregate within the same session; semantic = cluster across sessions by semantic similarity.",
+        "labels": [
+          "Same Session",
+          "Semantic Clustering"
+        ]
+      },
+      "keep_original": {
+        "description": "Handling of Originals After Merge",
+        "hint": "archive = keep originals as archived (removed from retrieval but restorable); delete = remove originals permanently.",
+        "labels": [
+          "Archive",
+          "Delete"
+        ]
+      },
+      "min_memories_per_group": {
+        "description": "Minimum Memories Per Group",
+        "hint": "A group must contain at least this many memories to trigger consolidation, avoiding unnecessary LLM calls."
+      },
+      "min_age_days": {
+        "description": "Minimum Memory Age (days)",
+        "hint": "Only consolidate memories older than this many days, avoiding recently-updated memories."
+      },
+      "max_importance": {
+        "description": "Maximum Importance",
+        "hint": "Only consolidate memories with importance below this value; high-importance memories stay untouched."
+      },
+      "max_groups_per_run": {
+        "description": "Maximum Groups Per Run",
+        "hint": "Limits how many groups are consolidated per run to avoid triggering too many LLM calls at once."
+      },
+      "semantic_similarity_threshold": {
+        "description": "Semantic Similarity Threshold",
+        "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value."
+      }
     }
   }
 }

@@ -36,6 +36,18 @@ EXPECTED_OPTION_LABELS = {
             "user": "Per User",
             "global": "Global",
         },
+        "memory_consolidation.trigger": {
+            "daily": "Daily",
+            "reflection": "On Reflection",
+        },
+        "memory_consolidation.granularity": {
+            "session": "Same Session",
+            "semantic": "Semantic Clustering",
+        },
+        "memory_consolidation.keep_original": {
+            "archive": "Archive",
+            "delete": "Delete",
+        },
     },
     "ru-RU": {
         "bot_language": {
@@ -62,6 +74,18 @@ EXPECTED_OPTION_LABELS = {
             "session": "По сессии",
             "user": "По пользователю",
             "global": "Глобально",
+        },
+        "memory_consolidation.trigger": {
+            "daily": "Ежедневно",
+            "reflection": "При рефлексии",
+        },
+        "memory_consolidation.granularity": {
+            "session": "По сессии",
+            "semantic": "Семантическая кластеризация",
+        },
+        "memory_consolidation.keep_original": {
+            "archive": "Архивировать",
+            "delete": "Удалить",
         },
     },
 }

@@ -122,6 +122,22 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 
 生产使用建议保持备份和迁移备份开启。启用自动归档后，原始文档仍可在 Dashboard 查看和恢复，恢复时会重新生成 Embedding 并重建 BM25、图谱和记忆原子索引。
 
+## 记忆库整合
+
+| 配置项 | 默认 | 说明 |
+| --- | --- | --- |
+| `memory_consolidation.enabled` | `false` | 是否启用记忆库定期整合 |
+| `memory_consolidation.trigger` | `daily` | 触发方式：`daily`=每日定时，`reflection`=每次反思时顺带检查 |
+| `memory_consolidation.granularity` | `session` | 聚合粒度：`session`=同一会话，`semantic`=跨会话语义聚类 |
+| `memory_consolidation.keep_original` | `archive` | 整合后旧记忆处理：`archive`=归档保留，`delete`=直接删除 |
+| `memory_consolidation.min_memories_per_group` | `3` | 每组至少多少条记忆才触发整合 |
+| `memory_consolidation.min_age_days` | `7` | 只整合创建早于该天数的记忆 |
+| `memory_consolidation.max_importance` | `0.5` | 只整合重要度低于该值的记忆 |
+| `memory_consolidation.max_groups_per_run` | `5` | 每次运行最多整合的组数 |
+| `memory_consolidation.semantic_similarity_threshold` | `0.7` | 语义聚类模式下的最小相似度 |
+
+记忆整合从源头控制记忆库规模：把零散的低价值记忆聚合、整理、总结为更精炼的一条，避免注入时硬截断带来的信息损失。整合结果写入新记忆，旧记忆按 `keep_original` 归档或删除。`trigger=reflection` 时带 6 小时冷却，不会每条消息都触发。
+
 ## 索引重建调优
 
 | 配置项 | 默认 | 说明 |

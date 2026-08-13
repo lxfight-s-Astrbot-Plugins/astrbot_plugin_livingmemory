@@ -300,6 +300,44 @@ class GraphMemoryConfig(BaseModel):
         return self
 
 
+class MemoryConsolidationConfig(BaseModel):
+    """记忆库定期整合配置"""
+
+    enabled: bool = Field(
+        default=False, description="是否启用记忆库定期整合（聚合/总结）"
+    )
+    trigger: str = Field(
+        default="daily",
+        pattern="^(daily|reflection)$",
+        description="触发方式：daily=每日定时，reflection=每次反思时顺带执行",
+    )
+    granularity: str = Field(
+        default="session",
+        pattern="^(session|semantic)$",
+        description="聚合粒度：session=同一会话，semantic=跨会话语义聚类",
+    )
+    keep_original: str = Field(
+        default="archive",
+        pattern="^(archive|delete)$",
+        description="整合后旧记忆的处理方式：archive=归档保留，delete=直接删除",
+    )
+    min_memories_per_group: int = Field(
+        default=3, ge=2, le=50, description="每组至少多少条记忆才触发整合"
+    )
+    min_age_days: int = Field(
+        default=7, ge=0, le=3650, description="只整合创建时间早于 N 天的记忆"
+    )
+    max_importance: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="只整合重要度低于此值的记忆"
+    )
+    max_groups_per_run: int = Field(
+        default=5, ge=1, le=100, description="每次运行最多整合的组数"
+    )
+    semantic_similarity_threshold: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="语义聚类模式下合并的最小相似度"
+    )
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -325,6 +363,9 @@ class LivingMemoryConfig(BaseModel):
     )
     importance_decay: ImportanceDecayConfig = Field(
         default_factory=ImportanceDecayConfig, description="重要性衰减配置"
+    )
+    memory_consolidation: MemoryConsolidationConfig = Field(
+        default_factory=MemoryConsolidationConfig, description="记忆库定期整合配置"
     )
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
