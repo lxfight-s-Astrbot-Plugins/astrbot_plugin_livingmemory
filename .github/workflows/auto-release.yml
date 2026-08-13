@@ -105,6 +105,15 @@ jobs:
           echo "---" >> changelog.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$OLD_VERSION...$NEW_VERSION" >> changelog.md
 
+      - name: Determine prerelease
+        id: prerelease
+        run: |
+          if echo "${{ needs.check-version.outputs.new_version }}" | grep -qiE "beta|alpha|rc|pre"; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          else
+            echo "value=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -112,7 +121,7 @@ jobs:
           name: LivingMemory ${{ needs.check-version.outputs.new_version }}
           body_path: changelog.md
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.value == 'true' }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
