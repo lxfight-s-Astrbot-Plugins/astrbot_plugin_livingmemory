@@ -262,13 +262,22 @@ class IndexValidator:
                     bm25_result = await cursor.fetchone()
                     bm25_count = bm25_result[0] if bm25_result else 0
 
+                    # 直接在 SQL 层计算 BM25 缺失数量，避免加载全量 ID 集合到内存。
                     cursor = await db.execute(
-                        "SELECT DISTINCT doc_id FROM livingmemory_memories_fts"
+                        f"""
+                        SELECT COUNT(*) FROM documents d
+                        WHERE {self.ACTIVE_DOCUMENT_SQL}
+                          AND NOT EXISTS (
+                              SELECT 1 FROM livingmemory_memories_fts f
+                              WHERE f.doc_id = d.id
+                          )
+                        """
                     )
-                    bm25_ids = {row[0] for row in await cursor.fetchall()}
+                    missing_result = await cursor.fetchone()
+                    missing_in_bm25 = missing_result[0] if missing_result else 0
                 else:
                     bm25_count = 0
-                    bm25_ids = set()
+                    missing_in_bm25 = 0
 
                 # 3. 检查向量索引
                 vector_count = 0
@@ -298,7 +307,6 @@ class IndexValidator:
                     logger.warning(f"检查向量索引失败: {e}")
 
                 # 4. 计算差异
-                missing_in_bm25 = len(doc_ids - bm25_ids)
                 if vector_ids:
                     missing_in_vector = len(doc_ids - vector_ids)
                 else:
