@@ -2060,32 +2060,43 @@ class MemoryEngine:
                 "SELECT id, metadata FROM documents WHERE json_extract(metadata, '$.importance') IS NOT NULL OR metadata LIKE '%\"importance\"%'"
             )
             rows = await cursor.fetchall()
-            updates: list[tuple[str, int]] = []
 
-            for row in rows:
-                metadata = self._safe_json_dict(row["metadata"])
-                importance = clamp_float(metadata.get("importance"), default=0.5)
-                if importance >= protected_threshold:
-                    continue
-                access_count = safe_float(metadata.get("access_count"), 0.0)
-                last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
+            safe_json_dict = self._safe_json_dict
 
-                recent_access_factor = (
-                    1.0 if last_access_time >= access_window_start else 0.5
-                )
-                access_factor = min(1.0, access_count / max(1.0, max_access_count))
-                effective_decay_rate = decay_rate * (
-                    1 - 0.5 * access_factor * recent_access_factor
-                )
-                decay_factor = (1 - effective_decay_rate) ** days
-                metadata["importance"] = max(
-                    0.01,
-                    round(importance * decay_factor, 4),
-                )
-                metadata["access_count"] = int(access_count * access_decay_multiplier)
-                updates.append(
-                    (json.dumps(metadata, ensure_ascii=False), int(row["id"]))
-                )
+            def _compute_updates() -> list[tuple[str, int]]:
+                updates: list[tuple[str, int]] = []
+                for row in rows:
+                    metadata = safe_json_dict(row["metadata"])
+                    importance = clamp_float(metadata.get("importance"), default=0.5)
+                    if importance >= protected_threshold:
+                        continue
+                    access_count = safe_float(metadata.get("access_count"), 0.0)
+                    last_access_time = safe_float(
+                        metadata.get("last_access_time"), 0.0
+                    )
+
+                    recent_access_factor = (
+                        1.0 if last_access_time >= access_window_start else 0.5
+                    )
+                    access_factor = min(1.0, access_count / max(1.0, max_access_count))
+                    effective_decay_rate = decay_rate * (
+                        1 - 0.5 * access_factor * recent_access_factor
+                    )
+                    decay_factor = (1 - effective_decay_rate) ** days
+                    metadata["importance"] = max(
+                        0.01,
+                        round(importance * decay_factor, 4),
+                    )
+                    metadata["access_count"] = int(
+                        access_count * access_decay_multiplier
+                    )
+                    updates.append(
+                        (json.dumps(metadata, ensure_ascii=False), int(row["id"]))
+                    )
+                return updates
+
+            # 卸载逐行 JSON 解析与数值计算，避免阻塞事件循环。
+            updates = await asyncio.to_thread(_compute_updates)
 
             if not updates:
                 return 0
