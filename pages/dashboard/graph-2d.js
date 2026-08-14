@@ -98,6 +98,87 @@
     return window.GraphLayoutCore.createForceLayout();
   }
 
+  /* Worker 版布局：布局迭代在 Web Worker 中运行，主线程零 CPU 占用。
+     runLayoutSteps 返回 Promise（消息回包后 resolve），接口其余部分
+     与内联布局一致，供 Animator 无差别使用。 */
+  function WorkerForceLayout() {
+    this.isWorker = false;
+    this._done = true;
+    this.positions = {};
+    this.rings = {};
+    this.communities = {};
+    this.centerId = null;
+    this._worker = null;
+    this._pending = null;
+    this._lastPositions = {};
+    this._lastSimPositions = {};
+    try {
+      this._worker = new Worker("./graph-layout-worker.js");
+      this.isWorker = true;
+      var self = this;
+      this._worker.onmessage = function(e) { self._onMessage(e.data); };
+    } catch (err) {
+      this._worker = null;
+    }
+  }
+
+  WorkerForceLayout.prototype.begin = function(nodes, edges, centerId) {
+    this._done = false;
+    this._lastSimPositions = {};
+    this._worker.postMessage({
+      type: "begin",
+      nodes: nodes.map(function(n) {
+        return { id: n.id, weight: n.weight || 0, degree: n.degree || 0, memory_count: n.memory_count || 0 };
+      }),
+      edges: edges.map(function(e) {
+        return { id: e.id, source: e.source, target: e.target, weight: e.weight || 1, confidence: e.confidence || 0.8 };
+      }),
+      centerId: centerId == null ? null : centerId,
+    });
+  };
+
+  WorkerForceLayout.prototype.runLayoutSteps = function(count) {
+    var self = this;
+    return new Promise(function(resolve) {
+      self._pending = resolve;
+      self._worker.postMessage({ type: "step", count: count });
+    });
+  };
+
+  WorkerForceLayout.prototype.end = function() {
+    this._worker.postMessage({ type: "end" });
+  };
+
+  WorkerForceLayout.prototype.compute = function(nodes, edges, focusId) {
+    this.begin(nodes, edges, focusId);
+  };
+
+  WorkerForceLayout.prototype.getTarget = function(nodeId) {
+    var p = this.positions[nodeId];
+    return p || { tx: 0, ty: 0 };
+  };
+
+  WorkerForceLayout.prototype.getRing = function(nodeId) {
+    return this.rings[nodeId] != null ? this.rings[nodeId] : 1;
+  };
+
+  WorkerForceLayout.prototype._onMessage = function(msg) {
+    if (msg.type === "positions") {
+      this._lastSimPositions = msg.positions;
+      this._done = msg.done;
+      if (msg.done) {
+        this.positions = msg.targets;
+        this.rings = msg.rings;
+        this.communities = msg.communities;
+      }
+      if (this._pending) {
+        var resolve = this._pending;
+        this._pending = null;
+        resolve();
+      }
+    }
+  };
+
   /* ═══════════════════════════════════════════════════════════════
      Renderer — Canvas 2D drawing
      ═══════════════════════════════════════════════════════════════ */
@@ -1019,7 +1100,7 @@
     this._edges = [];
     this._nodeMap = {};
     this._mem2node = {};
-    this._layout = new ForceDirectedLayout();
+    this._layout = this._createLayout();
     this._animProgress = 1; // 0→1 for position transitions
     this._needsRender = true;
     this._ambientMotion = false;
@@ -1027,6 +1108,19 @@
     this._layoutGeneration = 0; // 渐进式布局代数守卫
     this._lastLayoutSignature = null;
   }
+
+  /* 优先使用 Web Worker 布局；不可用时回退到主线程内联布局。 */
+  Animator.prototype._createLayout = function() {
+    if (typeof Worker === "function") {
+      try {
+        var workerLayout = new WorkerForceLayout();
+        if (workerLayout.isWorker) return workerLayout;
+      } catch (err) {
+        /* fall through to inline layout */
+      }
+    }
+    return new ForceDirectedLayout();
+  };
 
   Animator.prototype.fitViewport = function(options) {
     options = options || {};
@@ -1118,7 +1212,8 @@
     }
     this._lastLayoutSignature = signature;
 
-    /* 中等及以上图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。 */
+    /* 中等及以上图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。
+       支持 Worker 布局（异步消息驱动）与内联布局（同步分片）两种实现。 */
     if (this._nodes.length > CFG.PROGRESSIVE_LAYOUT_THRESHOLD) {
       this.stop();
       this._animProgress = 1;
@@ -1137,19 +1232,16 @@
     }
   };
 
-  Animator.prototype._progressiveLayout = function(centerId, generation) {
+  /* 渐进式布局主循环：每帧跑一批迭代并渲染当前状态。
+     Worker 布局的 runLayoutSteps 返回 Promise，等消息回包后继续；
+     内联布局同步执行，await 立即放行。 */
+  Animator.prototype._progressiveLayout = async function(centerId, generation) {
     var self = this;
     /* 代数守卫：若期间又加载了新图，丢弃这条过期链路。 */
     if (generation !== this._layoutGeneration) return;
-    this._layout.runLayoutSteps(8);
+    await this._layout.runLayoutSteps(8);
     if (generation !== this._layoutGeneration) return;
-    var sim = this._layout._sim;
-    for (var i = 0; i < sim.length; i++) {
-      this._nodes[i].x = sim[i].x;
-      this._nodes[i].y = sim[i].y;
-      this._nodes[i]._prevX = null;
-      this._nodes[i]._prevY = null;
-    }
+    this._applyLayoutPositions();
     if (!this._layout._done) {
       this._renderFrame();
       requestAnimationFrame(function() {
@@ -1157,6 +1249,30 @@
       });
     } else {
       if (generation === this._layoutGeneration) this._finishLayout(centerId);
+    }
+  };
+
+  /* 把布局当前位置同步到节点坐标（内联读 _sim，Worker 读消息回包）。 */
+  Animator.prototype._applyLayoutPositions = function() {
+    var layout = this._layout;
+    if (layout.isWorker) {
+      var positions = layout._lastSimPositions;
+      for (var id in positions) {
+        var nd = this._nodeMap[id];
+        if (!nd) continue;
+        nd.x = positions[id].x;
+        nd.y = positions[id].y;
+        nd._prevX = null;
+        nd._prevY = null;
+      }
+      return;
+    }
+    var sim = layout._sim;
+    for (var i = 0; i < sim.length; i++) {
+      this._nodes[i].x = sim[i].x;
+      this._nodes[i].y = sim[i].y;
+      this._nodes[i]._prevX = null;
+      this._nodes[i]._prevY = null;
     }
   };
 

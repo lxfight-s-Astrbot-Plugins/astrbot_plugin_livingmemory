@@ -93,6 +93,17 @@ function flushRaf(rafQueue) {
   }
 }
 
+/* 渐进式布局现在是 async：需要交替排空微任务与 rAF 队列。 */
+async function settle(rafQueue) {
+  let guard = 0;
+  while (guard < 200000) {
+    guard++;
+    await Promise.resolve();
+    if (!rafQueue.length) break;
+    flushRaf(rafQueue);
+  }
+}
+
 function makePayload(nodeCount, edgeCount) {
   const nodes = [];
   for (let i = 1; i <= nodeCount; i++) {
@@ -113,7 +124,7 @@ function makePayload(nodeCount, edgeCount) {
   return { enabled: true, mode: "query", snapshot: { nodes, edges } };
 }
 
-test("small graph layout completes synchronously with positions", () => {
+test("small graph layout completes synchronously with positions", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
   g.init(makeContainer(), {});
@@ -124,10 +135,10 @@ test("small graph layout completes synchronously with positions", () => {
   assert.equal(g._nodes.length, 50);
   assert.equal(Object.keys(g.animator._layout.positions).length, 50);
   assert.equal(g.animator._layout._done, true);
-  flushRaf(rafQueue);
+  await settle(rafQueue);
 });
 
-test("large graph layout completes via progressive stepping", () => {
+test("large graph layout completes via progressive stepping", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
   g.init(makeContainer(), {});
@@ -136,20 +147,20 @@ test("large graph layout completes via progressive stepping", () => {
   g.loadData(payload);
 
   /* Layout completes via progressive rAF chunks. */
-  flushRaf(rafQueue);
+  await settle(rafQueue);
   assert.equal(g._nodes.length, 300);
   assert.equal(g.animator._layout._done, true);
   assert.equal(Object.keys(g.animator._layout.positions).length, 300);
 });
 
-test("identical graph structure reuses cached layout", () => {
+test("identical graph structure reuses cached layout", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
   g.init(makeContainer(), {});
 
   const payload = makePayload(80, 79);
   g.loadData(payload);
-  flushRaf(rafQueue);
+  await settle(rafQueue);
   const firstPositions = Object.assign({}, g.animator._layout.positions);
 
   /* Load the same structure again — should skip recompute and keep positions. */
@@ -159,10 +170,10 @@ test("identical graph structure reuses cached layout", () => {
     Object.keys(g.animator._layout.positions).sort(),
     Object.keys(firstPositions).sort()
   );
-  flushRaf(rafQueue);
+  await settle(rafQueue);
 });
 
-test("selecting a node recenters without recomputing the layout", () => {
+test("selecting a node recenters without recomputing the layout", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
   g.init(makeContainer(), {});
@@ -177,10 +188,10 @@ test("selecting a node recenters without recomputing the layout", () => {
   g.selectNode(30);
   assert.equal(g.animator._layout._done, doneAfterLoad);
   assert.equal(g.animator._layout._step, stepAfterLoad);
-  flushRaf(rafQueue);
+  await settle(rafQueue);
 });
 
-test("rapid double load leaves a consistent progressive layout", () => {
+test("rapid double load leaves a consistent progressive layout", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
   g.init(makeContainer(), {});
@@ -190,9 +201,96 @@ test("rapid double load leaves a consistent progressive layout", () => {
   const second = makePayload(280, 279);
   g.loadData(first);
   g.loadData(second);
-  flushRaf(rafQueue);
+  await settle(rafQueue);
 
   assert.equal(g._nodes.length, 280);
   assert.equal(g.animator._layout._done, true);
   assert.equal(Object.keys(g.animator._layout.positions).length, 280);
+});
+
+/* ── Web Worker 布局测试 ─────────────────────────────────────── */
+
+const workerSource = readFileSync(
+  join(here, "../../pages/dashboard/graph-layout-worker.js"), "utf-8"
+);
+
+/* 在进程内模拟 Worker：把 worker 脚本的逻辑以假 self 跑起来，消息同步往返。 */
+function installFakeWorker() {
+  global.Worker = class {
+    constructor() {
+      const worker = this;
+      this.onmessage = null;
+      const posts = [];
+      const fakeSelf = {
+        postMessage(msg) { posts.push(msg); },
+        importScripts() {
+          /* importScripts 把核心加载进 worker 全局作用域（即 globalThis）。 */
+          const saved = global.self;
+          global.self = global;
+          (0, eval)(coreSource);
+          global.self = saved;
+        },
+      };
+      const saved = global.self;
+      const savedImportScripts = global.importScripts;
+      global.self = fakeSelf;
+      global.importScripts = fakeSelf.importScripts;
+      (0, eval)(workerSource);
+      global.self = saved;
+      global.importScripts = savedImportScripts;
+      this._dispatch = (msg) => {
+        /* 调用 worker 的 onmessage 时 self 应仍指向 worker 全局。 */
+        const saved = global.self;
+        global.self = fakeSelf;
+        fakeSelf.onmessage({ data: msg });
+        global.self = saved;
+      };
+      this._flush = () => {
+        while (posts.length) {
+          const msg = posts.shift();
+          if (worker.onmessage) worker.onmessage({ data: msg });
+        }
+      };
+    }
+    postMessage(msg) {
+      this._dispatch(msg);
+      this._flush();
+    }
+    terminate() {}
+  };
+}
+
+test("worker layout completes via fake worker round trip", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  assert.equal(g.animator._layout.isWorker, true, "Worker 布局应被启用");
+
+  const payload = makePayload(300, 299);
+  g.loadData(payload);
+  await settle(rafQueue);
+
+  assert.equal(g._nodes.length, 300);
+  assert.equal(g.animator._layout._done, true);
+  assert.equal(Object.keys(g.animator._layout.positions).length, 300);
+});
+
+test("worker layout falls back to inline when Worker unavailable", async () => {
+  const rafQueue = loadGraph();
+  const savedWorker = global.Worker;
+  global.Worker = undefined;
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  assert.notEqual(g.animator._layout.isWorker, true, "Worker 不可用时回退内联布局");
+
+  const payload = makePayload(120, 119);
+  g.loadData(payload);
+  await settle(rafQueue);
+
+  assert.equal(g.animator._layout._done, true);
+  assert.equal(Object.keys(g.animator._layout.positions).length, 120);
+  global.Worker = savedWorker;
 });
