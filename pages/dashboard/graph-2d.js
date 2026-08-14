@@ -1207,11 +1207,19 @@
 
   Renderer.prototype.hitTestEdge = function(sx, sy) {
     if (this.performanceTier > 0 && !this._selection) return null;
+    var margin = 8;
     for (var i = 0; i < this._drawnEdges.length; i++) {
       var de = this._drawnEdges[i];
       if (de.isMuted) continue;
+      /* 快速 AABB 预过滤：光标不在边的包围盒内则跳过，避免每条边都做
+         昂贵的点到线段距离计算。 */
+      var loX = de.sx < de.tx ? de.sx - margin : de.tx - margin;
+      var hiX = de.sx > de.tx ? de.sx + margin : de.tx + margin;
+      var loY = de.sy < de.ty ? de.sy - margin : de.ty - margin;
+      var hiY = de.sy > de.ty ? de.sy + margin : de.ty + margin;
+      if (sx < loX || sx > hiX || sy < loY || sy > hiY) continue;
       var dist = pointToSegmentDistance(sx, sy, de.sx, de.sy, de.tx, de.ty);
-      if (dist < 8) return de;
+      if (dist < margin) return de;
     }
     return null;
   };
