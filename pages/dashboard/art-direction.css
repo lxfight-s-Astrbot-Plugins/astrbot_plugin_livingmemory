@@ -46,7 +46,7 @@
   --font-sm: 12px;
   --font-lg: 17px;
   --sidebar-width: 236px;
-  --header-height: 112px;
+  --header-height: 76px;
   --field-x: 0px;
   --field-y: 0px;
   --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -328,9 +328,9 @@ summary:focus-visible {
 
 .page-header {
   position: relative;
-  height: var(--header-height);
+  height: auto;
   min-height: var(--header-height);
-  padding: 22px 28px 18px;
+  padding: 20px 28px 16px;
   border-bottom: 1px solid var(--border-normal);
   background: var(--bg-app);
 }
@@ -474,11 +474,11 @@ input[type="range"] {
 .graph-page-body {
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr);
-  grid-template-rows: minmax(360px, 1fr) auto;
+  grid-template-rows: minmax(320px, 1fr) auto;
   gap: 12px;
   min-height: 0;
   padding: 18px 22px 22px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .stat-pills {
@@ -492,12 +492,13 @@ input[type="range"] {
   margin: 0;
   gap: 0;
   border-top: 1px solid var(--border-normal);
+  overflow: hidden;
 }
 
 .stat-pill {
   position: relative;
   min-width: 0;
-  padding: 16px 4px 18px;
+  padding: 12px 4px 13px;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--border-light);
@@ -539,7 +540,7 @@ input[type="range"] {
   position: relative;
   grid-column: 2;
   grid-row: 1;
-  min-height: 360px;
+  min-height: 320px;
   overflow: hidden;
   background: var(--graph-surface);
   border: 1px solid var(--border-normal);
@@ -634,7 +635,7 @@ input[type="range"] {
 
 @media (min-width: 769px) and (max-width: 1600px) {
   .graph-page-body {
-    grid-template-rows: minmax(360px, 1fr) auto auto;
+    grid-template-rows: minmax(320px, 1fr) auto auto;
   }
 
   .graph-legend {
