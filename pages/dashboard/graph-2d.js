@@ -1459,6 +1459,18 @@
       n._prevX = n.x;
       n._prevY = n.y;
     });
+    /* 布局缓存：节点/边结构未变时复用上次力布局结果，跳过整轮 compute()。 */
+    var signature = this._graphSignature();
+    if (signature === this._lastLayoutSignature) {
+      if (centerId != null) this._layout.centerId = centerId;
+      this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
+      this.fitViewport({ centerId: centerId });
+      this._animProgress = 1;
+      this._needsRender = true;
+      this.start();
+      return;
+    }
+    this._lastLayoutSignature = signature;
     this._layout.compute(this._nodes, this._edges, centerId);
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
@@ -1475,6 +1487,15 @@
     }
     this._needsRender = true;
     this.start();
+  };
+
+  Animator.prototype._graphSignature = function() {
+    /* 轻量签名：排序后的节点 id + 边 key。O(N log N)，远低于力布局成本。 */
+    var nodeIds = this._nodes.map(function(n) { return String(n.id); }).sort().join(",");
+    var edgeKeys = this._edges.map(function(e) {
+      return e.source + ">" + e.target;
+    }).sort().join(",");
+    return nodeIds + "|" + edgeKeys;
   };
 
   Animator.prototype.recenter = function(centerId) {
