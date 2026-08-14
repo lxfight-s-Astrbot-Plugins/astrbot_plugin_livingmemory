@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "../../pages/dashboard/graph-2d.js"), "utf-8");
+const coreSource = readFileSync(join(here, "../../pages/dashboard/graph-layout-core.js"), "utf-8");
 
 function makeCtx() {
   const gradient = { addColorStop() {} };
@@ -78,6 +79,7 @@ function loadGraph() {
   }
   global.ResizeObserver = Observer;
   global.MutationObserver = Observer;
+  (0, eval)(coreSource);
   (0, eval)(source);
   return rafQueue;
 }
