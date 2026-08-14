@@ -583,6 +583,9 @@
     this._structuralEdges = [];
     this._communityBundles = [];
     this._nodeHitGrid = {};
+    this._labelGrid = {};
+    this._bgCanvas = null;
+    this._bgCacheKey = null;
   }
 
   Renderer.prototype.configureData = function(nodes, edges) {
@@ -693,46 +696,67 @@
     this.ctx.clearRect(0, 0, this.width, this.height);
   };
 
+  Renderer.prototype._rebuildBackgroundCache = function(dark, step) {
+    var w = Math.ceil(this.width + step);
+    var h = Math.ceil(this.height + step);
+    if (!this._bgCanvas) this._bgCanvas = document.createElement("canvas");
+    this._bgCanvas.width = w;
+    this._bgCanvas.height = h;
+    var bctx = this._bgCanvas.getContext("2d");
+
+    bctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
+    bctx.fillRect(0, 0, w, h);
+    bctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(40,92,94,0.12)";
+    for (var x = 0; x <= w; x += step) {
+      for (var y = 0; y <= h; y += step) {
+        bctx.beginPath();
+        bctx.arc(x, y, 0.75, 0, Math.PI * 2);
+        bctx.fill();
+      }
+    }
+    var majorStep = step * 5;
+    bctx.strokeStyle = dark ? "rgba(183,243,74,0.055)" : "rgba(40,92,94,0.05)";
+    bctx.lineWidth = 1;
+    for (var mx = 0; mx <= w; mx += majorStep) {
+      bctx.beginPath();
+      bctx.moveTo(mx, 0);
+      bctx.lineTo(mx, h);
+      bctx.stroke();
+    }
+    for (var my = 0; my <= h; my += majorStep) {
+      bctx.beginPath();
+      bctx.moveTo(0, my);
+      bctx.lineTo(w, my);
+      bctx.stroke();
+    }
+  };
+
   Renderer.prototype.drawBackground = function(dark, animateDecorations) {
     var ctx = this.ctx;
     var step = clamp(30 * this.viewport.scale, 22, 42);
     var ox = ((this.viewport.ox * this.viewport.scale) % step + step) % step;
     var oy = ((this.viewport.oy * this.viewport.scale) % step + step) % step;
 
-    ctx.save();
-    ctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
-    ctx.fillRect(0, 0, this.width, this.height);
-    ctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(40,92,94,0.12)";
-    for (var x = ox; x <= this.width; x += step) {
-      for (var y = oy; y <= this.height; y += step) {
-        ctx.beginPath();
-        ctx.arc(x, y, 0.75, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    /* 静态点阵/网格缓存到离屏画布，平移只改 blit 偏移，避免每帧重画数百个点。 */
+    var cacheKey = (dark ? "d" : "l") + ":" + this.width + "x" + this.height + ":s" + step.toFixed(2);
+    if (this._bgCacheKey !== cacheKey) {
+      this._bgCacheKey = cacheKey;
+      this._rebuildBackgroundCache(dark, step);
     }
-
-    var majorStep = step * 5;
-    ctx.strokeStyle = dark ? "rgba(183,243,74,0.055)" : "rgba(40,92,94,0.05)";
-    ctx.lineWidth = 1;
-    for (var mx = ox % majorStep; mx <= this.width; mx += majorStep) {
-      ctx.beginPath();
-      ctx.moveTo(mx, 0);
-      ctx.lineTo(mx, this.height);
-      ctx.stroke();
-    }
-    for (var my = oy % majorStep; my <= this.height; my += majorStep) {
-      ctx.beginPath();
-      ctx.moveTo(0, my);
-      ctx.lineTo(this.width, my);
-      ctx.stroke();
+    if (this._bgCanvas) {
+      ctx.drawImage(this._bgCanvas, ox, oy);
+    } else {
+      ctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
+      ctx.fillRect(0, 0, this.width, this.height);
     }
 
     if (animateDecorations) {
+      ctx.save();
       var scanY = (Date.now() * 0.018) % Math.max(this.height, 1);
       ctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(42,167,157,0.1)";
       ctx.fillRect(0, scanY, this.width, 1);
+      ctx.restore();
     }
-    ctx.restore();
   };
 
   Renderer.prototype.worldToScreen = function(wx, wy) {
@@ -805,6 +829,7 @@
     /* Draw edges first (under nodes) */
     this._drawnEdges = [];
     this._labelBoxes = [];
+    this._labelGrid = {};
     ctx.save();
     for (var e = 0; e < visibleEdges.length; e++) {
       var edge = visibleEdges[e];
@@ -1159,6 +1184,7 @@
       return;
     }
     this._labelBoxes.push(box);
+    this._insertLabelGrid(box);
     ctx.fillText(label, labelX, y);
 
     if (dn.isHovered || dn.isSelected) {
@@ -1176,11 +1202,34 @@
     return box.x2 >= 0 && box.x1 <= this.width && box.y2 >= 0 && box.y1 <= this.height;
   };
 
+  /* 标签碰撞检测：把已画标签按屏幕网格分桶，只检查重叠格子，O(L) 而非 O(L²)。 */
+  Renderer.prototype._insertLabelGrid = function(box) {
+    var cellSize = 120;
+    var x1 = Math.floor(box.x1 / cellSize), x2 = Math.floor(box.x2 / cellSize);
+    var y1 = Math.floor(box.y1 / cellSize), y2 = Math.floor(box.y2 / cellSize);
+    for (var gx = x1; gx <= x2; gx++) {
+      for (var gy = y1; gy <= y2; gy++) {
+        var key = gx * 10000 + gy;
+        if (!this._labelGrid[key]) this._labelGrid[key] = [];
+        this._labelGrid[key].push(box);
+      }
+    }
+  };
+
   Renderer.prototype._labelIntersects = function(box) {
-    for (var i = 0; i < this._labelBoxes.length; i++) {
-      var other = this._labelBoxes[i];
-      if (box.x1 <= other.x2 && box.x2 >= other.x1 && box.y1 <= other.y2 && box.y2 >= other.y1) {
-        return true;
+    var cellSize = 120;
+    var x1 = Math.floor(box.x1 / cellSize), x2 = Math.floor(box.x2 / cellSize);
+    var y1 = Math.floor(box.y1 / cellSize), y2 = Math.floor(box.y2 / cellSize);
+    for (var gx = x1; gx <= x2; gx++) {
+      for (var gy = y1; gy <= y2; gy++) {
+        var cell = this._labelGrid[gx * 10000 + gy];
+        if (!cell) continue;
+        for (var i = 0; i < cell.length; i++) {
+          var other = cell[i];
+          if (box.x1 <= other.x2 && box.x2 >= other.x1 && box.y1 <= other.y2 && box.y2 >= other.y1) {
+            return true;
+          }
+        }
       }
     }
     return false;
