@@ -1429,6 +1429,8 @@
     this._needsRender = true;
     this._ambientMotion = false;
     this._instantLayout = false;
+    this._layoutGeneration = 0; // 渐进式布局代数守卫
+    this._lastLayoutSignature = null;
   }
 
   Animator.prototype.fitViewport = function(options) {
@@ -1525,17 +1527,21 @@
     if (this._nodes.length > 220) {
       this.stop();
       this._animProgress = 1;
+      this._layoutGeneration += 1;
       this._layout.begin(this._nodes, this._edges, centerId);
-      this._progressiveLayout(centerId);
+      this._progressiveLayout(centerId, this._layoutGeneration);
     } else {
       this._layout.compute(this._nodes, this._edges, centerId);
       this._finishLayout(centerId);
     }
   };
 
-  Animator.prototype._progressiveLayout = function(centerId) {
+  Animator.prototype._progressiveLayout = function(centerId, generation) {
     var self = this;
+    /* 代数守卫：若期间又加载了新图，丢弃这条过期链路。 */
+    if (generation !== this._layoutGeneration) return;
     this._layout.runLayoutSteps(8);
+    if (generation !== this._layoutGeneration) return;
     var sim = this._layout._sim;
     for (var i = 0; i < sim.length; i++) {
       this._nodes[i].x = sim[i].x;
@@ -1545,9 +1551,11 @@
     }
     if (!this._layout._done) {
       this._renderFrame();
-      requestAnimationFrame(function() { self._progressiveLayout(centerId); });
+      requestAnimationFrame(function() {
+        self._progressiveLayout(centerId, generation);
+      });
     } else {
-      this._finishLayout(centerId);
+      if (generation === this._layoutGeneration) this._finishLayout(centerId);
     }
   };
 

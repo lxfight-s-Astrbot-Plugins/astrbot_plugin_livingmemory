@@ -176,3 +176,20 @@ test("selecting a node recenters without recomputing the layout", () => {
   assert.equal(g.animator._layout._step, stepAfterLoad);
   flushRaf(rafQueue);
 });
+
+test("rapid double load leaves a consistent progressive layout", () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  /* 两次快速加载：旧渐进链路应被代数守卫丢弃，新链路完成布局。 */
+  const first = makePayload(260, 259);
+  const second = makePayload(280, 279);
+  g.loadData(first);
+  g.loadData(second);
+  flushRaf(rafQueue);
+
+  assert.equal(g._nodes.length, 280);
+  assert.equal(g.animator._layout._done, true);
+  assert.equal(Object.keys(g.animator._layout.positions).length, 280);
+});
