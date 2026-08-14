@@ -374,6 +374,9 @@
       b.vx -= fx; b.vy -= fy;
     }
 
+    /* 空间网格桶跨迭代复用（数值键 + 数组复用），避免每迭代重建对象。 */
+    var buckets = {};
+    var usedKeys = [];
     for (var step = 0; step < iterations; step++) {
       var alpha = 1 - step / iterations;
       var cooled = 0.3 + alpha * 0.7;
@@ -381,13 +384,15 @@
       /* Large graphs use a spatial grid so repulsion stays near-linear. */
       if (largeGraph) {
         var cellSize = 92;
-        var buckets = {};
+        for (var uk = 0; uk < usedKeys.length; uk++) buckets[usedKeys[uk]].length = 0;
+        usedKeys.length = 0;
         for (var gi = 0; gi < sim.length; gi++) {
           var gx = Math.floor(sim[gi].x / cellSize);
           var gy = Math.floor(sim[gi].y / cellSize);
-          var gkey = gx + ":" + gy;
-          if (!buckets[gkey]) buckets[gkey] = [];
-          buckets[gkey].push(gi);
+          var gkey = gx * 1000000 + gy;
+          var bucket = buckets[gkey];
+          if (!bucket) { bucket = buckets[gkey] = []; usedKeys.push(gkey); }
+          bucket.push(gi);
         }
         for (var si = 0; si < sim.length; si++) {
           var source = sim[si];
@@ -395,7 +400,8 @@
           var sourceY = Math.floor(source.y / cellSize);
           for (var bx = -1; bx <= 1; bx++) {
             for (var by = -1; by <= 1; by++) {
-              var nearby = buckets[(sourceX + bx) + ":" + (sourceY + by)] || [];
+              var nearby = buckets[(sourceX + bx) * 1000000 + (sourceY + by)];
+              if (!nearby) continue;
               for (var bi = 0; bi < nearby.length; bi++) {
                 if (nearby[bi] <= si) continue;
                 repelPair(source, sim[nearby[bi]], cooled, cellSize * 1.8);
