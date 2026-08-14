@@ -147,6 +147,7 @@ test("identical graph structure reuses cached layout", () => {
 
   const payload = makePayload(80, 79);
   g.loadData(payload);
+  flushRaf(rafQueue);
   const firstPositions = Object.assign({}, g.animator._layout.positions);
 
   /* Load the same structure again — should skip recompute and keep positions. */

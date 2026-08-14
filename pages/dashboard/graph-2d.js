@@ -49,6 +49,7 @@
     MASSIVE_EDGE_THRESHOLD: 12000,
     AMBIENT_NODE_LIMIT: 700,
     AMBIENT_EDGE_LIMIT: 1800,
+    PROGRESSIVE_LAYOUT_THRESHOLD: 60,
   };
 
   const TYPE_COLORS = {
@@ -1514,17 +1515,17 @@
       n._prevX = n.x;
       n._prevY = n.y;
     });
-    /* 布局缓存：节点/边结构未变时复用上次力布局结果，跳过整轮 compute()。 */
+    /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。 */
     var signature = this._graphSignature();
-    if (signature === this._lastLayoutSignature) {
+    if (signature === this._lastLayoutSignature && this._layout._done) {
       if (centerId != null) this._layout.centerId = centerId;
       this._finishLayout(centerId, true);
       return;
     }
     this._lastLayoutSignature = signature;
 
-    /* 大图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。 */
-    if (this._nodes.length > 220) {
+    /* 中等及以上图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。 */
+    if (this._nodes.length > CFG.PROGRESSIVE_LAYOUT_THRESHOLD) {
       this.stop();
       this._animProgress = 1;
       this._layoutGeneration += 1;
