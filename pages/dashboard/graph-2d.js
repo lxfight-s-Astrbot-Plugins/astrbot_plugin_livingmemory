@@ -272,11 +272,18 @@
     return { assignment: remapped, positions: positions, centers: centers, footprints: footprints };
   };
 
-  /* Compute force-directed positions — all nodes are free */
-  ForceDirectedLayout.prototype.compute = function(nodes, edges, focusId) {
+  /* Begin force layout setup — can be stepped progressively without blocking. */
+  ForceDirectedLayout.prototype.begin = function(nodes, edges, focusId) {
     var self = this;
     this.positions = {};
     this.rings = {};
+    this._sim = [];
+    this._simEdges = [];
+    this._step = 0;
+    this._iterations = 0;
+    this._largeGraph = false;
+    this._topology = null;
+    this._done = true;
 
     var n = nodes.length;
     if (n === 0) return;
@@ -286,10 +293,13 @@
       this.centerId = nodes[0].id;
       return;
     }
+    this._done = false;
 
     /* Seed positions — pseudo-random spiral from node id (deterministic) */
     var largeGraph = n > 220;
+    this._largeGraph = largeGraph;
     var topology = this._buildTopologySeed(nodes, edges);
+    this._topology = topology;
     this.communities = topology.assignment;
     var sim = nodes.map(function(nd, i) {
       var seeded = topology.positions[nd.id] || { x: 0, y: 0, clusterX: 0, clusterY: 0 };
@@ -307,6 +317,7 @@
         radius: self._layoutRadius(nd),
       };
     });
+    this._sim = sim;
 
     var indexById = {};
     sim.forEach(function(s, i) { indexById[s.id] = i; });
@@ -328,6 +339,7 @@
         distanceJitter: self._hashUnit(String(edge.id) + ":" + edge.source + ":" + edge.target, 61),
       });
     });
+    this._simEdges = simEdges;
 
     /* Mark focus node (treated gently in gravity, not locked) */
     var focusIndex = focusId != null ? indexById[focusId] : -1;
@@ -339,14 +351,14 @@
     }
 
     /* ── N-body force simulation ── */
-    var iterations = n > 2000 ? 35
+    this._iterations = n > 2000 ? 35
       : n > 1000 ? 55
       : n > 500 ? 90
       : n > 220 ? 150
       : n > 100 ? 350
       : CFG.FORCE_ITERATIONS;
 
-    function repelPair(a, b, cooled, effectiveRange) {
+    var repelPair = function(a, b, cooled, effectiveRange) {
       var dx = a.x - b.x;
       var dy = a.y - b.y;
       var distSq = dx * dx + dy * dy;
@@ -372,12 +384,29 @@
       var fy = dy / dist * repulse;
       a.vx += fx; a.vy += fy;
       b.vx -= fx; b.vy -= fy;
-    }
+    };
+    this._repelPair = repelPair;
 
     /* 空间网格桶跨迭代复用（数值键 + 数组复用），避免每迭代重建对象。 */
-    var buckets = {};
-    var usedKeys = [];
-    for (var step = 0; step < iterations; step++) {
+    this._buckets = {};
+    this._usedKeys = [];
+  };
+
+  /* Run a batch of force iterations. */
+  ForceDirectedLayout.prototype.runLayoutSteps = function(count) {
+    if (this._done) return;
+    var self = this;
+    var sim = this._sim;
+    var simEdges = this._simEdges;
+    var iterations = this._iterations;
+    var largeGraph = this._largeGraph;
+    var n = sim.length;
+    var repelPair = this._repelPair;
+    var buckets = this._buckets;
+    var usedKeys = this._usedKeys;
+
+    var end = Math.min(this._step + count, iterations);
+    for (var step = this._step; step < end; step++) {
       var alpha = 1 - step / iterations;
       var cooled = 0.3 + alpha * 0.7;
 
@@ -473,6 +502,18 @@
         sn.y += sn.vy;
       });
     }
+    this._step = end;
+    if (this._step >= iterations) this.end();
+  };
+
+  /* Finish layout: drift correction + rings/positions assignment. */
+  ForceDirectedLayout.prototype.end = function() {
+    if (this._done) return;
+    this._done = true;
+    var self = this;
+    var sim = this._sim;
+    var largeGraph = this._largeGraph;
+    var topology = this._topology;
 
     /* Correct any residual bridge-edge drift without flattening the internal
        topology. Each large-graph community ends at its packed anchor. */
@@ -500,6 +541,12 @@
       self.rings[sn.id] = sn.isFocus ? 0 : 1;
       self.positions[sn.id] = { tx: sn.x, ty: sn.y };
     });
+  };
+
+  /* Synchronous wrapper — small graphs / fallback. */
+  ForceDirectedLayout.prototype.compute = function(nodes, edges, focusId) {
+    this.begin(nodes, edges, focusId);
+    if (!this._done) this.runLayoutSteps(this._iterations);
   };
 
   /* Get target position for a node */
@@ -1469,18 +1516,46 @@
     var signature = this._graphSignature();
     if (signature === this._lastLayoutSignature) {
       if (centerId != null) this._layout.centerId = centerId;
-      this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
-      this.fitViewport({ centerId: centerId });
-      this._animProgress = 1;
-      this._needsRender = true;
-      this.start();
+      this._finishLayout(centerId, true);
       return;
     }
     this._lastLayoutSignature = signature;
-    this._layout.compute(this._nodes, this._edges, centerId);
+
+    /* 大图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。 */
+    if (this._nodes.length > 220) {
+      this.stop();
+      this._animProgress = 1;
+      this._layout.begin(this._nodes, this._edges, centerId);
+      this._progressiveLayout(centerId);
+    } else {
+      this._layout.compute(this._nodes, this._edges, centerId);
+      this._finishLayout(centerId);
+    }
+  };
+
+  Animator.prototype._progressiveLayout = function(centerId) {
+    var self = this;
+    this._layout.runLayoutSteps(8);
+    var sim = this._layout._sim;
+    for (var i = 0; i < sim.length; i++) {
+      this._nodes[i].x = sim[i].x;
+      this._nodes[i].y = sim[i].y;
+      this._nodes[i]._prevX = null;
+      this._nodes[i]._prevY = null;
+    }
+    if (!this._layout._done) {
+      this._renderFrame();
+      requestAnimationFrame(function() { self._progressiveLayout(centerId); });
+    } else {
+      this._finishLayout(centerId);
+    }
+  };
+
+  Animator.prototype._finishLayout = function(centerId, immediate) {
+    var self = this;
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
-    this._animProgress = this._instantLayout ? 1 : 0;
+    this._animProgress = (immediate || this._instantLayout) ? 1 : 0;
     if (this._instantLayout) {
       this._nodes.forEach(function(node) {
         if (node.fixed) return;
@@ -1493,6 +1568,14 @@
     }
     this._needsRender = true;
     this.start();
+  };
+
+  Animator.prototype._renderFrame = function() {
+    this.renderer.clear();
+    var sel = this.renderer._selection;
+    var hoverId = this.interaction.getHoverId();
+    this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, 1);
+    this._needsRender = false;
   };
 
   Animator.prototype._graphSignature = function() {
