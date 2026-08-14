@@ -1647,7 +1647,7 @@
         }
       }
     } else if (this._ambientMotion) {
-      dirty = true;
+      /* 环境漂浮：位置每帧更新（廉价），渲染按图规模降帧，避免永久满帧重绘。 */
       var now = Date.now() / 1000;
       for (var k = 0; k < this._nodes.length; k++) {
         var floatNode = this._nodes[k];
@@ -1660,6 +1660,9 @@
         floatNode.x = lerp(floatNode.x, home.tx + Math.sin(now * 0.65 + phase) * amp, CFG.IDLE_DAMPING);
         floatNode.y = lerp(floatNode.y, home.ty + Math.cos(now * 0.55 + phase) * amp, CFG.IDLE_DAMPING);
       }
+      this._ambientFrame = (this._ambientFrame || 0) + 1;
+      var ambientStride = this._nodes.length > 300 ? 4 : this._nodes.length > 100 ? 2 : 1;
+      if (this._ambientFrame % ambientStride === 0) dirty = true;
     }
 
     if (dirty || this._needsRender) {
