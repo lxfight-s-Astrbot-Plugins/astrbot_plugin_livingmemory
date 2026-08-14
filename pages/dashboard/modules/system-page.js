@@ -134,26 +134,6 @@ export class SystemPage {
   }
 
   /**
-   * 渲染柱状图项
-   * @param {string} label - 标签
-   * @param {number} value - 数值
-   * @param {number} total - 总数
-   * @param {string} className - CSS 类名
-   * @returns {string} HTML 字符串
-   */
-  renderBarChartItem(label, value, total, className = "") {
-    const percentage = ((value / total) * 100).toFixed(1);
-    let html = '<div class="bar-chart-item">';
-    html += '<div class="bar-chart-label">' + esc(label) + '</div>';
-    html += '<div class="bar-chart-bar">';
-    html += '<div class="bar-chart-fill ' + className + '" style="width:' + percentage + '%"></div>';
-    html += '</div>';
-    html += '<div class="bar-chart-value">' + value + ' (' + percentage + '%)</div>';
-    html += '</div>';
-    return html;
-  }
-
-  /**
    * 渲染活跃会话列表
    * @param {Array} sessions - 会话列表
    */
@@ -216,18 +196,6 @@ export class SystemPage {
     });
 
     listEl.innerHTML = html;
-  }
-
-  /**
-   * 格式化文件大小
-   * @param {number} bytes - 字节数
-   * @returns {string} 格式化后的字符串
-   */
-  formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
   }
 
   /**
