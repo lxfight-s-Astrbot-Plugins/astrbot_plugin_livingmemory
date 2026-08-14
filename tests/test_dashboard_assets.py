@@ -83,13 +83,18 @@ def test_graph_dashboard_requests_full_overview_and_expanded_queries() -> None:
 
 def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
     graph_2d = (DASHBOARD / "graph-2d.js").read_text(encoding="utf-8")
+    graph_shared = (DASHBOARD / "graph-shared.js").read_text(encoding="utf-8")
+    graph_renderer = (DASHBOARD / "graph-renderer.js").read_text(encoding="utf-8")
+    graph_interaction = (DASHBOARD / "graph-interaction.js").read_text(
+        encoding="utf-8"
+    )
 
-    assert "MASSIVE_EDGE_THRESHOLD: 12000" in graph_2d
-    assert "Renderer.prototype.prepareGraph" in graph_2d
-    assert "this._communityBundles" in graph_2d
-    assert "this._structuralEdges" in graph_2d
+    assert "MASSIVE_EDGE_THRESHOLD: 12000" in graph_shared
+    assert "Renderer.prototype.prepareGraph" in graph_renderer
+    assert "this._communityBundles" in graph_renderer
+    assert "this._structuralEdges" in graph_renderer
     assert "this._instantLayout = tier >= 2" in graph_2d
-    assert "onRenderRequest" in graph_2d
+    assert "onRenderRequest" in graph_interaction
     assert "this._running = false" in graph_2d
     assert "Graph2D.prototype.getDiagnostics" in graph_2d
 

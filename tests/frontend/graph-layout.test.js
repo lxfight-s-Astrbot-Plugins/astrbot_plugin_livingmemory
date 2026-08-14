@@ -145,6 +145,28 @@ test("small graph layout completes synchronously with positions", async () => {
   assert.equal(Object.keys(g.animator._layout.positions).length, 50);
   assert.equal(g.animator._layout._done, true);
   await settle(rafQueue);
+  /* 空闲渲染后社区椭圆缓存应已填充。 */
+  assert.ok(g.renderer._communityCacheKey != null);
+  assert.ok(Array.isArray(g.renderer._communityCache));
+});
+
+test("label width cache populates when labels render", async () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  const nodes = [];
+  for (let i = 1; i <= 30; i++) {
+    nodes.push({ id: i, type: "topic", label: "Prominent-Node-" + i, weight: 3, degree: 6 });
+  }
+  const edges = [];
+  for (let e = 0; e < 29; e++) {
+    edges.push({ id: e + 1, source: e + 1, target: e + 2, relation_type: "relates", memory_id: 1, weight: 1, confidence: 0.8 });
+  }
+  g.loadData({ enabled: true, mode: "query", snapshot: { nodes, edges } });
+  await settle(rafQueue);
+
+  assert.ok(Object.keys(g.renderer._labelWidthCache).length > 0, "标签宽度缓存应有条目");
 });
 
 test("large graph layout completes via progressive stepping", async () => {

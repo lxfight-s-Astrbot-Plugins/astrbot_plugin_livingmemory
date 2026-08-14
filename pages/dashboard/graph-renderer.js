@@ -40,6 +40,9 @@
     this._communityBundles = [];
     this._nodeHitGrid = {};
     this._labelGrid = {};
+    this._labelWidthCache = {};
+    this._communityCacheKey = null;
+    this._communityCache = null;
     this._bgCanvas = null;
     this._bgCacheKey = null;
   }
@@ -52,6 +55,9 @@
     this._memoryEdges = {};
     this._structuralEdges = [];
     this._communityBundles = [];
+    this._labelWidthCache = {};
+    this._communityCacheKey = null;
+    this._communityCache = null;
     nodes.forEach(function(node) {
       self._adjacency[node.id] = [];
       self._nodeEdges[node.id] = [];
@@ -286,9 +292,15 @@
     this._drawnEdges = [];
     this._labelBoxes = [];
     this._labelGrid = {};
+    /* 边 LOD：tier 0 且缩小时抽样绘制（高亮/聚焦边始终完整绘制）。 */
+    var edgeStride = 1;
+    if (this.performanceTier === 0 && scale < 0.45 && visibleEdges.length > 900) {
+      edgeStride = Math.max(2, Math.round(visibleEdges.length / 900));
+    }
     ctx.save();
     for (var e = 0; e < visibleEdges.length; e++) {
       var edge = visibleEdges[e];
+      if (edgeStride > 1 && e % edgeStride !== 0 && !highlightEdges.has(edge.id)) continue;
       var src = nodeMap[edge.source];
       var tgt = nodeMap[edge.target];
       if (!src || !tgt) continue;
@@ -416,6 +428,15 @@
 
   Renderer.prototype._drawCommunities = function(nodes, layout, animProgress, dark) {
     if (!layout || !nodes.length) return;
+    var viewportKey = this.viewport.scale.toFixed(3) + "|" +
+      this.viewport.ox.toFixed(2) + "|" + this.viewport.oy.toFixed(2);
+    var idle = layout._done && animProgress >= 1;
+    if (!layout._done) this._communityCacheKey = null;
+    if (idle && this._communityCacheKey === viewportKey && this._communityCache) {
+      this._drawCommunityCache(dark);
+      return;
+    }
+
     var groups = {};
     for (var i = 0; i < nodes.length; i++) {
       var nd = nodes[i];
@@ -430,6 +451,7 @@
 
     var palette = ["#78a94b", "#2a9e96", "#df6d62", "#c58c2a", "#74868a", "#6684b8"];
     var ctx = this.ctx;
+    var cacheEntries = idle ? [] : null;
     ctx.save();
     ctx.setLineDash([5, 8]);
     keys.forEach(function(key, index) {
@@ -459,7 +481,42 @@
       ctx.textBaseline = "top";
       ctx.fillText("C/" + String(index + 1).padStart(2, "0") + " · " + points.length, cx - rx + 12, cy - ry + 10);
       ctx.setLineDash([5, 8]);
+      if (cacheEntries) {
+        cacheEntries.push({
+          cx: cx, cy: cy, rx: rx, ry: ry, color: color,
+          count: points.length, index: index + 1, dark: dark,
+        });
+      }
     });
+    ctx.restore();
+    if (cacheEntries) {
+      this._communityCacheKey = viewportKey;
+      this._communityCache = cacheEntries;
+    }
+  };
+
+  /* 空闲时按缓存绘制社区椭圆，避免每帧重算全节点包围盒。 */
+  Renderer.prototype._drawCommunityCache = function(dark) {
+    var ctx = this.ctx;
+    ctx.save();
+    ctx.setLineDash([5, 8]);
+    for (var i = 0; i < this._communityCache.length; i++) {
+      var e = this._communityCache[i];
+      ctx.beginPath();
+      ctx.ellipse(e.cx, e.cy, e.rx, e.ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = hexToRgba(e.color, dark ? 0.04 : 0.045);
+      ctx.strokeStyle = hexToRgba(e.color, dark ? 0.24 : 0.25);
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = hexToRgba(e.color, dark ? 0.72 : 0.9);
+      ctx.font = "600 9px 'SFMono-Regular', Consolas, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("C/" + String(e.index).padStart(2, "0") + " · " + e.count, e.cx - e.rx + 12, e.cy - e.ry + 10);
+      ctx.setLineDash([5, 8]);
+    }
     ctx.restore();
   };
 
@@ -626,7 +683,15 @@
     var maxChars = dn.isCenter ? 28 : 24;
     var label = dn.label.length > maxChars ? dn.label.substring(0, maxChars - 1) + "…" : dn.label;
     var labelX = x + r + 7 * scale;
-    var labelWidth = ctx.measureText(label).width;
+    /* measureText 缓存：按（标签, 字号桶）复用宽度，避免每帧重复测量。 */
+    var fontBucket = Math.round(fontSize);
+    var widthKey = fontBucket + "|" + label;
+    var labelWidth = this._labelWidthCache[widthKey];
+    if (labelWidth == null) {
+      labelWidth = ctx.measureText(label).width;
+      if (Object.keys(this._labelWidthCache).length > 3000) this._labelWidthCache = {};
+      this._labelWidthCache[widthKey] = labelWidth;
+    }
     var labelHeight = fontSize + 4;
     var box = {
       x1: labelX - 3 * scale,
