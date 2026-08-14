@@ -129,10 +129,16 @@ def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
     assert run.call_args_list[1].kwargs["env"]["FAISS_OPT_LEVEL"] == "generic"
 
 
-def test_requirements_matches_astrbot_faiss_baseline():
+def test_requirements_do_not_pin_faiss_cpu():
+    """faiss 由 AstrBot 核心提供，插件不应声明 faiss-cpu 依赖，避免版本冲突（见 #247）。"""
     requirements = (Path(__file__).parents[1] / "requirements.txt").read_text()
 
-    assert "faiss-cpu>=1.14.3" in requirements.splitlines()
+    pinned = [
+        line.strip()
+        for line in requirements.splitlines()
+        if line.strip().startswith("faiss-cpu")
+    ]
+    assert not pinned, f"requirements.txt 不应固定 faiss-cpu: {pinned}"
 
 
 def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
