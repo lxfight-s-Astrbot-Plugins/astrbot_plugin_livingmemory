@@ -7,6 +7,9 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "../../pages/dashboard/graph-2d.js"), "utf-8");
 const coreSource = readFileSync(join(here, "../../pages/dashboard/graph-layout-core.js"), "utf-8");
+const sharedSource = readFileSync(join(here, "../../pages/dashboard/graph-shared.js"), "utf-8");
+const rendererSource = readFileSync(join(here, "../../pages/dashboard/graph-renderer.js"), "utf-8");
+const interactionSource = readFileSync(join(here, "../../pages/dashboard/graph-interaction.js"), "utf-8");
 
 function makeCtx() {
   const gradient = { addColorStop() {} };
@@ -79,7 +82,13 @@ function loadGraph() {
   }
   global.ResizeObserver = Observer;
   global.MutationObserver = Observer;
+  (0, eval)(sharedSource);
+  global.GraphShared = global.window.GraphShared;
   (0, eval)(coreSource);
+  (0, eval)(rendererSource);
+  (0, eval)(interactionSource);
+  global.GraphRenderer = global.window.GraphRenderer;
+  global.GraphInteraction = global.window.GraphInteraction;
   (0, eval)(source);
   return rafQueue;
 }
