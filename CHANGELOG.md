@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [2.6.0-beta.3] - 2026-08-14
+
 ### 性能
 - **图谱渲染优化**: 选中节点聚焦只平移视口，不再重算整轮力布局；节点/边结构未变时复用布局缓存；空间网格改用数值键并跨迭代复用桶数组；中等及以上图（>60 节点）改为渐进式布局（分片迭代、边算边显示，不阻塞主线程）；空闲环境漂浮动画按图规模降帧渲染；边命中测试加 AABB 预过滤；背景点阵/网格缓存到离屏画布（平移只改 blit 偏移）；标签碰撞检测由 O(L²) 改为空间网格 O(L)；标签宽度 measureText 缓存；空闲时社区椭圆几何缓存（布局/视口变化自动失效）；缩小视图时边按 LOD 抽样绘制（高亮边始终完整）
 - **力布局移入 Web Worker**: 布局迭代在主线程外运行（消息协议分片回传位置），超大图不再占用主线程 CPU；Worker 不可用时自动回退主线程内联布局。力布局核心抽取为 `graph-layout-core.js` 共享模块（主线程与 Worker 单一数据源）
@@ -14,6 +16,7 @@
 ### 重构
 - **图谱前端模块化**: `graph-2d.js` 拆分——常量/工具（`graph-shared.js`）、Canvas 渲染器（`graph-renderer.js`）、交互（`graph-interaction.js`）、布局/动画/入口（`graph-2d.js`），各文件按需加载，便于维护
 - **WebUI 布局重构**: 修复组件相互遮挡——记忆页表格由硬编码 `calc(100vh - Npx)` 改为弹性布局（筛选栏固定、表格自动填满剩余高度并内部滚动，分页不再被挤出视口）；页头高度自适应（消除 112px 固定高度与大标题的溢出冲突）；图谱页由 `overflow: hidden` 改为可滚动，短窗口下工具栏/图例不再被裁剪或重叠；画布移除 `min-height: 400px` 与容器尺寸错位；图谱统计列改为紧凑并防溢出
+- **WebUI 死代码清理**: 移除约 45 个未使用的 CSS 类（`graph-tooltip`、旧评分明细 `result-scores`/`result-score-row-*`、旧类名 `session-id`/`backup-version`、`modal-*`、`skeleton`+shimmer 动画、`page-size-control`、`peek-*` 遗留类、`node-badge` 旧系列、`graph-node-*`、`card`/`card-title`、`flex-1`/`gap-*` 等工具类），以及从未被调用的 `renderBarChartItem`/`formatFileSize` 死方法；清理后全量校验无活动类遗漏
 
 ### 修复
 - **渐进式布局并发守卫**: 快速连续加载两张图时，旧布局链路会被代数守卫丢弃，避免双倍步进或提前结束布局
