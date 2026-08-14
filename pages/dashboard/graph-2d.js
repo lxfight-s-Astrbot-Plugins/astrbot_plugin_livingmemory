@@ -1528,6 +1528,12 @@
       this.stop();
       this._animProgress = 1;
       this._layoutGeneration += 1;
+      /* tier>0 时清空上一张图的边子集/社区束，避免渐进过程中画出过期边；
+         布局完成后由 _finishLayout 的 prepareGraph 统一重建。 */
+      if (this.renderer.performanceTier > 0) {
+        this.renderer._structuralEdges = [];
+        this.renderer._communityBundles = [];
+      }
       this._layout.begin(this._nodes, this._edges, centerId);
       this._progressiveLayout(centerId, this._layoutGeneration);
     } else {
