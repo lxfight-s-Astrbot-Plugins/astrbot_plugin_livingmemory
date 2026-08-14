@@ -1478,10 +1478,7 @@
   };
 
   Animator.prototype.recenter = function(centerId) {
-    if (this.renderer.performanceTier === 0) {
-      this.layoutGraph(centerId);
-      return;
-    }
+    /* 只移动视口复用现有布局，不再触发全量力布局重算（此前 tier 0 会重算）。 */
     this._layout.centerId = centerId == null ? null : centerId;
     if (centerId == null) {
       this.fitViewport({ centerId: null });
