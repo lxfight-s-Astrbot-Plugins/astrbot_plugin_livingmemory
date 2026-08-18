@@ -180,7 +180,7 @@ async def test_smoke_event_recall_injects_memory_into_prompt(tmp_path: Path):
         req = _make_request("who is alice?")
 
         with patch(
-            "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+            "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
             new_callable=AsyncMock,
         ) as get_persona:
             get_persona.return_value = PERSONA_ID

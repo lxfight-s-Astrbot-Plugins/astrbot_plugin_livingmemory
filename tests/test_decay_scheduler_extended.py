@@ -1,10 +1,8 @@
 """Extended tests for DecayScheduler to improve coverage."""
 
 import asyncio
-import json
 from datetime import datetime, timedelta
-from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from astrbot_plugin_livingmemory.core.schedulers.decay_scheduler import DecayScheduler

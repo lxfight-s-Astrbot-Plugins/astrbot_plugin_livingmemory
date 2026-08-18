@@ -1,10 +1,9 @@
 """Extended tests for core/utils/__init__.py to improve coverage."""
 
-import asyncio
 import json
 import time
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import pytz

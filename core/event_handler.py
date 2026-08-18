@@ -4,22 +4,15 @@
 """
 
 import asyncio
-import hashlib
 import re
-import time
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse, ProviderRequest
 
 from .base.config_manager import ConfigManager
-from .base.constants import (
-    FAKE_TOOL_CALL_ID_PREFIX,
-    MEMORY_INJECTION_FOOTER,
-    MEMORY_INJECTION_HEADER,
-)
+from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 from .event_handler_modules import (
     GroupCapture,
     MemoryRecall,
@@ -29,12 +22,6 @@ from .event_handler_modules import (
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
-from .utils import (
-    OperationContext,
-    format_memories_for_fake_tool_call,
-    format_memories_for_injection,
-    get_persona_id,
-)
 from .utils.injection_adapter import InjectionAdapter
 
 # 预编译记忆注入清理正则（热路径优化：避免每次调用 re.compile）

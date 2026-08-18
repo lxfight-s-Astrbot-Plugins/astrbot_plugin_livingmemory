@@ -420,6 +420,7 @@ class VectorRetriever:
         Returns:
             [(a, b, similarity), ...]，其中 a < b 且 similarity >= threshold，去重。
         """
+        from astrbot.api import logger as _logger
         import numpy as np
 
         unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
@@ -453,7 +454,7 @@ class VectorRetriever:
             try:
                 scores, indices = index.search(matrix, k + 1)
             except Exception as e:
-                logger.warning(f"[VectorRetriever] 批量向量检索失败: {e}")
+                _logger.warning(f"[VectorRetriever] 批量向量检索失败: {e}")
                 continue
             similarities = 1.0 - scores / 2.0
             for i, doc_id in enumerate(chunk_ids):

@@ -97,7 +97,7 @@ async def test_handle_memory_recall_reraises_cancelled_error() -> None:
     )
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -127,7 +127,7 @@ async def test_handle_memory_recall_awaits_async_get_message_str() -> None:
     event.get_message_str = get_message_str
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler.get_persona_id",
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
