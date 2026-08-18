@@ -3,7 +3,6 @@ IndexValidator 测试。
 """
 
 import asyncio
-import importlib.util
 import json
 import sqlite3
 import time
@@ -13,21 +12,7 @@ import faiss
 import numpy as np
 import pytest
 
-
-def _load_index_validator_module():
-    module_path = (
-        Path(__file__).resolve().parents[1] / "core/validators/index_validator.py"
-    )
-    spec = importlib.util.spec_from_file_location("index_validator_module", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"无法加载模块: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-index_validator_module = _load_index_validator_module()
-IndexValidator = index_validator_module.IndexValidator
+from astrbot_plugin_livingmemory.core.validators.index_validator import IndexValidator
 
 
 class _DummyTextProcessor:
@@ -201,7 +186,7 @@ async def test_embed_batch_splits_requests_and_waits_between_requests(monkeypatc
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr(index_validator_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
     provider = _DirectEmbeddingProvider()
     validator = IndexValidator(":memory:", faiss_db=None)
 
@@ -228,7 +213,7 @@ async def test_rate_limit_retry_uses_minimum_wait(monkeypatch):
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr(index_validator_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
     provider = _DirectEmbeddingProvider(fail_once=True)
     validator = IndexValidator(":memory:", faiss_db=None)
 

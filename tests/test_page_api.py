@@ -138,10 +138,12 @@ def _patch_page_request(req: MagicMock):
     import astrbot_plugin_livingmemory.core.page_api as mod
     import astrbot_plugin_livingmemory.core.page_api_modules.graph_handler as graph_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler as memory_mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io as memory_io_mod
+    import astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_update as memory_upd_mod
     import astrbot_plugin_livingmemory.core.page_api_modules.recall_handler as recall_mod
 
     # Patch all modules that use request
-    modules = [mod, memory_mod, recall_mod, graph_mod]
+    modules = [mod, memory_mod, memory_io_mod, memory_upd_mod, recall_mod, graph_mod]
     old_values = []
 
     for module in modules:

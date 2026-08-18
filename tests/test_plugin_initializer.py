@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import astrbot_plugin_livingmemory.core.plugin_initializer as plugin_initializer_mod
+import astrbot_plugin_livingmemory.core.plugin_initializer_faiss as faiss_mod
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.base.exceptions import InitializationError
@@ -79,7 +80,7 @@ def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
         stderr="Illegal instruction",
     )
     monkeypatch.setattr(
-        plugin_initializer_mod.subprocess, "run", Mock(return_value=result)
+        faiss_mod.subprocess, "run", Mock(return_value=result)
     )
 
     with pytest.raises(InitializationError, match="CPU 或运行环境可能不兼容"):
@@ -97,9 +98,9 @@ def test_check_faiss_runtime_reports_binding_mismatch(monkeypatch, initializer):
         ),
     )
     run = Mock(return_value=result)
-    monkeypatch.setattr(plugin_initializer_mod.subprocess, "run", run)
+    monkeypatch.setattr(faiss_mod.subprocess, "run", run)
     monkeypatch.setattr(
-        plugin_initializer_mod.metadata, "version", Mock(return_value="1.14.2")
+        faiss_mod.metadata, "version", Mock(return_value="1.14.2")
     )
 
     with pytest.raises(InitializationError) as exc_info:
@@ -119,12 +120,12 @@ def test_check_faiss_runtime_falls_back_to_generic(monkeypatch, initializer):
     )
     succeeded = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     run = Mock(side_effect=[failed, succeeded])
-    monkeypatch.setattr(plugin_initializer_mod.subprocess, "run", run)
+    monkeypatch.setattr(faiss_mod.subprocess, "run", run)
     monkeypatch.delenv("FAISS_OPT_LEVEL", raising=False)
 
     initializer._check_faiss_runtime()
 
-    assert plugin_initializer_mod.os.environ["FAISS_OPT_LEVEL"] == "generic"
+    assert faiss_mod.os.environ["FAISS_OPT_LEVEL"] == "generic"
     assert run.call_count == 2
     assert run.call_args_list[1].kwargs["env"]["FAISS_OPT_LEVEL"] == "generic"
 
@@ -145,7 +146,7 @@ def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
     class FakeFaissVecDB:
         pass
 
-    monkeypatch.setattr(plugin_initializer_mod, "FaissVecDB", FakeFaissVecDB)
+    monkeypatch.setattr(faiss_mod, "FaissVecDB", FakeFaissVecDB)
 
     assert initializer._load_faiss_vec_db_class() is FakeFaissVecDB
 
@@ -388,39 +389,39 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
         DummyEmbeddingProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.Provider",
         DummyProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.FaissVecDB",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_faiss.FaissVecDB",
         FakeFaissVecDB,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.DBMigration",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DBMigration",
         FakeDBMigration,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryEngine",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryEngine",
         FakeMemoryEngine,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationStore",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationStore",
         FakeConversationStore,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationManager",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationManager",
         FakeConversationManager,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryProcessor",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryProcessor",
         FakeMemoryProcessor,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.IndexValidator",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.IndexValidator",
         FakeIndexValidator,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.DecayScheduler",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DecayScheduler",
         FakeDecayScheduler,
     )
 
@@ -550,39 +551,39 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
         DummyEmbeddingProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.Provider",
         DummyProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.FaissVecDB",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_faiss.FaissVecDB",
         FakeFaissVecDB,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.DBMigration",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DBMigration",
         FakeDBMigration,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryEngine",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryEngine",
         FakeMemoryEngine,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationStore",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationStore",
         FakeConversationStore,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationManager",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationManager",
         FakeConversationManager,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryProcessor",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryProcessor",
         FakeMemoryProcessor,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.IndexValidator",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.IndexValidator",
         FakeIndexValidator,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer.DecayScheduler",
+        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DecayScheduler",
         FakeDecayScheduler,
     )
 
