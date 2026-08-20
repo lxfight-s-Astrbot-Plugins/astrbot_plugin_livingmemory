@@ -257,6 +257,13 @@
                 "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。",
                 "type": "int",
                 "default": 60
+            },
+            "fts_tokenizer": {
+              "description": "FTS5分词器",
+              "hint": "unicode61=默认，配合jieba预分词，词级检索；trigram=原文子串级检索（查询≥3字符生效），免分词依赖，索引内容与原文一致便于调试。需SQLite 3.34.0+（不满足自动降级unicode61）。切换后首次初始化自动重建索引。",
+              "type": "string",
+              "default": "unicode61",
+              "options": ["unicode61", "trigram"]
             }
         }
     },
