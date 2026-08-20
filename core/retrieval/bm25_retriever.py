@@ -56,6 +56,32 @@ class BM25Retriever:
         self.fts_table = "livingmemory_memories_fts"
         self.doc_table = "documents"
 
+        # FTS5分词器选择: unicode61(默认,配合TextProcessor预分词) 或 trigram(原文子串级匹配)
+        # trigram需要SQLite 3.34.0+(2020-12发布),不满足时自动降级unicode61
+        self.tokenizer = self.config.get("fts_tokenizer", "unicode61")
+        if self.tokenizer == "trigram":
+            import sqlite3 as _sqlite3
+
+            if _sqlite3.sqlite_version_info < (3, 34, 0):
+                from astrbot.api import logger
+
+                logger.warning(
+                    f"SQLite {_sqlite3.sqlite_version} < 3.34.0 不支持trigram分词器,FTS5降级为unicode61"
+                )
+                self.tokenizer = "unicode61"
+
+    async def _process_content(self, content: str) -> str:
+        """根据分词器模式预处理待索引文本。
+
+        unicode61模式: TextProcessor中文分词+停用词过滤,空格连接(原行为)
+        trigram模式: 原文直接入索引,由trigram滑窗实现子串级匹配,
+                     免分词依赖且索引内容与原文一致便于调试
+        """
+        if self.tokenizer == "trigram":
+            return content
+        tokens = await self.text_processor.tokenize_async(content, remove_stopwords=True)
+        return " ".join(tokens)
+
     @asynccontextmanager
     async def _connect(self):
         """创建新的SQLite连接并启用WAL模式和busy_timeout。"""
@@ -76,15 +102,41 @@ class BM25Retriever:
         """
         async with self._connect() as db:
             await self._warn_if_legacy_documents_fts_exists(db)
+
+            # 分词器变更检测: 已有表的tokenize与配置不符时重建(如unicode61切换到trigram)
+            need_rebuild = False
+            cursor = await db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (self.fts_table,),
+            )
+            row = await cursor.fetchone()
+            if row and row[0] and f"tokenize='{self.tokenizer}'" not in row[0]:
+                await db.execute(f"DROP TABLE {self.fts_table}")
+                need_rebuild = True
+
             # 创建FTS5虚拟表
             await db.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table}
                 USING fts5(
                     content,
                     doc_id UNINDEXED,
-                    tokenize='unicode61'
+                    tokenize='{self.tokenizer}'
                 )
             """)
+
+            if need_rebuild:
+                # 从documents表全量重灌(批量,单事务)
+                cursor = await db.execute(f"SELECT id, text FROM {self.doc_table}")
+                docs = await cursor.fetchall()
+                processed = [(doc_id, await self._process_content(text)) for doc_id, text in docs]
+                await db.executemany(
+                    f"INSERT INTO {self.fts_table}(doc_id, content) VALUES (?, ?)",
+                    processed,
+                )
+                from astrbot.api import logger
+
+                logger.info(f"[BM25] 分词器切换为{self.tokenizer}, 索引重建完成, 共重灌{len(processed)}条")
+
             await db.commit()
 
     async def _warn_if_legacy_documents_fts_exists(self, db: aiosqlite.Connection):
@@ -128,11 +180,8 @@ class BM25Retriever:
             content: 文档内容(原始文本)
             metadata: 文档元数据(可选,用于过滤但不索引)
         """
-        # 使用TextProcessor预处理文本（异步卸载 jieba 分词到线程池）
-        tokens = await self.text_processor.tokenize_async(
-            content, remove_stopwords=True
-        )
-        processed_content = " ".join(tokens)
+        # 预处理文本（按分词器模式；unicode61时异步卸载 jieba 分词到线程池）
+        processed_content = await self._process_content(content)
 
         async with self._connect() as db:
             # 插入到FTS表
@@ -164,21 +213,30 @@ class BM25Retriever:
         if not query or not query.strip():
             return []
 
-        # 预处理查询（异步卸载 jieba 分词到线程池）
-        tokens = await self.text_processor.tokenize_async(query, remove_stopwords=True)
-        if not tokens:
-            return []
+        if self.tokenizer == "trigram":
+            # trigram模式: 查询原文直接做子串匹配
+            # 少于3个字符无法构成trigram(建议此时依赖向量检索兜底)
+            stripped = query.strip()
+            if len(stripped) < 3:
+                return []
+            # 转义为FTS5字符串字面量: 双写引号防止unterminated string错误
+            fts_query = '"' + stripped.replace('"', '""') + '"'
+        else:
+            # 预处理查询（异步卸载 jieba 分词到线程池）
+            tokens = await self.text_processor.tokenize_async(query, remove_stopwords=True)
+            if not tokens:
+                return []
 
-        # 构建FTS5查询: 使用OR连接多个token,提高召回率
-        # 转义特殊字符
-        escaped_tokens = []
-        for token in tokens:
-            # 转义FTS5特殊字符
-            escaped = token.replace('"', '""')
-            escaped_tokens.append(f'"{escaped}"')
+            # 构建FTS5查询: 使用OR连接多个token,提高召回率
+            # 转义特殊字符
+            escaped_tokens = []
+            for token in tokens:
+                # 转义FTS5特殊字符
+                escaped = token.replace('"', '""')
+                escaped_tokens.append(f'"{escaped}"')
 
-        # 使用OR连接所有token
-        fts_query = " OR ".join(escaped_tokens)
+            # 使用OR连接所有token
+            fts_query = " OR ".join(escaped_tokens)
 
         # 有过滤条件时大幅增加预取量，避免过滤后结果不足
         # Python 层过滤（BM25）比 FAISS 内部过滤损耗更大，需要更多候选
@@ -316,11 +374,8 @@ class BM25Retriever:
         from astrbot.api import logger
 
         try:
-            # 重新处理内容（异步卸载 jieba 分词到线程池）
-            tokens = await self.text_processor.tokenize_async(
-                content, remove_stopwords=True
-            )
-            processed_content = " ".join(tokens)
+            # 重新处理内容（按分词器模式）
+            processed_content = await self._process_content(content)
 
             async with self._connect() as db:
                 # 先删除旧索引
