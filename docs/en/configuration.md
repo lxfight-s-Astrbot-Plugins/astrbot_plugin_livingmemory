@@ -2,6 +2,9 @@
 
 LivingMemory defaults work for most users. The settings you usually need to touch are model providers, recall size, memory isolation, graph retrieval, backup, and cleanup.
 
+> [!NOTE]
+> Every numeric config item has a hard allowed range, shown on the AstrBot config page as a slider plus number field and in the tables below. Out-of-range values are clamped to the nearest bound on plugin load (invalid values fall back to that item's default), each fix is logged as a warning and written back to the config file — a single bad value no longer resets the whole config to defaults.
+
 ## Recommended profiles
 
 | Scenario | Recommendation |
