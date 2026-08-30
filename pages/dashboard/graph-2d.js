@@ -281,7 +281,7 @@
     }
   };
 
-  /* 渐进式布局主循环：每帧跑一批迭代并渲染当前状态。
+  /* 渐进式布局主循环：每帧跑一批迭代。
      Worker 布局的 runLayoutSteps 返回 Promise，等消息回包后继续；
      内联布局同步执行，await 立即放行。 */
   Animator.prototype._progressiveLayout = async function(centerId, generation) {
@@ -292,7 +292,11 @@
     if (generation !== this._layoutGeneration) return;
     this._applyLayoutPositions();
     if (!this._layout._done) {
-      this._renderFrame();
+      /* 收敛前不渲染中间态：渐进阶段位置尚未稳定，在旧视口里逐帧
+         重绘会让整幅图「抽搐/缩放抖动」（#248）。完成时由
+         _finishLayout 一次性绘制并适配视口。 */
+      this.renderer.clear();
+      this._needsRender = true;
       requestAnimationFrame(function() {
         self._progressiveLayout(centerId, generation);
       });
