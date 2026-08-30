@@ -71,10 +71,14 @@ def test_memory_transfer_controls_use_lucide_and_preview_before_import() -> None
     assert "dry_run: false" in memory_page
 
 
-def test_graph_dashboard_requests_full_overview_and_expanded_queries() -> None:
+def test_graph_dashboard_defaults_to_limited_overview_and_expanded_queries() -> None:
     graph_ui = (DASHBOARD / "graph-ui.js").read_text(encoding="utf-8")
 
-    assert 'full_graph: "true"' in graph_ui
+    # 默认（ensureGraphScene / 空检索）走受限概览，不传 full_graph（#248）
+    assert "fetchOverview(false)" in graph_ui
+    # 「全量图谱」按钮显式加载全量图（#248）
+    assert "fetchOverview(true)" in graph_ui
+    assert 'params.set("full_graph", "true")' in graph_ui
     assert "limit_memories: 24" in graph_ui
     assert "limit_entries: 80" in graph_ui
     assert "limit_nodes: 80" in graph_ui

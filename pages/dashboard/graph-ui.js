@@ -106,7 +106,8 @@
 
     dom.searchButton.addEventListener("click", runQuery);
     dom.focusButton.addEventListener("click", focusMemory);
-    dom.overviewButton.addEventListener("click", fetchOverview);
+    /* 全量图仅在用户显式点击「全量图谱」按钮时加载（#248）。 */
+    dom.overviewButton.addEventListener("click", function() { fetchOverview(true); });
 
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }
@@ -150,7 +151,9 @@
 
   /* Expose for app.js lazy-load */
   window.ensureGraphScene = function() {
-    if (!state.hasLoadedOverview && !state.isLoading) fetchOverview();
+    /* 页面默认加载受限概览（最近记忆子图，节点/边受后端上限约束），
+       避免一次性绘制全量节点与关系造成视觉毛团（#248）。 */
+    if (!state.hasLoadedOverview && !state.isLoading) fetchOverview(false);
   };
 
   /* ================================================================
@@ -176,12 +179,13 @@
     return target;
   }
 
-  async function fetchOverview() {
+  async function fetchOverview(fullGraph) {
     setLoading(true);
     setCanvasMessage(window.t("graph.loadingOverview"), true);
     try {
       var filters = getFilters();
-      var params = new URLSearchParams({ full_graph: "true" });
+      var params = new URLSearchParams();
+      if (fullGraph) params.set("full_graph", "true");
       if (filters.session_id) params.set("session_id", filters.session_id);
       var qs = params.toString();
       var payload = await requestGraph("/graph/overview" + (qs ? "?" + qs : ""));
@@ -197,7 +201,7 @@
 
   async function runQuery() {
     var query = dom.queryInput.value.trim();
-    if (!query) { fetchOverview(); return; }
+    if (!query) { fetchOverview(false); return; }
 
     setLoading(true);
     setCanvasMessage(window.t("graph.loadingQuery", query), true);

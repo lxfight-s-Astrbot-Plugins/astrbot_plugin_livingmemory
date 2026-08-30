@@ -18,6 +18,35 @@
   var Interaction = GraphInteraction;
 
   /* ================================================================
+     Canvas label compaction（#248）
+     事实节点标签通常是「人物名 + 日期 + 内容」的完整句子，画布上
+     只保留内容短摘要，完整标签仍由 payload / 详情面板提供。
+     ================================================================ */
+  var FACT_DATE_PREFIX_RE = new RegExp(
+    "^(?:" +
+      "\\d{4}[-年/.]\\d{1,2}[-月/.日]\\d{1,2}日?" + // 2026-08-14 / 2026年8月14日 / 2026/8/14
+      "|\\d{1,2}月\\d{1,2}日" +                       // 8月14日
+      "|今天|昨天|前天|今晚|昨晚|刚才" +
+      ")\\s*"
+  );
+
+  function compactFactLabel(label, personNames) {
+    var text = String(label || "").trim();
+    if (!text) return text;
+    /* 剥离开头的「人物名 + 空格」前缀（最多 2 个，适配多人事实）。 */
+    var stripped = 0;
+    for (var i = 0; i < personNames.length && stripped < 2; i++) {
+      var prefix = personNames[i] + " ";
+      if (text.indexOf(prefix) === 0) {
+        text = text.substring(prefix.length).trim();
+        stripped++;
+      }
+    }
+    text = text.replace(FACT_DATE_PREFIX_RE, "");
+    return text || String(label || "").trim();
+  }
+
+  /* ================================================================
      ForceDirectedLayout — 力导向布局（实现见 graph-layout-core.js，
      主线程与 Web Worker 共用）。此处仅保留薄工厂，接口与旧实现一致。
      ================================================================ */
@@ -498,6 +527,14 @@
     var rawNodes = snapshot.nodes || [];
     var rawEdges = snapshot.edges || [];
 
+    /* 画布显示的 fact 标签去掉「人物名 + 日期时间」前缀（#248），
+       完整内容保留在 payload / 详情面板；仅对 fact 节点生效。 */
+    var personNames = [];
+    rawNodes.forEach(function(node) {
+      if (node.type === "person" && node.label) personNames.push(String(node.label));
+    });
+    personNames.sort(function(a, b) { return b.length - a.length; });
+
     /* Convert to internal format */
     var seenIds = {};
     var nodes = [];
@@ -507,7 +544,9 @@
       seenIds[id] = true;
       nodes.push({
         id: id, type: node.type || "other",
-        label: node.label || node.canonical_value || "Node",
+        label: node.type === "fact"
+          ? compactFactLabel(node.label || node.canonical_value || "Fact", personNames)
+          : (node.label || node.canonical_value || "Node"),
         canonicalValue: node.canonical_value || "",
         x: 0, y: 0, _prevX: null, _prevY: null, fixed: false,
         weight: Number(node.weight || 0),

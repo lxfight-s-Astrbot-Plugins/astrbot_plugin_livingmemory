@@ -184,6 +184,35 @@ test("large graph layout completes via progressive stepping", async () => {
   assert.equal(Object.keys(g.animator._layout.positions).length, 300);
 });
 
+test("fact node canvas labels strip person name and date prefixes", async () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  const nodes = [
+    { id: 1, type: "person", label: "人物A", weight: 10, degree: 30 },
+    { id: 2, type: "person", label: "人物B", weight: 10, degree: 30 },
+    { id: 3, type: "fact", label: "人物A 2026-08-14 深夜聊天时被催促去睡觉", weight: 1 },
+    { id: 4, type: "fact", label: "人物A 人物B 2026年8月15日 一起看了电影", weight: 1 },
+    { id: 5, type: "fact", label: "今天下雨了", weight: 1 },
+    { id: 6, type: "fact", label: "人物A 喜欢喝咖啡", weight: 1 },
+    { id: 7, type: "topic", label: "人物A 的喜好", weight: 1 },
+  ];
+  g.loadData({ enabled: true, mode: "query", snapshot: { nodes, edges: [] } });
+
+  const byId = {};
+  g._nodes.forEach(function(n) { byId[n.id] = n; });
+  /* person 节点标签保持不变。 */
+  assert.equal(byId[1].label, "人物A");
+  /* fact 标签去掉人物名与日期时间前缀（#248）。 */
+  assert.equal(byId[3].label, "深夜聊天时被催促去睡觉");
+  assert.equal(byId[4].label, "一起看了电影");
+  assert.equal(byId[5].label, "下雨了");
+  assert.equal(byId[6].label, "喜欢喝咖啡");
+  /* 非 fact 节点不做剥离。 */
+  assert.equal(byId[7].label, "人物A 的喜好");
+});
+
 test("identical graph structure reuses cached layout", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
