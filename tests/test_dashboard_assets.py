@@ -103,6 +103,15 @@ def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
     assert "Graph2D.prototype.getDiagnostics" in graph_2d
 
 
+def test_graph_canvas_state_keeps_tooltip_inside_container() -> None:
+    art = (DASHBOARD / "art-direction.css").read_text(encoding="utf-8")
+
+    # art-direction 将画布提示移到左上角（top/left 16px），必须重置 styles.css
+    # 的居中 translate，否则提示框会以「左上角 -50% 宽/高」定位被容器裁剪。
+    assert ".graph-canvas-state" in art
+    assert "transform: none" in art
+
+
 def test_dashboard_hides_inactive_panels_from_keyboard_navigation() -> None:
     index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
     peek_panel = (DASHBOARD / "modules" / "peek-panel.js").read_text(
