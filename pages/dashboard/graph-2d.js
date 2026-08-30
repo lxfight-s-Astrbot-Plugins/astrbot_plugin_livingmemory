@@ -154,6 +154,10 @@
     this._instantLayout = false;
     this._layoutGeneration = 0; // 渐进式布局代数守卫
     this._lastLayoutSignature = null;
+    /* 布局结果多槽缓存：signature → {positions, rings, communities}，
+       限制 3 项（受限概览 / 全量图 / 最近一次查询 足够来回切换）。 */
+    this._layoutCache = {};
+    this._layoutCacheOrder = [];
   }
 
   /* 优先使用 Web Worker 布局；不可用时回退到主线程内联布局。 */
@@ -250,8 +254,24 @@
       n._prevX = n.x;
       n._prevY = n.y;
     });
-    /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。 */
+    /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。
+       多槽记忆（按图签名）——受限概览 ↔ 全量图来回切换时，已算过的图
+       直接应用上次布局，不需要重新布局（#248 演示反馈）。 */
     var signature = this._graphSignature();
+    var cached = this._layoutCache[signature];
+    if (cached) {
+      /* 代数守卫+1：丢弃可能仍在跑的渐进布局链路（避免旧链路回包
+         覆盖刚注入的缓存位置）。 */
+      this._layoutGeneration += 1;
+      this._layout.positions = cached.positions;
+      this._layout.rings = cached.rings;
+      this._layout.communities = cached.communities;
+      this._layout._done = true;
+      if (centerId != null) this._layout.centerId = centerId;
+      this._lastLayoutSignature = signature;
+      this._finishLayout(centerId, true);
+      return;
+    }
     if (signature === this._lastLayoutSignature && this._layout._done) {
       if (centerId != null) this._layout.centerId = centerId;
       this._finishLayout(centerId, true);
@@ -279,6 +299,26 @@
       this._layout.begin(this._nodes, this._edges, centerId);
       this._progressiveLayout(centerId, this._layoutGeneration);
     }
+  };
+
+  Animator.prototype._rememberLayout = function() {
+    var signature = this._lastLayoutSignature;
+    if (!signature) return;
+    var layout = this._layout;
+    if (!layout._done || !layout.positions) return;
+    var entry = {
+      positions: layout.positions,
+      rings: layout.rings,
+      communities: layout.communities,
+      done: true,
+    };
+    if (this._layoutCache[signature] === undefined) {
+      this._layoutCacheOrder.push(signature);
+      if (this._layoutCacheOrder.length > 3) {
+        delete this._layoutCache[this._layoutCacheOrder.shift()];
+      }
+    }
+    this._layoutCache[signature] = entry;
   };
 
   /* 渐进式布局主循环：每帧跑一批迭代。
@@ -331,6 +371,8 @@
 
   Animator.prototype._finishLayout = function(centerId, immediate) {
     var self = this;
+    /* 记住本次布局结果（受限/全量切换时直接复用，免重新布局）。 */
+    this._rememberLayout();
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
     this._animProgress = (immediate || this._instantLayout) ? 1 : 0;
@@ -383,6 +425,17 @@
   Animator.prototype._tick = function() {
     if (!this._running) return;
     this._rafId = null;
+
+    /* 布局未收敛（渐进 / Worker 布局进行中）：不渲染中间态、不做环境
+       漂浮——此阶段 layout targets 尚为空，漂浮会把节点向原点拉扯并与
+       模拟位置互相覆写，整幅图表现为持续抽搐（#248）。渲染与视口适配
+       由 _finishLayout 在收敛后统一完成。 */
+    if (!this._layout._done) {
+      this._needsRender = true;
+      var self = this;
+      this._rafId = requestAnimationFrame(function() { self._tick(); });
+      return;
+    }
 
     /* Animate positions toward layout targets */
     var dirty = this._needsRender;

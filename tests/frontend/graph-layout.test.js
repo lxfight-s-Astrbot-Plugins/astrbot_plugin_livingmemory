@@ -339,6 +339,56 @@ test("small graph completes with worker layout via progressive steps", async () 
   assert.equal(Object.keys(g.animator._layout.positions).length, 50);
 });
 
+test("progressive layout does not render unstable intermediate states", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  let renders = 0;
+  const renderer = g.renderer;
+  const orig = renderer.render.bind(renderer);
+  renderer.render = function () { renders += 1; return orig.apply(renderer, arguments); };
+
+  g.loadData(makePayload(300, 299));
+
+  /* 渐进期间推几帧：布局未完时不得渲染中间态（此前 _tick 的漂浮/渲染会
+     在旧视口里重绘乱动的节点，整幅图表现为抽搐——#248 演示反馈）。 */
+  for (let i = 0; i < 8; i++) {
+    flushRaf(rafQueue);
+    await Promise.resolve();
+  }
+  assert.equal(g.animator._layout._done, false, "前置：布局尚未完成");
+  assert.equal(renders, 0, "渐进期间不应渲染中间态");
+
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+  assert.ok(renders > 0, "布局完成后应开始渲染");
+});
+
+test("switching back to a previously loaded graph reuses cached layout instantly", async () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  const small = makePayload(60, 59);
+  const large = makePayload(200, 199);
+
+  g.loadData(small);
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+
+  g.loadData(large);
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+
+  /* 切回小图：应立即命中多槽布局缓存，无需重新布局（#248 反馈）。 */
+  g.loadData(small);
+  assert.equal(g.animator._layout._done, true, "切换回已加载的图应直接复用布局");
+  assert.equal(Object.keys(g.animator._layout.positions).length, 60);
+  await settle(rafQueue);
+});
+
 test("worker layout completes via fake worker round trip", async () => {
   const rafQueue = loadGraph();
   installFakeWorker();
