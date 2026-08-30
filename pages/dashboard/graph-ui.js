@@ -302,8 +302,19 @@
 
     /* Delegate to Graph2D renderer */
     if (state.isGraphReady) {
-      window.Graph2D.loadData(payload);
-      setCanvasMessage(hasGraphData ? "" : window.t("graph.canvasEmpty"), false);
+      if (hasGraphData) {
+        /* 布局期间显示「正在生成图谱布局…」，完成后由回调清除（#248）。 */
+        setCanvasMessage(window.t("graph.layouting"), true);
+      } else {
+        setCanvasMessage(window.t("graph.canvasEmpty"), false);
+      }
+      window.Graph2D.loadData(payload, {
+        onLayoutDone: function() {
+          if (state.graphIndex && state.graphIndex.nodeMap.size > 0) {
+            setCanvasMessage("", false);
+          }
+        },
+      });
     }
 
     /* Auto-select based on payload mode */

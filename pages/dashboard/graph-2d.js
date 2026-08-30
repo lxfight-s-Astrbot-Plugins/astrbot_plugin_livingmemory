@@ -154,6 +154,9 @@
     this._instantLayout = false;
     this._layoutGeneration = 0; // 渐进式布局代数守卫
     this._lastLayoutSignature = null;
+    /* 布局完成回调（由 Graph2D.loadData 注入）：让 UI 在布局期间显示
+       「正在生成图谱布局…」提示并在完成后清除（白屏替代）。 */
+    this._onLayoutDone = null;
     /* 布局结果多槽缓存：signature → {positions, rings, communities}，
        限制 3 项（受限概览 / 全量图 / 最近一次查询 足够来回切换）。 */
     this._layoutCache = {};
@@ -388,6 +391,9 @@
     }
     this._needsRender = true;
     this.start();
+    if (this._onLayoutDone) {
+      try { this._onLayoutDone(); } catch (err) { /* 回调异常不影响布局 */ }
+    }
   };
 
   Animator.prototype._renderFrame = function() {
@@ -581,7 +587,8 @@
     this._initialized = true;
   };
 
-  Graph2D.prototype.loadData = function(payload) {
+  Graph2D.prototype.loadData = function(payload, options) {
+    options = options || {};
     var snapshot = payload.snapshot || {};
     var rawNodes = snapshot.nodes || [];
     var rawEdges = snapshot.edges || [];
@@ -664,6 +671,7 @@
     }
 
     /* Apply centered force layout with animation */
+    this.animator._onLayoutDone = options.onLayoutDone || null;
     this.animator.layoutGraph(centerId);
 
     this.animator.wake();

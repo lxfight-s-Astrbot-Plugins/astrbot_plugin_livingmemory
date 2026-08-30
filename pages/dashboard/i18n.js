@@ -308,6 +308,7 @@
 
     /* ---- Graph Loading ---- */
     "graph.loadingOverview":{ zh: "正在加载图谱概览...", en: "Loading graph overview...", ru: "Загрузка обзора графа..." },
+    "graph.layouting":    { zh: "正在生成图谱布局...", en: "Preparing graph layout...", ru: "Подготовка макета графа..." },
     "graph.loadingQuery": { zh: "正在检索\"{0}\"相关图谱...", en: "Retrieving graph for \"{0}\"...", ru: "Поиск графа для \"{0}\"..." },
     "graph.loadingFocus": { zh: "正在聚焦记忆 #{0} 的关系图...", en: "Focusing on relation graph of memory #{0}...", ru: "Фокус на графе связей памяти #{0}..." },
     "graph.loadingGeneric":{ zh: "图谱载入中...", en: "Loading graph...", ru: "Загрузка графа..." },
