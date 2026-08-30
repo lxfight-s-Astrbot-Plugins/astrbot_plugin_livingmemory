@@ -239,6 +239,7 @@
     "graph.searchBtn":    { zh: "检索图谱", en: "Search Graph", ru: "Искать в графе" },
     "graph.focusBtn":     { zh: "定位记忆", en: "Focus Memory", ru: "Фокус памяти" },
     "graph.overviewBtn":  { zh: "全量图谱", en: "Full Graph", ru: "Весь граф" },
+    "graph.limitedBtn":   { zh: "受限概览", en: "Limited View", ru: "Ограниченный обзор" },
 
     /* ---- Graph Stats ---- */
     "graph.visibleNodes": { zh: "可视节点", en: "Visible Nodes", ru: "Видимых узлов" },

@@ -14,6 +14,7 @@
     isLoading: false,
     hasLoadedOverview: false,
     isGraphReady: false,
+    overviewMode: null, /* "limited" | "full" | null */
   };
 
   const EXPANDED_GRAPH_LIMITS = {
@@ -106,8 +107,11 @@
 
     dom.searchButton.addEventListener("click", runQuery);
     dom.focusButton.addEventListener("click", focusMemory);
-    /* 全量图仅在用户显式点击「全量图谱」按钮时加载（#248）。 */
-    dom.overviewButton.addEventListener("click", function() { fetchOverview(true); });
+    /* 「全量图谱」按钮可来回切换：受限概览 ↔ 全量图（#248）。 */
+    dom.overviewButton.addEventListener("click", function() {
+      fetchOverview(state.overviewMode !== "full");
+    });
+    setOverviewButtonLabel();
 
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }
@@ -140,6 +144,7 @@
 
     window.addEventListener("languagechange", function() {
       initLabels();
+      setOverviewButtonLabel();
       if (state.payload) renderLegend(state.payload);
       if (!state.payload && dom.canvasState && dom.canvasState.textContent) {
         setCanvasMessage(window.t("graph.canvasDefault"), false);
@@ -190,6 +195,8 @@
       var qs = params.toString();
       var payload = await requestGraph("/graph/overview" + (qs ? "?" + qs : ""));
       state.hasLoadedOverview = true;
+      state.overviewMode = fullGraph ? "full" : "limited";
+      setOverviewButtonLabel();
       renderPayload(payload, true);
       if (window.lmFetchGraphStats) window.lmFetchGraphStats();
     } catch (e) {
@@ -197,6 +204,19 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  /* 按当前模式切换按钮文案（全量图谱 ↔ 受限概览），并同步 data-i18n
+     供语言切换时重渲染。 */
+  function setOverviewButtonLabel() {
+    if (!dom.overviewButton) return;
+    var key = state.overviewMode === "full" ? "graph.limitedBtn" : "graph.overviewBtn";
+    var label = dom.overviewButton.querySelector ? dom.overviewButton.querySelector("span") : null;
+    if (label) {
+      label.setAttribute("data-i18n", key);
+      label.textContent = window.t(key);
+    }
+    dom.overviewButton.setAttribute("data-i18n-aria", key);
   }
 
   async function runQuery() {

@@ -260,8 +260,13 @@
     this._lastLayoutSignature = signature;
 
     /* 中等及以上图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。
-       支持 Worker 布局（异步消息驱动）与内联布局（同步分片）两种实现。 */
-    if (this._nodes.length > CFG.PROGRESSIVE_LAYOUT_THRESHOLD) {
+       支持 Worker 布局（异步消息驱动）与内联布局（同步分片）两种实现。
+       小图仅在「主线程内联布局」时走同步路径——Worker 布局的 compute()
+       只发送 begin，若不发 step 永远不会回传位置（节点会堆在原点）。 */
+    if (this._nodes.length <= CFG.PROGRESSIVE_LAYOUT_THRESHOLD && !this._layout.isWorker) {
+      this._layout.compute(this._nodes, this._edges, centerId);
+      this._finishLayout(centerId);
+    } else {
       this.stop();
       this._animProgress = 1;
       this._layoutGeneration += 1;
@@ -273,9 +278,6 @@
       }
       this._layout.begin(this._nodes, this._edges, centerId);
       this._progressiveLayout(centerId, this._layoutGeneration);
-    } else {
-      this._layout.compute(this._nodes, this._edges, centerId);
-      this._finishLayout(centerId);
     }
   };
 

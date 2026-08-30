@@ -11,6 +11,7 @@ const uiSource = readFileSync(join(here, "../../pages/dashboard/graph-ui.js"), "
 class FakeElement {
   constructor() {
     this._listeners = {};
+    this._attrs = {};
     this.value = "";
     this.textContent = "";
     this.style = {};
@@ -23,6 +24,16 @@ class FakeElement {
   }
   trigger(type) {
     (this._listeners[type] || []).forEach((cb) => cb({ preventDefault() {} }));
+  }
+  setAttribute(name, value) {
+    this._attrs[name] = value;
+  }
+  getAttribute(name) {
+    return this._attrs[name];
+  }
+  querySelector() {
+    if (!this._span) this._span = new FakeElement();
+    return this._span;
   }
 }
 
@@ -85,11 +96,18 @@ test("ensureGraphScene loads the constrained overview without full_graph", async
   assert.equal(calls[0].params.full_graph, undefined, "默认概览不应传 full_graph");
 });
 
-test("overview button explicitly requests the full graph", async () => {
+test("overview button toggles between full graph and limited view", async () => {
   const { calls, elements } = loadGraphUi();
-  elements["graph-overview-btn"].trigger("click");
-  await flushMicrotasks();
+  const btn = elements["graph-overview-btn"];
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].params.full_graph, "true", "«全量图谱»按钮应显式传 full_graph=true");
+  btn.trigger("click");
+  await flushMicrotasks();
+  assert.equal(calls[0].params.full_graph, "true", "第一次点击应显式请求全量图");
+  assert.equal(btn.getAttribute("data-i18n-aria"), "graph.limitedBtn", "全量模式下按钮应显示「受限概览」");
+
+  btn.trigger("click");
+  await flushMicrotasks();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].params.full_graph, undefined, "再点一次应切回受限概览（不传 full_graph）");
+  assert.equal(btn.getAttribute("data-i18n-aria"), "graph.overviewBtn", "受限模式下按钮应显示「全量图谱」");
 });

@@ -320,6 +320,25 @@ function installFakeWorker() {
   };
 }
 
+test("small graph completes with worker layout via progressive steps", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  assert.equal(g.animator._layout.isWorker, true, "Worker 布局应被启用");
+
+  /* ≤60 节点的小图在 Worker 布局下也必须真正跑完：此前同步分支只发
+     begin 消息，位置永远不回传，导致所有节点堆在原点（#248 演示发现）。 */
+  const payload = makePayload(50, 49);
+  g.loadData(payload);
+  await settle(rafQueue);
+
+  assert.equal(g._nodes.length, 50);
+  assert.equal(g.animator._layout._done, true);
+  assert.equal(Object.keys(g.animator._layout.positions).length, 50);
+});
+
 test("worker layout completes via fake worker round trip", async () => {
   const rafQueue = loadGraph();
   installFakeWorker();

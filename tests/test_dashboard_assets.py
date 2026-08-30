@@ -76,8 +76,8 @@ def test_graph_dashboard_defaults_to_limited_overview_and_expanded_queries() -> 
 
     # 默认（ensureGraphScene / 空检索）走受限概览，不传 full_graph（#248）
     assert "fetchOverview(false)" in graph_ui
-    # 「全量图谱」按钮显式加载全量图（#248）
-    assert "fetchOverview(true)" in graph_ui
+    # 「全量图谱」按钮可来回切换受限概览 ↔ 全量图（#248）
+    assert 'fetchOverview(state.overviewMode !== "full")' in graph_ui
     assert 'params.set("full_graph", "true")' in graph_ui
     assert "limit_memories: 24" in graph_ui
     assert "limit_entries: 80" in graph_ui
