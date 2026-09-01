@@ -1,6 +1,6 @@
 """
 配置管理器
-集中管理插件配置的加载、验证和访问
+集中管理插件配置的加载、验证、修正和访问
 """
 
 from typing import Any
@@ -10,6 +10,7 @@ from astrbot.api import logger
 from .config_validator import (
     get_default_config,
     merge_config_with_defaults,
+    normalize_config,
     validate_config,
 )
 from .exceptions import ConfigurationError
@@ -31,10 +32,13 @@ class ConfigManager:
         self._load_config()
 
     def _load_config(self) -> None:
-        """加载并验证配置"""
+        """加载、修正并验证配置"""
+        corrections: list[dict[str, Any]] = []
         try:
             # 合并默认配置
             merged_config = merge_config_with_defaults(self._raw_config)
+            # 逐项修正超出允许范围的值（AstrBot 保存时只校验类型不校验范围）
+            merged_config, corrections = normalize_config(merged_config)
             # 验证配置
             self._config_obj = validate_config(merged_config)
             self._config = self._config_obj.model_dump()
@@ -46,6 +50,38 @@ class ConfigManager:
                 self._config_obj = validate_config(self._config)
             except Exception as e2:
                 raise ConfigurationError(f"加载默认配置失败: {e2}") from e2
+
+        if corrections:
+            for item in corrections:
+                logger.warning(
+                    "配置项已自动修正 %s: %r -> %r (%s)",
+                    item["path"],
+                    item["old"],
+                    item["new"],
+                    item.get("reason", ""),
+                )
+            self._persist_normalized_config(corrections)
+
+    def _persist_normalized_config(self, corrections: list[dict[str, Any]]) -> None:
+        """把修正后的值写回 AstrBot 配置，使配置页显示修正后的数值。"""
+        save_config = getattr(self._raw_config, "save_config", None)
+        if not callable(save_config) or not isinstance(self._raw_config, dict):
+            return
+        try:
+            for item in corrections:
+                parts = item["path"].split(".")
+                target: dict[str, Any] = self._raw_config
+                for part in parts[:-1]:
+                    child = target.get(part)
+                    if not isinstance(child, dict):
+                        break
+                    target = child
+                else:
+                    target[parts[-1]] = item["new"]
+            save_config()
+            logger.info("已把 %d 项配置修正写回配置文件", len(corrections))
+        except Exception as exc:
+            logger.warning("配置修正写回失败，仅保留内存内修正: %s", exc)
 
     def get(self, key: str, default: Any = None) -> Any:
         """

@@ -56,23 +56,23 @@
       },
       "max_sessions": {
         "description": "Max Cached Sessions",
-        "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database."
+        "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database. Allowed range: 1-10000."
       },
       "session_ttl": {
         "description": "Session Idle Timeout (seconds)",
-        "hint": "Sessions inactive for longer than this duration are removed from cache. Default is 3600 (1 hour)."
+        "hint": "Sessions inactive for longer than this duration are removed from cache. Default is 3600 (1 hour). Allowed range: 60-86400."
       },
       "context_window_size": {
         "description": "Context Window Size (messages)",
-        "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100."
+        "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100. Allowed range: 1-1000."
       },
       "max_messages_per_session": {
         "description": "Max History Messages Per Session",
-        "hint": "Maximum number of historical messages retained per session in the database. When exceeded, only the oldest summarized messages are deleted to avoid losing unsummarized context."
+        "hint": "Maximum number of historical messages retained per session in the database. When exceeded, only the oldest summarized messages are deleted to avoid losing unsummarized context. Allowed range: 100-10000."
       },
       "cleanup_batch_size": {
         "description": "History Cleanup Batch Size",
-        "hint": "Minimum number of old summarized messages to delete per batch when the session history exceeds the limit. A value too small will cause only a few messages to be deleted each round after overflow."
+        "hint": "Minimum number of old summarized messages to delete per batch when the session history exceeds the limit. A value too small will cause only a few messages to be deleted each round after overflow. Allowed range: 1-1000."
       }
     },
     "recall_engine": {
@@ -80,15 +80,15 @@
       "hint": "Control memory retrieval and injection into conversations",
       "top_k": {
         "description": "Recall Count Per Request",
-        "hint": "Number of most relevant memories returned per retrieval. Set to 0 to skip automatic recall/injection while keeping historical injection cleanup. Recommended: 3-10."
+        "hint": "Number of most relevant memories returned per retrieval. Set to 0 to skip automatic recall/injection while keeping historical injection cleanup. Recommended: 3-10. Allowed range: 0-50."
       },
       "max_k": {
         "description": "Max Active Retrieval Count",
-        "hint": "Maximum memories returned when the Agent actively calls the long-term memory retrieval tool. Used to limit single-tool recall scale. Recommended: 5-10."
+        "hint": "Maximum memories returned when the Agent actively calls the long-term memory retrieval tool. Used to limit single-tool recall scale. Recommended: 5-10. Allowed range: 1-50."
       },
       "importance_weight": {
         "description": "Importance Weight",
-        "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories."
+        "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories. Allowed range: 0-10."
       },
       "min_importance_for_retrieval": {
         "description": "Minimum Importance for Recall",
@@ -100,11 +100,11 @@
       },
       "recent_memory_count": {
         "description": "Reserved Recent Memories",
-        "hint": "Reserve this many recall slots for recent memories in the current scope. Set to 0 to disable."
+        "hint": "Reserve this many recall slots for recent memories in the current scope. Set to 0 to disable. Allowed range: 0-20."
       },
       "recent_memory_max_age_hours": {
         "description": "Recent Memory Window (hours)",
-        "hint": "Only memories inside this age window qualify for reserved recent slots. Set to 0 for no age limit."
+        "hint": "Only memories inside this age window qualify for reserved recent slots. Set to 0 for no age limit. Allowed range: 0-8760."
       },
       "memory_type_filter": {
         "description": "Memory Type Filter",
@@ -140,7 +140,7 @@
       },
       "recent_context_max_age_seconds": {
         "description": "Maximum Context Age (seconds)",
-        "hint": "Only historical messages within this time range extend the recall query. Set to 0 to disable the time limit."
+        "hint": "Only historical messages within this time range extend the recall query. Set to 0 to disable the time limit. Allowed range: 0-604800."
       },
       "search_cache_enabled": {
         "description": "Enable Short-Term Search Cache",
@@ -148,11 +148,11 @@
       },
       "search_cache_ttl_seconds": {
         "description": "Search Cache TTL (seconds)",
-        "hint": "How long retrieval cache entries are kept. Writes, updates, and deletes invalidate the cache automatically. Set to 0 to disable caching."
+        "hint": "How long retrieval cache entries are kept. Writes, updates, and deletes invalidate the cache automatically. Set to 0 to disable caching. Allowed range: 0-600."
       },
       "search_cache_max_size": {
         "description": "Max Search Cache Entries",
-        "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted."
+        "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted. Allowed range: 0-10000."
       }
     },
     "importance_decay": {
@@ -160,23 +160,23 @@
       "hint": "Gradually reduce the importance of old memories over time to prevent outdated information from retaining high weight indefinitely",
       "decay_rate": {
         "description": "Daily Decay Rate",
-        "hint": "The proportion of memory importance decayed per day. 0.01 means a 1% decrease daily. Set to 0 to disable decay."
+        "hint": "The proportion of memory importance decayed per day. 0.01 means a 1% decrease daily. Set to 0 to disable decay. Allowed range: 0-1."
       },
       "access_decay_window_days": {
         "description": "Access Reinforcement Window (days)",
-        "hint": "Memories accessed within this window reduce their effective decay rate according to access count."
+        "hint": "Memories accessed within this window reduce their effective decay rate according to access count. Allowed range: 1-3650."
       },
       "access_decay_max_count": {
         "description": "Max Access Reinforcement Count",
-        "hint": "The access count that grants maximum decay protection. Additional accesses beyond this count do not increase protection further."
+        "hint": "The access count that grants maximum decay protection. Additional accesses beyond this count do not increase protection further. Allowed range: 1-10000."
       },
       "access_count_decay_multiplier": {
         "description": "Access Count Retention Ratio",
-        "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever."
+        "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever. Allowed range: 0-1."
       },
       "protected_importance_threshold": {
         "description": "Protected Importance Threshold",
-        "hint": "Memories at or above this importance do not participate in daily importance decay."
+        "hint": "Memories at or above this importance do not participate in daily importance decay. Allowed range: 0-1."
       }
     },
     "fusion_strategy": {
@@ -184,7 +184,7 @@
       "hint": "Fusion parameters for BM25 and vector search results (internally uses the RRF algorithm)",
       "rrf_k": {
         "description": "RRF Fusion Parameter k",
-        "hint": "Lower values emphasize top-ranked results; higher values produce smoother fusion. Recommended: 30-120. Default is 60."
+        "hint": "Lower values emphasize top-ranked results; higher values produce smoother fusion. Recommended: 30-120. Default is 60. Allowed range: 1-1000."
       }
     },
     "filtering_settings": {
@@ -218,7 +218,7 @@
       "hint": "Control when conversation summarization is triggered and memories are generated",
       "summary_trigger_rounds": {
         "description": "Summary Trigger Rounds",
-        "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round)."
+        "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round). Allowed range: 1-100."
       },
       "include_source_time_tags": {
         "description": "Include Source Time Tags",
@@ -250,27 +250,27 @@
       },
       "document_route_weight": {
         "description": "Document Path Weight",
-        "hint": "The proportion of the document path fusion score in the final dual-path ranking."
+        "hint": "The proportion of the document path fusion score in the final dual-path ranking. Allowed range: 0-1."
       },
       "graph_route_weight": {
         "description": "Graph Path Weight",
-        "hint": "The proportion of the graph path fusion score in the final dual-path ranking."
+        "hint": "The proportion of the graph path fusion score in the final dual-path ranking. Allowed range: 0-1."
       },
       "cross_route_bonus": {
         "description": "Dual-Path Hit Bonus",
-        "hint": "Extra score added when the same memory is hit by both the document path and the graph path."
+        "hint": "Extra score added when the same memory is hit by both the document path and the graph path. Allowed range: 0-0.5."
       },
       "expansion_limit": {
         "description": "Graph Neighbor Expansion Limit",
-        "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval."
+        "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval. Allowed range: 1-200."
       },
       "expansion_hops": {
         "description": "Graph Expansion Hops",
-        "hint": "Number of hops expanded outward from matched nodes during graph keyword retrieval. Default is 1; setting it to 2 can recall indirect relations with a small query-cost increase."
+        "hint": "Number of hops expanded outward from matched nodes during graph keyword retrieval. Default is 1; setting it to 2 can recall indirect relations with a small query-cost increase. Allowed range: 1-2."
       },
       "second_hop_weight": {
         "description": "Second-Hop Expansion Weight",
-        "hint": "Score weight for second-hop graph candidates. Higher values make indirect relations more likely to enter the final recall results."
+        "hint": "Score weight for second-hop graph candidates. Higher values make indirect relations more likely to enter the final recall results. Allowed range: 0-1."
       },
       "dynamic_route_weighting": {
         "description": "Dynamic Route Weighting",
@@ -278,15 +278,15 @@
       },
       "max_topics_per_memory": {
         "description": "Max Topics Per Memory",
-        "hint": "Maximum number of topic nodes extracted from a single memory."
+        "hint": "Maximum number of topic nodes extracted from a single memory. Allowed range: 1-20."
       },
       "max_participants_per_memory": {
         "description": "Max Participants Per Memory",
-        "hint": "Maximum number of participant nodes extracted from a single memory."
+        "hint": "Maximum number of participant nodes extracted from a single memory. Allowed range: 1-30."
       },
       "max_facts_per_memory": {
         "description": "Max Facts Per Memory",
-        "hint": "Maximum number of key facts extracted from a single memory to enter the graph index."
+        "hint": "Maximum number of key facts extracted from a single memory to enter the graph index. Allowed range: 1-30."
       },
       "atom_enabled": {
         "description": "Enable Memory Atomization",
@@ -294,15 +294,15 @@
       },
       "atom_maintenance_interval_hours": {
         "description": "Atom Maintenance Interval (hours)",
-        "hint": "How often the lifecycle manager runs expiration and forgetting checks for memory atoms."
+        "hint": "How often the lifecycle manager runs expiration and forgetting checks for memory atoms. Allowed range: 1-168."
       },
       "atom_forget_delay_days": {
         "description": "Atom Forget Delay (days)",
-        "hint": "How many days after expiration an atom is completely removed from retrieval indexes."
+        "hint": "How many days after expiration an atom is completely removed from retrieval indexes. Allowed range: 1-90."
       },
       "atom_purge_delay_days": {
         "description": "Forgotten Atom Purge Delay (days)",
-        "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage."
+        "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage. Allowed range: 1-365."
       }
     },
     "migration_settings": {
@@ -322,35 +322,35 @@
       "hint": "Control batch size, Embedding request rate, and failure tolerance for the /lmem rebuild-index command. Low-spec cloud servers should keep concurrency small.",
       "batch_size": {
         "description": "Read Batch Size",
-        "hint": "Number of memories read from the documents table per batch. Larger values increase memory peak and affect more entries on failure. Recommended: 25-100."
+        "hint": "Number of memories read from the documents table per batch. Larger values increase memory peak and affect more entries on failure. Recommended: 25-100. Allowed range: 1-500."
       },
       "embedding_batch_size": {
         "description": "Embedding Batch Size",
-        "hint": "Number of texts included in a single Embedding API request. Reduce further if the provider has strict TPM rate limits."
+        "hint": "Number of texts included in a single Embedding API request. Reduce further if the provider has strict TPM rate limits. Allowed range: 1-256."
       },
       "tasks_limit": {
         "description": "Embedding Concurrency",
-        "hint": "Internal concurrency limit for batch Embedding. To avoid triggering API rate limits, the default is 1."
+        "hint": "Internal concurrency limit for batch Embedding. To avoid triggering API rate limits, the default is 1. Allowed range: 1-8."
       },
       "max_retries": {
         "description": "Batch Retry Count",
-        "hint": "Maximum retry attempts for a failed Embedding batch."
+        "hint": "Maximum retry attempts for a failed Embedding batch. Allowed range: 1-8."
       },
       "retry_base_delay": {
         "description": "Retry Wait (seconds)",
-        "hint": "Base wait time for exponential backoff after a batch failure. At least 30 seconds will be waited when encountering 429/TPM rate limits."
+        "hint": "Base wait time for exponential backoff after a batch failure. At least 30 seconds will be waited when encountering 429/TPM rate limits. Allowed range: 0-60."
       },
       "batch_delay": {
         "description": "Read Batch Interval (seconds)",
-        "hint": "Additional wait time between each documents read batch, used to proactively reduce overall rebuild rate."
+        "hint": "Additional wait time between each documents read batch, used to proactively reduce overall rebuild rate. Allowed range: 0-10."
       },
       "request_delay": {
         "description": "Embedding Request Interval (seconds)",
-        "hint": "Wait time between each Embedding API sub-request. Increase this first if 429/TPM is triggered frequently."
+        "hint": "Wait time between each Embedding API sub-request. Increase this first if 429/TPM is triggered frequently. Allowed range: 0-60."
       },
       "max_failure_ratio": {
         "description": "Allowed Failure Ratio",
-        "hint": "During full vector rebuild, the new index will only be switched if the failure ratio does not exceed this value. 0.02 means up to 2% failure is allowed."
+        "hint": "During full vector rebuild, the new index will only be switched if the failure ratio does not exceed this value. 0.02 means up to 2% failure is allowed. Allowed range: 0-1."
       }
     },
     "backup_settings": {
@@ -362,7 +362,7 @@
       },
       "keep_days": {
         "description": "Backup Retention Days",
-        "hint": "Backup files older than this number of days will be automatically deleted. Default is 7 days."
+        "hint": "Backup files older than this number of days will be automatically deleted. Default is 7 days. Allowed range: 1-365."
       }
     },
     "forgetting_agent": {
@@ -378,11 +378,11 @@
       },
       "cleanup_days_threshold": {
         "description": "Cleanup Age Threshold (days)",
-        "hint": "Memories older than this many days become cleanup candidates. They will only be deleted if their importance is also below the threshold."
+        "hint": "Memories older than this many days become cleanup candidates. They will only be deleted if their importance is also below the threshold. Allowed range: 1-3650."
       },
       "cleanup_importance_threshold": {
         "description": "Cleanup Importance Threshold",
-        "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance."
+        "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance. Allowed range: 0-1."
       }
     },
     "memory_consolidation": {
@@ -418,23 +418,23 @@
       },
       "min_memories_per_group": {
         "description": "Minimum Memories Per Group",
-        "hint": "A group must contain at least this many memories to trigger consolidation, avoiding unnecessary LLM calls."
+        "hint": "A group must contain at least this many memories to trigger consolidation, avoiding unnecessary LLM calls. Allowed range: 2-50."
       },
       "min_age_days": {
         "description": "Minimum Memory Age (days)",
-        "hint": "Only consolidate memories older than this many days, avoiding recently-updated memories."
+        "hint": "Only consolidate memories older than this many days, avoiding recently-updated memories. Allowed range: 0-3650."
       },
       "max_importance": {
         "description": "Maximum Importance",
-        "hint": "Only consolidate memories with importance below this value; high-importance memories stay untouched."
+        "hint": "Only consolidate memories with importance below this value; high-importance memories stay untouched. Allowed range: 0-1."
       },
       "max_groups_per_run": {
         "description": "Maximum Groups Per Run",
-        "hint": "Limits how many groups are consolidated per run to avoid triggering too many LLM calls at once."
+        "hint": "Limits how many groups are consolidated per run to avoid triggering too many LLM calls at once. Allowed range: 1-100."
       },
       "semantic_similarity_threshold": {
         "description": "Semantic Similarity Threshold",
-        "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value."
+        "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value. Allowed range: 0-1."
       }
     }
   }

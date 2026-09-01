@@ -1,8 +1,9 @@
 """
 config_validator.py - 配置验证模块
-提供配置验证和默认值管理功能。
+提供配置验证、默认值管理和逐项配置修正功能。
 """
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -216,6 +217,15 @@ class MigrationSettings(BaseModel):
     create_backup: bool = Field(default=True, description="迁移前是否创建备份")
 
 
+class BackupSettings(BaseModel):
+    """定期备份设置"""
+
+    enabled: bool = Field(default=True, description="是否启用每日自动备份")
+    keep_days: int = Field(
+        default=7, ge=1, le=365, description="备份保留天数（超期自动删除）"
+    )
+
+
 class IndexRebuildSettings(BaseModel):
     """索引重建设置"""
 
@@ -357,6 +367,7 @@ class LivingMemoryConfig(BaseModel):
     index_rebuild_settings: IndexRebuildSettings = Field(
         default_factory=IndexRebuildSettings
     )
+    backup_settings: BackupSettings = Field(default_factory=BackupSettings)
     graph_memory: GraphMemoryConfig = Field(default_factory=GraphMemoryConfig)
     fusion_strategy: FusionStrategyConfig = Field(
         default_factory=FusionStrategyConfig, description="结果融合策略配置"
@@ -432,6 +443,197 @@ def merge_config_with_defaults(user_config: dict[str, Any]) -> dict[str, Any]:
     merged = deep_merge(default_config, user_config)
     logger.debug("配置已与默认值合并")
     return merged
+
+
+# ---------------------------------------------------------------------------
+# 逐项配置修正
+#
+# AstrBot 保存插件配置时只校验“类型”（见其 dashboard services 的
+# validate_config），不会校验 ge/le/pattern 这类范围约束；本模块则对配置施行
+# 整体校验，任一单项越界都会让配置整包回退为默认值，导致用户其他设置无感
+# 丢失。因此这里提供逐项修正：以 Pydantic 模型生成的 JSON Schema 为唯一
+# 事实源，把每项值修正到允许范围后再整体验证。
+# ---------------------------------------------------------------------------
+
+_TRUE_STRINGS = {"1", "true", "yes", "on", "y"}
+_FALSE_STRINGS = {"0", "false", "no", "off", "n"}
+
+
+def _build_section_schema() -> dict[str, dict[str, dict[str, Any]]]:
+    """从 LivingMemoryConfig 的 JSON Schema 提取各节字段约束（唯一事实源）。"""
+    schema = LivingMemoryConfig.model_json_schema()
+    defs = schema.get("$defs", {})
+    sections: dict[str, dict[str, dict[str, Any]]] = {}
+    for section_name, section_meta in schema.get("properties", {}).items():
+        if not isinstance(section_meta, dict):
+            continue
+        ref = section_meta.get("$ref")
+        class_name = ref.rsplit("/", 1)[-1] if isinstance(ref, str) else ""
+        class_schema = defs.get(class_name)
+        if not isinstance(class_schema, dict):
+            continue
+        fields: dict[str, dict[str, Any]] = {}
+        for field_name, field_meta in class_schema.get("properties", {}).items():
+            if isinstance(field_meta, dict):
+                fields[field_name] = field_meta
+        sections[section_name] = fields
+    return sections
+
+
+def _force_number(
+    value: Any, field_meta: dict[str, Any]
+) -> tuple[int | float | None, bool]:
+    """把任意值强转为字段要求的数值类型。
+
+    Returns:
+        (数值或 None, 是否发生修正)
+    """
+    is_integer = field_meta.get("type") == "integer"
+    if isinstance(value, bool):
+        return None, True
+    if isinstance(value, int):
+        return value, False
+    if isinstance(value, float):
+        if is_integer:
+            if value.is_integer():
+                return int(value), True
+            return None, True
+        return value, False
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            number: int | float = int(text) if is_integer else float(text)
+            return number, True
+        except ValueError:
+            pass
+        try:
+            number = float(text)
+        except ValueError:
+            return None, True
+        if is_integer:
+            if number.is_integer():
+                return int(number), True
+            return None, True
+        return number, True
+    return None, True
+
+
+def _force_bool(value: Any) -> tuple[bool | None, bool]:
+    """把任意值强转为布尔。
+
+    Returns:
+        (布尔值或 None, 是否发生修正)
+    """
+    if isinstance(value, bool):
+        return value, False
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value), True
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _TRUE_STRINGS:
+            return True, True
+        if text in _FALSE_STRINGS:
+            return False, True
+    return None, True
+
+
+def normalize_config(
+    raw_config: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """逐项把配置修正到字段允许范围，保证坏值不再拖垮整包配置。
+
+    - 数值越界：截断到最近边界；无法解析：回退该字段默认值。
+    - 字符串 pattern 不符或类型错误：回退该字段默认值。
+    - 布尔类型错误：按常见写法转换，无法转换则回退默认值。
+    - 结构损坏（节不是 dict）：仅该节重置为默认值。
+
+    Returns:
+        (修正后的配置字典, 修正记录列表)。每条记录形如
+        ``{"path": "recall_engine.top_k", "old": 60, "new": 50}``
+    """
+    section_schema = _build_section_schema()
+    corrections: list[dict[str, Any]] = []
+    config = dict(raw_config)
+    # 复制各节字典，避免修正副作用直接写回外部原配置（AstrBotConfig）
+    for key in list(config):
+        if isinstance(config[key], dict):
+            config[key] = dict(config[key])
+
+    for section_name, section_meta in config.items():
+        fields_meta = section_schema.get(section_name)
+        if fields_meta is None:
+            continue  # 非模型节（如 bot_language）不在修正范围内
+        if not isinstance(section_meta, dict):
+            default_section = get_default_config().get(section_name, {})
+            config[section_name] = default_section
+            corrections.append(
+                {
+                    "path": section_name,
+                    "old": section_meta,
+                    "new": default_section,
+                    "reason": "结构无效，已重置为默认配置",
+                }
+            )
+            continue
+
+        for field_name, field_meta in fields_meta.items():
+            if field_name not in section_meta:
+                continue
+            field_type = field_meta.get("type")
+            raw_value = section_meta[field_name]
+            new_value: Any = raw_value
+            changed = False
+
+            if field_type in ("integer", "number"):
+                new_value, changed = _force_number(raw_value, field_meta)
+                if new_value is None:
+                    new_value = field_meta.get("default")
+                    changed = True
+                if new_value is not None:
+                    minimum = field_meta.get("minimum")
+                    maximum = field_meta.get("maximum")
+                    if minimum is not None and new_value < minimum:
+                        new_value, changed = minimum, True
+                    if maximum is not None and new_value > maximum:
+                        new_value, changed = maximum, True
+            elif field_type == "boolean":
+                new_value, changed = _force_bool(raw_value)
+                if new_value is None:
+                    new_value = field_meta.get("default")
+                    changed = True
+            elif field_type == "string":
+                pattern = field_meta.get("pattern")
+                if not isinstance(raw_value, str) or (
+                    pattern is not None and not re.fullmatch(pattern, raw_value)
+                ):
+                    new_value = field_meta.get("default")
+                    changed = True
+
+            if not changed:
+                continue
+            if new_value is not None:
+                section_meta[field_name] = new_value
+                corrections.append(
+                    {
+                        "path": f"{section_name}.{field_name}",
+                        "old": raw_value,
+                        "new": new_value,
+                        "reason": "超出允许范围或类型无效，已自动修正",
+                    }
+                )
+            else:
+                # 无默认值可回退时移除该值，让 Pydantic 填充默认值
+                section_meta.pop(field_name, None)
+                corrections.append(
+                    {
+                        "path": f"{section_name}.{field_name}",
+                        "old": raw_value,
+                        "new": None,
+                        "reason": "值无效且无默认值，已移除",
+                    }
+                )
+
+    return config, corrections
 
 
 def validate_runtime_config_changes(

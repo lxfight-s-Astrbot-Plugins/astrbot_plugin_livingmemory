@@ -68,33 +68,58 @@
             },
             "max_sessions": {
                 "description": "最大缓存会话数",
-                "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。",
+                "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。（允许范围：1–10000）",
                 "type": "int",
-                "default": 100
+                "default": 100,
+                "slider": {
+                    "min": 1,
+                    "max": 10000,
+                    "step": 1
+                }
             },
             "session_ttl": {
                 "description": "会话空闲超时（秒）",
-                "hint": "会话超过此时间无活动后从缓存移除。默认 3600（1 小时）。",
+                "hint": "会话超过此时间无活动后从缓存移除。默认 3600（1 小时）。（允许范围：60–86400）",
                 "type": "int",
-                "default": 3600
+                "default": 3600,
+                "slider": {
+                    "min": 60,
+                    "max": 86400,
+                    "step": 1
+                }
             },
             "context_window_size": {
                 "description": "上下文窗口大小（条）",
-                "hint": "传给 LLM 的最大历史消息条数。越大上下文越丰富，但消耗 token 越多。建议 20-100。",
+                "hint": "传给 LLM 的最大历史消息条数。越大上下文越丰富，但消耗 token 越多。建议 20-100。（允许范围：1–1000）",
                 "type": "int",
-                "default": 50
+                "default": 50,
+                "slider": {
+                    "min": 1,
+                    "max": 1000,
+                    "step": 1
+                }
             },
             "max_messages_per_session": {
                 "description": "单会话最大历史消息数",
-                "hint": "数据库中每个会话保留的历史消息上限。超过后只会删除已经完成总结的最旧消息，避免丢失未总结上下文。",
+                "hint": "数据库中每个会话保留的历史消息上限。超过后只会删除已经完成总结的最旧消息，避免丢失未总结上下文。（允许范围：100–10000）",
                 "type": "int",
-                "default": 1000
+                "default": 1000,
+                "slider": {
+                    "min": 100,
+                    "max": 10000,
+                    "step": 1
+                }
             },
             "cleanup_batch_size": {
                 "description": "历史消息批量清理数量",
-                "hint": "会话历史超过上限后，每次至少尝试删除的旧已总结消息数量。值过小会导致超限后每轮只删少量消息。",
+                "hint": "会话历史超过上限后，每次至少尝试删除的旧已总结消息数量。值过小会导致超限后每轮只删少量消息。（允许范围：1–1000）",
                 "type": "int",
-                "default": 50
+                "default": 50,
+                "slider": {
+                    "min": 1,
+                    "max": 1000,
+                    "step": 1
+                }
             }
         }
     },
@@ -105,51 +130,89 @@
         "items": {
             "top_k": {
                 "description": "单次召回数量",
-                "hint": "每次检索返回的最相关记忆条数。设为 0 可跳过自动召回和注入，仅保留历史注入片段清理。建议 3-10。",
+                "hint": "每次检索返回的最相关记忆条数。设为 0 可跳过自动召回和注入，仅保留历史注入片段清理。建议 3-10。（允许范围：0–50）",
                 "type": "int",
-                "default": 5
+                "default": 5,
+                "slider": {
+                    "min": 0,
+                    "max": 50,
+                    "step": 1
+                }
             },
             "max_k": {
                 "description": "主动检索最大数量",
-                "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数。用于限制工具单次召回规模，建议 5-10。",
+                "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数。用于限制工具单次召回规模，建议 5-10。（允许范围：1–50）",
                 "type": "int",
-                "default": 10
+                "default": 10,
+                "slider": {
+                    "min": 1,
+                    "max": 50,
+                    "step": 1
+                }
             },
             "importance_weight": {
                 "description": "重要性权重",
-                "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。",
+                "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。（允许范围：0–10）",
                 "type": "float",
-                "default": 1.0
+                "default": 1.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1
+                }
             },
             "min_importance_for_retrieval": {
                 "description": "召回最低重要性",
                 "hint": "过滤重要性低于该值的记忆。范围 0-1，设为 0 表示不过滤。",
                 "type": "float",
-                "default": 0.0
+                "default": 0.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "min_similarity_for_retrieval": {
                 "description": "召回最低向量相似度",
                 "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。范围 0-1，设为 0 表示不过滤。",
                 "type": "float",
-                "default": 0.0
+                "default": 0.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "recent_memory_count": {
                 "description": "近期记忆保留数量",
                 "hint": "在每次召回中为当前范围内的近期记忆保留槽位，避免只依赖向量相似度。设为 0 可关闭。",
                 "type": "int",
-                "default": 2
+                "default": 2,
+                "slider": {
+                    "min": 0,
+                    "max": 20,
+                    "step": 1
+                }
             },
             "recent_memory_max_age_hours": {
                 "description": "近期记忆时间窗口（小时）",
-                "hint": "只保留该时间窗口内的近期记忆。默认 72 小时，设为 0 表示不限制时间。",
+                "hint": "只保留该时间窗口内的近期记忆。默认 72 小时，设为 0 表示不限制时间。（允许范围：0–8760）",
                 "type": "int",
-                "default": 72
+                "default": 72,
+                "slider": {
+                    "min": 0,
+                    "max": 8760,
+                    "step": 1
+                }
             },
             "memory_type_filter": {
                 "description": "记忆类型过滤",
                 "hint": "all 召回全部记忆；event_only 排除可明确识别为纯偏好或纯关系的记忆。旧记录没有类型元数据时保持可召回。",
                 "type": "string",
-                "options": ["all", "event_only"],
+                "options": [
+                    "all",
+                    "event_only"
+                ],
                 "default": "all"
             },
             "fallback_to_vector": {
@@ -188,7 +251,12 @@
                 "description": "扩展上下文最大间隔（秒）",
                 "hint": "仅使用该时间范围内的历史消息扩展召回查询，避免新话题被过久之前的上下文干扰。设为 0 表示不限制时间。",
                 "type": "int",
-                "default": 7200
+                "default": 7200,
+                "slider": {
+                    "min": 0,
+                    "max": 604800,
+                    "step": 1
+                }
             },
             "search_cache_enabled": {
                 "description": "启用短期检索缓存",
@@ -198,15 +266,25 @@
             },
             "search_cache_ttl_seconds": {
                 "description": "检索缓存 TTL 秒数",
-                "hint": "缓存保留时间。写入、更新、删除记忆时会自动失效。设为 0 可关闭缓存。",
+                "hint": "缓存保留时间。写入、更新、删除记忆时会自动失效。设为 0 可关闭缓存。（允许范围：0–600）",
                 "type": "float",
-                "default": 45.0
+                "default": 45.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 600.0,
+                    "step": 0.1
+                }
             },
             "search_cache_max_size": {
                 "description": "检索缓存最大条目数",
-                "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。",
+                "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。（允许范围：0–10000）",
                 "type": "int",
-                "default": 256
+                "default": 256,
+                "slider": {
+                    "min": 0,
+                    "max": 10000,
+                    "step": 1
+                }
             }
         }
     },
@@ -217,33 +295,58 @@
         "items": {
             "decay_rate": {
                 "description": "每日衰减率",
-                "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。",
+                "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.01
+                "default": 0.01,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "access_decay_window_days": {
                 "description": "访问强化窗口(天)",
-                "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。",
+                "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。（允许范围：1–3650）",
                 "type": "float",
-                "default": 30.0
+                "default": 30.0,
+                "slider": {
+                    "min": 1.0,
+                    "max": 3650.0,
+                    "step": 0.1
+                }
             },
             "access_decay_max_count": {
                 "description": "访问强化次数上限",
-                "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。",
+                "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。（允许范围：1–10000）",
                 "type": "int",
-                "default": 10
+                "default": 10,
+                "slider": {
+                    "min": 1,
+                    "max": 10000,
+                    "step": 1
+                }
             },
             "access_count_decay_multiplier": {
                 "description": "访问次数保留比例",
-                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。",
+                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.5
+                "default": 0.5,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "protected_importance_threshold": {
                 "description": "重要记忆保护阈值",
                 "hint": "重要性达到该值的记忆不参与每日重要性衰减。范围 0-1，默认 1.0 仅保护满分记忆。",
                 "type": "float",
-                "default": 1.0
+                "default": 1.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             }
         }
     },
@@ -254,9 +357,14 @@
         "items": {
             "rrf_k": {
                 "description": "RRF 融合参数 k",
-                "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。",
+                "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。（允许范围：1–1000）",
                 "type": "int",
-                "default": 60
+                "default": 60,
+                "slider": {
+                    "min": 1,
+                    "max": 1000,
+                    "step": 1
+                }
             }
         }
     },
@@ -280,7 +388,12 @@
                 "description": "记忆作用域模式",
                 "hint": "legacy 保持旧版配置；session 按实际会话隔离；user 让同一平台用户跨私聊和群聊共享；global 全局共享。",
                 "type": "string",
-                "options": ["legacy", "session", "user", "global"],
+                "options": [
+                    "legacy",
+                    "session",
+                    "user",
+                    "global"
+                ],
                 "default": "legacy"
             },
             "isolated_sessions": {
@@ -298,9 +411,14 @@
         "items": {
             "summary_trigger_rounds": {
                 "description": "总结触发轮次",
-                "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。",
+                "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。（允许范围：1–100）",
                 "type": "int",
-                "default": 10
+                "default": 10,
+                "slider": {
+                    "min": 1,
+                    "max": 100,
+                    "step": 1
+                }
             },
             "include_source_time_tags": {
                 "description": "写入来源时间标签",
@@ -312,7 +430,12 @@
                 "description": "原文保留重要性阈值",
                 "hint": "总结重要性达到该值时，将原始消息独立保存，供详情核验、Agent 深度回溯和重新总结。范围 0-1；设为 1 仅保留满分记忆。",
                 "type": "float",
-                "default": 0.8
+                "default": 0.8,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             }
         }
     },
@@ -348,39 +471,69 @@
             },
             "document_route_weight": {
                 "description": "文档路权重",
-                "hint": "文档路融合分数在最终双路排序中的占比。",
+                "hint": "文档路融合分数在最终双路排序中的占比。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.65
+                "default": 0.65,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "graph_route_weight": {
                 "description": "图路权重",
-                "hint": "图路融合分数在最终双路排序中的占比。",
+                "hint": "图路融合分数在最终双路排序中的占比。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.35
+                "default": 0.35,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "cross_route_bonus": {
                 "description": "双路命中加分",
-                "hint": "同一记忆同时被文档路和图路命中时增加的额外分数。",
+                "hint": "同一记忆同时被文档路和图路命中时增加的额外分数。（允许范围：0–0.5）",
                 "type": "float",
-                "default": 0.08
+                "default": 0.08,
+                "slider": {
+                    "min": 0.0,
+                    "max": 0.5,
+                    "step": 0.01
+                }
             },
             "expansion_limit": {
                 "description": "图邻居扩展上限",
-                "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。",
+                "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。（允许范围：1–200）",
                 "type": "int",
-                "default": 24
+                "default": 24,
+                "slider": {
+                    "min": 1,
+                    "max": 200,
+                    "step": 1
+                }
             },
             "expansion_hops": {
                 "description": "图扩展跳数",
-                "hint": "图关键词检索从命中节点向外扩展的跳数。默认 1；设为 2 可召回间接关联，但会增加少量查询开销。",
+                "hint": "图关键词检索从命中节点向外扩展的跳数。默认 1；设为 2 可召回间接关联，但会增加少量查询开销。（允许范围：1–2）",
                 "type": "int",
-                "default": 1
+                "default": 1,
+                "slider": {
+                    "min": 1,
+                    "max": 2,
+                    "step": 1
+                }
             },
             "second_hop_weight": {
                 "description": "二跳扩展权重",
-                "hint": "二跳图候选的分数权重。值越高，间接关系越容易进入最终召回。",
+                "hint": "二跳图候选的分数权重。值越高，间接关系越容易进入最终召回。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.4
+                "default": 0.4,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "dynamic_route_weighting": {
                 "description": "动态路由权重",
@@ -390,21 +543,36 @@
             },
             "max_topics_per_memory": {
                 "description": "单记忆最大主题数",
-                "hint": "从一条记忆中最多提取多少个 topics 节点。",
+                "hint": "从一条记忆中最多提取多少个 topics 节点。（允许范围：1–20）",
                 "type": "int",
-                "default": 6
+                "default": 6,
+                "slider": {
+                    "min": 1,
+                    "max": 20,
+                    "step": 1
+                }
             },
             "max_participants_per_memory": {
                 "description": "单记忆最大参与者数",
-                "hint": "从一条记忆中最多提取多少个 participants 节点。",
+                "hint": "从一条记忆中最多提取多少个 participants 节点。（允许范围：1–30）",
                 "type": "int",
-                "default": 8
+                "default": 8,
+                "slider": {
+                    "min": 1,
+                    "max": 30,
+                    "step": 1
+                }
             },
             "max_facts_per_memory": {
                 "description": "单记忆最大事实数",
-                "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。",
+                "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。（允许范围：1–30）",
                 "type": "int",
-                "default": 8
+                "default": 8,
+                "slider": {
+                    "min": 1,
+                    "max": 30,
+                    "step": 1
+                }
             },
             "atom_enabled": {
                 "description": "启用记忆原子化",
@@ -414,21 +582,36 @@
             },
             "atom_maintenance_interval_hours": {
                 "description": "原子维护间隔(小时)",
-                "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。",
+                "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。（允许范围：1–168）",
                 "type": "float",
-                "default": 24.0
+                "default": 24.0,
+                "slider": {
+                    "min": 1.0,
+                    "max": 168.0,
+                    "step": 0.1
+                }
             },
             "atom_forget_delay_days": {
                 "description": "原子遗忘延迟(天)",
-                "hint": "过期原子在多少天后从检索索引中彻底移除。",
+                "hint": "过期原子在多少天后从检索索引中彻底移除。（允许范围：1–90）",
                 "type": "float",
-                "default": 7.0
+                "default": 7.0,
+                "slider": {
+                    "min": 1.0,
+                    "max": 90.0,
+                    "step": 0.1
+                }
             },
             "atom_purge_delay_days": {
                 "description": "遗忘原子物理清理延迟(天)",
-                "hint": "已从检索索引移除的遗忘原子，在多少天后从数据库物理删除以回收存储空间。",
+                "hint": "已从检索索引移除的遗忘原子，在多少天后从数据库物理删除以回收存储空间。（允许范围：1–365）",
                 "type": "float",
-                "default": 30.0
+                "default": 30.0,
+                "slider": {
+                    "min": 1.0,
+                    "max": 365.0,
+                    "step": 0.1
+                }
             }
         }
     },
@@ -458,51 +641,91 @@
         "items": {
             "batch_size": {
                 "description": "读取批量",
-                "hint": "每批从 documents 表读取的记忆条数。越大内存峰值越高、失败时影响的条数越多，建议 25-100。",
+                "hint": "每批从 documents 表读取的记忆条数。越大内存峰值越高、失败时影响的条数越多，建议 25-100。（允许范围：1–500）",
                 "type": "int",
-                "default": 50
+                "default": 50,
+                "slider": {
+                    "min": 1,
+                    "max": 500,
+                    "step": 1
+                }
             },
             "embedding_batch_size": {
                 "description": "Embedding 批量",
-                "hint": "单次 Embedding API 请求包含的文本数量。服务商 TPM 限流严格时继续调小。",
+                "hint": "单次 Embedding API 请求包含的文本数量。服务商 TPM 限流严格时继续调小。（允许范围：1–256）",
                 "type": "int",
-                "default": 8
+                "default": 8,
+                "slider": {
+                    "min": 1,
+                    "max": 256,
+                    "step": 1
+                }
             },
             "tasks_limit": {
                 "description": "Embedding 并发",
-                "hint": "批量 Embedding 内部并发上限。为避免触发 API 限流，默认 1。",
+                "hint": "批量 Embedding 内部并发上限。为避免触发 API 限流，默认 1。（允许范围：1–8）",
                 "type": "int",
-                "default": 1
+                "default": 1,
+                "slider": {
+                    "min": 1,
+                    "max": 8,
+                    "step": 1
+                }
             },
             "max_retries": {
                 "description": "批次重试次数",
-                "hint": "单个 Embedding 批次失败后的最大重试次数。",
+                "hint": "单个 Embedding 批次失败后的最大重试次数。（允许范围：1–8）",
                 "type": "int",
-                "default": 5
+                "default": 5,
+                "slider": {
+                    "min": 1,
+                    "max": 8,
+                    "step": 1
+                }
             },
             "retry_base_delay": {
                 "description": "重试等待秒数",
-                "hint": "批次失败后的指数退避基础等待时间。遇到 429/TPM 限流时会至少等待 30 秒。",
+                "hint": "批次失败后的指数退避基础等待时间。遇到 429/TPM 限流时会至少等待 30 秒。（允许范围：0–60）",
                 "type": "float",
-                "default": 30.0
+                "default": 30.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 60.0,
+                    "step": 0.1
+                }
             },
             "batch_delay": {
                 "description": "读取批次间隔秒数",
-                "hint": "每个 documents 读取批次之间的额外等待时间，用于主动降低整体重建速率。",
+                "hint": "每个 documents 读取批次之间的额外等待时间，用于主动降低整体重建速率。（允许范围：0–10）",
                 "type": "float",
-                "default": 5.0
+                "default": 5.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1
+                }
             },
             "request_delay": {
                 "description": "Embedding 请求间隔秒数",
-                "hint": "每个 Embedding API 子请求之间的等待时间。频繁触发 429/TPM 时优先增大此项。",
+                "hint": "每个 Embedding API 子请求之间的等待时间。频繁触发 429/TPM 时优先增大此项。（允许范围：0–60）",
                 "type": "float",
-                "default": 5.0
+                "default": 5.0,
+                "slider": {
+                    "min": 0.0,
+                    "max": 60.0,
+                    "step": 0.1
+                }
             },
             "max_failure_ratio": {
                 "description": "允许失败比例",
-                "hint": "全量向量重建时，失败比例不超过该值才允许切换新索引。0.02 表示最多允许 2% 失败。",
+                "hint": "全量向量重建时，失败比例不超过该值才允许切换新索引。0.02 表示最多允许 2% 失败。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.02
+                "default": 0.02,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             }
         }
     },
@@ -519,9 +742,14 @@
             },
             "keep_days": {
                 "description": "备份保留天数",
-                "hint": "超过该天数的旧备份文件将被自动删除。默认保留 7 天。",
+                "hint": "超过该天数的旧备份文件将被自动删除。默认保留 7 天。（允许范围：1–365）",
                 "type": "int",
-                "default": 7
+                "default": 7,
+                "slider": {
+                    "min": 1,
+                    "max": 365,
+                    "step": 1
+                }
             }
         }
     },
@@ -544,15 +772,25 @@
             },
             "cleanup_days_threshold": {
                 "description": "清理天数阈值（天）",
-                "hint": "记忆创建超过该天数后进入清理候选。需同时满足重要性低于阈值才会被删除。",
+                "hint": "记忆创建超过该天数后进入清理候选。需同时满足重要性低于阈值才会被删除。（允许范围：1–3650）",
                 "type": "int",
-                "default": 30
+                "default": 30,
+                "slider": {
+                    "min": 1,
+                    "max": 3650,
+                    "step": 1
+                }
             },
             "cleanup_importance_threshold": {
                 "description": "清理重要性阈值",
-                "hint": "重要性低于该值的旧记忆才会被清理。0.3 表示重要性低于 30% 的记忆。",
+                "hint": "重要性低于该值的旧记忆才会被清理。0.3 表示重要性低于 30% 的记忆。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.3
+                "default": 0.3,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             }
         }
     },
@@ -599,33 +837,58 @@
             },
             "min_memories_per_group": {
                 "description": "每组最少记忆数",
-                "hint": "一组中记忆数达到该值才触发整合，避免为少量记忆做无谓的 LLM 调用。",
+                "hint": "一组中记忆数达到该值才触发整合，避免为少量记忆做无谓的 LLM 调用。（允许范围：2–50）",
                 "type": "int",
-                "default": 3
+                "default": 3,
+                "slider": {
+                    "min": 2,
+                    "max": 50,
+                    "step": 1
+                }
             },
             "min_age_days": {
                 "description": "最小记忆年龄（天）",
-                "hint": "只整合创建时间早于该天数的记忆，避免整合还在活跃更新的近期记忆。",
+                "hint": "只整合创建时间早于该天数的记忆，避免整合还在活跃更新的近期记忆。（允许范围：0–3650）",
                 "type": "int",
-                "default": 7
+                "default": 7,
+                "slider": {
+                    "min": 0,
+                    "max": 3650,
+                    "step": 1
+                }
             },
             "max_importance": {
                 "description": "最大重要性",
-                "hint": "只整合重要性低于该值的记忆，高重要性记忆保持不变。",
+                "hint": "只整合重要性低于该值的记忆，高重要性记忆保持不变。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.5
+                "default": 0.5,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             },
             "max_groups_per_run": {
                 "description": "每次最多整合组数",
-                "hint": "限制单次运行整合的组数，避免一次性触发过多 LLM 调用。",
+                "hint": "限制单次运行整合的组数，避免一次性触发过多 LLM 调用。（允许范围：1–100）",
                 "type": "int",
-                "default": 5
+                "default": 5,
+                "slider": {
+                    "min": 1,
+                    "max": 100,
+                    "step": 1
+                }
             },
             "semantic_similarity_threshold": {
                 "description": "语义聚类相似度阈值",
-                "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。",
+                "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.7
+                "default": 0.7,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
             }
         }
     }

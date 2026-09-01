@@ -47,15 +47,85 @@ def test_config_manager_sections_and_properties() -> None:
     assert isinstance(manager.filtering_settings, dict)
 
 
-def test_invalid_user_config_falls_back_to_defaults() -> None:
-    # Invalid type for top_k -> validation fails -> manager falls back to defaults.
+def test_invalid_user_config_corrected_per_item() -> None:
+    # 非法类型不再触发整包回退，而是回退该字段默认值并告警。
     with patch(
         "astrbot_plugin_livingmemory.core.base.config_manager.logger.warning"
     ) as warning:
         manager = ConfigManager({"recall_engine": {"top_k": "invalid"}})
 
     assert manager.get("recall_engine.top_k") == 5
-    warning.assert_called_once_with("配置验证失败，已降级为默认配置", exc_info=True)
+    assert manager.get("recall_engine.max_k") == 10
+    call_messages = [str(call.args[0]) for call in warning.call_args_list]
+    assert any("配置项已自动修正" in msg for msg in call_messages)
+    assert not any("已降级为默认配置" in msg for msg in call_messages)
+
+
+def test_out_of_range_config_is_clamped_per_item() -> None:
+    manager = ConfigManager(
+        {
+            "recall_engine": {"top_k": 60, "max_k": 0},
+            "session_manager": {"max_sessions": 7, "session_ttl": 30},
+            "backup_settings": {"keep_days": 9999},
+        }
+    )
+
+    # 越界值被截断到最近边界
+    assert manager.get("recall_engine.top_k") == 50
+    assert manager.get("recall_engine.max_k") == 1
+    assert manager.get("session_manager.session_ttl") == 60
+    assert manager.get("backup_settings.keep_days") == 365
+    # 有效值保持不变，且其余配置节不再被默认化
+    assert manager.get("session_manager.max_sessions") == 7
+    assert manager.get("fusion_strategy.rrf_k") == 60
+    assert manager.get("graph_memory.enabled") is True
+
+
+def test_pattern_violation_resets_that_field_default() -> None:
+    manager = ConfigManager(
+        {"recall_engine": {"memory_type_filter": "unknown", "top_k": 8}}
+    )
+
+    assert manager.get("recall_engine.memory_type_filter") == "all"
+    assert manager.get("recall_engine.top_k") == 8
+
+
+def test_structural_broken_section_resets_only_that_section() -> None:
+    manager = ConfigManager(
+        {"session_manager": "broken", "recall_engine": {"top_k": 8}}
+    )
+
+    assert manager.get("session_manager.max_sessions") == 100
+    assert manager.get("session_manager.session_ttl") == 3600
+    assert manager.get("recall_engine.top_k") == 8
+    assert manager.get("recall_engine.importance_weight") == 1.0
+
+
+def test_normalize_preserves_extra_and_backup_section() -> None:
+    manager = ConfigManager(
+        {
+            "bot_language": "en",
+            "backup_settings": {"enabled": True, "keep_days": 7},
+        }
+    )
+
+    assert manager.get("bot_language") == "en"
+    assert manager.get("backup_settings.enabled") is True
+    assert manager.get("backup_settings.keep_days") == 7
+
+
+def test_bool_string_coerced() -> None:
+    manager = ConfigManager(
+        {
+            "recall_engine": {
+                "fallback_to_vector": "false",
+                "search_cache_enabled": 1,
+            }
+        }
+    )
+
+    assert manager.get("recall_engine.fallback_to_vector") is False
+    assert manager.get("recall_engine.search_cache_enabled") is True
 
 
 def test_validate_config_accepts_merged_model_shape() -> None:
