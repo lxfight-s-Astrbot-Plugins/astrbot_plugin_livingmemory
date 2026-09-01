@@ -584,6 +584,9 @@ input[type="range"] {
   left: 16px;
   right: auto;
   bottom: auto;
+  /* 覆盖 styles.css 的居中 translate：否则提示框会以「左上角 -50% 宽/高」
+     定位被容器裁剪（元素遮挡问题）。 */
+  transform: none;
   padding: 7px 9px;
   color: var(--text-secondary);
   background: var(--bg-overlay);

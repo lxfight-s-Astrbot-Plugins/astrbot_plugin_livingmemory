@@ -47,6 +47,10 @@ Prompt overrides live in the plugin data directory and do not modify repository 
 | Aging risk | Low-importance relationships that have not been accessed for a long time |
 
 ::: tip
+The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). Click the **Full Graph** button to load every node and relation.
+:::
+
+::: tip
 Dashboard operations reuse the plugin runtime MemoryEngine and GraphStore, so they do not bypass backend data safety logic.
 :::
 

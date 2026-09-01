@@ -239,6 +239,7 @@
     "graph.searchBtn":    { zh: "检索图谱", en: "Search Graph", ru: "Искать в графе" },
     "graph.focusBtn":     { zh: "定位记忆", en: "Focus Memory", ru: "Фокус памяти" },
     "graph.overviewBtn":  { zh: "全量图谱", en: "Full Graph", ru: "Весь граф" },
+    "graph.limitedBtn":   { zh: "受限概览", en: "Limited View", ru: "Ограниченный обзор" },
 
     /* ---- Graph Stats ---- */
     "graph.visibleNodes": { zh: "可视节点", en: "Visible Nodes", ru: "Видимых узлов" },
@@ -300,13 +301,14 @@
     "graph.errorFetch":   { zh: "无法加载图谱概览", en: "Cannot load graph overview", ru: "Не удалось загрузить обзор графа" },
 
     /* ---- Graph Canvas Messages ---- */
-    "graph.canvasDefault":{ zh: "点击\"全量图谱\"加载全部关系，或直接输入检索词。", en: "Click Full Graph to load every relation, or enter a search term.", ru: "Нажмите Весь граф для загрузки всех связей или введите запрос." },
+    "graph.canvasDefault":{ zh: "默认展示最近记忆的受限图谱概览。点击\"全量图谱\"查看全部关系，或直接输入检索词。", en: "Showing a constrained overview of recent memories by default. Click \"Full Graph\" for every relation, or enter a search term.", ru: "По умолчанию показан ограниченный обзор графа по последним воспоминаниям. Нажмите «Весь граф» для всех связей или введите запрос." },
     "graph.canvasNo3D":   { zh: "3D 图谱组件未加载，请刷新页面并检查静态资源。", en: "3D graph component not loaded. Refresh and check static assets.", ru: "3D компонент графа не загружен. Обновите страницу." },
     "graph.canvasEmpty":  { zh: "当前范围内暂无可视化图数据。", en: "No visible graph data in the current range.", ru: "Нет видимых данных графа в текущем диапазоне." },
     "graph.canvasNoScene":{ zh: "当前页面未能加载 3D 图谱组件，请刷新页面后重试。", en: "Failed to load 3D graph component. Refresh and retry.", ru: "Не удалось загрузить 3D компонент. Обновите страницу." },
 
     /* ---- Graph Loading ---- */
-    "graph.loadingOverview":{ zh: "正在加载全部节点与关系...", en: "Loading all nodes and relations...", ru: "Загрузка всех узлов и связей..." },
+    "graph.loadingOverview":{ zh: "正在加载图谱概览...", en: "Loading graph overview...", ru: "Загрузка обзора графа..." },
+    "graph.layouting":    { zh: "正在生成图谱布局...", en: "Preparing graph layout...", ru: "Подготовка макета графа..." },
     "graph.loadingQuery": { zh: "正在检索\"{0}\"相关图谱...", en: "Retrieving graph for \"{0}\"...", ru: "Поиск графа для \"{0}\"..." },
     "graph.loadingFocus": { zh: "正在聚焦记忆 #{0} 的关系图...", en: "Focusing on relation graph of memory #{0}...", ru: "Фокус на графе связей памяти #{0}..." },
     "graph.loadingGeneric":{ zh: "图谱载入中...", en: "Loading graph...", ru: "Загрузка графа..." },

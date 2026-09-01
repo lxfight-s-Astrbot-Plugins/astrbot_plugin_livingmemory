@@ -18,6 +18,35 @@
   var Interaction = GraphInteraction;
 
   /* ================================================================
+     Canvas label compaction（#248）
+     事实节点标签通常是「人物名 + 日期 + 内容」的完整句子，画布上
+     只保留内容短摘要，完整标签仍由 payload / 详情面板提供。
+     ================================================================ */
+  var FACT_DATE_PREFIX_RE = new RegExp(
+    "^(?:" +
+      "\\d{4}[-年/.]\\d{1,2}[-月/.日]\\d{1,2}日?" + // 2026-08-14 / 2026年8月14日 / 2026/8/14
+      "|\\d{1,2}月\\d{1,2}日" +                       // 8月14日
+      "|今天|昨天|前天|今晚|昨晚|刚才" +
+      ")\\s*"
+  );
+
+  function compactFactLabel(label, personNames) {
+    var text = String(label || "").trim();
+    if (!text) return text;
+    /* 剥离开头的「人物名 + 空格」前缀（最多 2 个，适配多人事实）。 */
+    var stripped = 0;
+    for (var i = 0; i < personNames.length && stripped < 2; i++) {
+      var prefix = personNames[i] + " ";
+      if (text.indexOf(prefix) === 0) {
+        text = text.substring(prefix.length).trim();
+        stripped++;
+      }
+    }
+    text = text.replace(FACT_DATE_PREFIX_RE, "");
+    return text || String(label || "").trim();
+  }
+
+  /* ================================================================
      ForceDirectedLayout — 力导向布局（实现见 graph-layout-core.js，
      主线程与 Web Worker 共用）。此处仅保留薄工厂，接口与旧实现一致。
      ================================================================ */
@@ -125,6 +154,13 @@
     this._instantLayout = false;
     this._layoutGeneration = 0; // 渐进式布局代数守卫
     this._lastLayoutSignature = null;
+    /* 布局完成回调（由 Graph2D.loadData 注入）：让 UI 在布局期间显示
+       「正在生成图谱布局…」提示并在完成后清除（白屏替代）。 */
+    this._onLayoutDone = null;
+    /* 布局结果多槽缓存：signature → {positions, rings, communities}，
+       限制 3 项（受限概览 / 全量图 / 最近一次查询 足够来回切换）。 */
+    this._layoutCache = {};
+    this._layoutCacheOrder = [];
   }
 
   /* 优先使用 Web Worker 布局；不可用时回退到主线程内联布局。 */
@@ -221,8 +257,24 @@
       n._prevX = n.x;
       n._prevY = n.y;
     });
-    /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。 */
+    /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。
+       多槽记忆（按图签名）——受限概览 ↔ 全量图来回切换时，已算过的图
+       直接应用上次布局，不需要重新布局（#248 演示反馈）。 */
     var signature = this._graphSignature();
+    var cached = this._layoutCache[signature];
+    if (cached) {
+      /* 代数守卫+1：丢弃可能仍在跑的渐进布局链路（避免旧链路回包
+         覆盖刚注入的缓存位置）。 */
+      this._layoutGeneration += 1;
+      this._layout.positions = cached.positions;
+      this._layout.rings = cached.rings;
+      this._layout.communities = cached.communities;
+      this._layout._done = true;
+      if (centerId != null) this._layout.centerId = centerId;
+      this._lastLayoutSignature = signature;
+      this._finishLayout(centerId, true);
+      return;
+    }
     if (signature === this._lastLayoutSignature && this._layout._done) {
       if (centerId != null) this._layout.centerId = centerId;
       this._finishLayout(centerId, true);
@@ -231,8 +283,13 @@
     this._lastLayoutSignature = signature;
 
     /* 中等及以上图使用渐进式布局：分片跑迭代，边算边显示，不阻塞主线程。
-       支持 Worker 布局（异步消息驱动）与内联布局（同步分片）两种实现。 */
-    if (this._nodes.length > CFG.PROGRESSIVE_LAYOUT_THRESHOLD) {
+       支持 Worker 布局（异步消息驱动）与内联布局（同步分片）两种实现。
+       小图仅在「主线程内联布局」时走同步路径——Worker 布局的 compute()
+       只发送 begin，若不发 step 永远不会回传位置（节点会堆在原点）。 */
+    if (this._nodes.length <= CFG.PROGRESSIVE_LAYOUT_THRESHOLD && !this._layout.isWorker) {
+      this._layout.compute(this._nodes, this._edges, centerId);
+      this._finishLayout(centerId);
+    } else {
       this.stop();
       this._animProgress = 1;
       this._layoutGeneration += 1;
@@ -244,13 +301,30 @@
       }
       this._layout.begin(this._nodes, this._edges, centerId);
       this._progressiveLayout(centerId, this._layoutGeneration);
-    } else {
-      this._layout.compute(this._nodes, this._edges, centerId);
-      this._finishLayout(centerId);
     }
   };
 
-  /* 渐进式布局主循环：每帧跑一批迭代并渲染当前状态。
+  Animator.prototype._rememberLayout = function() {
+    var signature = this._lastLayoutSignature;
+    if (!signature) return;
+    var layout = this._layout;
+    if (!layout._done || !layout.positions) return;
+    var entry = {
+      positions: layout.positions,
+      rings: layout.rings,
+      communities: layout.communities,
+      done: true,
+    };
+    if (this._layoutCache[signature] === undefined) {
+      this._layoutCacheOrder.push(signature);
+      if (this._layoutCacheOrder.length > 3) {
+        delete this._layoutCache[this._layoutCacheOrder.shift()];
+      }
+    }
+    this._layoutCache[signature] = entry;
+  };
+
+  /* 渐进式布局主循环：每帧跑一批迭代。
      Worker 布局的 runLayoutSteps 返回 Promise，等消息回包后继续；
      内联布局同步执行，await 立即放行。 */
   Animator.prototype._progressiveLayout = async function(centerId, generation) {
@@ -261,7 +335,11 @@
     if (generation !== this._layoutGeneration) return;
     this._applyLayoutPositions();
     if (!this._layout._done) {
-      this._renderFrame();
+      /* 收敛前不渲染中间态：渐进阶段位置尚未稳定，在旧视口里逐帧
+         重绘会让整幅图「抽搐/缩放抖动」（#248）。完成时由
+         _finishLayout 一次性绘制并适配视口。 */
+      this.renderer.clear();
+      this._needsRender = true;
       requestAnimationFrame(function() {
         self._progressiveLayout(centerId, generation);
       });
@@ -296,6 +374,8 @@
 
   Animator.prototype._finishLayout = function(centerId, immediate) {
     var self = this;
+    /* 记住本次布局结果（受限/全量切换时直接复用，免重新布局）。 */
+    this._rememberLayout();
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
     this._animProgress = (immediate || this._instantLayout) ? 1 : 0;
@@ -311,6 +391,9 @@
     }
     this._needsRender = true;
     this.start();
+    if (this._onLayoutDone) {
+      try { this._onLayoutDone(); } catch (err) { /* 回调异常不影响布局 */ }
+    }
   };
 
   Animator.prototype._renderFrame = function() {
@@ -348,6 +431,17 @@
   Animator.prototype._tick = function() {
     if (!this._running) return;
     this._rafId = null;
+
+    /* 布局未收敛（渐进 / Worker 布局进行中）：不渲染中间态、不做环境
+       漂浮——此阶段 layout targets 尚为空，漂浮会把节点向原点拉扯并与
+       模拟位置互相覆写，整幅图表现为持续抽搐（#248）。渲染与视口适配
+       由 _finishLayout 在收敛后统一完成。 */
+    if (!this._layout._done) {
+      this._needsRender = true;
+      var self = this;
+      this._rafId = requestAnimationFrame(function() { self._tick(); });
+      return;
+    }
 
     /* Animate positions toward layout targets */
     var dirty = this._needsRender;
@@ -493,10 +587,19 @@
     this._initialized = true;
   };
 
-  Graph2D.prototype.loadData = function(payload) {
+  Graph2D.prototype.loadData = function(payload, options) {
+    options = options || {};
     var snapshot = payload.snapshot || {};
     var rawNodes = snapshot.nodes || [];
     var rawEdges = snapshot.edges || [];
+
+    /* 画布显示的 fact 标签去掉「人物名 + 日期时间」前缀（#248），
+       完整内容保留在 payload / 详情面板；仅对 fact 节点生效。 */
+    var personNames = [];
+    rawNodes.forEach(function(node) {
+      if (node.type === "person" && node.label) personNames.push(String(node.label));
+    });
+    personNames.sort(function(a, b) { return b.length - a.length; });
 
     /* Convert to internal format */
     var seenIds = {};
@@ -507,7 +610,9 @@
       seenIds[id] = true;
       nodes.push({
         id: id, type: node.type || "other",
-        label: node.label || node.canonical_value || "Node",
+        label: node.type === "fact"
+          ? compactFactLabel(node.label || node.canonical_value || "Fact", personNames)
+          : (node.label || node.canonical_value || "Node"),
         canonicalValue: node.canonical_value || "",
         x: 0, y: 0, _prevX: null, _prevY: null, fixed: false,
         weight: Number(node.weight || 0),
@@ -566,6 +671,7 @@
     }
 
     /* Apply centered force layout with animation */
+    this.animator._onLayoutDone = options.onLayoutDone || null;
     this.animator.layoutGraph(centerId);
 
     this.animator.wake();

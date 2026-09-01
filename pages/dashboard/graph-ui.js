@@ -14,6 +14,7 @@
     isLoading: false,
     hasLoadedOverview: false,
     isGraphReady: false,
+    overviewMode: null, /* "limited" | "full" | null */
   };
 
   const EXPANDED_GRAPH_LIMITS = {
@@ -106,7 +107,11 @@
 
     dom.searchButton.addEventListener("click", runQuery);
     dom.focusButton.addEventListener("click", focusMemory);
-    dom.overviewButton.addEventListener("click", fetchOverview);
+    /* 「全量图谱」按钮可来回切换：受限概览 ↔ 全量图（#248）。 */
+    dom.overviewButton.addEventListener("click", function() {
+      fetchOverview(state.overviewMode !== "full");
+    });
+    setOverviewButtonLabel();
 
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }
@@ -139,6 +144,7 @@
 
     window.addEventListener("languagechange", function() {
       initLabels();
+      setOverviewButtonLabel();
       if (state.payload) renderLegend(state.payload);
       if (!state.payload && dom.canvasState && dom.canvasState.textContent) {
         setCanvasMessage(window.t("graph.canvasDefault"), false);
@@ -150,7 +156,9 @@
 
   /* Expose for app.js lazy-load */
   window.ensureGraphScene = function() {
-    if (!state.hasLoadedOverview && !state.isLoading) fetchOverview();
+    /* 页面默认加载受限概览（最近记忆子图，节点/边受后端上限约束），
+       避免一次性绘制全量节点与关系造成视觉毛团（#248）。 */
+    if (!state.hasLoadedOverview && !state.isLoading) fetchOverview(false);
   };
 
   /* ================================================================
@@ -176,16 +184,19 @@
     return target;
   }
 
-  async function fetchOverview() {
+  async function fetchOverview(fullGraph) {
     setLoading(true);
     setCanvasMessage(window.t("graph.loadingOverview"), true);
     try {
       var filters = getFilters();
-      var params = new URLSearchParams({ full_graph: "true" });
+      var params = new URLSearchParams();
+      if (fullGraph) params.set("full_graph", "true");
       if (filters.session_id) params.set("session_id", filters.session_id);
       var qs = params.toString();
       var payload = await requestGraph("/graph/overview" + (qs ? "?" + qs : ""));
       state.hasLoadedOverview = true;
+      state.overviewMode = fullGraph ? "full" : "limited";
+      setOverviewButtonLabel();
       renderPayload(payload, true);
       if (window.lmFetchGraphStats) window.lmFetchGraphStats();
     } catch (e) {
@@ -195,9 +206,22 @@
     }
   }
 
+  /* 按当前模式切换按钮文案（全量图谱 ↔ 受限概览），并同步 data-i18n
+     供语言切换时重渲染。 */
+  function setOverviewButtonLabel() {
+    if (!dom.overviewButton) return;
+    var key = state.overviewMode === "full" ? "graph.limitedBtn" : "graph.overviewBtn";
+    var label = dom.overviewButton.querySelector ? dom.overviewButton.querySelector("span") : null;
+    if (label) {
+      label.setAttribute("data-i18n", key);
+      label.textContent = window.t(key);
+    }
+    dom.overviewButton.setAttribute("data-i18n-aria", key);
+  }
+
   async function runQuery() {
     var query = dom.queryInput.value.trim();
-    if (!query) { fetchOverview(); return; }
+    if (!query) { fetchOverview(false); return; }
 
     setLoading(true);
     setCanvasMessage(window.t("graph.loadingQuery", query), true);
@@ -278,8 +302,19 @@
 
     /* Delegate to Graph2D renderer */
     if (state.isGraphReady) {
-      window.Graph2D.loadData(payload);
-      setCanvasMessage(hasGraphData ? "" : window.t("graph.canvasEmpty"), false);
+      if (hasGraphData) {
+        /* 布局期间显示「正在生成图谱布局…」，完成后由回调清除（#248）。 */
+        setCanvasMessage(window.t("graph.layouting"), true);
+      } else {
+        setCanvasMessage(window.t("graph.canvasEmpty"), false);
+      }
+      window.Graph2D.loadData(payload, {
+        onLayoutDone: function() {
+          if (state.graphIndex && state.graphIndex.nodeMap.size > 0) {
+            setCanvasMessage("", false);
+          }
+        },
+      });
     }
 
     /* Auto-select based on payload mode */
