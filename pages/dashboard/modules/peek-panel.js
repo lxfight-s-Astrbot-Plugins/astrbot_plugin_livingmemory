@@ -19,6 +19,8 @@ export class PeekPanel {
     this.state = state;
     this.api = apiClient;
     this._confirmResolve = null;
+    this._batchEditResolve = null;
+    this._detailGeneration = 0;
     this._prevPeekContent = null;
   }
 
@@ -47,6 +49,10 @@ export class PeekPanel {
     if (this._confirmResolve) {
       this._closeConfirmDialog(false);
     }
+    // 批量编辑对话框同理，否则其 promise 永远 pending（闭包泄漏）
+    if (this._batchEditResolve) {
+      this._closeBatchEditDialog(null);
+    }
     const panel = document.getElementById("peek-panel");
     panel.classList.remove("visible", "wide");
     panel.setAttribute("inert", "");
@@ -56,6 +62,36 @@ export class PeekPanel {
     this.state.isEditing = false;
     this.state._detailCache = null;
     this.state._nodeDetailCache = null;
+    // 使在途详情请求失效，防止面板关闭后被慢响应重新打开
+    this._detailGeneration++;
+  }
+
+  /**
+   * Escape 键的分层处理：批量编辑对话框 > 确认对话框 > 编辑态 > 面板本身。
+   * 编辑态直接关闭会静默丢弃未保存的修改，先回退到详情视图。
+   * @returns {boolean} 是否消费了该事件
+   */
+  handleEscape() {
+    if (this._batchEditResolve) {
+      this._closeBatchEditDialog(null);
+      return true;
+    }
+    if (this._confirmResolve) {
+      this._closeConfirmDialog(false);
+      return true;
+    }
+    const panel = document.getElementById("peek-panel");
+    if (!panel.classList.contains("visible")) return false;
+    if (this.state.isEditing) {
+      if (this.state._detailCache) {
+        this.renderDetailView(this.state._detailCache);
+      } else {
+        this.close();
+      }
+      return true;
+    }
+    this.close();
+    return true;
   }
 
   /**
@@ -69,14 +105,19 @@ export class PeekPanel {
     const memoryId = memory.memory_id || memory.id;
     this.state._detailCache = null;
 
+    // 竞态守卫：慢响应覆盖新点击/已关闭的面板（或关闭后自行重新打开）
+    const generation = ++this._detailGeneration;
+
     // 从 API 获取完整详情
     let detail = null;
     try {
       detail = await this.api.get("memories/detail", { memory_id: memoryId });
+      if (generation !== this._detailGeneration) return;
       if (detail) this.state._detailCache = detail;
     } catch (_) {
       detail = null;
     }
+    if (generation !== this._detailGeneration) return;
 
     // Fallback: 使用传入的 memory 数据
     if (!detail) {

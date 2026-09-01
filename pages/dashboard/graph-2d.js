@@ -143,6 +143,7 @@
     this.interaction = interaction;
     this._running = false;
     this._rafId = null;
+    this._pageVisible = true;
     this._nodes = [];
     this._edges = [];
     this._nodeMap = {};
@@ -234,6 +235,20 @@
   Animator.prototype.stop = function() {
     this._running = false;
     if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+  };
+
+  /**
+   * 页面可见性开关：SPA 切页只改 CSS display，RAF 循环不会自动停，
+   * 离开图谱页时必须显式停下氛围动画，回来时再恢复
+   * @param {boolean} visible - 图谱页当前是否可见
+   */
+  Animator.prototype.setPageVisible = function(visible) {
+    this._pageVisible = !!visible;
+    if (visible) {
+      this.start();
+    } else {
+      this.stop();
+    }
   };
 
   Animator.prototype.setData = function(nodes, edges) {
@@ -431,6 +446,13 @@
   Animator.prototype._tick = function() {
     if (!this._running) return;
     this._rafId = null;
+
+    /* 页面隐藏（SPA 切到其他 tab 页）时停止循环：布局计算（Worker）仍在
+       后台继续，返回图谱页时 setPageVisible(true) 会恢复渲染。 */
+    if (!this._pageVisible) {
+      this._running = false;
+      return;
+    }
 
     /* 布局未收敛（渐进 / Worker 布局进行中）：不渲染中间态、不做环境
        漂浮——此阶段 layout targets 尚为空，漂浮会把节点向原点拉扯并与
@@ -700,6 +722,15 @@
     this.animator.recenter(null);
   };
 
+  /**
+   * SPA 切页时由 app.switchPage 调用：离开图谱页停止 RAF 循环（省 CPU），
+   * 回到图谱页恢复
+   * @param {boolean} active - 图谱页是否可见
+   */
+  Graph2D.prototype.setActive = function(active) {
+    if (this.animator) this.animator.setPageVisible(active);
+  };
+
   Graph2D.prototype.resize = function() {
     if (this.renderer) this.renderer.resize();
     if (this.animator) {
@@ -710,6 +741,7 @@
   };
 
   Graph2D.prototype.destroy = function() {
+    this.animator.setPageVisible(false);
     if (this.animator) this.animator.stop();
     if (this.canvas && this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);

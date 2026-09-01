@@ -47,6 +47,9 @@ export class RecallPage {
    * 执行召回测试
    */
   async runRecall() {
+    const searchBtn = document.getElementById("recall-search-btn");
+    // 回车触发不经过按钮 disabled 守卫，需显式防并发（慢响应覆盖新结果）
+    if (searchBtn && searchBtn.disabled) return;
     const query = document.getElementById("recall-query").value.trim();
     const k = parseInt(document.getElementById("recall-k").value) || 5;
     const sessionId = document.getElementById("recall-session").value.trim();
@@ -56,7 +59,6 @@ export class RecallPage {
       return;
     }
 
-    const searchBtn = document.getElementById("recall-search-btn");
     if (searchBtn) searchBtn.disabled = true;
 
     const startTime = Date.now();

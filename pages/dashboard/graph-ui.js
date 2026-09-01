@@ -198,7 +198,7 @@
       state.overviewMode = fullGraph ? "full" : "limited";
       setOverviewButtonLabel();
       renderPayload(payload, true);
-      if (window.lmFetchGraphStats) window.lmFetchGraphStats();
+      // 统计卡片由 renderPayload 内部统一刷新，此处不再重复请求
     } catch (e) {
       setCanvasMessage(e.message || window.t("graph.errorFetch"), false);
     } finally {
@@ -220,6 +220,7 @@
   }
 
   async function runQuery() {
+    if (state.isLoading) return; // 回车触发绕过按钮 disabled，显式防并发
     var query = dom.queryInput.value.trim();
     if (!query) { fetchOverview(false); return; }
 
@@ -242,6 +243,7 @@
   }
 
   async function focusMemory() {
+    if (state.isLoading) return;
     var text = dom.memoryInput.value.trim();
     if (!text) { setCanvasMessage(window.t("graph.focusEmpty"), false); return; }
     var memoryId = Number.parseInt(text, 10);

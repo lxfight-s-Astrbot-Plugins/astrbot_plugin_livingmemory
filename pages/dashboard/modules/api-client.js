@@ -67,7 +67,9 @@ export class ApiClient {
   async request(path, options = {}) {
     const method = options.method || "GET";
     const body = options.body;
-    const retries = options.retries ?? 2;
+    // GET 幂等可安全重试；POST 可能非幂等（如 memories/update 重建新 ID），
+    // 超时重试会造成重复创建，默认不重试，调用方显式传 retries 才重试
+    const retries = options.retries ?? (method === "GET" ? 2 : 0);
 
     if (!this.bridge) {
       throw new Error(window.t ? window.t("bridge.error") : "Bridge not available");
