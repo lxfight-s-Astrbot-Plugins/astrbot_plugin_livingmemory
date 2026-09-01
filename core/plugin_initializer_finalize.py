@@ -126,6 +126,12 @@ class InitializerFinalizeMixin:
                 "fallback_enabled": self.config_manager.get(
                     "recall_engine.fallback_to_vector", True
                 ),
+                "rerank_enabled": self.config_manager.get(
+                    "recall_engine.rerank_enabled", False
+                ),
+                "rerank_candidates": self.config_manager.get(
+                    "recall_engine.rerank_candidates", 20
+                ),
                 "cleanup_days_threshold": self.config_manager.get(
                     "forgetting_agent.cleanup_days_threshold", 30
                 ),
@@ -208,12 +214,28 @@ class InitializerFinalizeMixin:
                 ),
             }
 
+            # Rerank 提供商动态解析：每次调用时重新获取实例，
+            # 适配 AstrBot 的 Provider 实例重建（旧实例 httpx 客户端会关闭）
+            rerank_provider_id = (
+                self.config_manager.get("recall_engine.rerank_provider_id", "") or ""
+            )
+
+            def resolve_rerank_provider():
+                if not rerank_provider_id:
+                    return None
+                try:
+                    return self._get_provider_by_id(rerank_provider_id, silent=True)
+                except Exception as e:
+                    logger.warning(f"解析 Rerank 提供商失败: {e}")
+                    return None
+
             self.memory_engine = MemoryEngine(
                 db_path=str(db_path),
                 faiss_db=self.db,
                 graph_vector_db=self.graph_db,
                 llm_provider=self.llm_provider,
                 config=memory_engine_config,
+                rerank_provider_resolver=resolve_rerank_provider,
             )
             await self.memory_engine.initialize()
             logger.info("MemoryEngine 已初始化")

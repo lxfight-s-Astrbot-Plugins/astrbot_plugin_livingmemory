@@ -49,6 +49,9 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.recent_memory_max_age_hours` | `72` | Time window for recent-memory slots |
 | `recall_engine.memory_type_filter` | `all` | Use `event_only` to exclude known preference-only or relationship-only memories |
 | `recall_engine.fallback_to_vector` | `true` | Falls back to vector search if hybrid retrieval fails |
+| `recall_engine.rerank_enabled` | `false` | Reranks fused candidates by query relevance with a Rerank model |
+| `recall_engine.rerank_provider_id` | `""` | ID of a Rerank-type provider in AstrBot; leave empty to skip |
+| `recall_engine.rerank_candidates` | `20` | Fused candidates sent to the Rerank model (2-100); top_k kept after reranking |
 | `recall_engine.injection_method` | `extra_user_content` | Where or how recalled memories are injected |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |

@@ -168,6 +168,8 @@ class MemoryEngineWriteOpsMixin:
             int(self.config.get("recent_memory_count", 2)),
             int(self.config.get("recent_memory_max_age_hours", 72)),
             str(self.config.get("memory_type_filter", "all")),
+            bool(self.config.get("rerank_enabled", False)),
+            int(self.config.get("rerank_candidates", 20)),
         )
 
     def _filter_by_retrieval_policy(

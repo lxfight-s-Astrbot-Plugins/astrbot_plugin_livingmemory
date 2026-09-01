@@ -340,7 +340,13 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
 
     class FakeMemoryEngine:
         def __init__(
-            self, db_path, faiss_db, graph_vector_db, llm_provider=None, config=None
+            self,
+            db_path,
+            faiss_db,
+            graph_vector_db,
+            llm_provider=None,
+            config=None,
+            rerank_provider_resolver=None,
         ):
             self.db_path = db_path
             self.faiss_db = faiss_db
@@ -503,7 +509,13 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
 
     class FakeMemoryEngine:
         def __init__(
-            self, db_path, faiss_db, graph_vector_db, llm_provider=None, config=None
+            self,
+            db_path,
+            faiss_db,
+            graph_vector_db,
+            llm_provider=None,
+            config=None,
+            rerank_provider_resolver=None,
         ):
             self.db_path = db_path
             self.faiss_db = faiss_db

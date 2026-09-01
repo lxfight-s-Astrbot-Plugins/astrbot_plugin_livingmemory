@@ -37,6 +37,7 @@ class FusedResult:
     vector_score: float | None  # 原始向量分数
     content: str
     metadata: dict[str, Any]
+    rerank_score: float | None = None  # Rerank重排序分数(已归一化到[0,1],未重排序时为None)
 
 
 class RRFFusion:

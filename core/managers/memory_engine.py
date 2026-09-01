@@ -5,6 +5,7 @@
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,7 @@ class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngin
         graph_vector_db=None,
         llm_provider=None,
         config: dict[str, Any] | None = None,
+        rerank_provider_resolver: Callable[[], Any] | None = None,
     ):
         """
         初始化记忆引擎
@@ -98,12 +100,15 @@ class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngin
                 - cleanup_days_threshold: 清理天数阈值,默认30
                 - cleanup_importance_threshold: 清理重要性阈值,默认0.3
                 - stopwords_path: 停用词文件路径(可选)
+            rerank_provider_resolver: 返回RerankProvider实例的可调用对象(可选)。
+                动态解析以适配AstrBot的Provider实例重建,传None时跳过重排序。
         """
         self.db_path = db_path
         self.faiss_db = faiss_db
         self.graph_vector_db = graph_vector_db
         self.llm_provider = llm_provider
         self.config = config or {}
+        self.rerank_provider_resolver = rerank_provider_resolver
         self.graph_enabled = bool(self.config.get("graph_memory_enabled", False))
         self.atom_enabled = bool(
             self.config.get(
@@ -189,7 +194,11 @@ class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngin
 
         # 7. 初始化混合检索器
         self.hybrid_retriever = HybridRetriever(
-            self.bm25_retriever, self.vector_retriever, self.rrf_fusion, self.config
+            self.bm25_retriever,
+            self.vector_retriever,
+            self.rrf_fusion,
+            self.config,
+            rerank_provider_resolver=self.rerank_provider_resolver,
         )
 
         if self.graph_enabled and self.graph_vector_db is not None:

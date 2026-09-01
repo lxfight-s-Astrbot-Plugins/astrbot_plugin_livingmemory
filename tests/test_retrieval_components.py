@@ -1264,3 +1264,146 @@ def test_add_custom_words_jieba_add_word_fails():
         assert text_processor.JIEBA_RUNTIME_DISABLED is False
     finally:
         text_processor.JIEBA_RUNTIME_DISABLED = original_disabled
+
+
+class _RerankDocBM25:
+    """BM25 route returning 4 docs in RRF-favorable order (doc 1 best)."""
+
+    async def search(self, query, k, session_id=None, persona_id=None):
+        now = time.time()
+        return [
+            RRFBM25Result(
+                doc_id=i,
+                score=1.0 - i * 0.1,
+                content=f"content {i}",
+                metadata={"importance": 0.5, "create_time": now},
+            )
+            for i in (1, 2, 3, 4)
+        ]
+
+
+class _RerankDocVector:
+    """Vector route returning 4 docs in opposite order (doc 4 best)."""
+
+    async def search(self, query, k, session_id=None, persona_id=None):
+        now = time.time()
+        return [
+            VectorResult(
+                doc_id=i,
+                score=0.1 + i * 0.1,
+                content=f"content {i}",
+                metadata={"importance": 0.5, "create_time": now},
+            )
+            for i in (4, 3, 2, 1)
+        ]
+
+
+class _FakeRerankProvider:
+    """Rerank provider assigning fixed relevance scores per content."""
+
+    def __init__(self, scores_by_content, fail=False):
+        self.scores_by_content = scores_by_content
+        self.fail = fail
+        self.calls = []
+
+    async def rerank(self, query, documents, top_n=None):
+        if self.fail:
+            raise RuntimeError("rerank unavailable")
+        self.calls.append((query, list(documents)))
+        return [
+            type(
+                "RerankResult",
+                (),
+                {"index": i, "relevance_score": self.scores_by_content[c]},
+            )
+            for i, c in enumerate(documents)
+            if c in self.scores_by_content
+        ]
+
+
+def _make_rerank_retriever(provider, config=None) -> HybridRetriever:
+    merged = {"rerank_enabled": True, "rerank_candidates": 4}
+    merged.update(config or {})
+    return HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _RerankDocBM25()),
+        vector_retriever=cast(VectorRetriever, _RerankDocVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config=merged,
+        rerank_provider_resolver=lambda: provider,
+    )
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_overrides_relevance_ordering():
+    # RRF favors doc1 (rank1 in both routes); rerank says doc4 is most relevant
+    provider = _FakeRerankProvider(
+        {"content 1": 0.1, "content 2": 0.2, "content 3": 0.3, "content 4": 0.9}
+    )
+    retriever = _make_rerank_retriever(provider)
+    results = await retriever.search("query", k=2)
+
+    assert len(results) == 2
+    assert results[0].doc_id == 4
+    assert results[0].score_breakdown["rerank"] == 1.0
+    assert provider.calls and provider.calls[0][0] == "query"
+    # rerank_candidates=4 candidates sent from each route
+    assert len(provider.calls[0][1]) == 4
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_truncates_candidates_to_k():
+    provider = _FakeRerankProvider({"content 1": 0.5, "content 2": 0.4})
+    retriever = _make_rerank_retriever(provider)
+    results = await retriever.search("query", k=3)
+
+    assert len(results) == 3
+    assert results[0].doc_id == 1  # highest rerank score wins
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_error_falls_back_to_rrf_order():
+    provider = _FakeRerankProvider({}, fail=True)
+    retriever = _make_rerank_retriever(provider)
+    results = await retriever.search("query", k=2)
+
+    assert len(results) == 2
+    # No rerank component in breakdown, doc1 keeps RRF lead
+    assert all("rerank" not in (r.score_breakdown or {}) for r in results)
+    assert results[0].doc_id == 1
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_disabled_keeps_rrf_behavior():
+    provider = _FakeRerankProvider({"content 4": 0.9})
+    retriever = _make_rerank_retriever(provider, config={"rerank_enabled": False})
+    results = await retriever.search("query", k=2)
+
+    assert results[0].doc_id == 1  # RRF order preserved
+    assert provider.calls == []  # provider never called
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_resolver_returns_none_skips():
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _RerankDocBM25()),
+        vector_retriever=cast(VectorRetriever, _RerankDocVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"rerank_enabled": True, "rerank_candidates": 4},
+        rerank_provider_resolver=lambda: None,
+    )
+    results = await retriever.search("query", k=2)
+
+    assert results[0].doc_id == 1
+    assert all("rerank" not in (r.score_breakdown or {}) for r in results)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_candidates_clamped_to_config_bounds():
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _RerankDocBM25()),
+        vector_retriever=cast(VectorRetriever, _RerankDocVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"rerank_enabled": True, "rerank_candidates": 999},
+        rerank_provider_resolver=lambda: None,
+    )
+    assert retriever.rerank_candidates == 100

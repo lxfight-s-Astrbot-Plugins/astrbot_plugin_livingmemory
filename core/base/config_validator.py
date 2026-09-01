@@ -74,6 +74,18 @@ class RecallEngineConfig(BaseModel):
         default="all", pattern="^(all|event_only)$", description="记忆类型过滤模式"
     )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
+    rerank_enabled: bool = Field(
+        default=False, description="是否启用 Rerank 重排序（需在 AstrBot 中配置 Rerank 提供商）"
+    )
+    rerank_provider_id: str = Field(
+        default="", description="AstrBot 中 Rerank 提供商的 ID，留空则不重排序"
+    )
+    rerank_candidates: int = Field(
+        default=20,
+        ge=2,
+        le=100,
+        description="送入重排序的融合候选数量（越大越准但调用成本越高）",
+    )
     injection_method: str = Field(
         default="extra_user_content",
         description=(
