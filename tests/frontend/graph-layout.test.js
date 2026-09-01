@@ -184,6 +184,35 @@ test("large graph layout completes via progressive stepping", async () => {
   assert.equal(Object.keys(g.animator._layout.positions).length, 300);
 });
 
+test("fact node canvas labels strip person name and date prefixes", async () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  const nodes = [
+    { id: 1, type: "person", label: "人物A", weight: 10, degree: 30 },
+    { id: 2, type: "person", label: "人物B", weight: 10, degree: 30 },
+    { id: 3, type: "fact", label: "人物A 2026-08-14 深夜聊天时被催促去睡觉", weight: 1 },
+    { id: 4, type: "fact", label: "人物A 人物B 2026年8月15日 一起看了电影", weight: 1 },
+    { id: 5, type: "fact", label: "今天下雨了", weight: 1 },
+    { id: 6, type: "fact", label: "人物A 喜欢喝咖啡", weight: 1 },
+    { id: 7, type: "topic", label: "人物A 的喜好", weight: 1 },
+  ];
+  g.loadData({ enabled: true, mode: "query", snapshot: { nodes, edges: [] } });
+
+  const byId = {};
+  g._nodes.forEach(function(n) { byId[n.id] = n; });
+  /* person 节点标签保持不变。 */
+  assert.equal(byId[1].label, "人物A");
+  /* fact 标签去掉人物名与日期时间前缀（#248）。 */
+  assert.equal(byId[3].label, "深夜聊天时被催促去睡觉");
+  assert.equal(byId[4].label, "一起看了电影");
+  assert.equal(byId[5].label, "下雨了");
+  assert.equal(byId[6].label, "喜欢喝咖啡");
+  /* 非 fact 节点不做剥离。 */
+  assert.equal(byId[7].label, "人物A 的喜好");
+});
+
 test("identical graph structure reuses cached layout", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;
@@ -290,6 +319,75 @@ function installFakeWorker() {
     terminate() {}
   };
 }
+
+test("small graph completes with worker layout via progressive steps", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  assert.equal(g.animator._layout.isWorker, true, "Worker 布局应被启用");
+
+  /* ≤60 节点的小图在 Worker 布局下也必须真正跑完：此前同步分支只发
+     begin 消息，位置永远不回传，导致所有节点堆在原点（#248 演示发现）。 */
+  const payload = makePayload(50, 49);
+  g.loadData(payload);
+  await settle(rafQueue);
+
+  assert.equal(g._nodes.length, 50);
+  assert.equal(g.animator._layout._done, true);
+  assert.equal(Object.keys(g.animator._layout.positions).length, 50);
+});
+
+test("progressive layout does not render unstable intermediate states", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  let renders = 0;
+  const renderer = g.renderer;
+  const orig = renderer.render.bind(renderer);
+  renderer.render = function () { renders += 1; return orig.apply(renderer, arguments); };
+
+  g.loadData(makePayload(300, 299));
+
+  /* 渐进期间推几帧：布局未完时不得渲染中间态（此前 _tick 的漂浮/渲染会
+     在旧视口里重绘乱动的节点，整幅图表现为抽搐——#248 演示反馈）。 */
+  for (let i = 0; i < 8; i++) {
+    flushRaf(rafQueue);
+    await Promise.resolve();
+  }
+  assert.equal(g.animator._layout._done, false, "前置：布局尚未完成");
+  assert.equal(renders, 0, "渐进期间不应渲染中间态");
+
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+  assert.ok(renders > 0, "布局完成后应开始渲染");
+});
+
+test("switching back to a previously loaded graph reuses cached layout instantly", async () => {
+  const rafQueue = loadGraph();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  const small = makePayload(60, 59);
+  const large = makePayload(200, 199);
+
+  g.loadData(small);
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+
+  g.loadData(large);
+  await settle(rafQueue);
+  assert.equal(g.animator._layout._done, true);
+
+  /* 切回小图：应立即命中多槽布局缓存，无需重新布局（#248 反馈）。 */
+  g.loadData(small);
+  assert.equal(g.animator._layout._done, true, "切换回已加载的图应直接复用布局");
+  assert.equal(Object.keys(g.animator._layout.positions).length, 60);
+  await settle(rafQueue);
+});
 
 test("worker layout completes via fake worker round trip", async () => {
   const rafQueue = loadGraph();

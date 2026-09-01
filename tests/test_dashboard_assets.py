@@ -71,10 +71,14 @@ def test_memory_transfer_controls_use_lucide_and_preview_before_import() -> None
     assert "dry_run: false" in memory_page
 
 
-def test_graph_dashboard_requests_full_overview_and_expanded_queries() -> None:
+def test_graph_dashboard_defaults_to_limited_overview_and_expanded_queries() -> None:
     graph_ui = (DASHBOARD / "graph-ui.js").read_text(encoding="utf-8")
 
-    assert 'full_graph: "true"' in graph_ui
+    # 默认（ensureGraphScene / 空检索）走受限概览，不传 full_graph（#248）
+    assert "fetchOverview(false)" in graph_ui
+    # 「全量图谱」按钮可来回切换受限概览 ↔ 全量图（#248）
+    assert 'fetchOverview(state.overviewMode !== "full")' in graph_ui
+    assert 'params.set("full_graph", "true")' in graph_ui
     assert "limit_memories: 24" in graph_ui
     assert "limit_entries: 80" in graph_ui
     assert "limit_nodes: 80" in graph_ui
@@ -97,6 +101,15 @@ def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
     assert "onRenderRequest" in graph_interaction
     assert "this._running = false" in graph_2d
     assert "Graph2D.prototype.getDiagnostics" in graph_2d
+
+
+def test_graph_canvas_state_keeps_tooltip_inside_container() -> None:
+    art = (DASHBOARD / "art-direction.css").read_text(encoding="utf-8")
+
+    # art-direction 将画布提示移到左上角（top/left 16px），必须重置 styles.css
+    # 的居中 translate，否则提示框会以「左上角 -50% 宽/高」定位被容器裁剪。
+    assert ".graph-canvas-state" in art
+    assert "transform: none" in art
 
 
 def test_dashboard_hides_inactive_panels_from_keyboard_navigation() -> None:
