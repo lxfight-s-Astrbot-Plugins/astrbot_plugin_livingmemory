@@ -49,6 +49,9 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.recent_memory_max_age_hours` | `72` | 近期记忆保底的时间窗口 |
 | `recall_engine.memory_type_filter` | `all` | 设为 `event_only` 可排除明确的纯偏好/关系记忆 |
 | `recall_engine.fallback_to_vector` | `true` | 混合检索失败时降级到向量检索 |
+| `recall_engine.rerank_enabled` | `false` | 启用 Rerank 模型对融合候选按查询相关性重排序 |
+| `recall_engine.rerank_provider_id` | `""` | AstrBot 中 Rerank 类型提供商的 ID，留空则跳过 |
+| `recall_engine.rerank_candidates` | `20` | 送入 Rerank 的融合候选数量（2–100），重排序后保留 top_k |
 | `recall_engine.injection_method` | `extra_user_content` | 记忆注入到 LLM 请求的位置或形式 |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
 | `recall_engine.search_cache_enabled` | `true` | 是否启用短期检索缓存 |

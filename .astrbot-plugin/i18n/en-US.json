@@ -118,6 +118,18 @@
         "description": "Fallback to Pure Vector Search",
         "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."
       },
+      "rerank_enabled": {
+        "description": "Enable Rerank Reordering",
+        "hint": "After RRF fusion, call a Rerank model to reorder candidate memories by query relevance, replacing the RRF ranking as the relevance score source. Requires a Rerank-type provider configured in AstrBot."
+      },
+      "rerank_provider_id": {
+        "description": "Rerank Provider ID",
+        "hint": "The ID of a Rerank-type provider in AstrBot. Leave empty to skip reranking even when enabled."
+      },
+      "rerank_candidates": {
+        "description": "Rerank Candidate Count",
+        "hint": "Number of fused candidate memories sent to the Rerank model; only top_k are kept after reranking. Larger values improve ranking accuracy but increase per-recall Rerank API cost. Recommended 10-30. (Range: 2-100)"
+      },
       "injection_method": {
         "description": "Memory Injection Position",
         "hint": "Where to inject memories into LLM requests. extra_user_content is recommended: append to the current user message without affecting prefix cache or polluting conversation history. user_message_before: inject as a user-message prefix. user_message_after: inject as a user-message suffix. fake_tool_call: inject as fake tool-call message pairs so the LLM understands them as retrieval results. fake_tool_call_deepseek_v4 is deprecated and automatically falls back to fake_tool_call. With Gemini, fake_tool_call automatically falls back to extra_user_content. system_prompt is deprecated and automatically falls back to extra_user_content.",

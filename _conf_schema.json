@@ -221,6 +221,29 @@
                 "type": "bool",
                 "default": true
             },
+            "rerank_enabled": {
+                "description": "启用 Rerank 重排序",
+                "hint": "在 RRF 融合后调用 Rerank 模型对候选记忆按查询相关性重排序，替代 RRF 排名作为相关性评分来源。需先在 AstrBot「服务提供商」中配置一个 Rerank 类型提供商。",
+                "type": "bool",
+                "default": false
+            },
+            "rerank_provider_id": {
+                "description": "Rerank 提供商 ID",
+                "hint": "AstrBot「服务提供商」中 Rerank 类型提供商的 ID。留空时即使开启重排序也会自动跳过。",
+                "type": "string",
+                "default": ""
+            },
+            "rerank_candidates": {
+                "description": "重排序候选数量",
+                "hint": "送入 Rerank 模型的融合候选记忆条数，重排序后仅保留 top_k 条。值越大排序越准，但每次召回的 Rerank API 调用成本越高，建议 10-30。（允许范围：2–100）",
+                "type": "int",
+                "default": 20,
+                "slider": {
+                    "min": 2,
+                    "max": 100,
+                    "step": 1
+                }
+            },
             "injection_method": {
                 "description": "记忆注入位置",
                 "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾，不影响前缀缓存且不污染对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：⚠️已废弃，选择后自动回退至 fake_tool_call。Gemini 下若选择 fake_tool_call 会自动降级为 extra_user_content。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",

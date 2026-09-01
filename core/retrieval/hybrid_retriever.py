@@ -7,6 +7,7 @@ import asyncio
 import json
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,6 +54,7 @@ class HybridRetriever:
         vector_retriever: VectorRetriever,
         rrf_fusion: RRFFusion,
         config: dict[str, Any] | None = None,
+        rerank_provider_resolver: Callable[[], Any] | None = None,
     ):
         """
         初始化混合检索器
@@ -65,16 +67,28 @@ class HybridRetriever:
                 - decay_rate: 时间衰减率,默认0.01
                 - importance_weight: 重要性权重,默认1.0
                 - fallback_enabled: 启用退化机制,默认True
+                - rerank_enabled: 启用Rerank重排序,默认False
+                - rerank_candidates: 送入Rerank的融合候选数量,默认20
+            rerank_provider_resolver: 返回RerankProvider实例的可调用对象(可选)。
+                使用动态解析而非缓存实例: AstrBot会重建Provider实例,旧实例的
+                httpx客户端可能已关闭。传入None时即使rerank_enabled也会跳过重排序。
         """
         self.bm25_retriever = bm25_retriever
         self.vector_retriever = vector_retriever
         self.rrf_fusion = rrf_fusion
         self.config = config or {}
+        self.rerank_provider_resolver = rerank_provider_resolver
 
         # 配置参数
         self.decay_rate = self.config.get("decay_rate", 0.01)
         self.importance_weight = self.config.get("importance_weight", 1.0)
         self.fallback_enabled = self.config.get("fallback_enabled", True)
+
+        # Rerank重排序参数
+        self.rerank_enabled = bool(self.config.get("rerank_enabled", False))
+        self.rerank_candidates = max(
+            2, min(100, int(self.config.get("rerank_candidates", 20) or 20))
+        )
 
         # 加权求和各维度权重（可通过配置覆盖）
         self.score_alpha = self.config.get("score_alpha", 0.5)  # 检索相关性
@@ -208,12 +222,22 @@ class HybridRetriever:
             for r in vector_results
         ]
 
+        # 启用重排序时多保留候选，让 Rerank 模型在更大候选池里挑出真正相关的 top_k
+        rerank_active = (
+            self.rerank_enabled and self.rerank_provider_resolver is not None
+        )
+        fuse_top_k = self.rerank_candidates if rerank_active else k
+
         fused_results = self.rrf_fusion.fuse(
-            rrf_bm25_results, rrf_vector_results, top_k=k
+            rrf_bm25_results, rrf_vector_results, top_k=fuse_top_k
         )
 
         if not fused_results:
             return []
+
+        # 3.5 Rerank 重排序：按查询相关性重打分并截断到 top_k
+        if rerank_active:
+            fused_results = await self._apply_rerank(query, fused_results, k)
 
         # 4. 应用加权（通过线程池卸载 CPU 密集型 json.loads + 循环）
         current_time = time.time()
@@ -228,6 +252,69 @@ class HybridRetriever:
             )
 
         return weighted_results
+
+    async def _apply_rerank(
+        self, query: str, fused_results: list[FusedResult], k: int
+    ) -> list[FusedResult]:
+        """
+        调用 Rerank 模型对融合候选按查询相关性重打分。
+
+        成功时为每条结果写入 rerank_score（候选集内 min-max 归一化到 [0,1]），
+        按 rerank 分数降序截断到 top_k；后续加权阶段以 rerank 分数替代
+        RRF 归一化排名作为相关性项。
+
+        Args:
+            query: 用户查询
+            fused_results: RRF 融合后的候选（数量为 rerank_candidates）
+            k: 最终返回数量
+
+        Returns:
+            截断到 top_k 的融合结果。解析不到提供商或调用失败时按
+            原 RRF 排名截断（静默降级）。
+        """
+        try:
+            provider = self.rerank_provider_resolver()
+        except Exception as e:
+            logger.warning(f"[hybrid_retriever] 解析 Rerank 提供商失败，跳过重排序: {e}")
+            return fused_results[:k]
+
+        if provider is None:
+            return fused_results[:k]
+
+        try:
+            rerank_results = await provider.rerank(
+                query=query, documents=[r.content for r in fused_results]
+            )
+        except Exception as e:
+            logger.warning(f"[hybrid_retriever] Rerank 调用失败，跳过重排序: {e}")
+            return fused_results[:k]
+
+        if not rerank_results:
+            return fused_results[:k]
+
+        # 按候选索引归一化 Rerank 分数到 [0,1]（与 BM25 归一化口径一致）
+        scores = [float(r.relevance_score) for r in rerank_results]
+        max_score, min_score = max(scores), min(scores)
+        score_range = max_score - min_score
+        rerank_map = {}
+        for item in rerank_results:
+            if not 0 <= item.index < len(fused_results):
+                continue
+            if score_range <= 0:
+                rerank_map[item.index] = 1.0
+            else:
+                rerank_map[item.index] = (
+                    float(item.relevance_score) - min_score
+                ) / score_range
+
+        # 候选未出现在重排序结果中时给最低分，避免未评分候选混入前列；
+        # 全部分数相同（score_range<=0）时并列，稳定排序保持 RRF 顺序
+        default_score = 0.0 if score_range > 0 else 1.0
+        for i, result in enumerate(fused_results):
+            result.rerank_score = rerank_map.get(i, default_score)
+
+        fused_results.sort(key=lambda r: r.rerank_score, reverse=True)
+        return fused_results[:k]
 
     def _apply_weighting(
         self, fused_results: list[FusedResult], current_time: float
@@ -296,9 +383,18 @@ class HybridRetriever:
             # 归一化 RRF 分数
             rrf_normalized = result.rrf_score / max_rrf
 
+            # 相关性项：启用重排序时以 Rerank 相关性分数替代 RRF 归一化排名
+            # （Rerank 分数已在 _apply_rerank 中归一化到 [0,1]）
+            if result.rerank_score is not None:
+                relevance_score = clamp_float(
+                    result.rerank_score, default=rrf_normalized
+                )
+            else:
+                relevance_score = rrf_normalized
+
             # 加权求和：各维度互补而非互斥
             final_score = (
-                self.score_alpha * rrf_normalized
+                self.score_alpha * relevance_score
                 + self.score_beta * importance
                 + self.score_gamma * recency_weight
             )
@@ -310,6 +406,8 @@ class HybridRetriever:
                 "days_old": round(days_old, 2),
                 "final_score": round(final_score, 4),
             }
+            if result.rerank_score is not None:
+                score_breakdown["rerank"] = round(relevance_score, 4)
 
             hybrid_results.append(
                 HybridResult(
