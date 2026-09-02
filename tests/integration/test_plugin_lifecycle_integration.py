@@ -26,6 +26,7 @@ class _FakeInitializer:
         self.ensure_initialized = AsyncMock(return_value=False)
         self.stop_background_tasks = AsyncMock()
         self.stop_scheduler = AsyncMock()
+        self.shutdown_index_persisters = AsyncMock()
 
     @property
     def is_initialized(self) -> bool:
