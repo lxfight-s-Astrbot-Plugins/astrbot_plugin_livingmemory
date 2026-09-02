@@ -1048,6 +1048,13 @@ class TestGraphEndpoints:
         graph_store = SimpleNamespace(
             get_full_graph_snapshot=AsyncMock(return_value=snapshot),
             get_graph_snapshot=AsyncMock(),
+            get_memory_entry_stats=AsyncMock(
+                return_value={
+                    "graph_nodes": 1,
+                    "graph_edges": 1,
+                    "graph_entries": 1,
+                }
+            ),
         )
         engine = FakeMemoryEngine(graph_store=graph_store)
         api = PluginPageApi(FakePlugin(memory_engine=engine))
@@ -1136,6 +1143,13 @@ class TestGraphEndpoints:
             ],
         }
         graph_store = SimpleNamespace(
+            get_memory_entry_stats=AsyncMock(
+                return_value={
+                    "graph_nodes": 1,
+                    "graph_edges": 1,
+                    "graph_entries": 1,
+                }
+            ),
             search_nodes_by_tokens=AsyncMock(
                 return_value=[
                     {

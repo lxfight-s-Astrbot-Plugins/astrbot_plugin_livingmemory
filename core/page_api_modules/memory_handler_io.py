@@ -5,6 +5,8 @@ MemoryHandler 的 MemoryHandlerIoMixin 拆分模块
 
 from typing import Any
 from datetime import datetime, timezone
+import asyncio
+
 from astrbot.api import logger
 from ..memory_transfer import (    MAX_IMPORT_ENTRIES,    memory_import_key,    parse_transfer_content,    serialize_transfer_csv,    serialize_transfer_json,)
 from quart import request
@@ -38,11 +40,14 @@ class MemoryHandlerIoMixin:
         records = await memory_engine.get_memory_transfer_records(memory_ids)
         exported_at = datetime.now(timezone.utc).isoformat()
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        # 序列化可能涉及上万条记录（含完整 source_messages），卸载到线程避免阻塞事件循环
         if export_format == "csv":
-            content = serialize_transfer_csv(records)
+            content = await asyncio.to_thread(serialize_transfer_csv, records)
             mime_type = "text/csv;charset=utf-8"
         else:
-            content = serialize_transfer_json(records, exported_at)
+            content = await asyncio.to_thread(
+                serialize_transfer_json, records, exported_at
+            )
             mime_type = "application/json;charset=utf-8"
 
         return self.utils.ok(
@@ -73,7 +78,10 @@ class MemoryHandlerIoMixin:
             return self.utils.error("导入文件不能超过 50 MiB")
 
         try:
-            entries, parse_errors = parse_transfer_content(content, import_format)
+            # 最多 50 MiB 内容的解析，卸载到线程避免阻塞事件循环
+            entries, parse_errors = await asyncio.to_thread(
+                parse_transfer_content, content, import_format
+            )
         except ValueError as exc:
             return self.utils.error(str(exc))
 

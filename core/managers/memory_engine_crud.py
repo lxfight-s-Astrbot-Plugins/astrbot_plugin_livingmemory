@@ -330,52 +330,65 @@ class MemoryEngineCrudMixin:
                 )
             rows.sort(key=lambda row: int(row["id"]))
         records: list[dict[str, Any]] = []
-        for row in rows:
-            metadata = self._safe_json_dict(row["metadata"])
-            source_messages: list[dict[str, Any]] = []
-            if row["source_json"]:
-                try:
-                    parsed_source = json.loads(row["source_json"])
-                except (json.JSONDecodeError, TypeError):
-                    parsed_source = []
-                if isinstance(parsed_source, list):
-                    source_messages = parsed_source
-            records.append(
-                {
-                    "original_id": int(row["id"]),
-                    "content": str(row["text"] or ""),
-                    "importance": clamp_float(
-                        metadata.get("importance"), default=0.5
-                    ),
-                    "session_id": metadata.get("session_id"),
-                    "persona_id": metadata.get("persona_id"),
-                    "metadata": metadata,
-                    "source_messages": source_messages,
-                    "storage_created_at": row["created_at"],
-                    "storage_updated_at": row["updated_at"],
-                }
-            )
+
+        def _build_records() -> list[dict[str, Any]]:
+            # 逐行 JSON 解析属于 CPU 密集工作，整体在 to_thread 中执行
+            for row in rows:
+                metadata = self._safe_json_dict(row["metadata"])
+                source_messages: list[dict[str, Any]] = []
+                if row["source_json"]:
+                    try:
+                        parsed_source = json.loads(row["source_json"])
+                    except (json.JSONDecodeError, TypeError):
+                        parsed_source = []
+                    if isinstance(parsed_source, list):
+                        source_messages = parsed_source
+                records.append(
+                    {
+                        "original_id": int(row["id"]),
+                        "content": str(row["text"] or ""),
+                        "importance": clamp_float(
+                            metadata.get("importance"), default=0.5
+                        ),
+                        "session_id": metadata.get("session_id"),
+                        "persona_id": metadata.get("persona_id"),
+                        "metadata": metadata,
+                        "source_messages": source_messages,
+                        "storage_created_at": row["created_at"],
+                        "storage_updated_at": row["updated_at"],
+                    }
+                )
+            return records
+
+        await asyncio.to_thread(_build_records)
         return records
 
     async def get_memory_import_keys(self) -> set[tuple[str, str, str]]:
         """Return duplicate keys for existing memories."""
         if self.db_connection is None:
             return set()
+        # 只取去重键所需的列，避免把整份 metadata 拉进内存
         cursor = await self.db_connection.execute(
-            "SELECT text, metadata FROM documents"
+            "SELECT text, "
+            "CASE WHEN json_valid(metadata) "
+            "THEN json_extract(metadata, '$.session_id') END AS session_id, "
+            "CASE WHEN json_valid(metadata) "
+            "THEN json_extract(metadata, '$.persona_id') END AS persona_id "
+            "FROM documents"
         )
         rows = await cursor.fetchall()
-        keys: set[tuple[str, str, str]] = set()
-        for row in rows:
-            metadata = self._safe_json_dict(row["metadata"])
-            keys.add(
+
+        def _compute_keys() -> set[tuple[str, str, str]]:
+            return {
                 memory_import_key(
                     str(row["text"] or ""),
-                    metadata.get("session_id"),
-                    metadata.get("persona_id"),
+                    row["session_id"],
+                    row["persona_id"],
                 )
-            )
-        return keys
+                for row in rows
+            }
+
+        return await asyncio.to_thread(_compute_keys)
 
     async def search_memories(
         self,
@@ -610,7 +623,22 @@ class MemoryEngineCrudMixin:
 
             if success:
                 logger.info(f"[更新] 元数据更新成功 (memory_id={memory_id})")
-                if self.graph_memory_manager is not None:
+                # 仅当更新触及图谱提取依赖的字段时才重建图谱索引；
+                # 状态/类型等纯元数据编辑重建整图（删节点+FAISS 落盘）纯属浪费
+                graph_affecting = metadata_updates.keys() & {
+                    "participants",
+                    "participant_identities",
+                    "topics",
+                    "key_facts",
+                    "canonical_summary",
+                    "session_id",
+                    "persona_id",
+                    "importance",
+                    "create_time",
+                    "summary_schema_version",
+                    "source_window",
+                }
+                if graph_affecting and self.graph_memory_manager is not None:
                     await self.graph_memory_manager.index_memory(
                         memory_id,
                         memory["text"],
