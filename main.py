@@ -608,6 +608,9 @@ class LivingMemoryPlugin(Star):
             await self.initializer.conversation_manager.store.close()
             logger.info("ConversationManager 已关闭")
 
+        # 关闭 FaissVecDB 之前，先把索引的未落盘变更写掉
+        await self.initializer.shutdown_index_persisters()
+
         # 关闭 MemoryEngine
         if self.initializer.memory_engine:
             await self.initializer.memory_engine.close()
