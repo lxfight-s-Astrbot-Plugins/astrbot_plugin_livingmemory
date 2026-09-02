@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.6.0] - 2026-09-02
 
 ### 新功能
 - **Rerank 重排序接入混合检索 (#226)**: 新增 `recall_engine.rerank_enabled` / `rerank_provider_id` / `rerank_candidates` 配置。启用后在 RRF 融合后调用 AstrBot 的 Rerank 提供商对更大候选池（默认 20 条）按查询相关性重打分，Rerank 分数（候选集内归一化到 [0,1]）替代 RRF 归一化排名作为相关性项参与加权，并截断回 top_k；提供商解析失败、调用异常或返回为空时静默降级为原 RRF 排名，不影响召回可用性。`score_breakdown` 新增 `rerank` 分量便于排查
@@ -20,6 +20,19 @@
 - **画布状态提示不再被裁剪**: `art-direction.css` 将画布提示框移动到左上角（16px）时未重置 `styles.css` 的居中 `translate(-50%, -50%)`，提示框一直以「左上角 -50% 宽/高」定位被容器裁掉一半；现在显式 `transform: none`，提示在左上角完整显示
 - **配置越界自动修正，不再整包回退默认**: 此前任一配置项超出硬性范围（如 `recall_engine.top_k=60`）都会导致插件把整包配置静默降级为默认值，用户设置无感丢失。现在加载时逐项修正：数值截断到最近边界、非法类型回退该项默认值、结构损坏仅重置对应节，修正结果写回配置文件并逐项输出 warning 日志
 - **配置页展示数值硬边界**: 为 `_conf_schema.json` 所有有界数值项补充 `slider`（最小值/最大值/步长），AstrBot 配置页以滑条+数字输入框显示允许范围；hint 同步标注范围（zh/en/ru）
+- **WebUI 存储型 XSS 修复 (#253)**: `esc()` 此前经 `textContent → innerHTML` 只转义 `& < >` 不转义引号，而 `memory_type` 是自由文本（批量编辑/LLM/导入均可写入），在记忆编辑视图被拼进 `value="..."` 属性可 breakout 注入任意事件处理器（页面上下文持有完整插件 API bridge）。现改为完整五字符转义（`& < > " '`），并新增回归测试锁定
+- **WebUI 交互修复 (#253)**: 虚拟滚动行高改为首渲染后实测（原硬编码 56px 与实际 ~63px 不符导致 spacer 逐行漂移、末尾行不可达）；删除后页码越界自动回退最后一页；Escape 分层处理（批量编辑对话框 → 确认框 → 编辑态回退详情 → 关闭面板），不再静默丢弃未保存的编辑；批量编辑对话框在面板关闭时正确 resolve（修复 promise 泄漏）；图谱/召回搜索回车增加并发守卫；prompt 编辑器不再叠加 input 监听
+- **WebUI POST 不再默认重试 (#253)**: `memories/update`（结构化编辑 = 重建新记忆 ID）此前在桥接超时时自动重试会造成记忆重复创建；现 POST 默认不重试（GET 保持重试），需要重试的调用方显式声明
+- **图谱氛围动画在切页后暂停 (#253)**: SPA 切页只改 `display:none`，图谱 RAF 循环此前永不停歇，离开图谱页仍以 30-60fps 空转烧 CPU；现在离开图谱页停止渲染循环、返回时恢复（Worker 布局后台继续不受影响）
+- **peek 详情竞态修复 (#253)**: 详情请求增加 generation 守卫，慢响应不再覆盖新点击的记忆、关闭后的面板不再被旧响应重新打开
+
+### 性能
+- **召回关键路径索引化 (#254)**: 近期记忆合并查询（每次缓存未命中召回必经，位于 LLM 调用前）与 WebUI 记忆列表查询此前用 `CASE/COALESCE/CAST` 包装表达式，与既有裸表达式索引不匹配，退化为全表扫描 + 临时 B 树排序。新增与查询逐字匹配的表达式索引（`idx_doc_status`、`idx_doc_memory_type`、复合 `idx_doc_create_time`），改写查询表达式并用 `INDEXED BY` 固定近期记忆查询的计划；5 万条记忆基准 14.0ms → 0.37ms（约 38×）。新增 `EXPLAIN QUERY PLAN` 回归测试防止表达式漂移
+- **导入导出移出事件循环 (#256)**: ≤50MiB 导入内容解析、导出全库记录构建（含逐行 source_messages 解析）与序列化改为 `asyncio.to_thread` 执行，不再冻结全 bot；导入去重键扫描只取三列而非整份 metadata
+- **图谱页去除冗余全表统计 (#256)**: overview/query 端点此前每次请求调用 `get_statistics()`（全表 keyset 扫描 + 逐行 JSON 解析），但 payload 只消费 3 个图谱计数；现改用轻量 COUNT 查询
+- **全量图谱防御性上限 (#256)**: 节点/边/记忆查询加 5000/10000/2000 上限，极端规模下单次「全量图谱」不再拖垮事件循环
+- **元数据编辑跳过无效图重建 (#256)**: 仅修改 status/type 等字段时不再执行图谱删除重建 + FAISS 落盘（content/topics/key_facts/structured 编辑仍全量重建）；批量编辑 N 条只读改状态不再产生 N 次重建
+- **BM25 重建分词移出事件循环 (#256)**: 启动自动重建的批量 jieba 分词改为 `to_thread`，重建期间不再反复阻塞其他会话
 
 ### 测试
 - 新增图谱页默认受限概览与「全量图谱」按钮切换受限/全量行为的前端测试（`tests/frontend/graph-ui.test.js`）
