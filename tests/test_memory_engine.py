@@ -1987,3 +1987,39 @@ async def test_get_session_memories_sorted_by_create_time_desc(tmp_path: Path):
     assert all(m["metadata"]["session_id"] == "s1" for m in memories)
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_update_memory_status_only_skips_graph_reindex(tmp_path: Path):
+    """纯状态编辑不应触发图谱整图重建（审计 M3 回归守卫）。"""
+    db_path = tmp_path / "update_skip_graph.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+
+    mid = await engine.add_memory(
+        content="测试记忆",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={},
+    )
+
+    from unittest.mock import AsyncMock, Mock
+
+    engine.graph_memory_manager = Mock()
+    engine.graph_memory_manager.index_memory = AsyncMock()
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.update_metadata = AsyncMock(return_value=True)
+
+    await engine.update_memory(mid, {"metadata": {"status": "archived"}})
+    engine.graph_memory_manager.index_memory.assert_not_awaited()
+
+    # importance 参与图谱打分，仍必须重建
+    await engine.update_memory(mid, {"importance": 0.9})
+    engine.graph_memory_manager.index_memory.assert_awaited_once()
+
+    await engine.close()

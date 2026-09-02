@@ -357,6 +357,7 @@ class GraphStoreSnapshotMixin:
 
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
+            # 防御性上限：全量图谱是显式请求，但极端规模的库仍可能拖垮事件循环
             node_cursor = await db.execute(
                 f"""
                 SELECT gn.id, gn.node_key, gn.node_type, gn.node_value,
@@ -369,6 +370,7 @@ class GraphStoreSnapshotMixin:
                 {where_clause}
                 GROUP BY gn.id
                 ORDER BY gn.id ASC
+                LIMIT 5000
                 """,
                 tuple(params),
             )
@@ -385,6 +387,7 @@ class GraphStoreSnapshotMixin:
                   ON ge.source_memory_id = edge.source_memory_id
                 {where_clause}
                 ORDER BY edge.id ASC
+                LIMIT 10000
                 """,
                 tuple(params),
             )
@@ -402,6 +405,7 @@ class GraphStoreSnapshotMixin:
                     GROUP BY ge.source_memory_id
                 ) latest ON latest.latest_entry_id = ge.id
                 ORDER BY ge.source_memory_id ASC
+                LIMIT 2000
                 """,
                 tuple(params),
             )

@@ -272,19 +272,27 @@ class IndexValidatorRebuildMixin:
         try:
             async for batch in self._iter_document_batches(batch_size):
                 rows_to_insert: list[tuple[int, str]] = []
-                for doc_id, _doc_uuid, text, _metadata_json in batch:
-                    try:
-                        if hasattr(text_processor, "preprocess_for_bm25"):
-                            processed_content = text_processor.preprocess_for_bm25(
-                                text or ""
-                            )
-                        else:
-                            tokens = text_processor.tokenize(text or "", True)
-                            processed_content = " ".join(tokens)
-                        rows_to_insert.append((int(doc_id), processed_content))
-                    except Exception as e:
-                        failed_ids.add(int(doc_id))
-                        logger.error(f"BM25 预处理失败 doc_id={doc_id}: {e}")
+
+                def _preprocess_batch():
+                    # jieba 分词是 CPU 密集操作，批量卸载到线程避免
+                    # 重建期间反复阻塞事件循环
+                    processed: list[tuple[int, str]] = []
+                    for doc_id, _doc_uuid, text, _metadata_json in batch:
+                        try:
+                            if hasattr(text_processor, "preprocess_for_bm25"):
+                                processed_content = text_processor.preprocess_for_bm25(
+                                    text or ""
+                                )
+                            else:
+                                tokens = text_processor.tokenize(text or "", True)
+                                processed_content = " ".join(tokens)
+                            processed.append((int(doc_id), processed_content))
+                        except Exception as e:
+                            failed_ids.add(int(doc_id))
+                            logger.error(f"BM25 预处理失败 doc_id={doc_id}: {e}")
+                    return processed
+
+                rows_to_insert = await asyncio.to_thread(_preprocess_batch)
 
                 if rows_to_insert:
                     try:

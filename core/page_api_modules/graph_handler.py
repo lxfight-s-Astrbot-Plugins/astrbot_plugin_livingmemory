@@ -74,8 +74,11 @@ class GraphHandler:
             return self.utils.error("图谱分页参数无效")
 
         try:
-            stats = await memory_engine.get_statistics()
             graph_store = self.utils.get_graph_store(memory_engine)
+            # payload 只消费 graph 计数，无需触发全表统计扫描
+            stats = (
+                await graph_store.get_memory_entry_stats() if graph_store else {}
+            )
             empty_snapshot = {
                 "nodes": [],
                 "edges": [],
@@ -163,8 +166,11 @@ class GraphHandler:
             return self.utils.error("图谱检索参数无效")
 
         try:
-            stats = await memory_engine.get_statistics()
             graph_store = self.utils.get_graph_store(memory_engine)
+            # payload 只消费 graph 计数，无需触发全表统计扫描
+            stats = (
+                await graph_store.get_memory_entry_stats() if graph_store else {}
+            )
             empty_snapshot = {
                 "nodes": [],
                 "edges": [],
