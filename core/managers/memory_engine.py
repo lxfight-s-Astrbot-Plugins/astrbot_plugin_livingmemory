@@ -354,6 +354,25 @@ class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngin
             CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
             ON documents(json_extract(metadata, '$.last_access_time'))
         """)
+            # 表达式索引：与召回/列表查询中的过滤、排序表达式逐字匹配，
+            # COALESCE/CAST 包装必须同时出现在索引与查询中才能被命中
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_status
+            ON documents(COALESCE(json_extract(metadata, '$.status'), 'active'))
+        """)
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_memory_type
+            ON documents(UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL')))
+        """)
+            # 复合索引同时服务：近期记忆查询（create_time 范围 + 倒序截断）
+            # 与 WebUI 列表 created_desc/asc 排序（反向扫描即升序）
+            await self.db_connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_create_time
+            ON documents(
+                COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0) DESC,
+                id DESC
+            )
+        """)
             await self.db_connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_documents_doc_id
             ON documents(doc_id)

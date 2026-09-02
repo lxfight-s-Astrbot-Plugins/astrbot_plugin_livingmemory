@@ -114,28 +114,18 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         offset = (page - 1) * page_size
         where_clauses: list[str] = []
         params: list[Any] = []
-        type_expr = (
-            "UPPER(COALESCE("
-            "CASE WHEN json_valid(metadata) "
-            "THEN json_extract(metadata, '$.memory_type') END,"
-            "'GENERAL'"
-            "))"
-        )
+        # 过滤/排序表达式必须与 documents 上的表达式索引逐字匹配
+        # （idx_doc_memory_type / idx_doc_status / idx_doc_create_time），
+        # 不得用 CASE WHEN json_valid 包装，否则索引失效退化为全表扫描
+        type_expr = "UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL'))"
 
         if session_id:
-            where_clauses.append(
-                "CASE WHEN json_valid(metadata) "
-                "THEN json_extract(metadata, '$.session_id') END = ?"
-            )
+            where_clauses.append("json_extract(metadata, '$.session_id') = ?")
             params.append(session_id)
 
         if status_filter != "all":
             where_clauses.append(
-                "COALESCE("
-                "CASE WHEN json_valid(metadata) "
-                "THEN json_extract(metadata, '$.status') END,"
-                "'active'"
-                ") = ?"
+                "COALESCE(json_extract(metadata, '$.status'), 'active') = ?"
             )
             params.append(status_filter)
 
@@ -154,35 +144,24 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
                 where_clauses.append(
                     "("
                     "text LIKE ? COLLATE NOCASE "
-                    "OR COALESCE("
-                    "CASE WHEN json_valid(metadata) "
-                    "THEN json_extract(metadata, '$.memory_type') END,"
-                    "''"
-                    ") LIKE ? COLLATE NOCASE"
+                    "OR COALESCE(json_extract(metadata, '$.memory_type'), '') LIKE ? COLLATE NOCASE"
                     ")"
                 )
                 params.extend([keyword_like, keyword_like])
 
         where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        # 与 idx_doc_create_time 首列逐字匹配，created_desc/asc 可走索引排序
         created_expr = (
-            "COALESCE("
-            "CASE WHEN json_valid(metadata) "
-            "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
-            "0)"
+            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0)"
         )
         updated_expr = (
             "COALESCE("
-            "CASE WHEN json_valid(metadata) "
-            "THEN CAST(json_extract(metadata, '$.updated_at') AS REAL) END,"
-            "CASE WHEN json_valid(metadata) "
-            "THEN CAST(json_extract(metadata, '$.create_time') AS REAL) END,"
+            "CAST(json_extract(metadata, '$.updated_at') AS REAL),"
+            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0),"
             "0)"
         )
         importance_raw_expr = (
-            "COALESCE("
-            "CASE WHEN json_valid(metadata) "
-            "THEN CAST(json_extract(metadata, '$.importance') AS REAL) END,"
-            "0.5)"
+            "COALESCE(CAST(json_extract(metadata, '$.importance') AS REAL), 0.5)"
         )
         importance_expr = (
             f"CASE WHEN {importance_raw_expr} <= 1.0 "
