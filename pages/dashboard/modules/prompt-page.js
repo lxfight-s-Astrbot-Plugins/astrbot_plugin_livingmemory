@@ -227,15 +227,21 @@ export class PromptPage {
       newResetBtn.addEventListener("click", () => this.resetPrompt());
       newCancelBtn.addEventListener("click", () => this.closeEditor());
 
-      // 检测修改
-      textarea.addEventListener("input", () => {
+      // 检测修改（textarea 是常驻节点，不能像按钮一样 clone 替换；
+      // 用可移除的具名 handler 防止每次打开编辑器都叠加监听）
+      if (this._textareaInputHandler) {
+        textarea.removeEventListener("input", this._textareaInputHandler);
+      }
+      this._textareaInputHandler = () => {
         // 手动编辑后退出恢复默认模式
         if (this._resetMode) {
           this._resetMode = false;
         }
         const modified = textarea.value !== this.editContent;
-        newSaveBtn.disabled = !modified;
-      });
+        const currentSaveBtn = document.getElementById("prompt-save-btn");
+        if (currentSaveBtn) currentSaveBtn.disabled = !modified;
+      };
+      textarea.addEventListener("input", this._textareaInputHandler);
       newSaveBtn.disabled = true;
       this._resetMode = false;
 

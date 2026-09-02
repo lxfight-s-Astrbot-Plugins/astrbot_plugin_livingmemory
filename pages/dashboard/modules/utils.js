@@ -26,13 +26,17 @@ export function getDetailText(detail) {
 
 /**
  * HTML 转义，防止 XSS
+ *
+ * 必须转义引号：esc() 的输出会拼进 HTML 属性（如 value="..."、title="..."），
+ * 只转义 & < > 时属性值中的双引号可 breakout 注入任意属性/事件处理器。
+ * 同时避免每次调用分配 DOM 节点（虚拟滚动热路径）。
  * @param {string} text - 原始文本
- * @returns {string} 转义后的 HTML 安全文本
+ * @returns {string} 转义后的 HTML 安全文本（文本与属性上下文均安全）
  */
+const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
 export function esc(text) {
-  const div = document.createElement("div");
-  div.textContent = String(text);
-  return div.innerHTML;
+  return String(text).replace(/[&<>"']/g, (ch) => ESC_MAP[ch]);
 }
 
 /**

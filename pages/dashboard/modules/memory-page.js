@@ -46,7 +46,15 @@ export class MemoryPage {
       const data = await this.api.get("memories", params);
       if (fetchGeneration !== this._fetchGeneration) return;
 
-      this.state.memory.total = data.total || 0;
+      // 删除/筛选后当前页可能超出总页数，回退到最后一页重取，避免显示假空表
+      const total = data.total || 0;
+      const totalPages = Math.max(1, Math.ceil(total / this.state.memory.pageSize));
+      if (this.state.memory.page > totalPages && !(data.items || []).length) {
+        this.state.memory.page = totalPages;
+        return this.fetch();
+      }
+
+      this.state.memory.total = total;
       this.state.memory.hasMore = data.has_more || false;
 
       this.state.memory.items = (Array.isArray(data.items) ? data.items : []).map(item => ({
@@ -122,16 +130,19 @@ export class MemoryPage {
       return;
     }
 
-    const totalHeight = this.state.memory.items.length * this.ROW_HEIGHT;
+    // 行高用实测值：CSS 的 td height 只是最小值，双行摘要单元格实际 ~63px，
+    // 硬编码 56px 会让 spacer 逐行漂移、末尾行不可达
+    const rowHeight = this._measuredRowHeight || this.ROW_HEIGHT;
+    const totalHeight = this.state.memory.items.length * rowHeight;
     const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
     const viewHeight = scrollEl ? scrollEl.clientHeight : 600;
-    const start = Math.max(0, Math.floor(scrollTop / this.ROW_HEIGHT) - this.SCROLL_BUFFER);
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - this.SCROLL_BUFFER);
     const end = Math.min(
       this.state.memory.items.length,
-      Math.ceil((scrollTop + viewHeight) / this.ROW_HEIGHT) + this.SCROLL_BUFFER
+      Math.ceil((scrollTop + viewHeight) / rowHeight) + this.SCROLL_BUFFER
     );
-    const padTop = start * this.ROW_HEIGHT;
-    const padBottom = totalHeight - end * this.ROW_HEIGHT;
+    const padTop = start * rowHeight;
+    const padBottom = totalHeight - end * rowHeight;
     const spacerRow = (height) => height > 0
       ? '<tr class="virtual-spacer" aria-hidden="true" style="height:' + height + 'px"><td colspan="7" style="height:' + height + 'px;padding:0;border:0"></td></tr>'
       : "";
@@ -164,7 +175,30 @@ export class MemoryPage {
     tbody.innerHTML = html + spacerRow(padBottom);
     tbody.style.paddingTop = "0";
     tbody.style.paddingBottom = "0";
+    this._measureRowHeight(tbody, rowHeight);
     this.updateSelectionControls();
+  }
+
+  /**
+   * 首个可见行渲染后实测行高，与假设不符时重算一次虚拟窗口
+   * @param {HTMLElement} tbody - 表格主体
+   * @param {number} assumed - 本次渲染假设的行高
+   */
+  _measureRowHeight(tbody, assumed) {
+    if (this._remeasuring) return;
+    if (!tbody || typeof tbody.querySelector !== "function") return;
+    const row = tbody.querySelector("tr[data-key]");
+    if (!row) return;
+    const h = row.offsetHeight;
+    if (h > 0 && Math.abs(h - assumed) > 0.5) {
+      this._measuredRowHeight = h;
+      this._remeasuring = true;
+      try {
+        this.renderVirtualSlice();
+      } finally {
+        this._remeasuring = false;
+      }
+    }
   }
 
   /**

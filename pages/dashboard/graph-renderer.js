@@ -58,6 +58,8 @@
     this._labelWidthCache = {};
     this._communityCacheKey = null;
     this._communityCache = null;
+    // 粒子相位按边 id 累积，换图后旧 id 永不复用，需随数据一并重置
+    this._particleOffsets = {};
     nodes.forEach(function(node) {
       self._adjacency[node.id] = [];
       self._nodeEdges[node.id] = [];
