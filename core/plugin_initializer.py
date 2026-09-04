@@ -60,6 +60,8 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
         self.llm_provider: Provider | None = None
         self.db: Any | None = None
         self.graph_db: Any | None = None
+        # FAISS 索引异步落盘器（core/faiss_async_persist.py），随 db/graph_db 创建
+        self._index_persisters: list = []
         self.memory_engine: MemoryEngine | None = None
         self.memory_processor: MemoryProcessor | None = None
         self.db_migration: DBMigration | None = None

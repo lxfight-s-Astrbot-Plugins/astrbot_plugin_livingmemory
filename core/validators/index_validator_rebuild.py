@@ -11,6 +11,8 @@ from astrbot.api import logger
 import os
 import time
 
+from ..faiss_async_persist import get_async_persister
+
 
 class IndexValidatorRebuildMixin:
     """IndexValidator 拆分模块：IndexValidatorRebuildMixin"""
@@ -684,6 +686,15 @@ class IndexValidatorRebuildMixin:
 
         if index_path:
             await persist_checkpoint()
+            # 排空异步落盘器：飞行中的落盘写的是换文件之前的索引对象，
+            # 若在 os.replace 之后才落地，会覆盖刚换入的重建文件。
+            # flush_now 与 os.replace 之间不得有 await，否则窗口会重新打开。
+            persister = get_async_persister(embedding_storage)
+            if persister is not None:
+                try:
+                    await persister.flush_now()
+                except Exception:
+                    logger.warning("重建前落盘旧索引失败，继续重建流程", exc_info=True)
             if temp_path:
                 os.replace(temp_path, index_path)
             if metadata_path and os.path.exists(metadata_path):

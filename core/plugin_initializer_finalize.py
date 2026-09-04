@@ -12,6 +12,7 @@ from .schedulers.decay_scheduler import DecayScheduler
 from .validators.index_validator import IndexValidator
 from .base.exceptions import InitializationError, ProviderNotReadyError
 from astrbot.api import logger
+from .faiss_async_persist import install_async_persist
 from .managers.consolidation_manager import MemoryConsolidationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
@@ -67,6 +68,15 @@ class InitializerFinalizeMixin:
                 )
                 await self.graph_db.initialize()
             logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
+
+            # 实例级替换 save_index：变更锁 + 线程内直写 + 防抖合并，
+            # 避免大索引整文件同步写阻塞事件循环（详见 core/faiss_async_persist.py）
+            self._index_persisters = []
+            for vec_db in (self.db, self.graph_db):
+                storage = getattr(vec_db, "embedding_storage", None)
+                persister = install_async_persist(storage)
+                if persister is not None:
+                    self._index_persisters.append(persister)
 
             # 初始化数据库迁移管理器
             self.db_migration = DBMigration(str(db_path))
@@ -604,8 +614,21 @@ class InitializerFinalizeMixin:
         except Exception as e:
             logger.error(f"修复 message_count 失败: {e}", exc_info=True)
 
+    async def shutdown_index_persisters(self) -> None:
+        """落盘并停止所有索引异步落盘器（terminate / 重新初始化前调用，幂等）。"""
+        persisters = getattr(self, "_index_persisters", None) or []
+        self._index_persisters = []
+        for persister in persisters:
+            try:
+                await persister.aclose()
+            except Exception:
+                logger.warning("关闭索引异步落盘器失败", exc_info=True)
+
     async def _teardown_partial_init(self) -> None:
         """关闭初始化过程中已创建的资源，使后续重试可以从干净状态开始。"""
+        # 先落盘索引未写变更，再关闭各存储组件
+        await self.shutdown_index_persisters()
+
         if self.decay_scheduler is not None:
             try:
                 await self.decay_scheduler.stop()
