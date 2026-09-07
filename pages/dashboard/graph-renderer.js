@@ -412,6 +412,7 @@
       }
     }
     this._drawDenseNodeBuckets(ctx, denseBuckets, dark);
+    var labelNodes = [];
     for (var d = 0; d < detailedNodes.length; d++) {
       var detailNode = detailedNodes[d];
       if (detailNode.isMuted && !detailNode.isHovered) {
@@ -423,7 +424,23 @@
         ctx.globalAlpha = 1;
       } else {
         this._drawNode(ctx, detailNode, scale, dark);
+        var prominent = detailNode.degree >= 5 || detailNode.memoryCount >= 4 || detailNode.labelScore >= 15;
+        if (!detailNode.isMuted && (detailNode.isHovered || detailNode.isSelected || detailNode.isCenter ||
+            (!detailNode.hasFocus && scale > CFG.NODE_LABEL_MIN_SCALE && prominent) ||
+            (!detailNode.hasFocus && scale > 1.18 && detailNode.degree >= 3))) {
+          labelNodes.push(detailNode);
+        }
       }
+    }
+    // Reserve labels in a stable priority order, then paint above every node.
+    // Interaction labels must claim their space before ordinary labels do.
+    labelNodes.sort(function(a, b) {
+      var aPriority = (a.isHovered ? 4 : 0) + (a.isSelected ? 2 : 0) + (a.isCenter ? 1 : 0);
+      var bPriority = (b.isHovered ? 4 : 0) + (b.isSelected ? 2 : 0) + (b.isCenter ? 1 : 0);
+      return bPriority - aPriority || b.labelScore - a.labelScore || a.id - b.id;
+    });
+    for (var l = 0; l < labelNodes.length; l++) {
+      this._drawNodeLabel(ctx, labelNodes[l], scale, dark);
     }
     ctx.restore();
     this._rebuildNodeHitGrid();
@@ -668,27 +685,23 @@
       ? (dn.isMuted ? (dark ? "#6f7683" : "#b9c0ca") : dn.color)
       : dark ? "#202126" : "#ffffff";
     ctx.stroke();
+    ctx.restore();
+  };
 
-    var prominent = dn.degree >= 5 || dn.memoryCount >= 4 || dn.labelScore >= 15;
-    var labelVisible = dn.isHovered || dn.isSelected || dn.isCenter ||
-      (!dn.hasFocus && scale > 0.64 && prominent) ||
-      (!dn.hasFocus && scale > 1.18 && dn.degree >= 3);
-    if (!labelVisible || dn.isMuted) {
-      ctx.restore();
-      return;
-    }
-
-    var fontSize = Math.max(10, CFG.NODE_FONT_SIZE * scale);
+  Renderer.prototype._drawNodeLabel = function(ctx, dn, scale, dark) {
+    var x = dn.sx, y = dn.sy, r = Math.max(1.4, dn.sr);
+    // Bounded, integer screen fonts let zoom create room between labels, and
+    // ensure cached widths always match the font actually drawn.
+    var fontSize = Math.round(clamp(CFG.NODE_FONT_SIZE * scale, 10, CFG.NODE_FONT_MAX_SIZE));
+    ctx.save();
     ctx.fillStyle = dark ? "#e9ecef" : "#2f343a";
     ctx.font = (dn.isSelected || dn.isCenter ? "650 " : "520 ") + fontSize + "px Arial, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     var maxChars = dn.isCenter ? 28 : 24;
     var label = dn.label.length > maxChars ? dn.label.substring(0, maxChars - 1) + "…" : dn.label;
-    var labelX = x + r + 7 * scale;
-    /* measureText 缓存：按（标签, 字号桶）复用宽度，避免每帧重复测量。 */
-    var fontBucket = Math.round(fontSize);
-    var widthKey = fontBucket + "|" + label;
+    var labelX = x + r + clamp(7 * scale, 5, 10);
+    var widthKey = ctx.font + "|" + label;
     var labelWidth = this._labelWidthCache[widthKey];
     if (labelWidth == null) {
       labelWidth = ctx.measureText(label).width;
@@ -696,11 +709,22 @@
       this._labelWidthCache[widthKey] = labelWidth;
     }
     var labelHeight = fontSize + 4;
+    var metaFs = Math.round(clamp(CFG.NODE_META_SIZE * scale, 8, 12));
+    var metaY = y + fontSize / 2 + 3;
+    var meta = dn.memoryCount + "M / " + dn.degree + " links";
+    var hasMeta = dn.isHovered || dn.isSelected;
+    var boxWidth = labelWidth;
+    if (hasMeta) {
+      ctx.save();
+      ctx.font = metaFs + "px 'SFMono-Regular', Consolas, monospace";
+      boxWidth = Math.max(boxWidth, ctx.measureText(meta).width);
+      ctx.restore();
+    }
     var box = {
-      x1: labelX - 3 * scale,
+      x1: labelX - 4,
       y1: y - labelHeight / 2 - 2,
-      x2: labelX + labelWidth + 3 * scale,
-      y2: y + labelHeight / 2 + 2,
+      x2: labelX + boxWidth + 4,
+      y2: hasMeta ? metaY + metaFs + 4 : y + labelHeight / 2 + 2,
     };
     var forceLabel = dn.isHovered || dn.isSelected || dn.isCenter;
     if (!forceLabel && (!this._labelInView(box) || this._labelIntersects(box))) {
@@ -711,12 +735,11 @@
     this._insertLabelGrid(box);
     ctx.fillText(label, labelX, y);
 
-    if (dn.isHovered || dn.isSelected) {
-      var metaFs = Math.max(8, CFG.NODE_META_SIZE * scale);
+    if (hasMeta) {
       ctx.fillStyle = dark ? "#a6abb4" : "#6b7280";
       ctx.font = metaFs + "px 'SFMono-Regular', Consolas, monospace";
       ctx.textBaseline = "top";
-      ctx.fillText(dn.memoryCount + "M / " + dn.degree + " links", labelX, y + 8 * scale);
+      ctx.fillText(meta, labelX, metaY);
     }
 
     ctx.restore();

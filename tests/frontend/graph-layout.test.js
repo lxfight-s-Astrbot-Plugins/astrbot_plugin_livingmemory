@@ -13,7 +13,13 @@ const interactionSource = readFileSync(join(here, "../../pages/dashboard/graph-i
 
 function makeCtx() {
   const gradient = { addColorStop() {} };
+  const stack = [];
   const ctx = {
+    save() {
+      stack.push({ font: this.font, fillStyle: this.fillStyle, textBaseline: this.textBaseline,
+        textAlign: this.textAlign, globalAlpha: this.globalAlpha });
+    },
+    restore() { Object.assign(this, stack.pop()); },
     measureText: () => ({ width: 10 }),
     createLinearGradient: () => gradient,
     createRadialGradient: () => gradient,
@@ -193,6 +199,156 @@ test("label width cache populates when labels render", async () => {
   await settle(rafQueue);
 
   assert.ok(Object.keys(g.renderer._labelWidthCache).length > 0, "标签宽度缓存应有条目");
+});
+
+test("zoomed reading freezes dense labels and stops idle frames; overview motion resumes", async () => {
+  const queue = loadGraph();
+  const graph = global.window.Graph2D;
+  graph.init(makeContainer());
+  const payload = makePayload(2, 0);
+  payload.snapshot.nodes.forEach(n => { n.degree = 6; n.memory_count = 4; });
+  graph.loadData(payload);
+  await settle(queue);
+  const animator = graph.animator;
+  const homes = { 1: { tx: 0, ty: 0 }, 2: { tx: 0, ty: 15 } };
+  animator._layout.getTarget = id => homes[id];
+  animator._layout.getRing = () => 1;
+  graph._nodes.forEach(n => { n.x = homes[n.id].tx; n.y = homes[n.id].ty; });
+  animator._ambientMotion = true;
+  graph.renderer.viewport = { scale: 2, ox: 0, oy: 0 };
+  let drawn = [];
+  graph.renderer.ctx.fillText = label => { if (label === "N1" || label === "N2") drawn.push(label); };
+  let first;
+  for (let frame = 0; frame < 120; frame++) {
+    drawn = [];
+    animator.wake();
+    flushRaf(queue);
+    if (frame === 0) first = drawn;
+    assert.deepEqual(drawn, first);
+    assert.equal(animator._running, false);
+    for (const node of graph._nodes) {
+      assert.equal(node.x, homes[node.id].tx);
+      assert.equal(node.y, homes[node.id].ty);
+    }
+  }
+  assert.ok(first.length > 0);
+  graph.renderer.viewport.scale = 0.5;
+  animator.wake();
+  queue.shift()();
+  assert.equal(animator._running, true);
+  assert.ok(graph._nodes.some(n => n.x !== homes[n.id].tx || n.y !== homes[n.id].ty));
+  animator.stop();
+  queue.length = 0;
+});
+
+test("hover and selection pause overview motion without changing dragged node positions", async () => {
+  const queue = loadGraph();
+  const graph = global.window.Graph2D;
+  graph.init(makeContainer());
+  graph.loadData(makePayload(2, 1));
+  await settle(queue);
+  graph.renderer.viewport.scale = 0.5;
+  graph.animator._ambientMotion = true;
+  graph._nodes[0].fixed = true;
+  graph._nodes[0].x = 41;
+  graph._nodes[0].y = 32;
+  const positions = graph._nodes.map(n => [n.x, n.y]);
+  graph.interaction._hoverId = graph._nodes[0].id;
+  graph.animator.wake();
+  flushRaf(queue);
+  assert.equal(graph.animator._running, false);
+  assert.deepEqual(graph._nodes.map(n => [n.x, n.y]), positions);
+  graph.interaction._hoverId = null;
+  graph.renderer._selection = { type: "node", id: graph._nodes[1].id };
+  graph.animator.wake();
+  flushRaf(queue);
+  assert.equal(graph.animator._running, false);
+  assert.deepEqual(graph._nodes.map(n => [n.x, n.y]), positions);
+  graph.renderer._selection = null;
+  graph.animator.wake();
+  queue.shift()();
+  assert.equal(graph.animator._running, true);
+  assert.deepEqual([graph._nodes[0].x, graph._nodes[0].y], [41, 32]);
+  graph.animator.stop();
+  queue.length = 0;
+});
+
+test("label priority is independent of input order and hovered labels reserve metadata space", () => {
+  loadGraph();
+  const renderer = new global.GraphRenderer(makeCanvas());
+  renderer.resize();
+  renderer.viewport.scale = 2;
+  const nodes = [
+    { id: 1, x: 0, y: 15, label: "Ordinary", degree: 6, labelScore: 20 },
+    { id: 2, x: 0, y: 0, label: "Important", degree: 6, labelScore: 30 },
+  ];
+  const map = Object.fromEntries(nodes.map(n => [n.id, n]));
+  let labels = [];
+  renderer.ctx.fillText = label => { if (!label.includes("links")) labels.push(label); };
+  renderer.ctx.measureText = () => ({ width: 80 });
+  renderer.render(nodes, [], map, null, 2, null, 1);
+  assert.deepEqual(labels, ["Important"], "The hovered metadata also excludes nearby ordinary labels");
+  nodes[0].y = 0;
+  labels = [];
+  renderer.render(nodes, [], map, null, null, null, 1);
+  assert.deepEqual(labels, ["Important"]);
+  labels = [];
+  renderer.render([...nodes].reverse(), [], map, null, null, null, 1);
+  assert.deepEqual(labels, ["Important"]);
+});
+
+test("zoomed fonts are bounded and measurement cache distinguishes the selected weight", () => {
+  loadGraph();
+  const renderer = new global.GraphRenderer(makeCanvas());
+  renderer.resize();
+  renderer.viewport.scale = 3.5;
+  const node = { id: 1, x: 0, y: 0, label: "Same label", degree: 6, labelScore: 30 };
+  const fonts = [];
+  renderer.ctx.fillText = function(label) { if (label === node.label) fonts.push(this.font); };
+  renderer.ctx.measureText = function() { return { width: this.font.startsWith("650 ") ? 110 : 80 }; };
+  renderer.render([node], [], { 1: node }, null, null, null, 1);
+  const normalWidth = renderer._labelBoxes[0].x2 - renderer._labelBoxes[0].x1;
+  renderer.render([node], [], { 1: node }, { type: "node", id: 1 }, null, null, 1);
+  const selectedWidth = renderer._labelBoxes[0].x2 - renderer._labelBoxes[0].x1;
+  assert.ok(selectedWidth > normalWidth, "A different font weight must be measured separately");
+  assert.equal(fonts.length, 2);
+  for (const font of fonts) assert.ok(Number(font.match(/(\d+)px/)[1]) <= 18);
+});
+
+test("returning to the graph redraws a settled inspection frame", async () => {
+  const queue = loadGraph();
+  const graph = global.window.Graph2D;
+  graph.init(makeContainer());
+  graph.loadData(makePayload(2, 1));
+  await settle(queue);
+  graph.setActive(false);
+  let renders = 0;
+  graph.renderer.render = () => { renders++; };
+  graph.setActive(true);
+  flushRaf(queue);
+  assert.equal(renders, 1);
+  assert.equal(graph.animator._running, false);
+});
+
+test("leaving the canvas clears the inspection hover and requests a fresh frame", () => {
+  loadGraph();
+  const events = {};
+  const canvas = makeCanvas();
+  canvas.addEventListener = (name, callback) => { events[name] = callback; };
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0 });
+  let renders = 0;
+  const hovered = [];
+  const interaction = new global.GraphInteraction(null, canvas, {}, {
+    onRenderRequest: () => { renders++; },
+    onNodeHover: id => { hovered.push(id); },
+  });
+  interaction._hoverId = 1;
+  interaction._hoverType = "node";
+  events.mouseleave({ clientX: 0, clientY: 0 });
+  assert.equal(interaction.getHoverId(), null);
+  assert.equal(interaction.getHoverType(), null);
+  assert.deepEqual(hovered, [null]);
+  assert.equal(renders, 1);
 });
 
 test("large graph layout completes via progressive stepping", async () => {
