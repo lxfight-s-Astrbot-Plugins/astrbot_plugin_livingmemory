@@ -8,22 +8,12 @@ README_NAMES = ("README.md", "README_en.md", "README_ru.md")
 LANGUAGE_LINKS = README_NAMES
 LOCAL_IMAGE_RE = re.compile(r'<img\s+[^>]*src="([^"]+)"', re.IGNORECASE)
 EMOJI_RE = re.compile(
-    "["
-    "\U0001F1E6-\U0001F1FF"
-    "\U0001F300-\U0001FAFF"
-    "\u2600-\u26FF"
-    "\u2700-\u27BF"
-    "\uFE0F"
-    "\u20E3"
-    "]"
+    "[\U0001f1e6-\U0001f1ff\U0001f300-\U0001faff\u2600-\u26ff\u2700-\u27bf\ufe0f\u20e3]"
 )
 
 
 def _read_readmes() -> dict[str, str]:
-    return {
-        name: (ROOT / name).read_text(encoding="utf-8")
-        for name in README_NAMES
-    }
+    return {name: (ROOT / name).read_text(encoding="utf-8") for name in README_NAMES}
 
 
 def test_readmes_are_concise_and_emoji_free() -> None:
@@ -44,7 +34,7 @@ def test_readmes_link_languages_and_project_resources() -> None:
         "astrbot_plugin_livingmemory",
     )
     for name, content in _read_readmes().items():
-        assert "<h1>LivingMemory</h1>" in content
+        assert "<h1>LivingMemory</h1>" in content or "![LivingMemory" in content
         for language_link in LANGUAGE_LINKS:
             if language_link != name:
                 assert language_link in content
@@ -54,7 +44,9 @@ def test_readmes_link_languages_and_project_resources() -> None:
 
 def test_readme_local_images_exist() -> None:
     for name, content in _read_readmes().items():
-        image_sources = LOCAL_IMAGE_RE.findall(content)
+        image_sources = LOCAL_IMAGE_RE.findall(content) + re.findall(
+            r"!\[[^\]]*\]\(([^)]+)\)", content
+        )
         local_sources = [src for src in image_sources if "://" not in src]
         assert local_sources, f"{name} has no local visual asset"
         for source in local_sources:

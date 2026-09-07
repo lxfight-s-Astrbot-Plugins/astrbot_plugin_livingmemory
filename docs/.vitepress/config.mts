@@ -88,6 +88,7 @@ function navZh() {
   return [
     { text: '指南', link: '/guide/getting-started' },
     { text: '功能', link: '/features' },
+    { text: '版本与升级', link: '/releases' },
     { text: '架构', link: '/architecture' },
     { text: 'GitHub', link: repo }
   ]
@@ -97,6 +98,7 @@ function navEn() {
   return [
     { text: 'Guide', link: '/en/guide/getting-started' },
     { text: 'Features', link: '/en/features' },
+    { text: 'Releases', link: '/en/releases' },
     { text: 'Architecture', link: '/en/architecture' },
     { text: 'GitHub', link: repo }
   ]
@@ -108,6 +110,7 @@ function sidebarZh() {
       text: '开始使用',
       items: [
         { text: '快速开始', link: '/guide/getting-started' },
+        { text: '版本与升级', link: '/releases' },
         { text: '配置参考', link: '/configuration' },
         { text: '命令速查', link: '/commands' },
         { text: 'WebUI 管理', link: '/webui' }
@@ -130,6 +133,7 @@ function sidebarEn() {
       text: 'Get Started',
       items: [
         { text: 'Quick Start', link: '/en/guide/getting-started' },
+        { text: 'Releases and Upgrades', link: '/en/releases' },
         { text: 'Configuration', link: '/en/configuration' },
         { text: 'Commands', link: '/en/commands' },
         { text: 'WebUI', link: '/en/webui' }

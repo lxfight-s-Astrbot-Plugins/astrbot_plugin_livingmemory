@@ -14,8 +14,8 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 查看架构
-      link: /architecture
+      text: 2.7.0-beta.1 测试版
+      link: /releases
 features:
   - title: 自动长期记忆
     details: 对话达到触发轮次后自动总结，保存为可检索的长期记忆。
@@ -25,13 +25,17 @@ features:
     details: 文档路和图谱路同时使用关键词与向量检索，再用 RRF 融合排序。
   - title: 时间感知生命周期
     details: 记忆原子拥有 TTL、衰减、访问强化和自动清理机制。
-  - title: 插件页面管理
-    details: 在 AstrBot Pages 中查看、搜索、调试召回和浏览知识图谱。
+  - title: 四种风格的管理界面
+    details: Editorial、Studio、Paper、Terminal；支持明暗切换、稳定图谱阅读与清晰的编辑和导入流程。
   - title: 数据安全
     details: 支持版本备份、迁移前备份、索引回滚和事务删除。
 ---
 
 <img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
+
+## 2.7.0-beta.1 正在测试
+
+本次汇总 2.6.1 之后的全部合并改动，包含召回与索引恢复修复、四种主题、图谱标签稳定性和管理流程优化。[版本与升级](/releases)提供完整 PR 与作者名单、测试版下载、安装和回退步骤。稳定版仍为 2.6.1。
 
 ## 这份文档适合谁？
 

@@ -1,82 +1,62 @@
-<div align="center">
-
-<p><a href="README.md">中文</a> &nbsp;/&nbsp; <a href="README_en.md">English</a> &nbsp;/&nbsp; <strong>Русский</strong></p>
-
-<h1>LivingMemory</h1>
-
-<p><strong>Долговременная память для AstrBot: точное извлечение и развитие с каждым диалогом.</strong></p>
-
-<p><sub>СОХРАНЯТЬ &nbsp;&nbsp; ИЗВЛЕКАТЬ &nbsp;&nbsp; СВЯЗЫВАТЬ &nbsp;&nbsp; РАЗВИВАТЬ</sub></p>
-
-<p>
-  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><img src="https://img.shields.io/github/v/release/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?style=flat-square&color=5f7f79" alt="Последний релиз"></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-e9f1ef?style=flat-square&labelColor=263a36" alt="Python 3.10 или новее">
-  <img src="https://img.shields.io/badge/AstrBot-%3E%3D%204.24.2-f3eee4?style=flat-square&labelColor=544c3d" alt="AstrBot 4.24.2 или новее">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-f2e8e5?style=flat-square&labelColor=5b403a" alt="Лицензия AGPL-3.0"></a>
+<p align="center">
+  <a href="README.md">中文</a> · <a href="README_en.md">English</a> · <strong>Русский</strong>
 </p>
 
-<img src="docs/public/images/retrieval-flow.svg" width="100%" alt="Двухконтурная схема извлечения LivingMemory">
+![LivingMemory: долговременная память, связывающая предпочтения, людей, планы и контекст](docs/public/images/livingmemory-cover.svg)
 
-</div>
+<p align="center">
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/"><strong>Документация · EN</strong></a> ·
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui"><strong>Панель управления</strong></a> ·
+  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><strong>Скачать</strong></a> ·
+  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues"><strong>Обратная связь</strong></a>
+</p>
 
-## Память приобретает структуру
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-52675c?style=flat-square" alt="Python 3.10 или новее">
+  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Для Pages требуется AstrBot 4.24.2 или новее">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-52675c?style=flat-square" alt="AGPL-3.0"></a>
+</p>
 
-<table>
-<tr>
-<td width="33%"><strong>ТОЧНОЕ ИЗВЛЕЧЕНИЕ</strong><br><br>BM25 и векторный поиск работают с документами и графом, а затем объединяют результаты в единый рейтинг.</td>
-<td width="33%"><strong>ЖИВОЙ КОНТЕКСТ</strong><br><br>Факты становятся независимыми атомами памяти с важностью, TTL, усилением и временным затуханием.</td>
-<td width="33%"><strong>МАСШТАБ БЕЗ СКРЫТЫХ ДАННЫХ</strong><br><br>Полный граф связей доступен на производительном холсте с сообществами и уровнями детализации.</td>
-</tr>
-</table>
+## Сохранить важное из разговора
 
-## Единая система памяти
+LivingMemory хранит для AstrBot предпочтения, отношения, ход проектов и прежние договорённости. Плагин создаёт сводки диалогов, находит нужный контекст с помощью ключевых слов, векторов и графа, а также управляет памятью через архивирование, затухание и усиление при обращении.
 
-| Извлечение | Интеллект | Управление |
-| :--- | :--- | :--- |
-| **Гибридный поиск**<br>Ключевые слова и семантика в двух контурах. | **Два вида сводок**<br>Факты и контекст личности сохраняют отдельную ценность. | **Безопасные операции**<br>Резервные копии, транзакционное удаление и откат. |
-| **Инструменты для Agent**<br>`recall_long_term_memory` и `memorize_long_term_memory`. | **Временной граф**<br>Достоверность связей меняется по мере накопления и затухания свидетельств. | **Сфокусированная панель**<br>Управление памятью, отладка поиска и просмотр полного графа. |
+> **Тестовая версия: 2.7.0-beta.1**<br>
+> Четыре стиля панели, стабильные подписи графа и понятные сценарии редактирования и импорта.<br>
+> [Скачать бета-версию](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.1) · [Обновление · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Стабильная 2.6.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.6.1)
 
-## Новые возможности
+## От сохранения к воспоминанию
 
-| Восстанавливаемая память | Управляемые границы | Обслуживание без остановки |
-| :--- | :--- | :--- |
-| **Исходные сообщения и архив**<br>Для важных воспоминаний можно сохранить исходные сообщения, проверить их и повторно создать сводку; малоценные записи можно архивировать и восстанавливать. | **Области и контроль доступа**<br>Память можно разделять по диалогу, пользователю или глобально, используя принудительную изоляцию, белые списки и псевдонимы. | **Безопасная перестройка индексов**<br>Проверки и крупные исправления выполняются в фоне с пакетной обработкой, отображением прогресса, откатом и теневыми индексами. |
+- **Автоматическая запись** — Сводки создаются после заданного числа реплик. Важные записи могут сохранять исходные сообщения для проверки и повторного обобщения.
+- **Поиск с учётом контекста** — Документы и граф поддерживают поиск по ключевым словам и векторам, объединение рейтингов, фильтрацию области и проверку жизненного цикла.
+- **Инструменты агента** — `recall_long_term_memory` и `memorize_long_term_memory` позволяют читать и записывать долговременную память по мере необходимости.
+- **Управление через Pages** — Просмотр связей, редактирование памяти, тестирование поиска, настройка промптов и состояние системы.
 
-```mermaid
-flowchart LR
-    A[Диалог] --> B[Сводка]
-    B --> C[Атомизация и индекс]
-    C --> D[Гибридный поиск]
-    D --> E[Усиление]
-    C --> F[Затухание или удаление]
-    E --> C
-```
+## Одно пространство, четыре стиля
 
-## Три шага для запуска
+**Editorial** — зелёная сетка и чёткие линии. **Studio** — мягкие карточки. **Paper** — тёплые поверхности и заголовки с засечками. **Terminal** — моноширинный шрифт и приборная компоновка.
 
-1. Установите плагин из каталога AstrBot или поместите его в `data/plugins`.
-2. Перезапустите AstrBot и откройте страницу настроек LivingMemory.
-3. Выберите два провайдера ниже; для остальных параметров заданы практичные значения.
+Каждый стиль поддерживает светлый, тёмный и автоматический режимы. Переключение доступно в настройках внешнего вида; выбор сохраняется в текущем браузере. При увеличении графа подписи остаются стабильными, а на телефоне доступны фильтр диалога и переход к записи.
 
-| Параметр | Назначение |
-| :--- | :--- |
-| `embedding_provider_id` | Модель эмбеддингов; пустое значение использует стандартную модель AstrBot. |
-| `llm_provider_id` | Модель для сводок; пустое значение использует стандартную модель AstrBot. |
+[Темы и работа с панелью · EN →](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui)
 
-Визуальная рабочая область: `Plugins -> LivingMemory -> Pages -> dashboard`. Для Plugin Pages нужен **AstrBot 4.24.2 или новее**.
+## Начало работы
+
+1. Установите плагин из каталога AstrBot или поместите выбранную версию в `data/plugins/astrbot_plugin_livingmemory`.
+2. Перезагрузите AstrBot и выберите провайдеры Embedding и LLM в настройках LivingMemory; пустые поля используют настройки AstrBot.
+3. Откройте `Plugins → LivingMemory → Pages → dashboard`. Для Pages требуется **AstrBot 4.24.2 или новее**.
+
+Для тестирования скачайте указанный выше тег и следуйте [инструкции по установке и откату · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Перед обновлением сохраните резервную копию данных и конфигурации плагина.
+
+После нескольких реплик проверьте `/lmem status`, `/lmem summarize` и `/lmem search ключевые слова`.
 
 ## Подробнее
 
-| Начало работы | Настройка | Команды | Архитектура |
-| :--- | :--- | :--- | :--- |
-| [Краткое руководство](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started)<br>[Обзор функций](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/features) | [Конфигурация](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Список команд](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands)<br>[Руководство WebUI](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui) | [Устройство системы](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
+[Быстрый старт · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started) · [Настройки · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) · [Команды · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands) · [Архитектура · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) · [История изменений](CHANGELOG.md)
 
-Обновляетесь с v1.4.0-v1.4.2? Сначала проверьте [настройки резервного копирования и миграции](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup).
+При обновлении с v1.4.0–v1.4.2 сначала прочитайте [инструкцию по миграции · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup).
 
-## Проект
+---
 
-[Документация](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/) · [Релизы](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [История изменений](CHANGELOG.md) · [Сообщить о проблеме](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
-
-Поддержка сообщества: [QQ-группа 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Пароль: `lxfight`
-
-LivingMemory распространяется по [лицензии AGPL-3.0](LICENSE).
+Сообщество: [Группа QQ 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Пароль: `lxfight`<br>
+Лицензия: [AGPL-3.0](LICENSE)
