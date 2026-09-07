@@ -18,6 +18,7 @@ export class MemoryPage {
     this.ROW_HEIGHT = 56;
     this.SCROLL_BUFFER = 15;
     this._fetchGeneration = 0;
+    this._scrollFramePending = false;
   }
 
   /**
@@ -25,6 +26,9 @@ export class MemoryPage {
    */
   async fetch() {
     const fetchGeneration = ++this._fetchGeneration;
+    this.state.memory.loading = true;
+    this.state.memory.error = "";
+    this.updateFeedback();
     const params = {
       page: String(this.state.memory.page),
       page_size: String(this.state.memory.pageSize)
@@ -87,14 +91,43 @@ export class MemoryPage {
         raw: item,
       }));
       this.state.memory.selectedIds.clear();
+      this._visibleSlice = null;
 
       this.renderVirtual({ resetScroll: true });
       this.updatePagination();
     } catch (e) {
       if (fetchGeneration !== this._fetchGeneration) return;
+      this.state.memory.error = e.message || window.t("misc.fetchMemoriesFail");
       this.showToast(e.message || window.t("misc.fetchMemoriesFail"), true);
-      this.renderEmpty();
+    } finally {
+      if (fetchGeneration === this._fetchGeneration) {
+        this.state.memory.loading = false;
+        this.updateFeedback();
+      }
     }
+  }
+
+  updateFeedback() {
+    const doc = globalThis.document;
+    if (!doc) return;
+    const { loading, error } = this.state.memory;
+    const feedback = doc.getElementById("memory-feedback");
+    const message = doc.getElementById("memory-feedback-message");
+    const retry = doc.getElementById("memory-retry");
+    const scroll = doc.getElementById("memories-scroll");
+    if (feedback) {
+      feedback.hidden = !loading && !error;
+      feedback.classList.toggle("is-error", Boolean(error));
+    }
+    if (message) message.textContent = loading ? window.t("common.loading") : error;
+    if (retry) retry.hidden = !error || loading;
+    if (scroll) {
+      scroll.setAttribute("aria-busy", String(Boolean(loading)));
+      // Keep the last successful view visible, but disable actions on stale data.
+      scroll.inert = Boolean(loading || error);
+    }
+    this.updateSelectionControls();
+    this.updatePagination();
   }
 
   /**
@@ -103,6 +136,7 @@ export class MemoryPage {
    * @param {boolean} options.resetScroll - 是否重置滚动位置
    */
   renderVirtual(options = {}) {
+    this._visibleSlice = null;
     const scrollEl = document.getElementById("memories-scroll");
     if (scrollEl && options.resetScroll) scrollEl.scrollTop = 0;
 
@@ -115,8 +149,22 @@ export class MemoryPage {
     if (scrollEl && !scrollEl._virtualScrollBound) {
       scrollEl._virtualScrollBound = true;
       scrollEl.addEventListener("scroll", () => {
-        window.requestAnimationFrame(() => this.renderVirtualSlice());
+        if (this._scrollFramePending) return;
+        this._scrollFramePending = true;
+        window.requestAnimationFrame(() => {
+          this._scrollFramePending = false;
+          this.renderVirtualSlice();
+        });
       }, { passive: true });
+      if (typeof ResizeObserver !== "undefined") {
+        this._resizeObserver = new ResizeObserver(() => {
+          if (!scrollEl.clientWidth) return;
+          this._measuredRowHeight = null;
+          this._visibleSlice = null;
+          this.renderVirtualSlice();
+        });
+        this._resizeObserver.observe(scrollEl);
+      }
     }
 
     this.renderVirtualSlice();
@@ -143,8 +191,12 @@ export class MemoryPage {
     );
     const padTop = start * rowHeight;
     const padBottom = totalHeight - end * rowHeight;
+    const columns = window.matchMedia?.("(max-width: 768px)").matches ? 4 : 7;
+    const slice = `${start}:${end}:${rowHeight}`;
+    if (slice === this._visibleSlice) return;
+    this._visibleSlice = slice;
     const spacerRow = (height) => height > 0
-      ? '<tr class="virtual-spacer" aria-hidden="true" style="height:' + height + 'px"><td colspan="7" style="height:' + height + 'px;padding:0;border:0"></td></tr>'
+      ? '<tr class="virtual-spacer" aria-hidden="true" style="height:' + height + 'px"><td colspan="' + columns + '" style="height:' + height + 'px;padding:0;border:0"></td></tr>'
       : "";
 
     let html = spacerRow(padTop);
@@ -162,7 +214,7 @@ export class MemoryPage {
       const consBadge = item.consolidated_count > 0
         ? '<span class="type-tag cons-badge" title="' + esc(window.t("table.consolidatedTitle")) + '">' + window.t("table.consolidated", item.consolidated_count) + '</span> '
         : "";
-      html += '<td class="cell-summary">' + consBadge + '<div class="memory-summary-text">' + esc(item.summary || "") + '</div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
+      html += '<td class="cell-summary">' + consBadge + '<button class="memory-open memory-summary-text" type="button" aria-label="' + esc(window.t("table.openMemory", item.memory_id)) + '">' + esc(item.summary || "") + '</button><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
       html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
       html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
       html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';
@@ -213,6 +265,7 @@ export class MemoryPage {
   }
 
   updateSelectionControls() {
+    const unavailable = Boolean(this.state.memory.loading || this.state.memory.error);
     const selectedIds = this.state.memory.selectedIds;
     const pageIds = this.state.memory.items.map(item => item.memory_id);
     const selectedOnPage = pageIds.filter(id => selectedIds.has(id)).length;
@@ -220,16 +273,16 @@ export class MemoryPage {
     if (selectAll) {
       selectAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
       selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
-      selectAll.disabled = pageIds.length === 0;
+      selectAll.disabled = unavailable || pageIds.length === 0;
     }
 
     const deleteButton = document.getElementById("mem-delete-selected");
-    if (deleteButton) deleteButton.disabled = selectedIds.size === 0;
+    if (deleteButton) deleteButton.disabled = unavailable || selectedIds.size === 0;
     const deleteLabel = document.getElementById("mem-delete-selected-label");
     if (deleteLabel) deleteLabel.textContent = window.t("delete.selected", selectedIds.size);
 
     const batchEditButton = document.getElementById("mem-batch-edit");
-    if (batchEditButton) batchEditButton.disabled = selectedIds.size === 0;
+    if (batchEditButton) batchEditButton.disabled = unavailable || selectedIds.size === 0;
     const batchEditLabel = document.getElementById("mem-batch-edit-label");
     if (batchEditLabel) batchEditLabel.textContent = window.t("batchEdit.button", selectedIds.size);
   }
@@ -429,19 +482,24 @@ export class MemoryPage {
     const t = this.state.memory.total;
     const tp = Math.max(1, Math.ceil(t / ps));
 
-    document.getElementById("mem-pagination-info").textContent = window.t("common.page", p, tp, t);
-    document.getElementById("mem-prev").disabled = p <= 1;
-    document.getElementById("mem-next").disabled = !this.state.memory.hasMore;
+    const info = document.getElementById("mem-pagination-info");
+    const prev = document.getElementById("mem-prev");
+    const next = document.getElementById("mem-next");
+    if (info) info.textContent = window.t("common.page", p, tp, t);
+    if (prev) prev.disabled = Boolean(this.state.memory.loading || this.state.memory.error) || p <= 1;
+    if (next) next.disabled = Boolean(this.state.memory.loading || this.state.memory.error) || !this.state.memory.hasMore;
   }
 
   /**
    * 初始化事件监听
    */
   initEventListeners() {
+    document.getElementById("memory-retry")?.addEventListener("click", () => this.fetch());
     // 表格行点击事件
     const tbody = document.getElementById("memories-body");
     if (tbody) {
       tbody.addEventListener("click", (e) => {
+        if (this.state.memory.loading || this.state.memory.error) return;
         const checkbox = e.target.closest(".memory-select");
         if (checkbox) {
           const id = Number(checkbox.dataset.memoryId);

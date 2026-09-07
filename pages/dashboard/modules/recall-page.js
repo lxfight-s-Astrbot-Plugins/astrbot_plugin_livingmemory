@@ -60,6 +60,14 @@ export class RecallPage {
     }
 
     if (searchBtn) searchBtn.disabled = true;
+    const feedback = document.getElementById("recall-feedback");
+    const results = document.getElementById("recall-results");
+    if (feedback) {
+      feedback.hidden = false;
+      feedback.classList.remove("is-error");
+      feedback.textContent = window.t("recall.searching");
+    }
+    results?.setAttribute("aria-busy", "true");
 
     const startTime = Date.now();
 
@@ -72,13 +80,16 @@ export class RecallPage {
 
       this.state._recallCache = { data, elapsed };
       this.renderResults(data, elapsed);
+      if (feedback) feedback.hidden = true;
     } catch (e) {
       this.showToast(e.message || window.t("recall.fail"), true);
-      document.getElementById("recall-results").innerHTML = "";
-      document.getElementById("recall-stats").classList.add("hidden");
-      this.state._recallCache = null;
+      if (feedback) {
+        feedback.textContent = e.message || window.t("recall.fail");
+        feedback.classList.add("is-error");
+      }
     } finally {
       if (searchBtn) searchBtn.disabled = false;
+      results?.setAttribute("aria-busy", "false");
     }
   }
 
@@ -104,7 +115,7 @@ export class RecallPage {
         : window.t("recall.resultsCount", count);
     }
     if (timeText) {
-      const time = data.elapsed_time_ms || elapsed;
+      const time = data.elapsed_time_ms ?? elapsed;
       timeText.textContent = window.t("recall.timeElapsed", (time / 1000).toFixed(2));
     }
 
@@ -125,14 +136,14 @@ export class RecallPage {
       // 后端返回 similarity_score，不是 score
       const score = mem.similarity_score != null ? Number(mem.similarity_score).toFixed(3) :
                     (mem.score != null ? Number(mem.score).toFixed(3) : "--");
-      const importance = normalizeImportance(mem.metadata?.importance || 0.5).toFixed(1);
+      const importance = normalizeImportance(mem.metadata?.importance ?? 0.5).toFixed(1);
       const type = mem.metadata?.memory_type || "GENERAL";
       const status = mem.metadata?.status || "active";
 
       const scoreNum = Number(score);
       const scoreCls = scoreNum >= 0.75 ? "high" : scoreNum >= 0.45 ? "medium" : "low";
 
-      html += '<div class="result-card recall-result-item" data-memory-id="' + memoryId + '">';
+      html += '<div class="result-card recall-result-item" role="button" tabindex="0" aria-label="' + esc(window.t("table.openMemory", memoryId)) + '" data-memory-id="' + memoryId + '">';
       html += '<div class="result-card-header recall-result-header">';
       html += '<span class="result-rank recall-result-rank">#' + (idx + 1) + '</span>';
       html += '<span class="cell-mono recall-result-id">ID: ' + memoryId + '</span>';
@@ -155,6 +166,12 @@ export class RecallPage {
 
     // 绑定点击事件
     resultsEl.querySelectorAll(".recall-result-item").forEach(item => {
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          item.click();
+        }
+      });
       item.addEventListener("click", () => {
         const memoryId = item.dataset.memoryId;
         const memory = memories.find(m => String(m.memory_id || m.id) === memoryId);

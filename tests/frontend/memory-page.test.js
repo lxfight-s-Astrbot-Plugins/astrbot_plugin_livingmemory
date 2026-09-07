@@ -45,6 +45,58 @@ function apiMemory(id, summary) {
   };
 }
 
+test("failed refresh preserves rows and exposes an error until a successful retry", async () => {
+  const state = createState();
+  state.memory.items = [{ memory_id: 9, summary: "Existing memory" }];
+  const page = new MemoryPage(state, { get: async () => { throw new Error("offline"); } }, {});
+  page.updateFeedback = () => {};
+  page.showToast = () => {};
+  page.renderVirtual = () => {};
+  page.updatePagination = () => {};
+  await page.fetch();
+  assert.equal(state.memory.items[0].memory_id, 9);
+  assert.equal(state.memory.error, "offline");
+  assert.equal(state.memory.loading, false);
+  page.api.get = async () => ({ items: [apiMemory(10, "Recovered")], total: 1 });
+  await page.fetch();
+  assert.equal(state.memory.error, "");
+  assert.equal(state.memory.items[0].memory_id, 10);
+});
+
+test("scroll bursts schedule one render and unchanged windows preserve the DOM", () => {
+  const state = createState();
+  state.memory.items = [{ memory_id: 1, summary: "coffee", importance: 5, status: "active" }];
+  let html = "";
+  let writes = 0;
+  let callback;
+  let frames = 0;
+  const tbody = { style: {}, set innerHTML(value) { html = value; writes++; }, get innerHTML() { return html; } };
+  const scroll = { scrollTop: 0, clientHeight: 400, addEventListener(_name, listener) { this.listener = listener; } };
+  globalThis.window = { t: key => key, requestAnimationFrame(fn) { frames++; callback = fn; } };
+  globalThis.document = { getElementById: id => id === "memories-body" ? tbody : id === "memories-scroll" ? scroll : null };
+  try {
+    const page = new MemoryPage(state, {}, {});
+    page.updateSelectionControls = () => {};
+    page.renderVirtual();
+    const initialWrites = writes;
+    scroll.listener();
+    scroll.listener();
+    scroll.listener();
+    assert.equal(frames, 1);
+    callback();
+    assert.equal(writes, initialWrites);
+    assert.match(html, /class="memory-open/);
+    state.memory.items = Array.from({ length: 100 }, (_, i) => ({ memory_id: i + 1, summary: "coffee", importance: 5, status: "active" }));
+    window.matchMedia = () => ({ matches: true });
+    page.renderVirtual();
+    assert.match(html, /colspan="4"/);
+    assert.doesNotMatch(html, /colspan="7"/);
+  } finally {
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});
+
 test("the latest memory fetch wins when responses arrive out of order", async () => {
   const slow = deferred();
   const fast = deferred();
