@@ -133,6 +133,32 @@ function makePayload(nodeCount, edgeCount) {
   return { enabled: true, mode: "query", snapshot: { nodes, edges } };
 }
 
+test("changing visual style invalidates the graph background without rebuilding layout", () => {
+  loadGraph();
+  let onThemeChange;
+  let observedAttributes;
+  global.MutationObserver = class {
+    constructor(callback) { onThemeChange = callback; }
+    observe(_element, options) { observedAttributes = options.attributeFilter; }
+  };
+  const graph = global.window.Graph2D;
+  graph.init(makeContainer());
+  assert.ok(observedAttributes.includes("data-style"));
+  assert.ok(observedAttributes.includes("data-theme"));
+  graph.renderer.drawBackground(false, false);
+  assert.ok(graph.renderer._bgCacheKey);
+  const layout = graph.animator._layout;
+  let wakes = 0;
+  graph.animator.wake = () => { wakes++; };
+  onThemeChange();
+  assert.equal(graph.renderer._bgCacheKey, null);
+  assert.equal(wakes, 1);
+  global.getComputedStyle = () => ({ getPropertyValue: key => key === "--accent" ? "#5145b8" : "#fcfcff" });
+  graph.renderer.drawBackground(false, false);
+  assert.equal(graph.renderer._backgroundAccent, "#5145b8");
+  assert.equal(graph.animator._layout, layout);
+});
+
 test("small graph layout completes synchronously with positions", async () => {
   const rafQueue = loadGraph();
   const g = global.window.Graph2D;

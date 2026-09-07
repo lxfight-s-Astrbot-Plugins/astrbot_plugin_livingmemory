@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title data-i18n="page.title">LivingMemory</title>
+    <script src="./appearance.js"></script>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./art-direction.css" />
+    <link rel="stylesheet" href="./themes.css" />
     <script src="./vendor/lucide.min.js"></script>
     <script src="./i18n.js"></script>
   </head>
@@ -43,9 +45,8 @@
         </nav>
         <div class="sidebar-divider"></div>
         <div class="sidebar-footer">
-          <button class="nav-item" id="theme-toggle" data-i18n-aria="header.theme">
-            <i data-lucide="moon" id="theme-icon-dark" aria-hidden="true"></i>
-            <i data-lucide="sun" id="theme-icon-light" class="hidden" aria-hidden="true"></i>
+          <button class="nav-item" id="theme-toggle" data-i18n-aria="header.theme" aria-haspopup="dialog" aria-controls="appearance-dialog">
+            <i data-lucide="palette" aria-hidden="true"></i>
             <span data-i18n="header.theme">Theme</span>
           </button>
           <details class="lang-menu" id="lang-menu">
@@ -313,6 +314,56 @@
         </section>
       </main>
     </div>
+
+    <!-- Appearance preferences apply immediately and remain local to this browser. -->
+    <dialog id="appearance-dialog" class="appearance-dialog" aria-labelledby="appearance-title" aria-describedby="appearance-hint">
+      <form method="dialog">
+        <header class="appearance-header">
+          <h2 id="appearance-title" data-i18n="header.theme">Appearance</h2>
+          <button class="btn btn-ghost btn-sm" data-i18n-aria="common.close" autofocus><i data-lucide="x" aria-hidden="true"></i></button>
+        </header>
+        <p id="appearance-hint" data-i18n="appearance.hint">Changes apply immediately and are saved in this browser.</p>
+        <fieldset>
+          <legend data-i18n="appearance.style">Visual style</legend>
+          <div class="appearance-styles">
+            <label class="appearance-card">
+              <input type="radio" name="appearance-style" value="editorial" />
+              <span class="appearance-preview preview-editorial" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
+              <strong data-i18n="appearance.editorial">Editorial</strong>
+              <span class="appearance-description" data-i18n="appearance.editorialDesc"></span>
+            </label>
+            <label class="appearance-card">
+              <input type="radio" name="appearance-style" value="studio" />
+              <span class="appearance-preview preview-studio" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
+              <strong data-i18n="appearance.studio">Studio</strong>
+              <span class="appearance-description" data-i18n="appearance.studioDesc"></span>
+            </label>
+            <label class="appearance-card">
+              <input type="radio" name="appearance-style" value="paper" />
+              <span class="appearance-preview preview-paper" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
+              <strong data-i18n="appearance.paper">Paper</strong>
+              <span class="appearance-description" data-i18n="appearance.paperDesc"></span>
+            </label>
+            <label class="appearance-card">
+              <input type="radio" name="appearance-style" value="terminal" />
+              <span class="appearance-preview preview-terminal" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
+              <strong data-i18n="appearance.terminal">Terminal</strong>
+              <span class="appearance-description" data-i18n="appearance.terminalDesc"></span>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend data-i18n="appearance.mode">Color mode</legend>
+          <div class="appearance-modes">
+            <label><input type="radio" name="appearance-mode" value="system" /><span data-i18n="appearance.system">Auto</span></label>
+            <label><input type="radio" name="appearance-mode" value="light" /><span data-i18n="appearance.light">Light</span></label>
+            <label><input type="radio" name="appearance-mode" value="dark" /><span data-i18n="appearance.dark">Dark</span></label>
+          </div>
+          <p class="appearance-mode-hint" data-i18n="appearance.systemHint">Auto follows AstrBot, or your device when opened independently.</p>
+        </fieldset>
+        <footer class="appearance-footer"><button class="btn btn-primary" data-i18n="common.close">Close</button></footer>
+      </form>
+    </dialog>
 
     <!-- Peek Panel -->
     <div class="peek-overlay" id="peek-overlay"></div>

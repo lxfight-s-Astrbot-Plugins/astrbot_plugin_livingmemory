@@ -602,8 +602,11 @@
 
     /* Theme observer */
     if (typeof window.MutationObserver === "function") {
-      var mo = new MutationObserver(function() { self.animator.wake(); });
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      var mo = new MutationObserver(function() {
+        self.renderer._bgCacheKey = null;
+        self.animator.wake();
+      });
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-style"] });
     }
 
     this._initialized = true;
