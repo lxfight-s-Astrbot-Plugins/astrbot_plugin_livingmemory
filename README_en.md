@@ -1,82 +1,62 @@
-<div align="center">
-
-<p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong> &nbsp;/&nbsp; <a href="README_ru.md">Русский</a></p>
-
-<h1>LivingMemory</h1>
-
-<p><strong>Long-term memory for AstrBot that recalls with precision and evolves with every conversation.</strong></p>
-
-<p><sub>CAPTURE &nbsp;&nbsp; RETRIEVE &nbsp;&nbsp; CONNECT &nbsp;&nbsp; EVOLVE</sub></p>
-
-<p>
-  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><img src="https://img.shields.io/github/v/release/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory?style=flat-square&color=5f7f79" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-e9f1ef?style=flat-square&labelColor=263a36" alt="Python 3.10 or later">
-  <img src="https://img.shields.io/badge/AstrBot-%3E%3D%204.24.2-f3eee4?style=flat-square&labelColor=544c3d" alt="AstrBot 4.24.2 or later">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-f2e8e5?style=flat-square&labelColor=5b403a" alt="AGPL-3.0 license"></a>
+<p align="center">
+  <a href="README.md">中文</a> · <strong>English</strong> · <a href="README_ru.md">Русский</a>
 </p>
 
-<img src="docs/public/images/retrieval-flow.svg" width="100%" alt="LivingMemory dual-route retrieval flow">
+![LivingMemory: long-term memory connecting preferences, people, plans and context](docs/public/images/livingmemory-cover.svg)
 
-</div>
+<p align="center">
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/"><strong>Documentation</strong></a> ·
+  <a href="https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui"><strong>Dashboard</strong></a> ·
+  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases"><strong>Downloads</strong></a> ·
+  <a href="https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues"><strong>Issues</strong></a>
+</p>
 
-## Memory, with structure
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-52675c?style=flat-square" alt="Python 3.10 or later">
+  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Pages requires AstrBot 4.24.2 or later">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-52675c?style=flat-square" alt="AGPL-3.0"></a>
+</p>
 
-<table>
-<tr>
-<td width="33%"><strong>PRECISE RECALL</strong><br><br>BM25 and vector search run across document and graph routes, then converge through ranked fusion.</td>
-<td width="33%"><strong>LIVING CONTEXT</strong><br><br>Facts become independent memory atoms with importance, TTL, reinforcement, and temporal decay.</td>
-<td width="33%"><strong>VISIBLE SCALE</strong><br><br>Explore the complete relationship graph through a responsive canvas with communities and level of detail.</td>
-</tr>
-</table>
+## Keep what matters from a conversation
 
-## One memory system
+LivingMemory gives AstrBot a durable store of preferences, relationships, project progress and past agreements. It summarizes conversations, recalls relevant context through keywords, vectors and a graph, and manages memory through archiving, decay and access reinforcement.
 
-| Recall | Intelligence | Control |
-| :--- | :--- | :--- |
-| **Hybrid retrieval**<br>Keyword and semantic search across two routes. | **Dual summaries**<br>Facts and persona context remain independently useful. | **Safe operations**<br>Backups, transactional deletion, and rebuild rollback. |
-| **Agent-native tools**<br>`recall_long_term_memory` and `memorize_long_term_memory`. | **Temporal graph**<br>Confidence evolves as evidence accumulates or fades. | **Focused dashboard**<br>Manage memory, debug recall, and inspect the full graph. |
+> **In testing: 2.7.0-beta.1**<br>
+> Four dashboard styles, steadier graph labels and clearer editing and import workflows.<br>
+> [Download beta](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.1) · [Releases and upgrades](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Stable 2.6.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.6.1)
 
-## Recent capabilities
+## From remembering to recalling
 
-| Recoverable memory | Controlled boundaries | Online maintenance |
-| :--- | :--- | :--- |
-| **Sources and archives**<br>Important memories can retain source messages for review and re-summarization; low-value memories can be archived and restored instead of deleted. | **Scopes and access control**<br>Share memory by session, user, or globally, with explicit isolation, allowlists, and identity aliases. | **Safe index rebuilds**<br>Startup checks and large repairs run in the background with batching, progress status, rollback, and shadow-index cutover. |
+- **Automatic capture** — Summarize conversations after the configured number of turns. Important memories can retain source messages for review and re-summarization.
+- **Context-aware recall** — Document and graph routes combine keyword and vector retrieval, rank fusion, scope filtering and lifecycle checks.
+- **Agent tools** — `recall_long_term_memory` and `memorize_long_term_memory` let the agent read and write long-term memory when needed.
+- **Visible and maintainable** — Browse relationships, edit memories, test recall, manage prompts and inspect system status in official Plugin Pages.
 
-```mermaid
-flowchart LR
-    A[Conversation] --> B[Summarize]
-    B --> C[Atomize and index]
-    C --> D[Hybrid recall]
-    D --> E[Reinforce]
-    C --> F[Decay or expire]
-    E --> C
-```
+## One workspace, four styles
 
-## Start in three moves
+**Editorial** offers green grids and crisp lines; **Studio** uses soft cards; **Paper** pairs warm surfaces with serif headings; **Terminal** combines monospace type with instrument panels.
 
-1. Install the plugin from the AstrBot plugin marketplace, or place it in `data/plugins`.
-2. Reload AstrBot and open the LivingMemory configuration page.
-3. Select the providers below; everything else has practical defaults.
+Every style supports light, dark and automatic modes. Switch from “Appearance” in the dashboard; preferences stay in the current browser. Graph labels settle during zoomed reading, and mobile controls support session filtering and memory focus.
 
-| Setting | Purpose |
-| :--- | :--- |
-| `embedding_provider_id` | Embedding model; leave empty to use the AstrBot default. |
-| `llm_provider_id` | Summarization model; leave empty to use the AstrBot default. |
+[Explore themes and workflows →](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui)
 
-Open the visual workspace at `Plugins -> LivingMemory -> Pages -> dashboard`. Plugin Pages requires **AstrBot 4.24.2 or later**.
+## Get started
 
-## Go deeper
+1. Install from the AstrBot plugin marketplace, or place the selected version under `data/plugins/astrbot_plugin_livingmemory`.
+2. Reload AstrBot and choose Embedding and LLM providers in LivingMemory settings; empty fields use AstrBot defaults.
+3. Open `Plugins → LivingMemory → Pages → dashboard`. Pages requires **AstrBot 4.24.2 or later**.
 
-| Learn | Configure | Operate | Understand |
-| :--- | :--- | :--- | :--- |
-| [Quick start](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started)<br>[Feature overview](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/features) | [Configuration](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) | [Commands](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands)<br>[WebUI guide](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui) | [Architecture](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) |
+For the beta, download the specific tag above and follow [installation and rollback steps](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Back up existing plugin data and configuration before upgrading.
 
-Upgrading from v1.4.0-v1.4.2? Review the [backup and migration settings](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup) first.
+After a few conversation turns, use `/lmem status`, `/lmem summarize` and `/lmem search your keywords` to check the pipeline.
 
-## Project
+## Keep exploring
 
-[Documentation](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/) · [Releases](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues)
+[Quick start](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/getting-started) · [Configuration](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration) · [Commands](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/commands) · [Architecture](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/architecture) · [Changelog](CHANGELOG.md)
 
-Community support: [QQ group 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Password: `lxfight`
+Upgrading from v1.4.0–v1.4.2? Read the [backup and migration guide](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/configuration#backup-migration-and-cleanup) first.
 
-LivingMemory is released under the [AGPL-3.0 license](LICENSE).
+---
+
+Community: [QQ group 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Password: `lxfight`<br>
+License: [AGPL-3.0](LICENSE)

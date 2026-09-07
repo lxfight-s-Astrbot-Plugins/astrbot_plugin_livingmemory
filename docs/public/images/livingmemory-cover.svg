@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">LivingMemory — memory, connected.</title>
+  <desc id="desc">An editorial cover with a forest-green wordmark and a graph connecting preferences, people, plans and context.</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#CAD5C8"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="480" rx="24" fill="#F4F3EB"/>
+  <rect x="656" y="24" width="600" height="432" rx="16" fill="#E7ECE3"/>
+  <rect x="680" y="48" width="552" height="384" fill="url(#grid)"/>
+  <path d="M64 64H104" stroke="#DB735E" stroke-width="5"/>
+  <g font-family="Inter, Arial, sans-serif">
+    <text x="120" y="69" fill="#52675C" font-size="13" font-weight="600" letter-spacing="2.2">LONG-TERM MEMORY FOR ASTRBOT</text>
+    <text x="60" y="184" fill="#183E32" font-size="78" font-weight="700" letter-spacing="-4">LivingMemory</text>
+    <text x="64" y="238" fill="#52675C" font-size="32" letter-spacing="-0.8">Memory, connected.</text>
+    <path d="M64 278H596" stroke="#CBD3C7"/>
+    <text x="64" y="321" fill="#52675C" font-size="17">A conversation becomes context.</text>
+    <text x="64" y="349" fill="#52675C" font-size="17">Context becomes something worth remembering.</text>
+    <g font-size="12" font-weight="600" letter-spacing="1.5">
+      <text x="64" y="418" fill="#183E32">RECALL</text>
+      <circle cx="145" cy="413" r="3" fill="#DB735E"/>
+      <text x="166" y="418" fill="#183E32">CONNECT</text>
+      <circle cx="268" cy="413" r="3" fill="#DB735E"/>
+      <text x="289" y="418" fill="#183E32">EVOLVE</text>
+    </g>
+    <g stroke="#7F9C85" stroke-width="2">
+      <path d="M971 230C867 230 922 124 829 124"/>
+      <path d="M971 230C1044 230 1015 108 1120 108"/>
+      <path d="M971 230C1080 230 1036 359 1120 359"/>
+      <path d="M971 230C872 230 910 354 822 354"/>
+      <path d="M822 354C713 354 720 242 757 233" stroke-dasharray="4 6"/>
+      <path d="M1120 108C1205 108 1210 209 1170 232" stroke-dasharray="4 6"/>
+    </g>
+    <circle cx="971" cy="230" r="80" stroke="#AEC0AE"/>
+    <circle cx="971" cy="230" r="63" fill="#183E32"/>
+    <text x="971" y="241" text-anchor="middle" fill="#F4F3EB" font-size="32" font-weight="700" letter-spacing="-1">LM</text>
+    <circle cx="922" cy="178" r="8" fill="#DB735E" stroke="#E7ECE3" stroke-width="4"/>
+    <rect x="715" y="84" width="194" height="80" rx="12" fill="#FBFAF5" stroke="#BAC9B8"/>
+    <circle cx="738" cy="106" r="4" fill="#DB735E"/>
+    <text x="752" y="111" fill="#6B7D6E" font-size="11" font-weight="600" letter-spacing="1">PREFERENCES</text>
+    <text x="734" y="140" fill="#183E32" font-size="17" font-weight="600">The little things.</text>
+    <rect x="1050" y="68" width="166" height="80" rx="12" fill="#FBFAF5" stroke="#BAC9B8"/>
+    <circle cx="1073" cy="90" r="4" fill="#6E9277"/>
+    <text x="1087" y="95" fill="#6B7D6E" font-size="11" font-weight="600" letter-spacing="1">PEOPLE</text>
+    <text x="1069" y="124" fill="#183E32" font-size="17" font-weight="600">Who matters.</text>
+    <rect x="724" y="314" width="190" height="80" rx="12" fill="#FBFAF5" stroke="#BAC9B8"/>
+    <circle cx="747" cy="336" r="4" fill="#6E9277"/>
+    <text x="761" y="341" fill="#6B7D6E" font-size="11" font-weight="600" letter-spacing="1">CONTEXT</text>
+    <text x="743" y="370" fill="#183E32" font-size="17" font-weight="600">The bigger picture.</text>
+    <rect x="1040" y="319" width="176" height="80" rx="12" fill="#FBFAF5" stroke="#BAC9B8"/>
+    <circle cx="1063" cy="341" r="4" fill="#DB735E"/>
+    <text x="1077" y="346" fill="#6B7D6E" font-size="11" font-weight="600" letter-spacing="1">PLANS</text>
+    <text x="1059" y="375" fill="#183E32" font-size="17" font-weight="600">What comes next.</text>
+    <circle cx="757" cy="233" r="8" fill="#DB735E"/>
+    <circle cx="1170" cy="232" r="6" fill="#6E9277"/>
+    <circle cx="833" cy="249" r="4" fill="#A3B8A2"/>
+    <circle cx="1020" cy="411" r="4" fill="#A3B8A2"/>
+    <circle cx="980" cy="73" r="4" fill="#A3B8A2"/>
+  </g>
+</svg>

@@ -14,8 +14,8 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Architecture
-      link: /en/architecture
+      text: Try 2.7.0-beta.1
+      link: /en/releases
 features:
   - title: Automatic long-term memory
     details: Conversations are summarized into searchable long-term memories after the configured trigger rounds.
@@ -25,13 +25,17 @@ features:
     details: Document and graph routes each support keyword and vector retrieval, then merge rankings with RRF.
   - title: Time-aware lifecycle
     details: Memory atoms have TTL, decay, access reinforcement, and cleanup behavior.
-  - title: Plugin Pages dashboard
-    details: Manage memories, debug recall, inspect graph relationships, and review system status from AstrBot Pages.
+  - title: Four dashboard styles
+    details: Editorial, Studio, Paper and Terminal; light/dark modes, steady graph reading, and clear editing and import workflows.
   - title: Data safety
     details: Version backups, pre-migration backups, index rollback, and transactional deletion reduce upgrade risk.
 ---
 
 <img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
+
+## 2.7.0-beta.1 is in testing
+
+This beta includes every merged change since 2.6.1: recall and index recovery fixes, four styles, stable graph labels and clearer dashboard workflows. [Releases and Upgrades](/en/releases) lists all PRs and authors, downloads, installation and rollback steps. The stable version remains 2.6.1.
 
 ## Who is this for?
 

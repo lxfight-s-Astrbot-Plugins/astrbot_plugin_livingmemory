@@ -62,48 +62,34 @@ jobs:
           fetch-depth: 0
 
       - name: Generate changelog
-        id: changelog
+        env:
+          RELEASE_VERSION: ${{ needs.check-version.outputs.new_version }}
+          PREVIOUS_VERSION: ${{ needs.check-version.outputs.old_version }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          NEW_VERSION="${{ needs.check-version.outputs.new_version }}"
-          OLD_VERSION="${{ needs.check-version.outputs.old_version }}"
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
 
-          echo "## LivingMemory $NEW_VERSION" > changelog.md
-          echo "" >> changelog.md
-
-          # 如果有上一个版本标签，生成两个版本之间的提交日志
-          if git rev-parse "$OLD_VERSION" >/dev/null 2>&1; then
-            echo "### Changes since $OLD_VERSION" >> changelog.md
-            echo "" >> changelog.md
-
-            # 获取提交信息并分类
-            git log "$OLD_VERSION..HEAD" --pretty=tformat:"%s%x09%h%x09%an" --no-merges | while IFS=$'\t' read -r subject hash author; do
-              # 根据提交信息的前缀进行分类
-              commit_url="https://github.com/${{ github.repository }}/commit/$hash"
-              if echo "$subject" | grep -qiE "^(feat|feature)(\([^)]*\))?:"; then
-                echo "- **Feature**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
-              elif echo "$subject" | grep -qiE "^fix(\([^)]*\))?:"; then
-                echo "- **Fix**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
-              elif echo "$subject" | grep -qiE "^docs(\([^)]*\))?:"; then
-                echo "- **Docs**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
-              elif echo "$subject" | grep -qiE "^(refactor|style|perf|test|chore)(\([^)]*\))?:"; then
-                prefix=$(echo "$subject" | cut -d: -f1)
-                echo "- **${prefix^}**: ${subject#*: } ([${hash}](${commit_url}))" >> changelog.md
-              else
-                echo "- $subject ([${hash}](${commit_url}))" >> changelog.md
-              fi
-            done
-          else
-            echo "### Changes" >> changelog.md
-            echo "" >> changelog.md
-            echo "Initial release or no previous version tag found." >> changelog.md
-            echo "" >> changelog.md
-            echo "#### Recent commits:" >> changelog.md
-            git log -10 --pretty=format:"- %s (%h)" --no-merges >> changelog.md
-          fi
-
-          echo "" >> changelog.md
-          echo "---" >> changelog.md
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$OLD_VERSION...$NEW_VERSION" >> changelog.md
+          version = os.environ["RELEASE_VERSION"]
+          previous = os.environ["PREVIOUS_VERSION"]
+          repository = os.environ["RELEASE_REPOSITORY"]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          section = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              changelog,
+              re.MULTILINE | re.DOTALL,
+          )
+          if section is None:
+              raise SystemExit(f"Missing CHANGELOG.md section for {version}")
+          notes = f"## LivingMemory {version}\n\n" + section.group(1).strip()
+          notes += (
+              "\n\n---\n"
+              f"**Full Changelog**: https://github.com/{repository}/compare/{previous}...{version}\n"
+          )
+          Path("release-notes.md").write_text(notes, encoding="utf-8")
+          PY
 
       - name: Determine prerelease
         id: prerelease
@@ -118,8 +104,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.check-version.outputs.new_version }}
+          target_commitish: ${{ github.sha }}
           name: LivingMemory ${{ needs.check-version.outputs.new_version }}
-          body_path: changelog.md
+          body_path: release-notes.md
           draft: false
           prerelease: ${{ steps.prerelease.outputs.value == 'true' }}
           generate_release_notes: false

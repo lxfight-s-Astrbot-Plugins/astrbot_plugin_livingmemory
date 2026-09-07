@@ -4,6 +4,8 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 
 ## 安装
 
+当前测试版为 **2.7.0-beta.1**，稳定版为 **2.6.1**。测试版的指定标签下载、升级和回退步骤见[版本与升级](/releases)。
+
 1. 将插件目录放到 AstrBot 的 `data/plugins/` 目录下。
 2. 重启或重载 AstrBot。
 3. AstrBot 会根据 `requirements.txt` 自动安装 Python 依赖。
