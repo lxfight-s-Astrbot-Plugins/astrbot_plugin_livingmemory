@@ -13,6 +13,7 @@ from ..models.memory_atom import compute_decay_score
 from ..utils.number_utils import clamp_float, safe_float
 from .graph_keyword_retriever import GraphKeywordRetriever
 from .graph_vector_retriever import GraphVectorRetriever
+from .route_execution import search_route
 from .rrf_fusion import BM25Result, RRFFusion, VectorResult
 
 
@@ -61,9 +62,18 @@ class GraphRetriever:
         if not query or not query.strip():
             return []
 
-        keyword_results, vector_results = await asyncio.gather(
-            self.keyword_retriever.search(query, k, session_id, persona_id),
-            self.vector_retriever.search(query, k, session_id, persona_id),
+        timeout = self.config.get("retrieval_timeout_seconds", 10.0)
+        (keyword_results, _), (vector_results, _) = await asyncio.gather(
+            search_route(
+                "graph keyword",
+                self.keyword_retriever.search(query, k, session_id, persona_id),
+                timeout,
+            ),
+            search_route(
+                "graph vector",
+                self.vector_retriever.search(query, k, session_id, persona_id),
+                timeout,
+            ),
         )
 
         if not keyword_results and not vector_results:
@@ -112,7 +122,9 @@ class GraphRetriever:
 
             importance = clamp_float(metadata.get("importance"), default=0.5)
             create_time = safe_float(metadata.get("create_time"), current_time)
-            last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
+            last_access_time = safe_float(metadata.get("last_access_time"), create_time)
+            if last_access_time <= 0:
+                last_access_time = create_time
             reference_time = max(create_time, last_access_time)
             days_old = max(0.0, (current_time - reference_time) / 86400)
             recency_weight = math.exp(-self.decay_rate * days_old)

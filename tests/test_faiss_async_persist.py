@@ -4,13 +4,13 @@ FAISS 索引异步落盘（core/faiss_async_persist.py）测试。
 
 import asyncio
 import os
+import threading
 import time
 from pathlib import Path
 
 import faiss
 import numpy as np
 import pytest
-
 from astrbot_plugin_livingmemory.core import faiss_async_persist
 from astrbot_plugin_livingmemory.core.faiss_async_persist import (
     get_async_persister,
@@ -50,6 +50,43 @@ def _add_vectors(storage: _DummyEmbeddingStorage, start_id: int, count: int) -> 
 
 def _make_storage(tmp_path: Path, name: str = "test.index") -> _DummyEmbeddingStorage:
     return _DummyEmbeddingStorage(tmp_path / name)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_search_keeps_mutations_locked_until_worker_finishes(
+    tmp_path, monkeypatch
+):
+    storage = _make_storage(tmp_path)
+    _add_vectors(storage, 0, 1)
+    persister = install_async_persist(storage, debounce_seconds=600)
+    started = threading.Event()
+    release = threading.Event()
+    original = storage.index.search
+
+    def blocking_search(vector, k):
+        started.set()
+        assert release.wait(3)
+        return original(vector, k)
+
+    monkeypatch.setattr(storage.index, "search", blocking_search)
+    search = asyncio.create_task(persister.search(np.zeros(8, dtype=np.float32), 1))
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        search.cancel()
+        mutation = asyncio.create_task(
+            storage.insert_batch(np.zeros((1, 8), dtype=np.float32), [2])
+        )
+        await asyncio.sleep(0.01)
+        assert not mutation.done()
+        assert storage.index.ntotal == 1
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await search
+        await mutation
+        assert storage.index.ntotal == 2
+    finally:
+        release.set()
+        await persister.aclose()
 
 
 @pytest.mark.asyncio

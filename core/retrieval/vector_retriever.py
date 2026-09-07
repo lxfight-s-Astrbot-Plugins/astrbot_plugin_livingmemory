@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .vector_search import retrieve_vectors
+
 if TYPE_CHECKING:
     from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
@@ -164,7 +166,33 @@ class VectorRetriever:
                 insert_content,
                 _MAX_CONTENT_CHARS,
             )
-        doc_id = await self.faiss_db.insert(content=insert_content, metadata=metadata)
+        if insert_content == content:
+            return await self.faiss_db.insert(content=content, metadata=metadata)
+
+        # The document is the source of truth; only the embedding input is bounded.
+        import asyncio
+        import uuid
+
+        import numpy as np
+
+        vector = np.asarray(
+            await self.faiss_db.embedding_provider.get_embedding(insert_content),
+            dtype=np.float32,
+        )
+        storage = self.faiss_db.embedding_storage
+        if vector.ndim != 1 or vector.shape[0] != storage.dimension:
+            raise ValueError("Embedding dimension does not match the vector index")
+        if not np.isfinite(vector).all():
+            raise ValueError("Embedding contains non-finite values")
+        document_uuid = str(uuid.uuid4())
+        doc_id = await self.faiss_db.document_storage.insert_document(
+            document_uuid, content, metadata
+        )
+        try:
+            await storage.insert(vector, doc_id)
+        except BaseException:
+            await asyncio.shield(self.faiss_db.delete(document_uuid))
+            raise
 
         return doc_id
 
@@ -211,16 +239,8 @@ class VectorRetriever:
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 
-        # 执行向量检索
-        # fetch_k设置为k*2以确保过滤后有足够的结果
-        fetch_k = k * 4 if metadata_filters else k * 2
-
-        faiss_results = await self.faiss_db.retrieve(
-            query=processed_query,
-            k=k,
-            fetch_k=fetch_k,
-            rerank=False,
-            metadata_filters=metadata_filters if metadata_filters else None,
+        faiss_results = await retrieve_vectors(
+            self.faiss_db, processed_query, k, metadata_filters
         )
 
         # 转换为VectorResult格式
@@ -230,9 +250,10 @@ class VectorRetriever:
             # data是包含id, text, metadata的字典
             doc_data = result.data
             metadata = doc_data.get("metadata")
-            if isinstance(metadata, dict) and str(
-                metadata.get("status") or "active"
-            ) != "active":
+            if (
+                isinstance(metadata, dict)
+                and str(metadata.get("status") or "active") != "active"
+            ):
                 continue
             results.append(
                 VectorResult(
@@ -420,8 +441,9 @@ class VectorRetriever:
         Returns:
             [(a, b, similarity), ...]，其中 a < b 且 similarity >= threshold，去重。
         """
-        from astrbot.api import logger as _logger
         import numpy as np
+
+        from astrbot.api import logger as _logger
 
         unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
         if len(unique_ids) < 2:

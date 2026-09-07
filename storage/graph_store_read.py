@@ -2,15 +2,19 @@
 GraphStore 的 GraphStoreReadMixin 拆分模块
 自动从 storage/graph_store.py 拆分，保持行为不变
 """
+
 from __future__ import annotations
 
-import aiosqlite
-from astrbot.api import logger
 from typing import Any
+
+import aiosqlite
+
+from astrbot.api import logger
 
 
 class GraphStoreReadMixin:
     """GraphStore 拆分模块：GraphStoreReadMixin"""
+
     async def list_vector_doc_ids(self) -> list[int]:
         async with self._connect() as db:
             cursor = await db.execute(
@@ -169,6 +173,13 @@ class GraphStoreReadMixin:
                 ]
                 clauses = ["canonical_value LIKE ?" for _ in batch]
                 params = [f"%{token}%" for token in batch]
+                if getattr(self, "_node_fts_available", False):
+                    clauses = [
+                        "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts WHERE canonical_value LIKE ?)"
+                        if len(token) >= 3 and "%" not in token and "_" not in token
+                        else "canonical_value LIKE ?"
+                        for token in batch
+                    ]
                 cursor = await db.execute(
                     f"""
                     SELECT id, node_key, node_type, node_value, canonical_value, metadata

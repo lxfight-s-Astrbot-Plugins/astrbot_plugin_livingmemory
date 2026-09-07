@@ -259,8 +259,12 @@ class AtomStore:
         ]
         fts_query = " OR ".join(fts_tokens)
 
-        filters = ["ma.status = 'active'"] if not include_expired else []
+        filters = (
+            ["ma.status = 'active'", "ma.expires_at > ?"] if not include_expired else []
+        )
         params: list[Any] = [fts_query]
+        if not include_expired:
+            params.append(time.time())
         if session_id is not None:
             filters.append("ma.session_id = ?")
             params.append(session_id)
@@ -294,8 +298,12 @@ class AtomStore:
                 like_clauses = " OR ".join(["ma.content LIKE ?" for _ in tokens])
                 like_params_full: list[Any] = [f"%{t}%" for t in tokens]
                 status_filter = (
-                    "AND ma.status = 'active'" if not include_expired else ""
+                    "AND ma.status = 'active' AND ma.expires_at > ?"
+                    if not include_expired
+                    else ""
                 )
+                if not include_expired:
+                    like_params_full.append(time.time())
                 session_filter = (
                     "AND ma.session_id = ?" if session_id is not None else ""
                 )

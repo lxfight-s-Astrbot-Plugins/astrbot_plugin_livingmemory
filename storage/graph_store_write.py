@@ -2,15 +2,21 @@
 GraphStore 的 GraphStoreWriteMixin 拆分模块
 自动从 storage/graph_store.py 拆分，保持行为不变
 """
+
 from __future__ import annotations
 
-import aiosqlite
 from typing import Any
+
+import aiosqlite
+
+from astrbot.api import logger
+
 from ..core.models.graph_models import GraphEdge, GraphEntry, GraphNode
 
 
 class GraphStoreWriteMixin:
     """GraphStore 拆分模块：GraphStoreWriteMixin"""
+
     async def initialize(self) -> None:
         """Create tables used by the graph-memory layer."""
         async with self._connect() as db:
@@ -88,6 +94,46 @@ class GraphStoreWriteMixin:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_graph_nodes_canonical ON graph_nodes(canonical_value)"
             )
+            # External-content triggers also cover graph snapshot replacement.
+            existing = await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'livingmemory_graph_nodes_fts'"
+            )
+            needs_backfill = await existing.fetchone() is None
+            try:
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_nodes_fts
+                    USING fts5(canonical_value, content='graph_nodes', content_rowid='id', tokenize='trigram')
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_insert AFTER INSERT ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(rowid, canonical_value)
+                        VALUES (new.id, new.canonical_value);
+                    END
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_delete AFTER DELETE ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts, rowid, canonical_value)
+                        VALUES ('delete', old.id, old.canonical_value);
+                    END
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_update AFTER UPDATE OF canonical_value ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts, rowid, canonical_value)
+                        VALUES ('delete', old.id, old.canonical_value);
+                        INSERT INTO livingmemory_graph_nodes_fts(rowid, canonical_value)
+                        VALUES (new.id, new.canonical_value);
+                    END
+                """)
+                if needs_backfill:
+                    await db.execute(
+                        "INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts) VALUES ('rebuild')"
+                    )
+                self._node_fts_available = True
+            except aiosqlite.OperationalError:
+                self._node_fts_available = False
+                logger.warning(
+                    "SQLite trigram tokenizer unavailable; using node substring search"
+                )
             await db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic

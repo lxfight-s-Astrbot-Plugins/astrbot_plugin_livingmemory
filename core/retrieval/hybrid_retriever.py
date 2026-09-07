@@ -15,6 +15,7 @@ from astrbot.api import logger
 
 from ..utils.number_utils import clamp_float, safe_float
 from .bm25_retriever import BM25Retriever
+from .route_execution import search_route
 from .rrf_fusion import BM25Result, FusedResult, RRFFusion, VectorResult
 from .vector_retriever import VectorRetriever
 
@@ -102,13 +103,9 @@ class HybridRetriever:
         self, route_name: str, search_coro
     ) -> tuple[list, Exception | None]:
         """Run one retrieval route and convert ordinary failures into route errors."""
-        try:
-            return await search_coro, None
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error(f"{route_name}检索异常: {e}", exc_info=True)
-            return [], e
+        return await search_route(
+            route_name, search_coro, self.config.get("retrieval_timeout_seconds", 10.0)
+        )
 
     async def add_memory(
         self, content: str, metadata: dict[str, Any] | None = None
@@ -177,18 +174,21 @@ class HybridRetriever:
         if not query or not query.strip():
             return []
 
-        # 1. 并行执行两路检索
+        candidate_k = max(k, self.rerank_candidates) if self.rerank_enabled else k
+        # Retrieve enough candidates before reranking, not just before fusion.
         (
             (bm25_results, bm25_error),
             (vector_results, vector_error),
         ) = await asyncio.gather(
             self._search_route(
                 "BM25",
-                self.bm25_retriever.search(query, k, session_id, persona_id),
+                self.bm25_retriever.search(query, candidate_k, session_id, persona_id),
             ),
             self._search_route(
                 "向量",
-                self.vector_retriever.search(query, k, session_id, persona_id),
+                self.vector_retriever.search(
+                    query, candidate_k, session_id, persona_id
+                ),
             ),
         )
 
@@ -275,15 +275,20 @@ class HybridRetriever:
         try:
             provider = self.rerank_provider_resolver()
         except Exception as e:
-            logger.warning(f"[hybrid_retriever] 解析 Rerank 提供商失败，跳过重排序: {e}")
+            logger.warning(
+                f"[hybrid_retriever] 解析 Rerank 提供商失败，跳过重排序: {e}"
+            )
             return fused_results[:k]
 
         if provider is None:
             return fused_results[:k]
 
         try:
-            rerank_results = await provider.rerank(
-                query=query, documents=[r.content for r in fused_results]
+            rerank_results = await asyncio.wait_for(
+                provider.rerank(
+                    query=query, documents=[r.content for r in fused_results]
+                ),
+                timeout=self.config.get("retrieval_timeout_seconds", 10.0),
             )
         except Exception as e:
             logger.warning(f"[hybrid_retriever] Rerank 调用失败，跳过重排序: {e}")

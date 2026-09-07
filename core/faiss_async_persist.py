@@ -146,7 +146,10 @@ class AsyncIndexPersister:
             fut = loop.run_in_executor(self._executor, _write_index_atomic, index, path)
             self._pending_write = fut
             try:
+                await asyncio.shield(fut)
+            except asyncio.CancelledError:
                 await fut
+                raise
             finally:
                 if self._pending_write is fut:
                     self._pending_write = None
@@ -169,6 +172,27 @@ class AsyncIndexPersister:
         pending = self._pending_write
         if pending is not None:
             await pending
+
+    async def search(self, vector, k):
+        """Search off the event loop while excluding index mutations.
+
+        Args:
+            vector: Validated one-dimensional query vector.
+            k: Number of nearest neighbors.
+
+        Returns:
+            FAISS distances and integer IDs.
+        """
+        async with self._mutation_lock:
+            future = asyncio.get_running_loop().run_in_executor(
+                self._executor, self._storage.index.search, vector.reshape(1, -1), k
+            )
+            try:
+                return await asyncio.shield(future)
+            except asyncio.CancelledError:
+                # Cancellation must not let a writer mutate an index still in use.
+                await future
+                raise
 
     async def aclose(self) -> None:
         """落盘剩余变更并关闭写盘线程（插件卸载前调用，幂等）。"""

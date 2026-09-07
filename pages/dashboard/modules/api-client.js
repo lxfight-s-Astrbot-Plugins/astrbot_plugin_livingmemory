@@ -7,6 +7,7 @@ export class ApiClient {
   constructor() {
     this.bridge = window.AstrBotPluginPage;
     this._context = null;
+    this._pendingGets = new Map();
   }
 
   /**
@@ -133,9 +134,17 @@ export class ApiClient {
    * @returns {Promise<any>} 响应数据
    */
   async get(path, params = {}) {
-    const qs = new URLSearchParams(params).toString();
+    const query = new URLSearchParams(params);
+    query.sort();
+    const qs = query.toString();
     const fullPath = qs ? `${path}?${qs}` : path;
-    return this.unwrapResponse(await this.request(fullPath, { method: "GET" }));
+    if (!this._pendingGets.has(fullPath)) {
+      const pending = this.request(fullPath, { method: "GET" })
+        .then(response => this.unwrapResponse(response))
+        .finally(() => this._pendingGets.delete(fullPath));
+      this._pendingGets.set(fullPath, pending);
+    }
+    return this._pendingGets.get(fullPath);
   }
 
   /**

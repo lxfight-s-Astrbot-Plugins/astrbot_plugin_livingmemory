@@ -172,6 +172,10 @@
               </button>
             </div>
             <div class="table-container">
+              <div id="memory-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
+                <span id="memory-feedback-message"></span>
+                <button id="memory-retry" class="btn btn-sm btn-secondary" type="button" data-i18n="common.retry" hidden>Retry</button>
+              </div>
               <div class="table-scroll" id="memories-scroll">
               <table class="data-table" id="memories-table">
                 <thead>
@@ -228,7 +232,8 @@
               <span id="recall-count-text">0 results</span>
               <span class="text-tertiary" id="recall-time-text"></span>
             </div>
-            <div id="recall-results"></div>
+            <div id="recall-feedback" class="request-feedback" role="status" aria-live="polite" hidden></div>
+            <div id="recall-results" aria-busy="false"></div>
           </div>
         </section>
 

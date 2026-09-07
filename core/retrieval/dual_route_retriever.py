@@ -8,6 +8,8 @@ from typing import Any
 
 from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridResult, HybridRetriever
+from .route_execution import search_route
+from .vector_search import query_embeddings
 
 
 class DualRouteRetriever:
@@ -19,10 +21,12 @@ class DualRouteRetriever:
         graph_retriever: GraphRetriever,
         memory_loader: Callable[[int], Awaitable[dict[str, Any] | None]],
         config: dict[str, Any] | None = None,
+        memory_batch_loader=None,
     ):
         self.document_retriever = document_retriever
         self.graph_retriever = graph_retriever
         self.memory_loader = memory_loader
+        self.memory_batch_loader = memory_batch_loader
         self.config = config or {}
         self.document_route_weight = float(
             self.config.get("document_route_weight", 0.65)
@@ -41,12 +45,33 @@ class DualRouteRetriever:
         persona_id: str | None = None,
     ) -> list[HybridResult]:
         """Run both retrieval routes and merge their memory candidates."""
-        doc_results, graph_results = await asyncio.gather(
-            self.document_retriever.search(
-                query, max(k * 2, k), session_id, persona_id
-            ),
-            self.graph_retriever.search(query, max(k * 2, k), session_id, persona_id),
-        )
+        timeout = self.config.get("retrieval_timeout_seconds", 10.0) * 2 + 1
+        cache = {}
+        token = query_embeddings.set(cache)
+        try:
+            (doc_results, _), (graph_results, _) = await asyncio.gather(
+                search_route(
+                    "document",
+                    self.document_retriever.search(
+                        query, max(k * 2, k), session_id, persona_id
+                    ),
+                    timeout,
+                ),
+                search_route(
+                    "graph",
+                    self.graph_retriever.search(
+                        query, max(k * 2, k), session_id, persona_id
+                    ),
+                    timeout,
+                ),
+            )
+        finally:
+            query_embeddings.reset(token)
+            for task in cache.values():
+                if not task.done():
+                    task.cancel()
+            if cache:
+                await asyncio.gather(*cache.values(), return_exceptions=True)
 
         if not graph_results:
             return doc_results[:k]
@@ -65,6 +90,26 @@ class DualRouteRetriever:
         doc_map = {item.doc_id: item for item in doc_results}
         graph_map = {item.doc_id: item for item in graph_results}
         all_doc_ids = set(doc_map) | set(graph_map)
+
+        missing_ids = [
+            doc_id
+            for doc_id in all_doc_ids
+            if doc_id not in doc_map
+            or not doc_map[doc_id].content
+            or not doc_map[doc_id].metadata
+        ]
+        loaded = {}
+        if missing_ids:
+            if self.memory_batch_loader is not None:
+                documents = await self.memory_batch_loader(
+                    metadata_filters={}, ids=missing_ids, limit=len(missing_ids)
+                )
+                loaded = {int(document["id"]): document for document in documents}
+            else:
+                documents = await asyncio.gather(
+                    *(self.memory_loader(doc_id) for doc_id in missing_ids)
+                )
+                loaded = dict(zip(missing_ids, documents))
 
         merged_results: list[HybridResult] = []
         for doc_id in all_doc_ids:
@@ -93,7 +138,7 @@ class DualRouteRetriever:
             )
 
             if not memory_content or not memory_metadata:
-                memory = await self.memory_loader(doc_id)
+                memory = loaded.get(doc_id)
                 if not memory:
                     continue
                 memory_content = str(memory.get("text") or memory_content)

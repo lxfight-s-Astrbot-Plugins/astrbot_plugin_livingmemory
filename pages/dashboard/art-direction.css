@@ -1302,6 +1302,68 @@ input[type="range"] {
 
 }
 
+.request-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  min-height: 48px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-normal);
+  overflow-wrap: anywhere;
+}
+
+.request-feedback[hidden], .request-feedback [hidden] { display: none; }
+.request-feedback.is-error { color: var(--danger, #c44b43); }
+.request-feedback .btn { flex-shrink: 0; }
+
+button.memory-open {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.memory-open:focus-visible,
+.recall-result-item:focus-visible {
+  outline: 2px solid var(--accent, #4b7664);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+#memories-scroll[aria-busy="true"] { opacity: 0.65; }
+.recall-result-content { overflow-wrap: anywhere; }
+.toast { visibility: hidden; overflow-wrap: anywhere; max-width: min(640px, calc(100vw - 32px)); }
+.toast.visible { visibility: visible; }
+
+@media (max-width: 768px) {
+  .filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-bar > .input,
+  .filter-bar > .select,
+  .filter-bar > .btn { min-width: 0; width: 100% !important; }
+  #memories-table { min-width: 0; }
+  #memories-table .cell-summary { min-width: 0; width: auto; }
+  #memories-table .cell-select { width: 36px; }
+  #memories-table .cell-id { width: 44px; }
+  #memories-table .cell-status { width: 64px; }
+  #memories-table .cell-type,
+  #memories-table .cell-importance,
+  #memories-table .cell-created { display: none; }
+  .toast { max-width: none; transform: translateY(160px); }
+  .toast.visible { transform: translateY(0); }
+  .pagination-controls { flex-wrap: wrap; justify-content: center; }
+  .pagination-info { white-space: normal; text-align: center; }
+  .recall-result-header, .recall-result-meta { flex-wrap: wrap; }
+  .recall-result-meta > span { overflow-wrap: anywhere; min-width: 0; }
+  .memory-open { min-height: 44px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;

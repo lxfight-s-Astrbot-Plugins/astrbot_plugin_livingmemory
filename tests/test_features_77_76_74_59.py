@@ -345,9 +345,7 @@ async def test_summarize_explicit_count_ignores_completed_progress():
         "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new=AsyncMock(return_value=None),
     ):
-        messages = [
-            item async for item in handler.handle_summarize(_MockEvent(), 4)
-        ]
+        messages = [item async for item in handler.handle_summarize(_MockEvent(), 4)]
 
     conv_mgr.get_messages_range.assert_awaited_once_with(
         session_id=_MockEvent.unified_msg_origin,
@@ -405,9 +403,15 @@ async def test_search_does_not_truncate_short_query():
 
 
 @pytest.mark.asyncio
-async def test_add_document_truncates_long_content():
-    """Long content should keep both the beginning and the tail before insertion."""
+async def test_add_document_bounds_embedding_but_preserves_long_content():
+    """Only embedding input should be truncated; stored text remains complete."""
     retriever = _make_vector_retriever()
+    retriever.faiss_db.embedding_provider.get_embedding = AsyncMock(
+        return_value=[1.0, 0.0]
+    )
+    retriever.faiss_db.embedding_storage.dimension = 2
+    retriever.faiss_db.embedding_storage.insert = AsyncMock()
+    retriever.faiss_db.document_storage.insert_document = AsyncMock(return_value=1)
     head = "HEAD-" + ("h" * 3995)
     tail = "TAIL-" + ("t" * 3995)
     long_content = head + tail
@@ -421,12 +425,17 @@ async def test_add_document_truncates_long_content():
 
     await retriever.add_document(long_content, metadata)
 
-    call_args = retriever.faiss_db.insert.call_args
-    actual_content = call_args.kwargs.get("content") or call_args.args[0]
+    actual_content = retriever.faiss_db.embedding_provider.get_embedding.call_args.args[
+        0
+    ]
     assert len(actual_content) <= 4000
     assert actual_content.startswith("HEAD-")
     assert actual_content.endswith("t" * 64)
     assert "中间内容已截断" in actual_content
+    assert (
+        retriever.faiss_db.document_storage.insert_document.call_args.args[1]
+        == long_content
+    )
 
 
 @pytest.mark.asyncio

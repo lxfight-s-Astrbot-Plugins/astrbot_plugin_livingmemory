@@ -35,7 +35,23 @@ Document memories and graph memories are searched through two routes:
 | Document route | `BM25Retriever` | `VectorRetriever` |
 | Graph route | `GraphKeywordRetriever` | `GraphVectorRetriever` |
 
-`RRFFusion` merges the ranked lists, then the runtime applies importance, time decay, session filtering, and persona filtering.
+Each route uses `RRFFusion` followed by importance and time weighting. Document and graph results are combined using normalized route weights. BM25 applies scope and status filters before limiting candidates. Vector retrieval expands candidates adaptively up to a limit of 8192.
+
+Routes have independent timeouts and failure handling. A dual-route request shares its query embedding when both stores use the same provider, and graph-only results load their source documents in a batch. With asynchronous persistence enabled, FAISS searches run in a worker thread and exclude index mutations.
+
+Atom retrieval participates in recall. Both fresh and cached results check current atom status and expiry: atom-backed memories inject only live facts, and fully expired parents are omitted. Full source documents remain available for inspection and export; embedding input limits never truncate stored documents.
+
+Graph node substring searches use FTS5 trigram indexing for tokens of three or more characters. Short tokens and SQLite builds without trigram support retain the original matching behavior. Triggers synchronize node edits and graph snapshot replacement.
+
+## Recall benchmark
+
+Run from the plugin directory using AstrBot's Python environment:
+
+```bash
+python scripts/benchmark_recall.py --sizes 1000 10000 --queries 30 --concurrency 4
+```
+
+The benchmark uses temporary SQLite/FAISS databases and deterministic local embeddings. It measures scoped document hybrid recall, P50/P95 latency, throughput, synthetic Recall@5, and event-loop lag without accessing production data or external providers. Synthetic recall is not a measure of real semantic quality. Use `--dimensions` and `--sessions` to vary the workload. The previous `tests/performance_test.py` entry point remains supported.
 
 ## Background index maintenance
 
