@@ -245,7 +245,7 @@
   Animator.prototype.setPageVisible = function(visible) {
     this._pageVisible = !!visible;
     if (visible) {
-      this.start();
+      this.wake();
     } else {
       this.stop();
     }
@@ -465,6 +465,13 @@
       return;
     }
 
+    // Keep inspection still, including forced labels below the normal label zoom.
+    // Stop the idle RAF loop too; pan, zoom, drag and hover explicitly wake it.
+    var hoverId = this.interaction.getHoverId();
+    var ambientMotion = this._ambientMotion &&
+      this.renderer.viewport.scale <= CFG.NODE_LABEL_MIN_SCALE &&
+      !this.renderer._selection && hoverId == null;
+
     /* Animate positions toward layout targets */
     var dirty = this._needsRender;
     if (this._animProgress < 1) {
@@ -490,7 +497,7 @@
           nd2._prevX = null; nd2._prevY = null;
         }
       }
-    } else if (this._ambientMotion) {
+    } else if (ambientMotion) {
       /* 环境漂浮：位置每帧更新（廉价），渲染按图规模降帧，避免永久满帧重绘。 */
       var now = Date.now() / 1000;
       for (var k = 0; k < this._nodes.length; k++) {
@@ -512,12 +519,11 @@
     if (dirty || this._needsRender) {
       this.renderer.clear();
       var sel = this.renderer._selection;
-      var hoverId = this.interaction.getHoverId();
       this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, this._animProgress);
       this._needsRender = false;
     }
 
-    if (this._animProgress < 1 || this._ambientMotion) {
+    if (this._animProgress < 1 || ambientMotion) {
       var self = this;
       this._rafId = requestAnimationFrame(function() { self._tick(); });
     } else {

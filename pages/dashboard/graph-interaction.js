@@ -36,7 +36,14 @@
     el.addEventListener("mousedown", function(e) { self._onMouseDown(e); });
     el.addEventListener("mousemove", function(e) { self._onMouseMove(e); });
     window.addEventListener("mouseup", function(e) { self._onMouseUp(e); });
-    el.addEventListener("mouseleave", function(e) { self._onMouseUp(e); });
+    el.addEventListener("mouseleave", function(e) {
+      self._onMouseUp(e);
+      if (self._hoverId !== null) {
+        self._hoverId = null; self._hoverType = null;
+        if (self.cb.onNodeHover) self.cb.onNodeHover(null);
+        self._requestRender();
+      }
+    });
     el.addEventListener("wheel", function(e) { self._onWheel(e); }, { passive: false });
     el.addEventListener("dblclick", function(e) { self._onDblClick(e); });
     el.addEventListener("touchstart", function(e) { self._onTouchStart(e); }, { passive: false });
