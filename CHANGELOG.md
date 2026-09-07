@@ -7,7 +7,7 @@
 
 ## [2.7.0-beta.1] - 2026-09-07
 
-本版本为预发布测试版，汇总 2.6.1 之后的 #259–#262；稳定版仍为 2.6.1。
+本版本为预发布测试版，汇总 2.6.1 之后的 #259–#262 与发布准备 #263；稳定版仍为 2.6.1。
 
 ### 新增
 - **四种可切换主题 (#260)**：Editorial、Studio、Paper、Terminal 提供不同的配色、字体、边框和布局，均支持浅色、深色及自动模式；外观偏好在当前浏览器保存。
@@ -38,6 +38,7 @@
 | [#260](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/260) | 四种可切换的管理界面主题 | [@lxfight](https://github.com/lxfight) |
 | [#261](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/261) | 修复图谱放大后的标签闪烁 | [@lxfight](https://github.com/lxfight) |
 | [#262](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/262) | 筛选、批量操作、导入和编辑的流程及并发保护 | [@lxfight](https://github.com/lxfight) |
+| [#263](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/263) | 测试版发布、完整 PR 署名、README 视觉更新与 VitePress 文档同步 | [@lxfight](https://github.com/lxfight) |
 
 ### 测试
 - Python 测试 785 项、前端测试 55 项通过；VitePress 构建通过。
