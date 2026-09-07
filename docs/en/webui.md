@@ -35,6 +35,10 @@ Each style supports Light, Dark and Auto. Auto follows AstrBot, or your device w
 
 ## Memory details and lifecycle
 
+The memory page follows **filter → select → act**. Keyword and session inputs filter automatically; Enter or **Filter** applies all current controls immediately. **Reset filters** clears the criteria. Page size lives beside pagination, and Refresh is at the top right. Batch actions appear after selecting rows on the current page, with a Clear selection action.
+
+Import and export live in a separate collapsible area with an explicit export scope: selected rows when a selection exists, otherwise **all memories regardless of list filters**. Import progresses through reading, preview, confirmation and writing, with visible feedback at each step; empty previews never proceed to a write. Related controls and page switching remain locked during bulk operations and transfers to prevent duplicate submissions or changing the operation's scope.
+
 - Editing a summary, topic, or key fact rebuilds that memory's embedding, BM25, graph, atom, and related derived data. Status-only or importance-only edits do not unconditionally rebuild every index.
 - Memories above the source-retention threshold show source messages in the detail panel. When at least two source messages are available, the Dashboard can call the LLM to replace the memory with a new summary.
 - Changing status to `archived` removes a memory from normal recall indexes while retaining its source document. Changing it back to `active` regenerates its embedding and derived indexes.
@@ -49,6 +53,10 @@ Deletion is permanent. Archive memories that may need to be restored later. Rest
 The prompt page shows each template's purpose, variables, and default or customized state. The editor can save an override, load default content for further editing, or remove an override and restore the built-in default. Templates marked as JSON must remain valid JSON or saving is rejected.
 
 Prompt overrides live in the plugin data directory and do not modify repository templates, so they remain in place across plugin upgrades.
+
+Memory and prompt editors ask how to handle unsaved changes before closing, cancelling or switching pages. **Keep editing** retains the draft; **Discard changes** exits. **Load default content** only fills the prompt editor until Save is clicked. The editor cannot switch to a different prompt while saving.
+
+Recall supports Ctrl / Cmd + Enter. A new request clears previous results and displays failures explicitly, so old cards cannot be mistaken for the new query's output. Graph search and memory-ID inputs sit beside their corresponding actions, and session scope remains available on mobile.
 
 ## What the graph view is good for
 

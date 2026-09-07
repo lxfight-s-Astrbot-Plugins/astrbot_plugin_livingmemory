@@ -3,7 +3,7 @@
  * 集中管理插件所有可自定义的提示词模板
  */
 
-import { esc } from "./utils.js";
+import { esc, confirmDiscardChanges } from "./utils.js";
 
 export class PromptPage {
   constructor(state, apiClient) {
@@ -14,6 +14,7 @@ export class PromptPage {
     this.editingId = null;
     this.editContent = null;
     this._resetMode = false;
+    this._editorGeneration = 0;
   }
 
   /**
@@ -180,11 +181,16 @@ export class PromptPage {
    * @param {string} promptId - 提示词ID
    */
   async openEditor(promptId) {
+    const generation = ++this._editorGeneration;
+    if (!await this.canLeave() || generation !== this._editorGeneration) return;
     const prompt = this.prompts.find((p) => p.id === promptId);
     if (!prompt) return;
 
+    this._opening = true;
+    this.updateEditorControls();
     try {
       const detail = await this.api.get("prompts/detail", { id: promptId });
+      if (generation !== this._editorGeneration) return;
       this.editingId = promptId;
       this.editContent = detail.content || "";
 
@@ -239,15 +245,23 @@ export class PromptPage {
         }
         const modified = textarea.value !== this.editContent;
         const currentSaveBtn = document.getElementById("prompt-save-btn");
-        if (currentSaveBtn) currentSaveBtn.disabled = !modified;
+        if (currentSaveBtn) currentSaveBtn.disabled = this._busy || !modified;
       };
       textarea.addEventListener("input", this._textareaInputHandler);
       newSaveBtn.disabled = true;
       this._resetMode = false;
 
+      this._opening = false;
+      this.updateEditorControls();
+      textarea.focus({ preventScroll: true });
       editorEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (e) {
-      this.showToast(e.message || window.t("prompt.loadFailed"), true);
+      if (generation === this._editorGeneration) this.showToast(e.message || window.t("prompt.loadFailed"), true);
+    } finally {
+      if (generation === this._editorGeneration) {
+        this._opening = false;
+        this.updateEditorControls();
+      }
     }
   }
 
@@ -255,33 +269,36 @@ export class PromptPage {
    * 保存提示词
    */
   async savePrompt() {
+    if (this._busy || !this.editingId || !this.hasUnsavedChanges()) return;
     const textarea = document.getElementById("prompt-editor-textarea");
     if (!textarea) return;
     const content = textarea.value;
 
-    const saveBtn = document.getElementById("prompt-save-btn");
-    if (saveBtn) saveBtn.disabled = true;
+    this._busy = true;
+    this.updateEditorControls();
+    const promptId = this.editingId;
 
     try {
       if (this._resetMode) {
-        await this.api.post("prompts/reset", { id: this.editingId });
+        await this.api.post("prompts/reset", { id: promptId }, { retries: 0 });
         this._resetMode = false;
         this.showToast(window.t("prompt.resetDone"));
       } else {
         await this.api.post("prompts/update", {
-          id: this.editingId,
+          id: promptId,
           content: content,
-        });
+        }, { retries: 0 });
         this.showToast(window.t("prompt.saved"));
       }
       this.editContent = content;
       await this.fetch();
-      this.closeEditor();
+      await this.closeEditor({ force: true });
     } catch (e) {
       console.error("[PromptPage] savePrompt failed:", e);
       this.showToast(e.message || window.t("prompt.saveFailed"), true);
     } finally {
-      if (saveBtn) saveBtn.disabled = false;
+      this._busy = false;
+      this.updateEditorControls();
     }
   }
 
@@ -289,17 +306,19 @@ export class PromptPage {
    * 填充默认内容到编辑器（不保存，需手动点保存）
    */
   async resetPrompt() {
+    if (!await this.canLeave()) return;
     if (!this.editingId) {
       console.error("[PromptPage] resetPrompt: editingId is empty");
       return;
     }
 
-    const resetBtn = document.getElementById("prompt-reset-btn");
-    if (resetBtn) resetBtn.disabled = true;
+    this._busy = true;
+    this.updateEditorControls();
+    const promptId = this.editingId;
 
     try {
       const result = await this.api.get("prompts/default", {
-        id: this.editingId,
+        id: promptId,
       });
       const newContent = result.content || "";
       const textarea = document.getElementById("prompt-editor-textarea");
@@ -316,18 +335,51 @@ export class PromptPage {
       console.error("[PromptPage] resetPrompt failed:", e);
       this.showToast(e.message || window.t("prompt.resetFailed"), true);
     } finally {
-      if (resetBtn) resetBtn.disabled = false;
+      this._busy = false;
+      this.updateEditorControls();
     }
   }
 
   /**
    * 关闭编辑器
    */
-  closeEditor() {
+  async closeEditor({ force = false } = {}) {
+    if (!force && !await this.canLeave()) return false;
+    this._editorGeneration++;
+    this._opening = false;
     const editorEl = document.getElementById("prompt-editor");
     if (editorEl) editorEl.classList.add("hidden");
     this.editingId = null;
     this.editContent = null;
+    this._resetMode = false;
+    return true;
+  }
+
+  hasUnsavedChanges() {
+    if (!this.editingId) return false;
+    return this._resetMode || document.getElementById("prompt-editor-textarea").value !== this.editContent;
+  }
+
+  async canLeave() {
+    if (this._busy) {
+      this.showToast(window.t("flow.waitForSave"));
+      return false;
+    }
+    return !this.hasUnsavedChanges() || await confirmDiscardChanges();
+  }
+
+  updateEditorControls() {
+    const feedback = document.getElementById("prompt-editor-feedback");
+    if (feedback) {
+      feedback.hidden = !this._busy && !this._opening;
+      feedback.textContent = (this._busy || this._opening) ? window.t("flow.working") : "";
+    }
+    const editor = document.getElementById("prompt-editor");
+    if (editor) editor.inert = Boolean(this._busy || this._opening);
+    const save = document.getElementById("prompt-save-btn");
+    if (save) save.disabled = this._busy || !this.hasUnsavedChanges();
+    const reset = document.getElementById("prompt-reset-btn");
+    if (reset) reset.disabled = Boolean(this._busy);
   }
 
   /**

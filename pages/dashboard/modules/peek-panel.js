@@ -11,7 +11,8 @@ import {
   statusLabel,
   typeLabel,
   nodeBadge,
-  metaItem
+  metaItem,
+  confirmDiscardChanges
 } from "./utils.js";
 
 export class PeekPanel {
@@ -66,12 +67,32 @@ export class PeekPanel {
     this._detailGeneration++;
   }
 
+  hasUnsavedChanges() {
+    if (!this.state.isEditing) return false;
+    const values = Array.from(document.querySelectorAll("#peek-body input, #peek-body textarea, #peek-body select"), input => input.value);
+    return JSON.stringify(values) !== this._editSnapshot;
+  }
+
+  async canDiscard() {
+    if (this._saving) {
+      this.showToast(window.t("flow.waitForSave"));
+      return false;
+    }
+    return !this.hasUnsavedChanges() || await confirmDiscardChanges();
+  }
+
+  async requestClose() {
+    if (!await this.canDiscard()) return false;
+    this.close();
+    return true;
+  }
+
   /**
    * Escape 键的分层处理：批量编辑对话框 > 确认对话框 > 编辑态 > 面板本身。
    * 编辑态直接关闭会静默丢弃未保存的修改，先回退到详情视图。
    * @returns {boolean} 是否消费了该事件
    */
-  handleEscape() {
+  async handleEscape() {
     if (this._batchEditResolve) {
       this._closeBatchEditDialog(null);
       return true;
@@ -83,6 +104,7 @@ export class PeekPanel {
     const panel = document.getElementById("peek-panel");
     if (!panel.classList.contains("visible")) return false;
     if (this.state.isEditing) {
+      if (!await this.canDiscard()) return true;
       if (this.state._detailCache) {
         this.renderDetailView(this.state._detailCache);
       } else {
@@ -384,7 +406,12 @@ export class PeekPanel {
     const saveBtn = document.getElementById("peek-save-btn");
     const cancelBtn = document.getElementById("peek-cancel-btn");
     if (saveBtn) saveBtn.addEventListener("click", () => this.saveEdit(detail));
-    if (cancelBtn) cancelBtn.addEventListener("click", () => this.renderDetailView(detail));
+    if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+      if (await this.canDiscard()) this.renderDetailView(detail);
+    });
+    this._editSnapshot = JSON.stringify(Array.from(
+      document.querySelectorAll("#peek-body input, #peek-body textarea, #peek-body select"), input => input.value
+    ));
   }
 
   /**
@@ -392,6 +419,7 @@ export class PeekPanel {
    * @param {Object} detail - 原始记忆详情
    */
   async saveEdit(detail) {
+    if (this._saving) return;
     let id = detail.memory_id;
     const newContent = document.getElementById("edit-content-area").value.trim();
     const normalizeLines = (value) => Array.from(new Set(
@@ -408,6 +436,9 @@ export class PeekPanel {
     const reason = document.getElementById("peek-edit-reason").value.trim();
 
     const saveBtn = document.getElementById("peek-save-btn");
+    this._saving = true;
+    const editBody = document.getElementById("peek-body");
+    editBody.inert = true;
     if (saveBtn) saveBtn.disabled = true;
     const messages = [];
 
@@ -486,6 +517,8 @@ export class PeekPanel {
     } catch (e) {
       this.showToast(e.message || window.t("edit.updateFailed"), true);
     } finally {
+      this._saving = false;
+      editBody.inert = false;
       if (saveBtn) saveBtn.disabled = false;
     }
   }
@@ -574,7 +607,7 @@ export class PeekPanel {
       html += '<div class="confirm-dialog-message">' + esc(message) + '</div>';
       html += '<div class="confirm-dialog-actions">';
       html += '<button class="btn btn-secondary" id="confirm-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span>' + window.t("common.cancel") + '</span></button>';
-      html += '<button class="btn ' + (destructive ? 'btn-danger' : 'btn-primary') + '" id="confirm-ok-btn"><i data-lucide="' + (destructive ? 'trash-2' : 'check') + '" aria-hidden="true"></i><span>' + window.t("common.confirm") + '</span></button>';
+      html += '<button class="btn ' + (destructive ? 'btn-danger' : 'btn-primary') + '" id="confirm-ok-btn"><i data-lucide="' + (destructive ? 'trash-2' : 'check') + '" aria-hidden="true"></i><span>' + esc(options.confirmLabel || window.t("common.confirm")) + '</span></button>';
       html += '</div></div>';
 
       document.getElementById("peek-body").innerHTML = html;

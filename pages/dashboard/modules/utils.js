@@ -115,6 +115,27 @@ export function debounce(fn, ms) {
   };
 }
 
+let discardRequest;
+
+export function confirmDiscardChanges() {
+  const dialog = document.getElementById("discard-dialog");
+  if (discardRequest) {
+    // Native close events are queued; a new action after dismissal needs a
+    // fresh decision, rather than inheriting the previous cancelled result.
+    return dialog.open ? discardRequest : discardRequest.then(() => confirmDiscardChanges());
+  }
+  discardRequest = new Promise(resolve => {
+    dialog.returnValue = "cancel";
+    dialog.addEventListener("close", () => {
+      const discarded = dialog.returnValue === "discard";
+      discardRequest = null;
+      resolve(discarded);
+    }, { once: true });
+    dialog.showModal();
+  });
+  return discardRequest;
+}
+
 /**
  * 获取 Atom 类型的显示文本
  * @param {string} type - Atom 类型
