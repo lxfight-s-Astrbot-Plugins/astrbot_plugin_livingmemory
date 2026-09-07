@@ -101,11 +101,25 @@ import {
   /* ================================================================
      Sidebar / Routing
      ================================================================ */
-  function switchPage(name) {
+  let navigationGeneration = 0;
+  let pageInitialized = false;
+  async function switchPage(name) {
+    if (pageInitialized && name === state.page) return;
+    if (memoryPage._bulkBusy || memoryPage._transferBusy) {
+      showToast(window.t("flow.waitForSave"));
+      return;
+    }
+    const generation = ++navigationGeneration;
+    if (state.page === "prompts" && !await promptPage.canLeave()) return;
+    if (!await peekPanel.requestClose() || generation !== navigationGeneration) return;
+    if (state.page === "prompts") await promptPage.closeEditor({ force: true });
+    pageInitialized = true;
     state.page = name;
 
     document.querySelectorAll(".nav-item[data-page]").forEach(item => {
       item.classList.toggle("active", item.dataset.page === name);
+      if (item.dataset.page === name) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
     });
 
     document.querySelectorAll(".page").forEach(p => {
@@ -209,7 +223,7 @@ import {
 
     const peekPanelEl = document.getElementById("peek-panel");
     const peekVisible = peekPanelEl && peekPanelEl.classList.contains("visible");
-    if (peekVisible && !state.isEditing) {
+    if (peekVisible && !state.isEditing && !peekPanel._confirmResolve && !peekPanel._batchEditResolve) {
       if (state._detailCache) {
         peekPanel.renderDetailView(state._detailCache);
       } else if (state._nodeDetailCache) {
@@ -264,12 +278,21 @@ import {
     recallPage.initEventListeners();
     systemPage.initEventListeners();
 
-    document.getElementById("peek-close").addEventListener("click", () => peekPanel.close());
-    document.getElementById("peek-overlay").addEventListener("click", () => peekPanel.close());
+    document.getElementById("peek-close").addEventListener("click", () => peekPanel.requestClose());
+    document.getElementById("peek-overlay").addEventListener("click", () => peekPanel.requestClose());
 
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !document.getElementById("appearance-dialog").open) {
-        peekPanel.handleEscape();
+    document.addEventListener("keydown", async (e) => {
+      if (e.key === "Escape" && !document.querySelector("dialog[open]")) {
+        e.preventDefault();
+        if (!await peekPanel.handleEscape() && state.page === "prompts" && promptPage.editingId) {
+          promptPage.closeEditor();
+        }
+      }
+    });
+    window.addEventListener("beforeunload", event => {
+      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || memoryPage._bulkBusy || memoryPage._transferBusy) {
+        event.preventDefault();
+        event.returnValue = "";
       }
     });
     window.addEventListener("languagechange", refreshDynamicI18n);
@@ -292,7 +315,7 @@ import {
   };
   window.lmOpenPeekNode = (nodeData) => peekPanel.renderNode(nodeData);
   window.lmOpenPeekMemory = (memory) => peekPanel.renderMemory(memory);
-  window.lmClosePeek = () => peekPanel.close();
+  window.lmClosePeek = () => peekPanel.requestClose();
   window.lmFetchGraphStats = fetchGraphStats;
   window.lmRefreshMemories = () => memoryPage.fetch();
   window.lmEsc = esc;

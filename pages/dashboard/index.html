@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./art-direction.css" />
     <link rel="stylesheet" href="./themes.css" />
+    <link rel="stylesheet" href="./workflows.css" />
     <script src="./vendor/lucide.min.js"></script>
     <script src="./i18n.js"></script>
   </head>
@@ -71,7 +72,7 @@
           <header class="page-header">
             <div class="page-heading"><span class="page-index">01</span><span class="page-title" data-i18n="nav.graph">Knowledge Graph</span></div>
             <div class="page-actions">
-              <input type="text" id="graph-session-filter" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
+              <input type="text" id="graph-session-filter" data-i18n-aria="graph.sessionPh" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
               <button class="btn btn-secondary btn-sm" id="graph-overview-btn" data-i18n-aria="graph.overviewBtn">
                 <i data-lucide="layout-dashboard" aria-hidden="true"></i>
                 <span data-i18n="graph.overviewBtn">Overview</span>
@@ -92,16 +93,20 @@
             </div>
             <div class="graph-legend" id="graph-legend"></div>
             <div class="graph-toolbar">
-              <input type="text" id="graph-query-input" class="input" data-i18n-placeholder="graph.queryPh" placeholder="Search entities, topics, or memories..." />
-              <input type="text" id="graph-memory-id" class="input input-sm" data-i18n-placeholder="graph.memoryIdPh" placeholder="Memory ID" style="width:120px" />
-              <button class="btn btn-primary btn-sm" id="graph-search-btn">
-                <i data-lucide="search" aria-hidden="true"></i>
-                <span data-i18n="graph.searchBtn">Search</span>
-              </button>
-              <button class="btn btn-secondary btn-sm" id="graph-focus-btn">
-                <i data-lucide="focus" aria-hidden="true"></i>
-                <span data-i18n="graph.focusBtn">Focus</span>
-              </button>
+              <div class="graph-operation">
+                <input type="text" id="graph-query-input" data-i18n-aria="graph.queryPh" class="input" data-i18n-placeholder="graph.queryPh" placeholder="Search entities, topics, or memories..." />
+                <button class="btn btn-primary btn-sm" id="graph-search-btn">
+                  <i data-lucide="search" aria-hidden="true"></i>
+                  <span data-i18n="graph.searchBtn">Search</span>
+                </button>
+              </div>
+              <div class="graph-operation">
+                <input type="text" id="graph-memory-id" data-i18n-aria="graph.memoryIdPh" class="input input-sm" data-i18n-placeholder="graph.memoryIdPh" placeholder="Memory ID" style="width:120px" />
+                <button class="btn btn-secondary btn-sm" id="graph-focus-btn">
+                  <i data-lucide="focus" aria-hidden="true"></i>
+                  <span data-i18n="graph.focusBtn">Focus</span>
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -110,18 +115,19 @@
         <section class="page" id="page-memory">
           <header class="page-header">
             <div class="page-heading"><span class="page-index">02</span><span class="page-title" data-i18n="nav.memory">Memories</span></div>
+            <button id="mem-refresh" class="btn btn-secondary btn-sm"><i data-lucide="refresh-cw" aria-hidden="true"></i><span data-i18n="common.refresh">Refresh</span></button>
           </header>
           <div class="page-body memory-page-body">
-            <div class="filter-bar">
-              <input type="text" id="mem-keyword" class="input" data-i18n-placeholder="filter.keyword" placeholder="Search by keyword or memory ID..." />
-              <input type="text" id="mem-session" class="input" data-i18n-placeholder="filter.sessionId" placeholder="Session ID" style="max-width:200px" />
-              <select id="mem-status" class="select input">
+            <form class="filter-bar" id="memory-filters">
+              <input type="text" id="mem-keyword" data-i18n-aria="filter.keyword" class="input" data-i18n-placeholder="filter.keyword" placeholder="Search by keyword or memory ID..." />
+              <input type="text" id="mem-session" data-i18n-aria="filter.sessionId" class="input" data-i18n-placeholder="filter.sessionId" placeholder="Session ID" style="max-width:200px" />
+              <select id="mem-status" data-i18n-aria="flow.status" class="select input">
                 <option value="all" data-i18n="filter.statusAll">All Status</option>
                 <option value="active" data-i18n="filter.statusActive">Active</option>
                 <option value="archived" data-i18n="filter.statusArchived">Archived</option>
                 <option value="deleted" data-i18n="filter.statusDeleted">Deleted</option>
               </select>
-              <select id="mem-type" class="select input">
+              <select id="mem-type" data-i18n-aria="flow.type" class="select input">
                 <option value="all" data-i18n="filter.typeAll">All Types</option>
                 <option value="GENERAL" data-i18n="type.general">General</option>
                 <option value="FACT" data-i18n="type.fact">Fact</option>
@@ -133,7 +139,7 @@
                 <option value="RELATIONAL" data-i18n="type.relational">Relational</option>
                 <option value="PLANNED" data-i18n="type.planned">Planned</option>
               </select>
-              <select id="mem-sort" class="select input">
+              <select id="mem-sort" data-i18n-aria="flow.sort" class="select input">
                 <option value="created_desc" data-i18n="sort.createdDesc">Newest first</option>
                 <option value="created_asc" data-i18n="sort.createdAsc">Oldest first</option>
                 <option value="updated_desc" data-i18n="sort.updatedDesc">Recently updated</option>
@@ -141,28 +147,47 @@
                 <option value="importance_asc" data-i18n="sort.importanceAsc">Importance low to high</option>
                 <option value="type_asc" data-i18n="sort.typeAsc">Type A-Z</option>
               </select>
-              <select id="mem-page-size" class="select input" style="width:auto">
-                <option value="20" data-i18n="common.perPage20">20 per page</option>
-                <option value="50" data-i18n="common.perPage50">50 per page</option>
-                <option value="100" data-i18n="common.perPage100">100 per page</option>
-              </select>
-              <select id="mem-transfer-format" class="select input" style="width:auto" data-i18n-title="transfer.formatTitle">
-                <option value="json">JSON</option>
-                <option value="csv">CSV</option>
-              </select>
-              <select id="mem-import-duplicates" class="select input" style="width:auto" data-i18n-title="transfer.duplicateTitle">
-                <option value="skip" data-i18n="transfer.skipDuplicates">Skip duplicates</option>
-                <option value="allow" data-i18n="transfer.allowDuplicates">Allow duplicates</option>
-              </select>
-              <button class="btn btn-sm btn-secondary" id="mem-export" data-i18n-title="transfer.exportTitle">
-                <i data-lucide="download" aria-hidden="true"></i>
-                <span data-i18n="transfer.export">Export</span>
-              </button>
-              <button class="btn btn-sm btn-secondary" id="mem-import" data-i18n-title="transfer.importTitle">
-                <i data-lucide="upload" aria-hidden="true"></i>
-                <span data-i18n="transfer.import">Import</span>
-              </button>
-              <input type="file" id="mem-import-file" accept=".json,.csv,application/json,text/csv" hidden />
+              <button type="submit" class="btn btn-primary btn-sm" data-i18n="filter.apply">Filter</button>
+              <button type="button" id="mem-reset-filters" class="btn btn-secondary btn-sm" data-i18n="flow.resetFilters">Reset filters</button>
+            </form>
+            <details class="memory-transfer" id="memory-transfer">
+              <summary data-i18n="flow.transfer">Import and export</summary>
+              <div class="transfer-sections">
+                <section>
+                  <h3 data-i18n="transfer.export">Export</h3>
+                  <p id="mem-export-scope" data-i18n="flow.exportAll">All memories, regardless of filters.</p>
+                  <div class="transfer-controls">
+                    <select id="mem-transfer-format" data-i18n-aria="transfer.formatTitle" class="select input" style="width:auto" data-i18n-title="transfer.formatTitle">
+                      <option value="json">JSON</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                    <button class="btn btn-sm btn-secondary" id="mem-export" data-i18n-title="transfer.exportTitle">
+                      <i data-lucide="download" aria-hidden="true"></i>
+                      <span data-i18n="transfer.export">Export</span>
+                    </button>
+                  </div>
+                </section>
+                <section>
+                  <h3 data-i18n="transfer.import">Import</h3>
+                  <p data-i18n="flow.importSteps">Choose a file, review the preview, then confirm the import.</p>
+                  <div class="transfer-controls">
+                    <select id="mem-import-duplicates" data-i18n-aria="transfer.duplicateTitle" class="select input" style="width:auto" data-i18n-title="transfer.duplicateTitle">
+                      <option value="skip" data-i18n="transfer.skipDuplicates">Skip duplicates</option>
+                      <option value="allow" data-i18n="transfer.allowDuplicates">Allow duplicates</option>
+                    </select>
+                    <button class="btn btn-sm btn-secondary" id="mem-import" data-i18n-title="transfer.importTitle">
+                      <i data-lucide="upload" aria-hidden="true"></i>
+                      <span data-i18n="transfer.import">Import</span>
+                    </button>
+                  </div>
+                  <input type="file" id="mem-import-file" accept=".json,.csv,application/json,text/csv" hidden />
+                </section>
+              </div>
+            </details>
+            <div id="transfer-feedback" class="request-feedback" role="status" aria-live="polite" hidden></div>
+            <div class="memory-selection" id="memory-selection" hidden>
+              <span id="mem-selection-count" role="status"></span>
+              <button type="button" class="btn btn-sm btn-secondary" id="mem-clear-selection" data-i18n="flow.clearSelection">Clear selection</button>
               <button class="btn btn-sm btn-secondary" id="mem-batch-edit" disabled data-i18n-title="batchEdit.title">
                 <i data-lucide="pencil" aria-hidden="true"></i>
                 <span id="mem-batch-edit-label" data-i18n="batchEdit.button">Batch edit</span>
@@ -196,6 +221,14 @@
               </table>
               </div>
               <div class="pagination">
+                <label class="pagination-size">
+                  <span data-i18n="common.perPage">Per page</span>
+                  <select id="mem-page-size" class="select input" style="width:auto">
+                    <option value="20" data-i18n="common.perPage20">20 per page</option>
+                    <option value="50" data-i18n="common.perPage50">50 per page</option>
+                    <option value="100" data-i18n="common.perPage100">100 per page</option>
+                  </select>
+                </label>
                 <div class="pagination-controls">
                   <button class="btn btn-sm btn-ghost" id="mem-prev" disabled><i data-lucide="arrow-left" aria-hidden="true"></i><span data-i18n="pagination.prev">Previous</span></button>
                   <span class="pagination-info" id="mem-pagination-info" data-i18n="common.page">Page 1/1 · 0 total</span>
@@ -213,22 +246,23 @@
           </header>
           <div class="page-body">
             <div class="recall-form-section">
-              <textarea id="recall-query" class="input textarea" rows="3" data-i18n-placeholder="recall.queryPh" placeholder="Enter a query to test the dual-route four-mode hybrid retrieval engine..."></textarea>
+              <textarea id="recall-query" data-i18n-aria="recall.queryPh" class="input textarea" rows="3" data-i18n-placeholder="recall.queryPh" placeholder="Enter a query to test the dual-route four-mode hybrid retrieval engine..."></textarea>
               <div class="recall-form-row">
                 <div class="recall-form-field" style="max-width:200px">
-                  <label class="recall-form-label" data-i18n="recall.kLabel">Results (k)</label>
+                  <label for="recall-k" class="recall-form-label" data-i18n="recall.kLabel">Results (k)</label>
                   <div class="slider-group">
                     <input type="range" id="recall-k" min="1" max="50" value="5" />
                     <span class="slider-value" id="recall-k-value">5</span>
                   </div>
                 </div>
                 <div class="recall-form-field" style="max-width:280px">
-                  <label class="recall-form-label" data-i18n="recall.sessionLabel">Session ID (optional)</label>
+                  <label for="recall-session" class="recall-form-label" data-i18n="recall.sessionLabel">Session ID (optional)</label>
                   <input type="text" id="recall-session" class="input input-sm" data-i18n-placeholder="recall.sessionPh" placeholder="Filter by session..." />
                 </div>
                 <button class="btn btn-primary" id="recall-search-btn"><i data-lucide="scan-search" aria-hidden="true"></i><span data-i18n="recall.searchBtn">Run Recall</span></button>
               </div>
             </div>
+            <p class="workflow-hint" data-i18n="flow.recallShortcut">Ctrl / Cmd + Enter to run recall.</p>
             <div class="recall-results-header hidden" id="recall-stats">
               <span id="recall-count-text">0 results</span>
               <span class="text-tertiary" id="recall-time-text"></span>
@@ -304,9 +338,10 @@
                 <span id="prompt-editor-vars"></span>
               </div>
               <textarea id="prompt-editor-textarea" class="input textarea prompt-editor-textarea" rows="20" spellcheck="false"></textarea>
+              <p id="prompt-editor-feedback" class="workflow-hint" role="status" hidden></p>
               <div class="prompt-editor-actions">
                 <button class="btn btn-secondary" id="prompt-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span data-i18n="common.cancel">Cancel</span></button>
-                <button class="btn btn-danger btn-sm" id="prompt-reset-btn"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="prompt.reset">Reset to Default</span></button>
+                <button class="btn btn-secondary btn-sm" id="prompt-reset-btn"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="prompt.reset">Load default content</span></button>
                 <button class="btn btn-primary" id="prompt-save-btn"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
               </div>
             </div>
@@ -314,6 +349,17 @@
         </section>
       </main>
     </div>
+
+    <dialog id="discard-dialog" class="discard-dialog" aria-labelledby="discard-title" aria-describedby="discard-message">
+      <form method="dialog">
+        <h2 id="discard-title" data-i18n="flow.unsavedTitle">Unsaved changes</h2>
+        <p id="discard-message" data-i18n="flow.unsavedMessage">Discard your unsaved changes?</p>
+        <div class="discard-actions">
+          <button class="btn btn-secondary" value="cancel" autofocus data-i18n="flow.keepEditing">Keep editing</button>
+          <button class="btn btn-danger" value="discard" data-i18n="flow.discard">Discard changes</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- Appearance preferences apply immediately and remain local to this browser. -->
     <dialog id="appearance-dialog" class="appearance-dialog" aria-labelledby="appearance-title" aria-describedby="appearance-hint">

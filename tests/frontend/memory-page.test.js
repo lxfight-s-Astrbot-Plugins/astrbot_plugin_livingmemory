@@ -221,6 +221,7 @@ test("batchEdit posts the dialog result to memories/batch-update", async () => {
     },
   };
   const page = new MemoryPage(state, api, peek);
+  page.updateFeedback = () => {};
   let fetched = false;
   page.fetch = async () => { fetched = true; };
   page.showToast = () => {};
@@ -276,6 +277,7 @@ test("batchEdit aborts without posting when the dialog is cancelled", async () =
   const page = new MemoryPage(state, api, peek);
   page.fetch = async () => {};
 
+  page.updateFeedback = () => {};
   await page.batchEdit();
 
   assert.equal(posted, false);

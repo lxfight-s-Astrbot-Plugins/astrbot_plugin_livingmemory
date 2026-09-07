@@ -3,7 +3,7 @@
  * 负责记忆列表展示、虚拟滚动、筛选和排序
  */
 
-import { normalizeImportance, esc, statusPill, typeLabel, debounce } from "./utils.js";
+import { normalizeImportance, esc, statusPill, typeLabel } from "./utils.js";
 
 export class MemoryPage {
   constructor(state, apiClient, peekPanel) {
@@ -25,6 +25,7 @@ export class MemoryPage {
    * 获取记忆列表
    */
   async fetch() {
+    clearTimeout(this._filterTimer);
     const fetchGeneration = ++this._fetchGeneration;
     this.state.memory.loading = true;
     this.state.memory.error = "";
@@ -124,7 +125,7 @@ export class MemoryPage {
     if (scroll) {
       scroll.setAttribute("aria-busy", String(Boolean(loading)));
       // Keep the last successful view visible, but disable actions on stale data.
-      scroll.inert = Boolean(loading || error);
+      scroll.inert = Boolean(loading || error || this._bulkBusy || this._transferBusy);
     }
     this.updateSelectionControls();
     this.updatePagination();
@@ -265,7 +266,7 @@ export class MemoryPage {
   }
 
   updateSelectionControls() {
-    const unavailable = Boolean(this.state.memory.loading || this.state.memory.error);
+    const unavailable = Boolean(this.state.memory.loading || this.state.memory.error || this._bulkBusy || this._transferBusy);
     const selectedIds = this.state.memory.selectedIds;
     const pageIds = this.state.memory.items.map(item => item.memory_id);
     const selectedOnPage = pageIds.filter(id => selectedIds.has(id)).length;
@@ -280,6 +281,27 @@ export class MemoryPage {
     if (deleteButton) deleteButton.disabled = unavailable || selectedIds.size === 0;
     const deleteLabel = document.getElementById("mem-delete-selected-label");
     if (deleteLabel) deleteLabel.textContent = window.t("delete.selected", selectedIds.size);
+
+    const selection = document.getElementById("memory-selection");
+    if (selection) selection.hidden = selectedIds.size === 0;
+    const count = document.getElementById("mem-selection-count");
+    if (count) count.textContent = window.t("flow.selectedOnPage", selectedIds.size);
+    const clear = document.getElementById("mem-clear-selection");
+    if (clear) clear.disabled = unavailable;
+    const scope = document.getElementById("mem-export-scope");
+    if (scope) scope.textContent = window.t(selectedIds.size ? "flow.exportSelected" : "flow.exportAll", selectedIds.size);
+    const exportButton = document.getElementById("mem-export");
+    if (exportButton) exportButton.disabled = unavailable || Boolean(this._transferBusy);
+    const importButton = document.getElementById("mem-import");
+    if (importButton) importButton.disabled = Boolean(this._transferBusy || this._bulkBusy);
+    const filters = document.getElementById("memory-filters");
+    if (filters) filters.inert = Boolean(this._transferBusy || this._bulkBusy);
+    const refresh = document.getElementById("mem-refresh");
+    if (refresh) refresh.disabled = unavailable || Boolean(this._transferBusy);
+    for (const id of ["mem-transfer-format", "mem-import-duplicates", "mem-page-size"]) {
+      const input = document.getElementById(id);
+      if (input) input.disabled = Boolean(this._bulkBusy || this._transferBusy);
+    }
 
     const batchEditButton = document.getElementById("mem-batch-edit");
     if (batchEditButton) batchEditButton.disabled = unavailable || selectedIds.size === 0;
@@ -296,22 +318,25 @@ export class MemoryPage {
   }
 
   async deleteSelected() {
+    if (this._bulkBusy || this._transferBusy || this.state.memory.loading || this.state.memory.error) return;
     const ids = Array.from(this.state.memory.selectedIds);
     if (!ids.length) return;
 
-    this.peek.open();
-    const confirmed = await this.peek.showConfirmDialog(
-      window.t("delete.confirmTitle"),
-      window.t("delete.confirmMsg", ids.length)
-    );
-    if (!confirmed) {
-      this.peek.close();
-      return;
-    }
-
-    const button = document.getElementById("mem-delete-selected");
-    if (button) button.disabled = true;
+    this._bulkBusy = true;
+    this.updateFeedback();
     try {
+      this.peek.open();
+      const confirmed = await this.peek.showConfirmDialog(
+        window.t("delete.confirmTitle"),
+        window.t("delete.confirmMsg", ids.length)
+      );
+      if (!confirmed) {
+        this.peek.close();
+        return;
+      }
+
+      const button = document.getElementById("mem-delete-selected");
+      if (button) button.disabled = true;
       const result = await this.api.post(
         "memories/batch-delete",
         { memory_ids: ids },
@@ -331,23 +356,29 @@ export class MemoryPage {
       this.peek.close();
       this.showToast(error.message || window.t("delete.error"), true);
       this.updateSelectionControls();
+    } finally {
+      this._bulkBusy = false;
+      this.updateFeedback();
     }
   }
 
   async batchEdit() {
+    if (this._bulkBusy || this._transferBusy || this.state.memory.loading || this.state.memory.error) return;
     const ids = Array.from(this.state.memory.selectedIds);
     if (!ids.length) return;
 
-    this.peek.open();
-    const edit = await this.peek.showBatchEditDialog(ids.length);
-    if (!edit) {
-      this.peek.close();
-      return;
-    }
-
-    const button = document.getElementById("mem-batch-edit");
-    if (button) button.disabled = true;
+    this._bulkBusy = true;
+    this.updateFeedback();
     try {
+      this.peek.open();
+      const edit = await this.peek.showBatchEditDialog(ids.length);
+      if (!edit) {
+        this.peek.close();
+        return;
+      }
+
+      const button = document.getElementById("mem-batch-edit");
+      if (button) button.disabled = true;
       const payload = { memory_ids: ids, field: edit.field, value: edit.value };
       if (edit.value_scale) payload.value_scale = edit.value_scale;
       const result = await this.api.post(
@@ -369,10 +400,17 @@ export class MemoryPage {
       this.peek.close();
       this.showToast(error.message || window.t("batchEdit.error"), true);
       this.updateSelectionControls();
+    } finally {
+      this._bulkBusy = false;
+      this.updateFeedback();
     }
   }
 
   async exportMemories() {
+    if (this._transferBusy || this._bulkBusy || this.state.memory.loading || this.state.memory.error) return;
+    this._transferBusy = true;
+    this.updateFeedback();
+    this.setTransferStatus(window.t("flow.exporting"));
     const button = document.getElementById("mem-export");
     const format = document.getElementById("mem-transfer-format").value || "json";
     const selectedIds = Array.from(this.state.memory.selectedIds);
@@ -392,36 +430,40 @@ export class MemoryPage {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      this.showToast(window.t("transfer.exportSuccess", Number(result.memory_count || 0)));
+      this.setTransferStatus(window.t("transfer.exportSuccess", Number(result.memory_count || 0)));
     } catch (error) {
-      this.showToast(error.message || window.t("transfer.failed"), true);
+      this.setTransferStatus(error.message || window.t("transfer.failed"), true);
     } finally {
-      if (button) button.disabled = false;
+      this._transferBusy = false;
+      this.updateFeedback();
     }
   }
 
   async importFile(file) {
-    if (!file) return;
+    if (!file || this._transferBusy || this._bulkBusy) return;
     if (file.size > 50 * 1024 * 1024) {
-      this.showToast(window.t("transfer.fileTooLarge"), true);
+      this.setTransferStatus(window.t("transfer.fileTooLarge"), true);
       return;
     }
     const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json";
     const duplicateStrategy = document.getElementById("mem-import-duplicates").value || "skip";
-    const content = await file.text();
-    const requestPayload = {
-      format,
-      content,
-      duplicate_strategy: duplicateStrategy
-    };
-    const button = document.getElementById("mem-import");
-    if (button) button.disabled = true;
+    this._transferBusy = true;
+    this.updateFeedback();
+    this.setTransferStatus(window.t("flow.importReading", file.name));
     try {
+      const content = await file.text();
+      const requestPayload = { format, content, duplicate_strategy: duplicateStrategy };
+      this.setTransferStatus(window.t("flow.importPreviewing", file.name));
       const preview = await this.api.post(
         "memories/import",
         { ...requestPayload, dry_run: true },
         { retries: 0 }
       );
+      if (!Number(preview.planned_import_count || 0)) {
+        this.setTransferStatus(window.t("flow.nothingToImport", preview.invalid_count || 0, preview.duplicate_count || 0));
+        return;
+      }
+      this.setTransferStatus(window.t("flow.importReview", file.name));
       this.peek.open();
       const confirmed = await this.peek.showConfirmDialog(
         window.t("transfer.importPreviewTitle"),
@@ -433,12 +475,15 @@ export class MemoryPage {
           preview.invalid_count || 0,
           preview.summary_required_count || 0
         ),
-        { destructive: false }
+        { destructive: false, confirmLabel: window.t("transfer.import") }
       );
       if (!confirmed) {
         this.peek.close();
+        this.setTransferStatus(window.t("flow.importCancelled"));
         return;
       }
+      this.peek.close();
+      this.setTransferStatus(window.t("flow.importing", file.name));
       const result = await this.api.post(
         "memories/import",
         { ...requestPayload, dry_run: false },
@@ -446,7 +491,7 @@ export class MemoryPage {
       );
       this.peek.close();
       const failed = Number(result.failed_count || 0);
-      this.showToast(
+      this.setTransferStatus(
         window.t(
           "transfer.importSuccess",
           Number(result.imported_count || 0),
@@ -458,9 +503,39 @@ export class MemoryPage {
       await this.fetch();
     } catch (error) {
       this.peek.close();
-      this.showToast(error.message || window.t("transfer.failed"), true);
+      this.setTransferStatus(error.message || window.t("transfer.failed"), true);
     } finally {
-      if (button) button.disabled = false;
+      this._transferBusy = false;
+      this.updateFeedback();
+    }
+  }
+
+  setTransferStatus(message, isError = false) {
+    const feedback = document.getElementById("transfer-feedback");
+    if (!feedback) return;
+    feedback.hidden = false;
+    feedback.textContent = message;
+    feedback.classList.toggle("is-error", isError);
+  }
+
+  applyFilters({ reset = false, defer = false } = {}) {
+    clearTimeout(this._filterTimer);
+    this._fetchGeneration++;
+    const fields = { keyword: "mem-keyword", session: "mem-session", status: "mem-status", type: "mem-type", sort: "mem-sort" };
+    const defaults = { keyword: "", session: "", status: "all", type: "all", sort: "created_desc" };
+    for (const [key, id] of Object.entries(fields)) {
+      const input = document.getElementById(id);
+      if (reset) input.value = defaults[key];
+      this.state.memory[key] = input.value.trim();
+    }
+    this.state.memory.pageSize = Number(document.getElementById("mem-page-size").value) || 20;
+    this.state.memory.page = 1;
+    if (defer) {
+      this.state.memory.loading = true;
+      this.updateFeedback();
+      this._filterTimer = setTimeout(() => this.fetch(), 300);
+    } else {
+      return this.fetch();
     }
   }
 
@@ -486,8 +561,9 @@ export class MemoryPage {
     const prev = document.getElementById("mem-prev");
     const next = document.getElementById("mem-next");
     if (info) info.textContent = window.t("common.page", p, tp, t);
-    if (prev) prev.disabled = Boolean(this.state.memory.loading || this.state.memory.error) || p <= 1;
-    if (next) next.disabled = Boolean(this.state.memory.loading || this.state.memory.error) || !this.state.memory.hasMore;
+    const unavailable = Boolean(this.state.memory.loading || this.state.memory.error || this._bulkBusy || this._transferBusy);
+    if (prev) prev.disabled = unavailable || p <= 1;
+    if (next) next.disabled = unavailable || !this.state.memory.hasMore;
   }
 
   /**
@@ -543,46 +619,29 @@ export class MemoryPage {
       this.importFile(importInput.files && importInput.files[0]);
     });
 
-    // 筛选：关键词
-    document.getElementById("mem-keyword").addEventListener("input", debounce(() => {
-      this.state.memory.keyword = document.getElementById("mem-keyword").value.trim();
-      this.state.memory.page = 1;
-      this.fetch();
-    }, 300));
-
-    // 筛选：会话 ID
-    document.getElementById("mem-session").addEventListener("input", debounce(() => {
-      this.state.memory.session = document.getElementById("mem-session").value.trim();
-      this.state.memory.page = 1;
-      this.fetch();
-    }, 300));
-
-    // 筛选：状态
-    document.getElementById("mem-status").addEventListener("change", () => {
-      this.state.memory.status = document.getElementById("mem-status").value;
-      this.state.memory.page = 1;
-      this.fetch();
+    const filters = document.getElementById("memory-filters");
+    filters.addEventListener("keydown", event => {
+      if (event.key === "Enter" && event.isComposing) event.preventDefault();
     });
-
-    // 筛选：类型
-    document.getElementById("mem-type").addEventListener("change", () => {
-      this.state.memory.type = document.getElementById("mem-type").value;
-      this.state.memory.page = 1;
-      this.fetch();
+    filters.addEventListener("submit", event => {
+      event.preventDefault();
+      if (!event.isComposing) this.applyFilters();
     });
-
-    // 排序
-    document.getElementById("mem-sort").addEventListener("change", () => {
-      this.state.memory.sort = document.getElementById("mem-sort").value;
-      this.state.memory.page = 1;
-      this.fetch();
-    });
-
-    // 筛选：每页数量
-    document.getElementById("mem-page-size").addEventListener("change", () => {
-      this.state.memory.pageSize = parseInt(document.getElementById("mem-page-size").value) || 20;
-      this.state.memory.page = 1;
-      this.fetch();
+    for (const id of ["mem-keyword", "mem-session"]) {
+      const input = document.getElementById(id);
+      input.addEventListener("input", event => {
+        if (!event.isComposing) this.applyFilters({ defer: true });
+      });
+      input.addEventListener("compositionend", () => this.applyFilters({ defer: true }));
+    }
+    for (const id of ["mem-status", "mem-type", "mem-sort", "mem-page-size"]) {
+      document.getElementById(id).addEventListener("change", () => this.applyFilters());
+    }
+    document.getElementById("mem-reset-filters").addEventListener("click", () => this.applyFilters({ reset: true }));
+    document.getElementById("mem-refresh").addEventListener("click", () => this.fetch());
+    document.getElementById("mem-clear-selection").addEventListener("click", () => {
+      this.state.memory.selectedIds.clear();
+      this.renderVirtual();
     });
 
     // 分页：上一页

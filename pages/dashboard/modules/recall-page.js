@@ -36,7 +36,8 @@ export class RecallPage {
     // 回车搜索（Ctrl+Enter 或 Cmd+Enter）
     if (queryInput) {
       queryInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        if (e.key === "Enter" && !e.isComposing && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
           this.runRecall();
         }
       });
@@ -56,6 +57,7 @@ export class RecallPage {
 
     if (!query) {
       this.showToast(window.t("recall.enterQuery"), true);
+      document.getElementById("recall-query").focus();
       return;
     }
 
@@ -68,6 +70,12 @@ export class RecallPage {
       feedback.textContent = window.t("recall.searching");
     }
     results?.setAttribute("aria-busy", "true");
+    if (results) results.replaceChildren();
+    this.state._recallCache = null;
+    document.getElementById("recall-stats")?.classList.add("hidden");
+    document.getElementById("recall-query").readOnly = true;
+    document.getElementById("recall-k").disabled = true;
+    document.getElementById("recall-session").disabled = true;
 
     const startTime = Date.now();
 
@@ -90,6 +98,9 @@ export class RecallPage {
     } finally {
       if (searchBtn) searchBtn.disabled = false;
       results?.setAttribute("aria-busy", "false");
+      document.getElementById("recall-query").readOnly = false;
+      document.getElementById("recall-k").disabled = false;
+      document.getElementById("recall-session").disabled = false;
     }
   }
 
