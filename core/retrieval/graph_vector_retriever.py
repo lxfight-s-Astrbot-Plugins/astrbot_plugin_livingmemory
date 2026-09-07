@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .vector_retriever import delete_faiss_documents_by_ids
+from .vector_search import retrieve_vectors
 
 
 @dataclass(slots=True)
@@ -139,13 +140,8 @@ class GraphVectorRetriever:
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 
-        fetch_k = k * 2 if metadata_filters else k
-        raw_results = await self.faiss_db.retrieve(
-            query=query,
-            k=k,
-            fetch_k=fetch_k,
-            rerank=False,
-            metadata_filters=metadata_filters if metadata_filters else None,
+        raw_results = await retrieve_vectors(
+            self.faiss_db, query, k, metadata_filters, source_key="source_memory_id"
         )
 
         results: list[GraphVectorResult] = []
@@ -217,9 +213,7 @@ class GraphVectorRetriever:
         if not vector_doc_ids:
             return
 
-        deleted_ids = await delete_faiss_documents_by_ids(
-            self.faiss_db, vector_doc_ids
-        )
+        deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, vector_doc_ids)
         if deleted_ids is not None:
             if len(deleted_ids) != len(set(vector_doc_ids)):
                 missing = sorted(set(vector_doc_ids) - set(deleted_ids))

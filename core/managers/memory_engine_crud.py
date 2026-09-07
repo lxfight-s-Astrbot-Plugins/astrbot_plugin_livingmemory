@@ -5,17 +5,21 @@ MemoryEngine 的 MemoryEngineCrudMixin 拆分模块
 
 import asyncio
 import json
+import time
 from typing import Any
-from ..utils.number_utils import clamp_float, safe_float
+
+from astrbot.api import logger
+
+from ..memory_transfer import memory_import_key
 from ..processors.atom_classifier import classify_atoms
 from ..retrieval.hybrid_retriever import HybridResult
-from astrbot.api import logger
-from ..memory_transfer import memory_import_key
-import time
+from ..retrieval.route_execution import search_route
+from ..utils.number_utils import clamp_float, safe_float
 
 
 class MemoryEngineCrudMixin:
     """MemoryEngine 拆分模块：MemoryEngineCrudMixin"""
+
     async def add_memory(
         self,
         content: str,
@@ -92,9 +96,7 @@ class MemoryEngineCrudMixin:
             except (TypeError, ValueError):
                 preserved_create_time = None
         full_metadata["create_time"] = (
-            preserved_create_time
-            if preserved_create_time is not None
-            else current_time
+            preserved_create_time if preserved_create_time is not None else current_time
         )
         full_metadata["last_access_time"] = current_time
 
@@ -176,9 +178,13 @@ class MemoryEngineCrudMixin:
         needs_repair = atom_write_failed
         if self.graph_memory_manager is not None:
             try:
-                await self.graph_memory_manager.index_memory(
+                indexed = await self.graph_memory_manager.index_memory(
                     doc_id, content, full_metadata, atoms
                 )
+                if indexed is False:
+                    raise RuntimeError(
+                        "Graph indexing deferred until rebuild completes"
+                    )
                 await self._advance_write_op(
                     op_id,
                     "graph_indexed",
@@ -325,9 +331,7 @@ class MemoryEngineCrudMixin:
         else:
             rows = []
             for offset in range(0, len(normalized_ids), 500):
-                rows.extend(
-                    await _fetch_rows(normalized_ids[offset : offset + 500])
-                )
+                rows.extend(await _fetch_rows(normalized_ids[offset : offset + 500]))
             rows.sort(key=lambda row: int(row["id"]))
         records: list[dict[str, Any]] = []
 
@@ -415,9 +419,15 @@ class MemoryEngineCrudMixin:
         cache_key = self._search_cache_key(query, k, session_id, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
+            cached_results = await self._apply_atom_policy(cached_results)
             self._create_tracked_task(
                 self._update_access_times_internal(
-                    [result.doc_id for result in cached_results]
+                    [result.doc_id for result in cached_results],
+                    [
+                        atom_id
+                        for result in cached_results
+                        for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                    ],
                 )
             )
             return cached_results
@@ -450,6 +460,50 @@ class MemoryEngineCrudMixin:
                 query, k, session_id, persona_id
             )
 
+        if self.atom_retriever is not None:
+            atom_results, _ = await search_route(
+                "atoms",
+                self.atom_retriever.search(query, k * 2, session_id, persona_id),
+            )
+            existing_ids = {result.doc_id for result in results}
+            scores = {}
+            for atom in atom_results:
+                if atom.parent_memory_id not in existing_ids:
+                    scores[atom.parent_memory_id] = max(
+                        scores.get(atom.parent_memory_id, 0), atom.final_score
+                    )
+            if scores:
+                documents = await self.faiss_db.document_storage.get_documents(
+                    metadata_filters={}, ids=list(scores), limit=len(scores)
+                )
+                for document in documents:
+                    metadata = self._safe_json_dict(document.get("metadata"))
+                    if (
+                        session_id is not None
+                        and metadata.get("session_id") != session_id
+                    ):
+                        continue
+                    if (
+                        persona_id is not None
+                        and metadata.get("persona_id") != persona_id
+                    ):
+                        continue
+                    score = scores[int(document["id"])]
+                    results.append(
+                        HybridResult(
+                            doc_id=int(document["id"]),
+                            final_score=score,
+                            rrf_score=0,
+                            bm25_score=None,
+                            vector_score=None,
+                            content=document["text"],
+                            metadata=metadata,
+                            score_breakdown={"atom_score": score},
+                        )
+                    )
+                results.sort(key=lambda result: result.final_score, reverse=True)
+
+        results = await self._apply_atom_policy(results)
         results = self._filter_by_retrieval_policy(results)
         results = await self._merge_recent_memories(
             results,
@@ -457,15 +511,71 @@ class MemoryEngineCrudMixin:
             session_id,
             persona_id,
         )
+        results = await self._apply_atom_policy(results)
 
         # 异步更新访问时间(不阻塞返回)
         if results:
             self._create_tracked_task(
-                self._update_access_times_internal([r.doc_id for r in results])
+                self._update_access_times_internal(
+                    [r.doc_id for r in results],
+                    [
+                        atom_id
+                        for result in results
+                        for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                    ],
+                )
             )
 
         self._set_cached_search_results(cache_key, results)
         return results
+
+    async def _apply_atom_policy(self, results):
+        """Resolve atom-backed recall content from current lifecycle state.
+
+        Args:
+            results: Document candidates, including cached or recent results.
+
+        Returns:
+            Candidates containing only live facts; fully expired parents are omitted.
+        """
+        if not results or not self.atom_enabled or self.atom_store is None:
+            return results
+        ids = list(dict.fromkeys(result.doc_id for result in results))
+        grouped = {}
+        for start in range(0, len(ids), 500):
+            batch = ids[start : start + 500]
+            cursor = await self.db_connection.execute(
+                f"SELECT id, parent_memory_id, content, status, expires_at FROM memory_atoms "
+                f"WHERE parent_memory_id IN ({','.join('?' for _ in batch)}) ORDER BY id",
+                batch,
+            )
+            for row in await cursor.fetchall():
+                grouped.setdefault(int(row[1]), []).append(row)
+        now = time.time()
+        filtered = []
+        for result in results:
+            atoms = grouped.get(result.doc_id)
+            if atoms is None and not result.metadata.get("atom_types"):
+                filtered.append(result)
+                continue
+            active = [
+                row for row in (atoms or []) if row[3] == "active" and row[4] > now
+            ]
+            if not active:
+                continue
+            from dataclasses import replace
+
+            filtered.append(
+                replace(
+                    result,
+                    content="\n".join(dict.fromkeys(str(row[2]) for row in active)),
+                    metadata={
+                        **result.metadata,
+                        "retrieved_atom_ids": [int(row[0]) for row in active],
+                    },
+                )
+            )
+        return filtered
 
     async def get_memory(self, memory_id: int) -> dict[str, Any] | None:
         """
@@ -684,9 +794,7 @@ class MemoryEngineCrudMixin:
         raw_participants = replacement_metadata.get("participants")
         key_facts = raw_key_facts if isinstance(raw_key_facts, list) else []
         topics = raw_topics if isinstance(raw_topics, list) else []
-        participants = (
-            raw_participants if isinstance(raw_participants, list) else []
-        )
+        participants = raw_participants if isinstance(raw_participants, list) else []
         atoms = []
         if self.atom_enabled:
             atoms = classify_atoms(
@@ -791,7 +899,11 @@ class MemoryEngineCrudMixin:
         needs_repair = False
         try:
             if self.graph_memory_manager is not None:
-                await self.graph_memory_manager.delete_memory(memory_id)
+                deleted = await self.graph_memory_manager.delete_memory(memory_id)
+                if deleted is False:
+                    raise RuntimeError(
+                        "Graph deletion deferred until rebuild completes"
+                    )
             await self._advance_write_op(op_id, "graph_deleted", memory_id=memory_id)
         except asyncio.CancelledError:
             raise
@@ -949,9 +1061,7 @@ class MemoryEngineCrudMixin:
                     if importance >= protected_threshold:
                         continue
                     access_count = safe_float(metadata.get("access_count"), 0.0)
-                    last_access_time = safe_float(
-                        metadata.get("last_access_time"), 0.0
-                    )
+                    last_access_time = safe_float(metadata.get("last_access_time"), 0.0)
 
                     recent_access_factor = (
                         1.0 if last_access_time >= access_window_start else 0.5
@@ -1017,7 +1127,9 @@ class MemoryEngineCrudMixin:
         """Atomically bump a single memory's access time and count."""
         return await self._update_access_times_internal([memory_id])
 
-    async def _update_access_times_internal(self, doc_ids: list[int]) -> bool:
+    async def _update_access_times_internal(
+        self, doc_ids: list[int], atom_ids=None
+    ) -> bool:
         """Atomically bump access time and count for multiple memories in one UPDATE.
 
         Args:
@@ -1060,6 +1172,14 @@ class MemoryEngineCrudMixin:
                 """,
                 (current_time, current_time, *unique_ids),
             )
+            if atom_ids and self.atom_store is not None:
+                unique_atoms = list(dict.fromkeys(atom_ids))
+                await self.db_connection.execute(
+                    f"UPDATE memory_atoms SET last_accessed_at = ? "
+                    f"WHERE id IN ({','.join('?' for _ in unique_atoms)}) "
+                    "AND status = 'active' AND expires_at > ?",
+                    (current_time, *unique_atoms, current_time),
+                )
             await self.db_connection.commit()
 
             return cursor.rowcount > 0

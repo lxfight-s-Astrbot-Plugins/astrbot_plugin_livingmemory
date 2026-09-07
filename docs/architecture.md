@@ -35,7 +35,23 @@ LivingMemory 的运行时由事件钩子、记忆处理、检索融合、存储�
 | 文档路 | `BM25Retriever` | `VectorRetriever` |
 | 图谱路 | `GraphKeywordRetriever` | `GraphVectorRetriever` |
 
-随后 `RRFFusion` 会融合多个排序列表，再叠加重要性、时间衰减、会话隔离和人格隔离等过滤条件。
+每条路线内部使用 `RRFFusion`，叠加重要性和时间衰减；文档路与图谱路之间使用归一化加权融合。BM25 在候选截断之前过滤会话、人格和状态。向量候选不足时逐步扩取，最多检查 8192 个候选。
+
+各分路有独立的超时与异常降级。同一 Embedding Provider 下，一次双路查询共享查询向量；图路独有结果批量回填正文。异步持久化启用时，FAISS 搜索在线程执行，并与索引修改互斥。
+
+原子检索参与主召回。返回结果及缓存命中时重新检查原子的状态和过期时间；包含原子的记忆只注入有效事实，全部过期时不再注入。完整正文仍保存在文档库供查看和导出，Embedding 输入限制不会裁剪存储正文。
+
+图节点使用 FTS5 trigram 加速三个字符及以上的子串检索；短词和不支持 trigram 的 SQLite 环境保留原有匹配方式。触发器同步节点变更和图谱快照切换。
+
+## 性能基准
+
+在 AstrBot 的 Python 环境中，从插件目录运行：
+
+```bash
+python scripts/benchmark_recall.py --sizes 1000 10000 --queries 30 --concurrency 4
+```
+
+基准创建临时 SQLite 和 FAISS 数据，覆盖多会话过滤和完整文档混合检索，输出 P50/P95、吞吐量、Recall@5 和事件循环延迟。它使用确定性的本地向量，不访问线上数据或外部模型；合成数据的命中率不能代表真实语义检索质量。可用 `--dimensions`、`--sessions` 调整维度和会话数量；旧入口 `tests/performance_test.py` 仍可运行。
 
 ## 后台索引维护
 

@@ -3,19 +3,22 @@ MemoryEngine 的 MemoryEngineWriteOpsMixin 拆分模块
 自动从 core/managers/memory_engine.py 拆分，保持行为不变
 """
 
-from typing import Any
 import asyncio
-from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
-from ..utils.number_utils import clamp_float
 import copy
-from ..retrieval.hybrid_retriever import HybridResult
 import json
-from astrbot.api import logger
 import time
+from typing import Any
+
+from astrbot.api import logger
+
+from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
+from ..retrieval.hybrid_retriever import HybridResult
+from ..utils.number_utils import clamp_float
 
 
 class MemoryEngineWriteOpsMixin:
     """MemoryEngine 拆分模块：MemoryEngineWriteOpsMixin"""
+
     async def _create_write_ops_table(self) -> None:
         """Create the resumable write-operation log."""
         if self.db_connection is None:
@@ -207,7 +210,11 @@ class MemoryEngineWriteOpsMixin:
                 for key in ("document_vector_score", "graph_vector_score"):
                     if key in breakdown:
                         signals.append(clamp_float(breakdown[key], default=0.0))
-            if similarity_threshold > 0 and signals and max(signals) < similarity_threshold:
+            if (
+                similarity_threshold > 0
+                and signals
+                and max(signals) < similarity_threshold
+            ):
                 continue
 
             atom_types = metadata.get("atom_types")
@@ -237,9 +244,7 @@ class MemoryEngineWriteOpsMixin:
         if persona_id is not None:
             conditions.append("json_extract(metadata, '$.persona_id') = ?")
             params.append(persona_id)
-        max_age_hours = max(
-            0, int(self.config.get("recent_memory_max_age_hours", 72))
-        )
+        max_age_hours = max(0, int(self.config.get("recent_memory_max_age_hours", 72)))
         if max_age_hours > 0:
             # 表达式与 idx_doc_create_time 逐字匹配，可走索引范围扫描
             conditions.append(
@@ -628,7 +633,10 @@ class MemoryEngineWriteOpsMixin:
             cursor = await self.db_connection.execute(
                 "SELECT 1 FROM documents WHERE id = ?", (int(memory_id),)
             )
-            if await cursor.fetchone() is not None and self.hybrid_retriever is not None:
+            if (
+                await cursor.fetchone() is not None
+                and self.hybrid_retriever is not None
+            ):
                 await self.hybrid_retriever.delete_memory(int(memory_id))
 
             await self.db_connection.execute(
@@ -733,7 +741,9 @@ class MemoryEngineWriteOpsMixin:
         if not memory_ids:
             return
         if self.graph_memory_manager is not None:
-            await self.graph_memory_manager.batch_delete_memories(memory_ids)
+            deleted = await self.graph_memory_manager.batch_delete_memories(memory_ids)
+            if deleted is False:
+                raise RuntimeError("Graph deletion deferred until rebuild completes")
         if self.atom_store is not None:
             await self.atom_store.batch_delete_by_parent(memory_ids)
 

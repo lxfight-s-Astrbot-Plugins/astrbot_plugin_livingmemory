@@ -382,6 +382,12 @@ class GraphExtractor:
                 "graph_confidence": atom_confidence,
                 "atom_type": atom_type_str,
                 "ttl_days": float(getattr(atom, "ttl_days", 30.0)),
+                "atom_id": int(getattr(atom, "atom_id", 0)),
+                "create_time": float(atom.created_at),
+                "last_access_time": float(atom.last_accessed_at),
+                "expires_at": float(atom.expires_at),
+                "decay_type": str(getattr(atom.decay_type, "value", atom.decay_type)),
+                "status": str(getattr(atom.status, "value", atom.status)),
             }
             graph.entries.append(
                 GraphEntry(

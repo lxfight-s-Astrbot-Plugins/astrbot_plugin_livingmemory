@@ -41,7 +41,7 @@ class GraphMemoryManager:
         content: str,
         metadata: dict[str, Any] | None,
         atoms: list | None = None,
-    ) -> None:
+    ) -> bool:
         """Rebuild graph artifacts for one source memory.
 
         When atoms are provided, each atom independently contributes
@@ -54,8 +54,9 @@ class GraphMemoryManager:
                     metadata,
                     atoms,
                 )
-                return
-        await self._index_memory_now(source_memory_id, content, metadata, atoms)
+                return False
+            await self._index_memory_now(source_memory_id, content, metadata, atoms)
+            return True
 
     async def _index_memory_now(
         self,
@@ -115,13 +116,14 @@ class GraphMemoryManager:
             )
         return extracted.entries, entry_ids
 
-    async def delete_memory(self, source_memory_id: int) -> None:
+    async def delete_memory(self, source_memory_id: int) -> bool:
         """Delete graph artifacts belonging to one source memory."""
         async with self._rebuild_gate:
             if self._rebuild_active:
                 self._rebuild_delta[int(source_memory_id)] = None
-                return
-        await self._delete_memory_now(source_memory_id)
+                return False
+            await self._delete_memory_now(source_memory_id)
+            return True
 
     async def _delete_memory_now(self, source_memory_id: int) -> None:
         vector_doc_ids = await self.graph_store.delete_memory(source_memory_id)
@@ -129,17 +131,20 @@ class GraphMemoryManager:
             source_memory_id, vector_doc_ids
         )
 
-    async def batch_delete_memories(self, source_memory_ids: list[int]) -> None:
+    async def batch_delete_memories(self, source_memory_ids: list[int]) -> bool:
         """Delete graph artifacts in one FAISS bulk operation when supported."""
         if not source_memory_ids:
-            return
+            return True
         async with self._rebuild_gate:
             if self._rebuild_active:
                 for source_memory_id in source_memory_ids:
                     self._rebuild_delta[int(source_memory_id)] = None
-                return
-        memory_vec_map = await self.graph_store.batch_delete_memories(source_memory_ids)
-        await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
+                return False
+            memory_vec_map = await self.graph_store.batch_delete_memories(
+                source_memory_ids
+            )
+            await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
+            return True
 
     async def rebuild_memories(
         self,
@@ -177,6 +182,7 @@ class GraphMemoryManager:
         rebuilt = 0
         skipped = 0
         switched = False
+        replay_delta = {}
 
         async def remove_shadow_vectors(
             source_memory_id: int, vector_doc_ids: list[int]
@@ -278,6 +284,7 @@ class GraphMemoryManager:
                     if self._rebuild_delta:
                         pending_delta = dict(self._rebuild_delta)
                         self._rebuild_delta.clear()
+                        replay_delta.update(pending_delta)
                     else:
                         switch_task = asyncio.create_task(
                             self.graph_store.replace_all_from(
@@ -327,14 +334,24 @@ class GraphMemoryManager:
                     pass
             if not switched:
                 async with self._rebuild_gate:
-                    pending_delta = dict(self._rebuild_delta)
+                    pending_delta = {**replay_delta, **self._rebuild_delta}
                     self._rebuild_delta.clear()
-                    self._rebuild_active = False
-                for source_memory_id, payload in pending_delta.items():
-                    if payload is None:
-                        await self._delete_memory_now(source_memory_id)
-                    else:
-                        await self._index_memory_now(source_memory_id, *payload)
+                    try:
+                        for source_memory_id, payload in pending_delta.items():
+                            try:
+                                if payload is None:
+                                    await self._delete_memory_now(source_memory_id)
+                                else:
+                                    await self._index_memory_now(
+                                        source_memory_id, *payload
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "Graph rollback replay failed for memory %s; write log retains repair state",
+                                    source_memory_id,
+                                )
+                    finally:
+                        self._rebuild_active = False
             raise
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

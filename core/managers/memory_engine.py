@@ -28,11 +28,14 @@ from ..retrieval.graph_vector_retriever import GraphVectorRetriever
 from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
-from .memory_engine_write_ops import MemoryEngineWriteOpsMixin
-from .memory_engine_crud import MemoryEngineCrudMixin
 from .memory_engine_batch import MemoryEngineBatchMixin
+from .memory_engine_crud import MemoryEngineCrudMixin
+from .memory_engine_write_ops import MemoryEngineWriteOpsMixin
 
-class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngineBatchMixin):
+
+class MemoryEngine(
+    MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngineBatchMixin
+):
     """
     统一记忆引擎
 
@@ -241,6 +244,7 @@ class MemoryEngine(MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngin
                 self.graph_retriever,
                 self.get_memory,
                 self.config,
+                memory_batch_loader=self.faiss_db.document_storage.get_documents,
             )
 
         if self._write_op_repair_enabled:

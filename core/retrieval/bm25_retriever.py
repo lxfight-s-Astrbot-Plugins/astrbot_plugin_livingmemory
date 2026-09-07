@@ -180,82 +180,43 @@ class BM25Retriever:
         # 使用OR连接所有token
         fts_query = " OR ".join(escaped_tokens)
 
-        # 有过滤条件时大幅增加预取量，避免过滤后结果不足
-        # Python 层过滤（BM25）比 FAISS 内部过滤损耗更大，需要更多候选
-        has_filters = session_id is not None or persona_id is not None
-        fetch_limit = limit * 10 if has_filters else limit * 2
+        # Apply scope and status before LIMIT so other sessions cannot crowd out hits.
+        metadata_sql = "CASE WHEN json_valid(d.metadata) THEN d.metadata ELSE '{}' END"
+        filters = [
+            f"COALESCE(json_extract({metadata_sql}, '$.status'), 'active') = 'active'"
+        ]
+        params = [fts_query]
+        if session_id is not None:
+            filters.append(f"json_extract({metadata_sql}, '$.session_id') = ?")
+            params.append(session_id)
+        if persona_id is not None:
+            filters.append(f"json_extract({metadata_sql}, '$.persona_id') = ?")
+            params.append(persona_id)
+        params.append(max(0, limit))
 
         async with self._connect() as db:
-            # 执行FTS5 BM25搜索
-            # 注意: SQLite FTS5 bm25() 分数越小越相关（常见为负数）
             cursor = await db.execute(
                 f"""
-                SELECT doc_id, bm25({self.fts_table}) as score
+                SELECT d.id, d.text, {metadata_sql}, bm25({self.fts_table}) AS score
                 FROM {self.fts_table}
-                WHERE {self.fts_table} MATCH ?
+                JOIN {self.doc_table} d ON d.id = {self.fts_table}.doc_id
+                WHERE {self.fts_table} MATCH ? AND {" AND ".join(filters)}
                 ORDER BY score ASC
                 LIMIT ?
-            """,
-                (fts_query, fetch_limit),
-            )  # 多取一些以备过滤后不足
-
-            fts_results = await cursor.fetchall()
-
-            if not fts_results:
-                return []
-
-            # 获取文档详情
-            doc_ids = [row[0] for row in fts_results]
-            placeholders = ",".join("?" * len(doc_ids))
-
-            cursor = await db.execute(
-                f"""
-                SELECT id, text, metadata
-                FROM {self.doc_table}
-                WHERE id IN ({placeholders})
-            """,
-                doc_ids,
+                """,
+                params,
             )
-
-            docs = {}
-            async for row in cursor:
-                doc_id, text, metadata_json = row
-                metadata = json.loads(metadata_json) if metadata_json else {}
-                docs[doc_id] = {"text": text, "metadata": metadata}
-
-            # 构建结果列表并应用过滤
             results = []
-            for doc_id, bm25_score in fts_results:
-                if doc_id not in docs:
-                    continue
-
-                doc = docs[doc_id]
-                metadata = doc["metadata"]
-                if str(metadata.get("status") or "active") != "active":
-                    continue
-
-                # 应用过滤器 - 直接比较完整的 session_id / persona_id
-                if session_id is not None:
-                    stored_session_id = metadata.get("session_id")
-                    if stored_session_id != session_id:
-                        continue
-                if persona_id is not None:
-                    stored_persona_id = metadata.get("persona_id")
-                    if stored_persona_id != persona_id:
-                        continue
-
+            for doc_id, content, metadata_json, score in await cursor.fetchall():
+                metadata = json.loads(metadata_json)
                 results.append(
                     BM25Result(
                         doc_id=doc_id,
-                        score=bm25_score,
-                        content=doc["text"],
-                        metadata=metadata,
+                        score=score,
+                        content=content,
+                        metadata=metadata if isinstance(metadata, dict) else {},
                     )
                 )
-
-                # 达到limit后停止
-                if len(results) >= limit:
-                    break
 
             # 归一化分数到[0, 1]
             if results:
