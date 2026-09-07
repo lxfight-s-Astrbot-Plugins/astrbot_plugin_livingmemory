@@ -139,6 +139,14 @@ class MemoryRecall:
 
                 # 存储用户消息（仅私聊），无论是否启用召回都需要
                 is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+
+                # 与 AstrBot LLM 历史对账：WebUI 编辑/重试会截断 LLM 历史，
+                # 插件会话库需同步清理被撤销的尾部轮次（仅私聊；群聊被动
+                # 捕获的消息不在 LLM 历史中，无法对账；内部会先校验事件
+                # 是否携带 webchat 的 llm_checkpoint_id 标记）
+                if not is_group:
+                    await self._reconcile_with_llm_context(event, session_id, req)
+
                 if not is_group and actual_query:
                     message_to_store = request_query
                     if not message_to_store:
@@ -337,6 +345,50 @@ class MemoryRecall:
             raise
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
+
+    async def _reconcile_with_llm_context(
+        self, event: AstrMessageEvent, session_id: str, req: ProviderRequest
+    ) -> None:
+        """以 LLM 请求上下文为锚点，对账插件会话库的尾部轮次。
+
+        WebUI 的「编辑上一条消息并重新请求」「换模型重试上一条对话」只作用于
+        AstrBot 侧会话历史，插件无感知；此处从 req.contexts 提取 ``_checkpoint``
+        段并清理会话库中已被撤销的轮次（见 core/utils/history_alignment.py）。
+
+        前置门槛：仅当事件携带 webchat 的 ``llm_checkpoint_id`` extra 时才执行
+        （非 webchat 平台与旧版 AstrBot 无此标记，库内也不会有 checkpoint 行，
+        直接跳过，避免每个私聊请求都读取全量会话库）。任何异常都不影响召回
+        主流程。
+        """
+        checkpoint_id = None
+        get_extra = getattr(event, "get_extra", None)
+        if callable(get_extra):
+            try:
+                checkpoint_id = get_extra("llm_checkpoint_id")
+            except Exception:
+                checkpoint_id = None
+        if not (isinstance(checkpoint_id, str) and checkpoint_id):
+            return
+
+        contexts = getattr(req, "contexts", None)
+        if not isinstance(contexts, list):
+            return
+        ctx_checkpoints: list[str] = []
+        for message in contexts:
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") != "_checkpoint":
+                continue
+            content = message.get("content")
+            checkpoint_id = content.get("id") if isinstance(content, dict) else None
+            if isinstance(checkpoint_id, str) and checkpoint_id:
+                ctx_checkpoints.append(checkpoint_id)
+        try:
+            await self.conversation_manager.reconcile_session_tail(
+                session_id, ctx_checkpoints
+            )
+        except Exception as exc:
+            logger.warning(f"[{session_id}] 对话历史对账调用失败（已跳过）: {exc}")
 
     def _remove_injected_memories_from_context(
         self, req: ProviderRequest, session_id: str
