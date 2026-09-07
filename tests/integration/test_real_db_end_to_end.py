@@ -390,9 +390,10 @@ class _TestContext:
 
 
 class _TestEvent:
-    def __init__(self, session_id: str, message: str):
+    def __init__(self, session_id: str, message: str, checkpoint: str | None = None):
         self.unified_msg_origin = session_id
         self._message = message
+        self._checkpoint = checkpoint
 
     def plain_result(self, message):
         return message
@@ -417,6 +418,11 @@ class _TestEvent:
 
     def get_platform_name(self):
         return "test"
+
+    def get_extra(self, key: str):
+        if key == "llm_checkpoint_id":
+            return self._checkpoint
+        return None
 
 
 @pytest_asyncio.fixture
@@ -753,3 +759,49 @@ async def test_cleanup_preview_and_exec_paths(real_db_stack):
         content = item.get("content", "")
         assert MEMORY_INJECTION_HEADER not in content
         assert MEMORY_INJECTION_FOOTER not in content
+
+
+@pytest.mark.asyncio
+async def test_webui_edit_regenerate_sync_with_real_database(real_db_stack):
+    """真实数据库上的 WebUI 编辑/重试回滚：库尾与 LLM 历史保持一致。"""
+    event_handler = real_db_stack["event_handler"]
+    conversation_manager = real_db_stack["conversation_manager"]
+    session_id = "test:private:webui-edit-session"
+
+    # 第一轮：正常消息 → 库 [u(C1)]
+    event1 = _TestEvent(session_id, "q1", checkpoint="C1")
+    req1 = SimpleNamespace(prompt="q1", system_prompt="", contexts=[])
+    await event_handler.handle_memory_recall(event1, req1)
+    assert await conversation_manager.store.get_message_count(session_id) == 1
+
+    # WebUI 编辑上一条消息并重发：LLM 历史整体回滚为空 → 旧轮被清理，只存当前（编辑后）轮
+    event2 = _TestEvent(session_id, "q1-edited", checkpoint="C2")
+    req2 = SimpleNamespace(prompt="q1-edited", system_prompt="", contexts=[])
+    await event_handler.handle_memory_recall(event2, req2)
+    rows = await conversation_manager.store.get_session_messages_asc(session_id)
+    assert len(rows) == 1
+    assert rows[0].content == "q1-edited"
+    assert rows[0].metadata["llm_checkpoint_id"] == "C2"
+
+    # 回复入库 → 库 [u(C2), a(C2)]
+    resp2 = LLMResponse(role="assistant", completion_text="edited reply")
+    await event_handler.handle_memory_reflection(event2, resp2)
+    assert await conversation_manager.store.get_message_count(session_id) == 2
+
+    # 第二轮：与 LLM 历史（含 checkpoint C2）一致 → 不做删除，仅追加当前轮
+    event3 = _TestEvent(session_id, "q2", checkpoint="C3")
+    req3 = SimpleNamespace(
+        prompt="q2",
+        system_prompt="",
+        contexts=[{"role": "_checkpoint", "content": {"id": "C2"}}],
+    )
+    await event_handler.handle_memory_recall(event3, req3)
+    rows = await conversation_manager.store.get_session_messages_asc(session_id)
+    assert [m.role for m in rows] == ["user", "assistant", "user"]
+    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == [
+        "C2",
+        "C2",
+        "C3",
+    ]
+
+    await event_handler.shutdown()
