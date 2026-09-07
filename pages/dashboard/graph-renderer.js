@@ -170,7 +170,8 @@
 
     bctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
     bctx.fillRect(0, 0, w, h);
-    bctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(40,92,94,0.12)";
+    this._backgroundAccent = themeColor("--accent", dark ? "#b7f34a" : "#245d61");
+    bctx.fillStyle = hexToRgba(this._backgroundAccent, 0.13);
     for (var x = 0; x <= w; x += step) {
       for (var y = 0; y <= h; y += step) {
         bctx.beginPath();
@@ -179,7 +180,7 @@
       }
     }
     var majorStep = step * 5;
-    bctx.strokeStyle = dark ? "rgba(183,243,74,0.055)" : "rgba(40,92,94,0.05)";
+    bctx.strokeStyle = hexToRgba(this._backgroundAccent, 0.055);
     bctx.lineWidth = 1;
     for (var mx = 0; mx <= w; mx += majorStep) {
       bctx.beginPath();
@@ -217,7 +218,7 @@
     if (animateDecorations) {
       ctx.save();
       var scanY = (Date.now() * 0.018) % Math.max(this.height, 1);
-      ctx.fillStyle = dark ? "rgba(183,243,74,0.13)" : "rgba(42,167,157,0.1)";
+      ctx.fillStyle = hexToRgba(this._backgroundAccent, 0.1);
       ctx.fillRect(0, scanY, this.width, 1);
       ctx.restore();
     }

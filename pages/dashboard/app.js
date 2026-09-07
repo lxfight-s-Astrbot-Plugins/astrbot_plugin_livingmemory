@@ -70,7 +70,7 @@ import {
 
     let frame = 0;
     document.addEventListener("pointermove", (event) => {
-      if (frame) return;
+      if (frame || document.documentElement.dataset.style !== "editorial") return;
       frame = window.requestAnimationFrame(() => {
         const x = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 12;
         const y = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 12;
@@ -79,50 +79,6 @@ import {
         frame = 0;
       });
     }, { passive: true });
-  }
-
-  /* ================================================================
-     Theme Management
-     ================================================================ */
-  function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const darkIcon = document.getElementById("theme-icon-dark");
-    const lightIcon = document.getElementById("theme-icon-light");
-    if (darkIcon && lightIcon) {
-      darkIcon.classList.toggle("hidden", theme === "light");
-      lightIcon.classList.toggle("hidden", theme === "dark");
-    }
-  }
-
-  function getInitialTheme(context) {
-    if (context && typeof context.isDark === "boolean") {
-      return context.isDark ? "dark" : "light";
-    }
-
-    try {
-      const saved = localStorage.getItem("lmem_theme");
-      if (saved === "dark" || saved === "light") {
-        return saved;
-      }
-    } catch (e) {
-      console.warn("[LM] Failed to read theme from localStorage:", e);
-    }
-
-    return "light";
-  }
-
-  function toggleTheme() {
-    const current = document.documentElement.getAttribute("data-theme") || "light";
-    const next = current === "light" ? "dark" : "light";
-
-    try {
-      localStorage.setItem("lmem_theme", next);
-    } catch (e) {
-      console.warn("[LM] Failed to save theme to localStorage:", e);
-    }
-
-    applyTheme(next);
-    showToast(window.t(next === "dark" ? "theme.darkToast" : "theme.lightToast"));
   }
 
   /* ================================================================
@@ -187,8 +143,6 @@ import {
         switchPage(item.dataset.page);
       });
     });
-
-    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
 
     const langMenu = document.getElementById("lang-menu");
     document.querySelectorAll(".lang-option[data-lang]").forEach(option => {
@@ -289,17 +243,12 @@ import {
   async function init() {
     hydrateIcons();
     initMotionField();
+    window.LMAppearance.init();
     const context = await api.ready();
 
     if (api.bridge && typeof api.bridge.onContext === "function") {
       api.bridge.onContext((ctx) => {
-        if (ctx && typeof ctx.isDark === "boolean") {
-          const newTheme = ctx.isDark ? "dark" : "light";
-          const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
-          if (newTheme !== currentTheme) {
-            applyTheme(newTheme);
-          }
-        }
+        window.LMAppearance.setContext(ctx);
 
         if (ctx && ctx.locale) {
           updateLanguageMenu();
@@ -307,8 +256,7 @@ import {
       });
     }
 
-    const initialTheme = getInitialTheme(context);
-    applyTheme(initialTheme);
+    window.LMAppearance.setContext(context);
 
     initSidebar();
 
@@ -320,7 +268,7 @@ import {
     document.getElementById("peek-overlay").addEventListener("click", () => peekPanel.close());
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !document.getElementById("appearance-dialog").open) {
         peekPanel.handleEscape();
       }
     });
@@ -398,6 +346,7 @@ import {
     });
   };
 
-  // 启动应用
-  init();
+  // Graph UI registers its DOMContentLoaded initializer before this module.
+  // A cached Bridge can resolve immediately, so wait for the canvas to be ready.
+  document.addEventListener("DOMContentLoaded", init, { once: true });
 })();

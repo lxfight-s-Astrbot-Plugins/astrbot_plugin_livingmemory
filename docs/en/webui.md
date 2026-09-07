@@ -20,6 +20,19 @@ AstrBot `4.24.2` or later is recommended. Older versions can still run the plugi
 | System status | Review active, archived, and deleted counts plus graph, atom, importance, and session statistics |
 | Prompt management | Browse prompts by category, edit overrides, identify customized templates, and restore or load defaults |
 
+## Appearance
+
+Open **Appearance** using the palette icon at the bottom of the sidebar (in the bottom navigation on mobile). Four visual styles apply immediately:
+
+| Style | Design |
+| --- | --- |
+| Editorial | The original green grid, bold headlines and crisp lines |
+| Studio | Indigo accents, rounded floating cards and horizontal graph metrics |
+| Paper | Warm paper surfaces, serif headings, double rules and reading space |
+| Terminal | Monospace type, cyan accents, sharp borders and graph metrics on the right |
+
+Each style supports Light, Dark and Auto. Auto follows AstrBot, or your device when opened independently. An explicit color mode is not overridden by AstrBot. Preferences are saved in the current browser and survive reloads; when local storage is blocked, they apply only for the current visit. Options support keyboard selection; press Escape to close.
+
 ## Memory details and lifecycle
 
 - Editing a summary, topic, or key fact rebuilds that memory's embedding, BM25, graph, atom, and related derived data. Status-only or importance-only edits do not unconditionally rebuild every index.
