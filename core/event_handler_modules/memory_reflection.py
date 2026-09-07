@@ -144,6 +144,53 @@ class MemoryReflection:
                 )
                 return
 
+            # WebUI 编辑/重试防护：若本回复属于已被取代的轮次
+            # （checkpoint 与最近一条用户消息不一致，例如重试瞬间旧回复
+            # 迟到落库），跳过存储，避免脏写污染会话库。
+            # 注意：库尾为 assistant 且 checkpoint 不同的情况（如纯图片轮次
+            # 的回复紧跟在前一轮回复之后）不属于被取代轮次，仍正常入库——
+            # 真正迟到的孤立回复将由 on_llm_request 对账在下次请求时清理。
+            checkpoint_id = None
+            get_extra = getattr(event, "get_extra", None)
+            if callable(get_extra):
+                try:
+                    checkpoint_id = get_extra("llm_checkpoint_id")
+                except Exception:
+                    checkpoint_id = None
+            if isinstance(checkpoint_id, str) and checkpoint_id:
+                try:
+                    last_message = await self.conversation_manager.get_last_message(
+                        session_id
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        f"[{session_id}] 读取最后一条消息失败，跳过守卫: {exc}"
+                    )
+                    last_message = None
+                if last_message is not None:
+                    last_metadata = last_message.metadata or {}
+                    last_checkpoint = last_metadata.get("llm_checkpoint_id")
+                    if isinstance(last_checkpoint, str) and last_checkpoint:
+                        if (
+                            last_message.role == "user"
+                            and last_checkpoint != checkpoint_id
+                        ):
+                            logger.debug(
+                                f"[{session_id}] 检测到被取代的回复"
+                                f"（checkpoint {last_checkpoint} -> {checkpoint_id}），"
+                                "跳过存储"
+                            )
+                            return
+                        if (
+                            last_message.role == "assistant"
+                            and last_checkpoint == checkpoint_id
+                        ):
+                            logger.debug(
+                                f"[{session_id}] 检测到重复回复"
+                                f"（checkpoint {checkpoint_id}），跳过存储"
+                            )
+                            return
+
             # 添加助手响应
             await self.conversation_manager.add_message_from_event(
                 event=event,

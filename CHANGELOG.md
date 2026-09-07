@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+
+- **WebUI 编辑/重试后对话历史回滚同步**: AstrBot Dashboard 的「编辑上一条消息并重新请求」「换模型重试上一条对话」会在 LLM 侧截断/删除对应轮次（conv_mgr 历史），此前插件会话库对此无感知——被撤销的旧用户消息与旧回复会残留在库内，用户消息被重复入库，随后被滑动窗口总结写入长期记忆，导致记忆与用户修正后的上下文矛盾。现在插件在 `on_llm_request` 时以 AstrBot 会话历史的 `_checkpoint` 段（llm_checkpoint_id）为锚点对账：检测到库尾存在被回滚的轮次即原子删除，并同步修正 `message_count` / `last_summarized_index` / `pending_summary` 游标；`on_llm_response` 增加守卫，重试瞬间迟到的旧轮回复不再落库。群聊、无 checkpoint 的遗留数据与非 webchat 平台保守跳过，行为不变；已写入长期记忆的内容不会自动撤回（局限说明见 PR）
+
+### 测试
+
+- 新增回滚检测纯函数、尾部删除游标钳制、编辑/重试事件流与真实数据库端到端回归测试
+
 ## [2.7.0-beta.1] - 2026-09-07
 
 本版本为预发布测试版，汇总 2.6.1 之后的 #259–#262 与发布准备 #263；稳定版仍为 2.6.1。

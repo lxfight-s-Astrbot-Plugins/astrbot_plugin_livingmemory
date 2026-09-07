@@ -50,8 +50,11 @@ def conversation_manager():
     )
     manager.update_session_metadata = AsyncMock(side_effect=_update_session_metadata)
     manager.invalidate_cache = AsyncMock()
+    manager.reconcile_session_tail = AsyncMock(return_value=0)
+    manager.get_last_message = AsyncMock(return_value=None)
     manager.store = Mock()
     manager.store.get_message_count = AsyncMock(return_value=12)
+    manager.store.get_last_message = AsyncMock(return_value=None)
     manager.store.update_message_metadata = AsyncMock()
     manager.store.connection = Mock()
     manager.store.connection.execute = AsyncMock(return_value=Mock(rowcount=1))
@@ -94,7 +97,7 @@ def _make_resp(text: str = "assistant reply"):
     return resp
 
 
-def _make_event(group: bool = False):
+def _make_event(group: bool = False, checkpoint: str | None = None):
     event = Mock()
     event.unified_msg_origin = "test:private:sid-1"
     event.get_message_type = Mock(
@@ -106,6 +109,8 @@ def _make_event(group: bool = False):
     event.get_message_str = Mock(return_value="hello")
     event.get_messages = Mock(return_value=[])
     event.get_platform_name = Mock(return_value="test")
+    if checkpoint is not None:
+        event.get_extra = Mock(return_value=checkpoint)
     return event
 
 
@@ -886,6 +891,8 @@ async def test_remove_fake_tool_call_preserves_real_tool_calls(handler):
 def _make_recall_conversation_manager():
     manager = Mock()
     manager.add_message_from_event = AsyncMock()
+    manager.reconcile_session_tail = AsyncMock(return_value=0)
+    manager.get_last_message = AsyncMock(return_value=None)
     manager.store = Mock()
     manager.store.connection = None
     return manager
@@ -1829,3 +1836,392 @@ async def test_pending_summary_retry_merges_range(
     call_kwargs = conversation_manager.get_messages_range.await_args.kwargs
     assert call_kwargs["start_index"] == 2  # pending_start
     assert call_kwargs["end_index"] == 12  # total_messages
+
+
+# ==================== WebUI 编辑/重试历史对账测试 ====================
+
+
+async def _make_real_handler(tmp_path, memory_engine=None):
+    """构建使用真实 SQLite 的 EventHandler（memory_engine 用 mock）。"""
+    from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
+        ConversationManager,
+    )
+    from astrbot_plugin_livingmemory.storage.conversation_store import (
+        ConversationStore,
+    )
+
+    store = ConversationStore(str(tmp_path / "conv-history.db"))
+    await store.initialize()
+    manager = ConversationManager(
+        store=store, max_cache_size=10, context_window_size=20, session_ttl=3600
+    )
+
+    if memory_engine is None:
+        engine = Mock()
+        engine.search_memories = AsyncMock(return_value=[])
+        engine.add_memory = AsyncMock(return_value=1)
+        memory_engine = engine
+
+    handler = EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {
+                    "top_k": 3,
+                    "injection_method": "extra_user_content",
+                },
+                "reflection_engine": {"summary_trigger_rounds": 100},
+                "session_manager": {"max_messages_per_session": 100},
+                "filtering_settings": {"use_persona_filtering": False},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=Mock(),
+        conversation_manager=manager,
+    )
+    return handler, manager, store
+
+
+@pytest.mark.asyncio
+async def test_edit_resend_reconciles_store_to_llm_history(tmp_path):
+    """编辑上一条消息并重发（整轮回滚）：库内旧轮应被清理，当前轮只存一次。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+    await manager.add_message(
+        session_id=sid,
+        role="assistant",
+        content="a1",
+        sender_id="bot1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    # 编辑后 LLM 历史为空（整轮被撤销），新请求携带新 checkpoint C2
+    event = _make_event(checkpoint="C2")
+    req = _make_req("q1-edited")
+    req.contexts = []
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event, req)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert [m.role for m in rows] == ["user"]
+    assert rows[0].content == "q1-edited"
+    assert rows[0].metadata["llm_checkpoint_id"] == "C2"
+    session = await store.get_session(sid)
+    assert session.message_count == 1
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_regenerate_reconciles_reverted_tail(tmp_path):
+    """重试上一条对话：库内被撤销的尾轮应被删除，头部轮次保留。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    for checkpoint, user_text, bot_text in (
+        ("C1", "q1", "a1"),
+        ("C2", "q2", "a2"),
+    ):
+        await manager.add_message(
+            session_id=sid,
+            role="user",
+            content=user_text,
+            sender_id="u1",
+            metadata={"llm_checkpoint_id": checkpoint},
+        )
+        await manager.add_message(
+            session_id=sid,
+            role="assistant",
+            content=bot_text,
+            sender_id="bot1",
+            metadata={"llm_checkpoint_id": checkpoint},
+        )
+
+    # LLM 历史只剩 C1 轮（C2 轮被重试撤销），新请求 checkpoint C3
+    event = _make_event(checkpoint="C3")
+    req = _make_req("q2")
+    req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event, req)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert [m.role for m in rows] == ["user", "assistant", "user"]
+    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == [
+        "C1",
+        "C1",
+        "C3",
+    ]
+    session = await store.get_session(sid)
+    assert session.message_count == 3
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_group_events(tmp_path):
+    """群聊事件不应触发对账（被动捕获的消息不在 LLM 历史中）。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+    await manager.add_message(
+        session_id=sid,
+        role="assistant",
+        content="a1",
+        sender_id="bot1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    event = _make_event(group=True)
+    event.unified_msg_origin = "test:group:gid-1"
+    req = _make_req("hello")
+    req.contexts = []
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event, req)
+
+    # 群聊既有消息未被删除，也未存储用户消息
+    rows = await store.get_session_messages_asc(sid)
+    assert len(rows) == 2
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_without_checkpoints(tmp_path):
+    """非 webchat：contexts 与库内均无 checkpoint → 零行为变化。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+    )
+    await manager.add_message(
+        session_id=sid,
+        role="assistant",
+        content="a1",
+        sender_id="bot1",
+    )
+
+    event = _make_event(group=False)
+    req = _make_req("q2")
+    req.contexts = [{"role": "user", "content": "q1"}]
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event, req)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert len(rows) == 3  # 旧两条保留 + 新用户消息
+    assert rows[-1].role == "user"
+    assert rows[-1].content == "q2"
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reflection_guard_skips_stale_assistant(tmp_path):
+    """重试瞬间迟到的旧 bot 回复应被跳过，不污染会话库。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    # 旧轮次（C1）的回复在新轮次（C2）之后才到达 → 应跳过
+    event = _make_event(checkpoint="C2")
+    resp = _make_resp("old reply")
+    await handler.handle_memory_reflection(event, resp)
+
+    assert await store.get_message_count(sid) == 1
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reflection_guard_stores_matching_assistant(tmp_path):
+    """checkpoint 匹配时助手消息正常入库，且带 checkpoint 标记。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    event = _make_event(checkpoint="C1")
+    resp = _make_resp("proper reply")
+    await handler.handle_memory_reflection(event, resp)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert len(rows) == 2
+    assert rows[1].role == "assistant"
+    assert rows[1].metadata["llm_checkpoint_id"] == "C1"
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_gated_on_checkpoint_extra(
+    handler, conversation_manager
+):
+    """非 webchat（事件无 llm_checkpoint_id extra）不触发对账，避免每次读库。"""
+    # 无 checkpoint extra（Mock 自动返回 Mock，非 str）→ 不调用对账
+    event = _make_event(group=False)
+    req = _make_req("hello")
+    req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
+    await handler.handle_memory_recall(event, req)
+    conversation_manager.reconcile_session_tail.assert_not_awaited()
+
+    # 携带 checkpoint extra → 调用对账
+    event2 = _make_event(group=False, checkpoint="C9")
+    await handler.handle_memory_recall(event2, req)
+    conversation_manager.reconcile_session_tail.assert_awaited_once()
+    call_args = conversation_manager.reconcile_session_tail.await_args.args
+    assert call_args[0] == event2.unified_msg_origin
+
+
+@pytest.mark.asyncio
+async def test_image_turn_does_not_break_reconciliation(tmp_path):
+    """纯图片轮次（user 行未入库）不应让对账静默失效；回滚仍被清理。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+
+    for role, content, checkpoint in (
+        ("user", "q1", "C1"),
+        ("assistant", "a1", "C1"),
+        # 纯图片轮 C2：user 行未入库，仅 assistant 行存在
+        ("assistant", "a2", "C2"),
+        ("user", "q3", "C3"),
+        ("assistant", "a3", "C3"),
+    ):
+        await manager.add_message(
+            session_id=sid,
+            role=role,
+            content=content,
+            sender_id="u1" if role == "user" else "bot1",
+            metadata={"llm_checkpoint_id": checkpoint},
+        )
+
+    # 正常新请求 C4：LLM 历史与库一致（含图片轮）→ 不删任何内容
+    event = _make_event(checkpoint="C4")
+    req = _make_req("q4")
+    req.contexts = [
+        {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2", "C3")
+    ]
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event, req)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert [m.role for m in rows] == [
+        "user",
+        "assistant",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
+
+    # 回滚 C3/C4：对账仍能清理回滚尾部（图片轮 C2 保留）
+    event2 = _make_event(checkpoint="C5")
+    req2 = _make_req("q4-again")
+    req2.contexts = [
+        {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2")
+    ]
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = None
+        await handler.handle_memory_recall(event2, req2)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert [m.role for m in rows] == ["user", "assistant", "assistant", "user"]
+    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == [
+        "C1",
+        "C1",
+        "C2",
+        "C5",
+    ]
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reflection_guard_allows_image_turn_reply(tmp_path):
+    """库尾为 assistant 且 checkpoint 不同（纯图片轮次回复）应正常入库。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+    await manager.add_message(
+        session_id=sid,
+        role="assistant",
+        content="a1",
+        sender_id="bot1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    # 图片轮 C2 的回复：无 user 行，尾行 = a(C1)（assistant 且 checkpoint 不同）
+    event = _make_event(checkpoint="C2")
+    resp = _make_resp("image reply")
+    await handler.handle_memory_reflection(event, resp)
+
+    rows = await store.get_session_messages_asc(sid)
+    assert len(rows) == 3
+    assert rows[-1].metadata["llm_checkpoint_id"] == "C2"
+
+    await handler.shutdown()
+    await store.close()
