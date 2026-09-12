@@ -132,7 +132,7 @@
       },
       "injection_method": {
         "description": "记忆注入位置",
-        "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾，不影响前缀缓存且不污染对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：⚠️已废弃，选择后自动回退至 fake_tool_call。Gemini 下若选择 fake_tool_call 会自动降级为 extra_user_content。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
+        "hint": "记忆注入到 LLM 请求的位置。extra_user_content（推荐）：追加到用户消息末尾，不影响前缀缓存且不污染对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：⚠️已废弃，选择后自动回退至 fake_tool_call。Gemini 下若选择 fake_tool_call 会自动降级为 extra_user_content。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
         "labels": [
           "追加到用户消息末尾",
           "用户消息前缀",
@@ -175,7 +175,7 @@
         "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。（允许范围：0–1）"
       },
       "access_decay_window_days": {
-        "description": "访问强化窗口(天)",
+        "description": "访问强化窗口（天）",
         "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。（允许范围：1–3650）"
       },
       "access_decay_max_count": {
@@ -305,15 +305,15 @@
         "hint": "开启后每条 key_fact 独立为一个记忆原子，拥有自己的存活时间和衰减曲线。关闭则完全回退到原来的粗粒度行为。"
       },
       "atom_maintenance_interval_hours": {
-        "description": "原子维护间隔(小时)",
+        "description": "原子维护间隔（小时）",
         "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。（允许范围：1–168）"
       },
       "atom_forget_delay_days": {
-        "description": "原子遗忘延迟(天)",
+        "description": "原子遗忘延迟（天）",
         "hint": "过期原子在多少天后从检索索引中彻底移除。（允许范围：1–90）"
       },
       "atom_purge_delay_days": {
-        "description": "遗忘原子物理清理延迟(天)",
+        "description": "遗忘原子物理清理延迟（天）",
         "hint": "已从检索索引移除的遗忘原子，在多少天后从数据库物理删除以回收存储空间。（允许范围：1–365）"
       }
     },

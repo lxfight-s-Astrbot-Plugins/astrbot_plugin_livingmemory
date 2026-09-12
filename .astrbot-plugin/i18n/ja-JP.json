@@ -119,7 +119,7 @@
         "hint": "ハイブリッド検索が失敗したか結果が空の場合、自動的に純ベクトル検索へフォールバックします。有効化を推奨します。"
       },
       "rerank_enabled": {
-        "description": "Rerank 並べ替えを有効化",
+        "description": "Rerank（リランク）を有効化",
         "hint": "RRF 融合後に Rerank モデルを呼び出し、クエリとの関連性で候補記憶を並べ替え、RRF 順位の代わりに関連性スコアの根拠とします。事前に AstrBot の「サービスプロバイダー」で Rerank タイプのプロバイダーを設定する必要があります。"
       },
       "rerank_provider_id": {
