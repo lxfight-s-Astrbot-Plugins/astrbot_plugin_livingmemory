@@ -243,9 +243,9 @@
     },
     "agent_tools": {
       "description": "Agent 主动记忆工具",
-      "hint": "控制是否向 AstrBot Agent 注册长期记忆回忆与写入工具。",
+      "hint": "控制是否向 AstrBot Agent 注册长期记忆召回与写入工具。",
       "enable_recall_tool": {
-        "description": "启用主动回忆工具",
+        "description": "启用主动召回工具",
         "hint": "开启后注册 recall_long_term_memory，允许 Agent 主动检索长期记忆。"
       },
       "enable_memorize_tool": {
