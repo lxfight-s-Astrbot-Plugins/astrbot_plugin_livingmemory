@@ -43,18 +43,6 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin, GraphStoreSnapshotMi
         return json.dumps(payload or {}, ensure_ascii=False)
 
     @staticmethod
-    def _from_json(payload: str | dict[str, Any] | None) -> dict[str, Any]:
-        if isinstance(payload, dict):
-            return payload
-        if not payload:
-            return {}
-        try:
-            data = json.loads(payload)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    @staticmethod
     def _chunked(items: list[int], size: int) -> list[list[int]]:
         return [items[index : index + size] for index in range(0, len(items), size)]
 

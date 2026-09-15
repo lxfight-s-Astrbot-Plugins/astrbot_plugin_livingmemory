@@ -11,8 +11,10 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ...storage.schema import WRITE_OPS_SCHEMA_STATEMENTS
 from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
 from ..retrieval.hybrid_retriever import HybridResult
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float
 
 
@@ -23,28 +25,8 @@ class MemoryEngineWriteOpsMixin:
         """Create the resumable write-operation log."""
         if self.db_connection is None:
             return
-        await self.db_connection.execute("""
-            CREATE TABLE IF NOT EXISTS memory_write_ops (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                op_type TEXT NOT NULL,
-                memory_id INTEGER,
-                status TEXT NOT NULL DEFAULT 'pending',
-                step TEXT NOT NULL DEFAULT 'started',
-                payload TEXT DEFAULT '{}',
-                error TEXT,
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-        """)
-        await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_memory_write_ops_status
-            ON memory_write_ops(status, updated_at)
-        """)
-        await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_memory_write_ops_memory
-            ON memory_write_ops(memory_id, op_type)
-        """)
+        for statement in WRITE_OPS_SCHEMA_STATEMENTS:
+            await self.db_connection.execute(statement)
 
     async def _start_write_op(
         self,
@@ -268,7 +250,7 @@ class MemoryEngineWriteOpsMixin:
                 bm25_score=None,
                 vector_score=None,
                 content=str(row["text"] or ""),
-                metadata=self._safe_json_dict(row["metadata"]),
+                metadata=safe_json_dict(row["metadata"]),
                 score_breakdown={"recent_memory": 1.0},
             )
             for row in rows
@@ -457,7 +439,7 @@ class MemoryEngineWriteOpsMixin:
 
         repaired = 0
         for row in rows:
-            payload = self._safe_json_dict(row["payload"])
+            payload = safe_json_dict(row["payload"])
             try:
                 op_type = row["op_type"]
                 memory_id = row["memory_id"]
@@ -527,7 +509,7 @@ class MemoryEngineWriteOpsMixin:
 
         metadata = memory.get("metadata") or payload.get("metadata") or {}
         if not isinstance(metadata, dict):
-            metadata = self._safe_json_dict(metadata)
+            metadata = safe_json_dict(metadata)
         if metadata.get("has_source") and not await self.get_memory_source(
             int(memory_id)
         ):
@@ -746,20 +728,6 @@ class MemoryEngineWriteOpsMixin:
                 raise RuntimeError("Graph deletion deferred until rebuild completes")
         if self.atom_store is not None:
             await self.atom_store.batch_delete_by_parent(memory_ids)
-
-    @staticmethod
-    def _safe_json_dict(value: Any) -> dict[str, Any]:
-        if isinstance(value, dict):
-            return value
-        if not value:
-            return {}
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                return parsed if isinstance(parsed, dict) else {}
-            except (json.JSONDecodeError, TypeError):
-                return {}
-        return {}
 
     async def _drop_legacy_documents_fts_triggers(self):
         if self.db_connection is None:
