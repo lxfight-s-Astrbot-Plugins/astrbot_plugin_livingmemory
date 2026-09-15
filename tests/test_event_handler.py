@@ -1164,7 +1164,8 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
         "recall_long_term_memory"
     )
     assert tool_msg["role"] == "tool"
-    assert '"session_filtered": false' in tool_msg["content"]
+    # 作用域回退到原始会话，检索始终携带会话过滤
+    assert '"session_filtered": true' in tool_msg["content"]
     assert '"persona_filtered": true' in tool_msg["content"]
     assert "用户喜欢吃火锅" in tool_msg["content"]
 

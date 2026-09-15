@@ -10,7 +10,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 
-from ..memory_scope import is_event_memory_allowed
+from ..memory_scope import is_event_memory_allowed, is_suspicious_session_id
 
 if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
@@ -63,9 +63,7 @@ class GroupCapture:
             session_id = event.unified_msg_origin
 
             # 检测异常session_id
-            if session_id and (
-                "Error:" in session_id or "error:" in session_id.lower()
-            ):
+            if is_suspicious_session_id(session_id):
                 logger.warning(
                     f"检测到异常的session_id: {session_id}。"
                     f"这可能是平台适配器初始化问题，建议检查平台配置。"

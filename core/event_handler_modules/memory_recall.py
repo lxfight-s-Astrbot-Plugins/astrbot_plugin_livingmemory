@@ -14,7 +14,11 @@ from astrbot.api.platform import MessageType
 from astrbot.api.provider import ProviderRequest
 from astrbot.core.agent.message import TextPart
 
-from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
+from ..memory_scope import (
+    is_event_memory_allowed,
+    is_suspicious_session_id,
+    resolve_memory_scope,
+)
 from ..utils import (
     OperationContext,
     format_memories_for_fake_tool_call,
@@ -96,9 +100,7 @@ class MemoryRecall:
             logger.debug(f"[DEBUG-Recall] 获取到 unified_msg_origin: {session_id}")
 
             # 检测异常session_id
-            if session_id and (
-                "Error:" in session_id or "error:" in session_id.lower()
-            ):
+            if is_suspicious_session_id(session_id):
                 logger.warning(
                     f"[{session_id}] 检测到异常的session_id，这可能导致记忆功能异常。"
                 )
@@ -180,7 +182,11 @@ class MemoryRecall:
                 # 因此不能直接依赖 req.system_prompt 已注入人格，需自行走完整优先级。
                 persona_id = await get_persona_id(self.context, event)
 
-                recall_session_id = resolve_memory_scope(self.config_manager, event)
+                # 作用域解析失败时回退到原始会话，与写入侧（反思/总结/工具）
+                # 保持一致，确保召回与写入面向同一批会话标记的数据
+                recall_session_id = resolve_memory_scope(
+                    self.config_manager, event
+                ) or session_id
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # 使用原始用户输入作为召回关键字

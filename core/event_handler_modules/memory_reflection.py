@@ -11,7 +11,11 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import LLMResponse
 
-from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
+from ..memory_scope import (
+    is_event_memory_allowed,
+    is_suspicious_session_id,
+    resolve_memory_scope,
+)
 from ..memory_source import serialize_source_messages
 from ..utils import get_persona_id
 
@@ -115,7 +119,7 @@ class MemoryReflection:
                 return
 
             # 检测异常session_id
-            if "Error:" in session_id or "error:" in session_id.lower():
+            if is_suspicious_session_id(session_id):
                 logger.warning(
                     f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
                 )
