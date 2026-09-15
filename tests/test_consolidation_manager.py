@@ -161,10 +161,7 @@ class TestGroupSemantic:
     async def test_union_by_similarity(self):
         config = _make_cfg(granularity="semantic")
         engine = Mock()
-        engine.vector_retriever = Mock()
-        engine.vector_retriever.find_similar_pairs = AsyncMock(
-            return_value=[(1, 2, 0.9)]
-        )
+        engine.find_similar_pairs = AsyncMock(return_value=[(1, 2, 0.9)])
         mgr = _make_manager(config, engine=engine)
 
         candidates = [
@@ -178,10 +175,12 @@ class TestGroupSemantic:
         assert {len(g) for g in groups} == {2, 1}
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_session_when_no_vector_retriever(self):
+    async def test_falls_back_when_vector_retriever_unavailable(self):
         config = _make_cfg(granularity="semantic")
         engine = Mock()
-        engine.vector_retriever = None
+        engine.find_similar_pairs = AsyncMock(
+            side_effect=RuntimeError("vector_retriever 未就绪")
+        )
         mgr = _make_manager(config, engine=engine)
 
         candidates = [
@@ -198,8 +197,7 @@ class TestGroupSemantic:
     async def test_falls_back_on_clustering_error(self):
         config = _make_cfg(granularity="semantic")
         engine = Mock()
-        engine.vector_retriever = Mock()
-        engine.vector_retriever.find_similar_pairs = AsyncMock(
+        engine.find_similar_pairs = AsyncMock(
             side_effect=RuntimeError("faiss unavailable")
         )
         mgr = _make_manager(config, engine=engine)

@@ -609,6 +609,215 @@ class MemoryEngineCrudMixin:
             logger.warning("[MemoryEngine] 获取记忆详情失败", exc_info=True)
             return None
 
+    async def get_memory_record(self, memory_id: int) -> dict[str, Any] | None:
+        """
+        读取记忆的原始文档记录（供管理页面展示/编辑前快照使用）。
+
+        与 get_memory() 不同，本方法直接读取 documents 表，
+        返回 doc_id/created_at/updated_at 等原始列，metadata 保持原始字符串。
+
+        Args:
+            memory_id: 记忆ID(documents.id)
+
+        Returns:
+            Optional[Dict]: 原始记录字典，不存在时返回 None
+        """
+        if self.db_connection is None:
+            logger.warning("[MemoryEngine] 数据库连接未初始化，无法读取记忆记录")
+            return None
+        try:
+            cursor = await self.db_connection.execute(
+                """
+                SELECT id, doc_id, text, metadata, created_at, updated_at
+                FROM documents
+                WHERE id = ?
+                """,
+                (memory_id,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "doc_id": row["doc_id"],
+                "text": row["text"],
+                "metadata": row["metadata"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[MemoryEngine] 读取记忆记录失败", exc_info=True)
+            return None
+
+    async def list_memories_page(
+        self,
+        *,
+        session_id: str | None = None,
+        keyword: str = "",
+        status: str = "all",
+        memory_type: str | None = None,
+        sort_key: str = "created_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """
+        分页列出记忆（供管理页面使用），支持会话/状态/类型/关键词过滤与排序。
+
+        过滤/排序表达式必须与 documents 上的表达式索引逐字匹配
+        （idx_doc_memory_type / idx_doc_status / idx_doc_create_time），
+        不得用 CASE WHEN json_valid 包装，否则索引失效退化为全表扫描。
+
+        Args:
+            session_id: 会话ID过滤
+            keyword: 关键词过滤（纯数字时同时匹配记忆ID）
+            status: 状态过滤（all/active/archived）
+            memory_type: 记忆类型过滤（GENERAL/FACT/...）
+            sort_key: 排序键，不在白名单内时回退为 created_desc
+            page: 页码（从1开始）
+            page_size: 每页数量
+
+        Returns:
+            Dict: 包含 items/total/page/page_size/has_more/sort 的字典
+
+        Raises:
+            RuntimeError: 数据库连接未初始化时抛出
+        """
+        if self.db_connection is None:
+            raise RuntimeError("数据库连接未初始化")
+
+        offset = (max(1, page) - 1) * page_size
+        where_clauses: list[str] = []
+        params: list[Any] = []
+        type_expr = (
+            "UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL'))"
+        )
+
+        if session_id:
+            where_clauses.append("json_extract(metadata, '$.session_id') = ?")
+            params.append(session_id)
+
+        if status and status != "all":
+            where_clauses.append(
+                "COALESCE(json_extract(metadata, '$.status'), 'active') = ?"
+            )
+            params.append(status)
+
+        if memory_type:
+            where_clauses.append(f"{type_expr} = ?")
+            params.append(memory_type.upper())
+
+        if keyword:
+            keyword_like = f"%{keyword}%"
+            if keyword.isdigit():
+                where_clauses.append(
+                    "(CAST(id AS TEXT) = ? OR text LIKE ? COLLATE NOCASE)"
+                )
+                params.extend([keyword, keyword_like])
+            else:
+                where_clauses.append(
+                    "("
+                    "text LIKE ? COLLATE NOCASE "
+                    "OR COALESCE(json_extract(metadata, '$.memory_type'), '') LIKE ? COLLATE NOCASE"
+                    ")"
+                )
+                params.extend([keyword_like, keyword_like])
+
+        where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        # 与 idx_doc_create_time 首列逐字匹配，created_desc/asc 可走索引排序
+        created_expr = (
+            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0)"
+        )
+        updated_expr = (
+            "COALESCE("
+            "CAST(json_extract(metadata, '$.updated_at') AS REAL),"
+            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0),"
+            "0)"
+        )
+        importance_raw_expr = (
+            "COALESCE(CAST(json_extract(metadata, '$.importance') AS REAL), 0.5)"
+        )
+        importance_expr = (
+            f"CASE WHEN {importance_raw_expr} <= 1.0 "
+            f"THEN {importance_raw_expr} * 10.0 ELSE {importance_raw_expr} END"
+        )
+        sort_options = {
+            "created_desc": f"{created_expr} DESC, id DESC",
+            "created_asc": f"{created_expr} ASC, id ASC",
+            "updated_desc": f"{updated_expr} DESC, id DESC",
+            "updated_asc": f"{updated_expr} ASC, id ASC",
+            "importance_desc": f"{importance_expr} DESC, id DESC",
+            "importance_asc": f"{importance_expr} ASC, id ASC",
+            "type_asc": f"{type_expr} ASC, id DESC",
+            "type_desc": f"{type_expr} DESC, id DESC",
+            "id_desc": "id DESC",
+            "id_asc": "id ASC",
+        }
+        sort_expr = sort_options.get(sort_key)
+        if sort_expr is None:
+            sort_key = "created_desc"
+            sort_expr = sort_options[sort_key]
+
+        count_cursor = await self.db_connection.execute(
+            f"SELECT COUNT(*) AS total FROM documents {where_clause}",
+            params,
+        )
+        count_row = await count_cursor.fetchone()
+        total = int(count_row["total"]) if count_row else 0
+
+        cursor = await self.db_connection.execute(
+            f"""
+            SELECT id, doc_id, text, metadata, created_at, updated_at
+            FROM documents
+            {where_clause}
+            ORDER BY {sort_expr}
+            LIMIT ? OFFSET ?
+            """,
+            (*params, page_size, offset),
+        )
+        rows = await cursor.fetchall()
+
+        items = [
+            {
+                "id": row["id"],
+                "doc_id": row["doc_id"],
+                "text": row["text"],
+                "metadata": row["metadata"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": (offset + page_size) < total,
+            "sort": sort_key,
+        }
+
+    async def find_similar_pairs(
+        self, memory_ids: list[int], threshold: float
+    ) -> list[tuple[int, int, float]]:
+        """
+        批量查找语义相似的记忆对（供记忆整合的语义聚类使用）。
+
+        Args:
+            memory_ids: 候选记忆ID列表
+            threshold: 相似度阈值
+
+        Returns:
+            List[Tuple[int, int, float]]: (id_a, id_b, similarity) 相似对列表
+
+        Raises:
+            RuntimeError: 向量检索器未就绪时抛出
+        """
+        if self.vector_retriever is None:
+            raise RuntimeError("vector_retriever 未就绪")
+        return await self.vector_retriever.find_similar_pairs(memory_ids, threshold)
+
     async def update_memory(
         self,
         memory_id: int,

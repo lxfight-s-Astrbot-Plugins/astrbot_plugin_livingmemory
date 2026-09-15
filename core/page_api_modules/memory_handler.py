@@ -5,7 +5,6 @@
 import inspect
 from typing import TYPE_CHECKING, Any
 
-import aiosqlite
 from quart import request
 
 from astrbot.api import logger
@@ -107,111 +106,22 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         except (TypeError, ValueError):
             return self.utils.error("分页参数无效")
 
-        db_path = getattr(memory_engine, "db_path", None)
-        if not db_path:
-            return self.utils.error("MemoryEngine db_path unavailable")
-
-        offset = (page - 1) * page_size
-        where_clauses: list[str] = []
-        params: list[Any] = []
-        # 过滤/排序表达式必须与 documents 上的表达式索引逐字匹配
-        # （idx_doc_memory_type / idx_doc_status / idx_doc_create_time），
-        # 不得用 CASE WHEN json_valid 包装，否则索引失效退化为全表扫描
-        type_expr = "UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL'))"
-
-        if session_id:
-            where_clauses.append("json_extract(metadata, '$.session_id') = ?")
-            params.append(session_id)
-
-        if status_filter != "all":
-            where_clauses.append(
-                "COALESCE(json_extract(metadata, '$.status'), 'active') = ?"
-            )
-            params.append(status_filter)
-
-        if type_filter:
-            where_clauses.append(f"{type_expr} = ?")
-            params.append(type_filter.upper())
-
-        if keyword:
-            keyword_like = f"%{keyword}%"
-            if keyword.isdigit():
-                where_clauses.append(
-                    "(CAST(id AS TEXT) = ? OR text LIKE ? COLLATE NOCASE)"
-                )
-                params.extend([keyword, keyword_like])
-            else:
-                where_clauses.append(
-                    "("
-                    "text LIKE ? COLLATE NOCASE "
-                    "OR COALESCE(json_extract(metadata, '$.memory_type'), '') LIKE ? COLLATE NOCASE"
-                    ")"
-                )
-                params.extend([keyword_like, keyword_like])
-
-        where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-        # 与 idx_doc_create_time 首列逐字匹配，created_desc/asc 可走索引排序
-        created_expr = (
-            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0)"
-        )
-        updated_expr = (
-            "COALESCE("
-            "CAST(json_extract(metadata, '$.updated_at') AS REAL),"
-            "COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0),"
-            "0)"
-        )
-        importance_raw_expr = (
-            "COALESCE(CAST(json_extract(metadata, '$.importance') AS REAL), 0.5)"
-        )
-        importance_expr = (
-            f"CASE WHEN {importance_raw_expr} <= 1.0 "
-            f"THEN {importance_raw_expr} * 10.0 ELSE {importance_raw_expr} END"
-        )
-        sort_options = {
-            "created_desc": f"{created_expr} DESC, id DESC",
-            "created_asc": f"{created_expr} ASC, id ASC",
-            "updated_desc": f"{updated_expr} DESC, id DESC",
-            "updated_asc": f"{updated_expr} ASC, id ASC",
-            "importance_desc": f"{importance_expr} DESC, id DESC",
-            "importance_asc": f"{importance_expr} ASC, id ASC",
-            "type_asc": f"{type_expr} ASC, id DESC",
-            "type_desc": f"{type_expr} DESC, id DESC",
-            "id_desc": "id DESC",
-            "id_asc": "id ASC",
-        }
-        sort_expr = sort_options.get(sort_key)
-        if sort_expr is None:
-            sort_key = "created_desc"
-            sort_expr = sort_options[sort_key]
-
         try:
-            async with aiosqlite.connect(db_path) as db:
-                db.row_factory = aiosqlite.Row
-
-                count_cursor = await db.execute(
-                    f"SELECT COUNT(*) AS total FROM documents {where_clause}",
-                    params,
-                )
-                count_row = await count_cursor.fetchone()
-                total = int(count_row["total"]) if count_row else 0
-
-                cursor = await db.execute(
-                    f"""
-                    SELECT id, doc_id, text, metadata, created_at, updated_at
-                    FROM documents
-                    {where_clause}
-                    ORDER BY {sort_expr}
-                    LIMIT ? OFFSET ?
-                    """,
-                    (*params, page_size, offset),
-                )
-                rows = await cursor.fetchall()
+            page_data = await memory_engine.list_memories_page(
+                session_id=session_id,
+                keyword=keyword,
+                status=status_filter,
+                memory_type=type_filter,
+                sort_key=sort_key,
+                page=page,
+                page_size=page_size,
+            )
         except Exception as exc:
             logger.error(f"[PageAPI] 获取记忆列表失败: {exc}", exc_info=True)
             return self.utils.error(str(exc))
 
         items: list[dict[str, Any]] = []
-        for row in rows:
+        for row in page_data["items"]:
             items.append(
                 {
                     "id": row["id"],
@@ -226,17 +136,17 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         return self.utils.ok(
             {
                 "items": items,
-                "total": total,
+                "total": page_data["total"],
                 "page": page,
                 "page_size": page_size,
-                "has_more": (offset + page_size) < total,
+                "has_more": page_data["has_more"],
                 "filters": {
                     "session_id": session_id,
                     "keyword": keyword,
                     "status": status_filter,
                     "type": type_filter,
                 },
-                "sort": sort_key,
+                "sort": page_data["sort"],
             }
         )
 
@@ -258,7 +168,7 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         except (TypeError, ValueError):
             return self.utils.error("memory_id 必须是整数")
 
-        memory = await self._get_memory_record(memory_id, memory_engine)
+        memory = await memory_engine.get_memory_record(memory_id)
         if not memory:
             return self.utils.error("记忆不存在")
 
@@ -330,7 +240,7 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         if memory_processor is None:
             return self.utils.error("记忆处理器未初始化")
 
-        memory = await self._get_memory_record(memory_id, memory_engine)
+        memory = await memory_engine.get_memory_record(memory_id)
         if not memory:
             return self.utils.error("记忆不存在")
         get_source = getattr(memory_engine, "get_memory_source", None)
@@ -372,45 +282,3 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
             }
         )
 
-    async def _get_memory_record(
-        self, memory_id: int, memory_engine
-    ) -> dict[str, Any] | None:
-        """
-        获取单个记忆的原始记录
-
-        Args:
-            memory_id: 记忆ID
-            memory_engine: 记忆引擎实例
-
-        Returns:
-            记忆记录字典，如果不存在则返回 None
-        """
-        db_path = getattr(memory_engine, "db_path", None)
-        if not db_path:
-            return None
-
-        try:
-            async with aiosqlite.connect(db_path) as db:
-                db.row_factory = aiosqlite.Row
-                cursor = await db.execute(
-                    """
-                    SELECT id, doc_id, text, metadata, created_at, updated_at
-                    FROM documents
-                    WHERE id = ?
-                    """,
-                    (memory_id,),
-                )
-                row = await cursor.fetchone()
-                if not row:
-                    return None
-                return {
-                    "id": row["id"],
-                    "doc_id": row["doc_id"],
-                    "text": row["text"],
-                    "metadata": row["metadata"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                }
-        except Exception as exc:
-            logger.error(f"[PageAPI] 获取记忆记录失败: {exc}", exc_info=True)
-            return None

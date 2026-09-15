@@ -49,7 +49,7 @@ class MemoryHandlerUpdateMixin:
         if not field or value is None:
             return self.utils.error("需要指定 field 和 value")
 
-        memory = await self._get_memory_record(memory_id, memory_engine)
+        memory = await memory_engine.get_memory_record(memory_id)
         if not memory:
             return self.utils.error("记忆不存在")
 
