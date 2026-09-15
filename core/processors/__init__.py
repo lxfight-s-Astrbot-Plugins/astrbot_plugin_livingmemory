@@ -7,14 +7,12 @@ from .chatroom_parser import ChatroomContextParser
 from .entity_resolver import EntityResolver
 from .graph_extractor import GraphExtractor
 from .memory_processor import MemoryProcessor
-from .message_utils import store_round_with_length_check
 from .text_processor import TextProcessor
 
 __all__ = [
     "MemoryProcessor",
     "TextProcessor",
     "ChatroomContextParser",
-    "store_round_with_length_check",
     "EntityResolver",
     "GraphExtractor",
 ]

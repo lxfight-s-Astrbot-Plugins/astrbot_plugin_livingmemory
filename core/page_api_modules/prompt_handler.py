@@ -88,7 +88,6 @@ class PromptHandler:
         except Exception as e:
             logger.error(f"[PromptHandler] 获取默认提示词失败: {e}", exc_info=True)
             return self.utils.error(str(e))
-            return self.utils.error(str(e))
 
     async def update_prompt(self) -> dict[str, Any]:
         """更新提示词内容"""

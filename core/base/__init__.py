@@ -7,23 +7,15 @@ from .config_manager import ConfigManager
 from .constants import *
 from .exceptions import (
     ConfigurationError,
-    DatabaseError,
     InitializationError,
     LivingMemoryException,
-    MemoryProcessingError,
     ProviderNotReadyError,
-    RetrievalError,
-    ValidationError,
 )
 
 __all__ = [
     "ConfigurationError",
-    "DatabaseError",
     "InitializationError",
     "LivingMemoryException",
-    "MemoryProcessingError",
     "ProviderNotReadyError",
-    "RetrievalError",
-    "ValidationError",
     "ConfigManager",
 ]

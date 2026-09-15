@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import re
 from typing import Any
 
 from astrbot.api import logger
@@ -12,7 +11,6 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import LLMResponse, ProviderRequest
 
 from .base.config_manager import ConfigManager
-from .base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 from .event_handler_modules import (
     GroupCapture,
     MemoryRecall,
@@ -23,12 +21,6 @@ from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
 from .processors.memory_processor import MemoryProcessor
 from .utils.injection_adapter import InjectionAdapter
-
-# 预编译记忆注入清理正则（热路径优化：避免每次调用 re.compile）
-_INJECTION_CLEANUP_PATTERN = re.compile(
-    re.escape(MEMORY_INJECTION_HEADER) + r".*?" + re.escape(MEMORY_INJECTION_FOOTER),
-    flags=re.DOTALL,
-)
 
 
 class EventHandler:
