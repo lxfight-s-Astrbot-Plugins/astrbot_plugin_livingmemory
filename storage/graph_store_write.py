@@ -16,7 +16,15 @@ from .schema import GRAPH_SCHEMA_STATEMENTS
 
 
 class GraphStoreWriteMixin:
-    """GraphStore 拆分模块：GraphStoreWriteMixin"""
+    """GraphStore 拆分模块：GraphStoreWriteMixin
+
+    宿主契约：``_connect`` / ``_now_iso`` / ``_to_json`` / ``_chunked`` 由
+    ``GraphStore`` 提供；``_node_fts_available`` 在 ``initialize`` 中赋值
+    （trigram tokenizer 不可用时保持 False），读取侧经 getattr 兜底。
+    """
+
+    # 宿主共享状态契约
+    _node_fts_available: bool
 
     async def initialize(self) -> None:
         """Create tables used by the graph-memory layer."""

@@ -13,9 +13,29 @@ from astrbot.api import logger
 from pathlib import Path
 import time
 
+import aiosqlite
+
+from ...storage.atom_store import AtomStore
+
 
 class MemoryEngineBatchMixin:
-    """MemoryEngine 拆分模块：MemoryEngineBatchMixin"""
+    """MemoryEngine 拆分模块：MemoryEngineBatchMixin
+
+    下述类级注解声明本模块依赖的宿主共享状态（由 MemoryEngine.__init__ /
+    initialize 赋值），仅作类型约束，不在此赋默认值。
+    """
+
+    # 宿主共享状态契约
+    db_connection: aiosqlite.Connection | None
+    config: dict[str, Any]
+    faiss_db: Any
+    db_path: str
+    atom_store: AtomStore | None
+    vector_retriever: Any | None
+    bm25_retriever: Any | None
+    graph_memory_manager: Any | None
+    graph_store: Any | None
+    index_maintenance_status: dict[str, Any]
     async def batch_delete_memories(self, memory_ids: list[int]) -> int:
         """Batch delete multiple memories using bulk SQL operations."""
         if not memory_ids:

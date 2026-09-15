@@ -16,10 +16,30 @@ from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.route_execution import search_route
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
+from ...storage.atom_store import AtomStore
+
+import aiosqlite
 
 
 class MemoryEngineCrudMixin:
-    """MemoryEngine 拆分模块：MemoryEngineCrudMixin"""
+    """MemoryEngine 拆分模块：MemoryEngineCrudMixin
+
+    下述类级注解声明本模块依赖的宿主共享状态（由 ``MemoryEngine.__init__`` /
+    ``initialize`` 赋值，见 core/managers/memory_engine.py）。仅作类型约束，
+    不在此赋默认值——宿主是共享状态的唯一属主。
+    """
+
+    # 宿主共享状态契约
+    db_connection: aiosqlite.Connection | None
+    config: dict[str, Any]
+    faiss_db: Any
+    atom_enabled: bool
+    atom_store: AtomStore | None
+    atom_retriever: Any | None
+    vector_retriever: Any | None
+    hybrid_retriever: Any | None
+    dual_route_retriever: Any | None
+    graph_memory_manager: Any | None
 
     async def add_memory(
         self,
