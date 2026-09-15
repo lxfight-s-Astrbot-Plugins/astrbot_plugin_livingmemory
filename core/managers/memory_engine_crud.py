@@ -14,6 +14,7 @@ from ..memory_transfer import memory_import_key
 from ..processors.atom_classifier import classify_atoms
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.route_execution import search_route
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 
 
@@ -338,7 +339,7 @@ class MemoryEngineCrudMixin:
         def _build_records() -> list[dict[str, Any]]:
             # 逐行 JSON 解析属于 CPU 密集工作，整体在 to_thread 中执行
             for row in rows:
-                metadata = self._safe_json_dict(row["metadata"])
+                metadata = safe_json_dict(row["metadata"])
                 source_messages: list[dict[str, Any]] = []
                 if row["source_json"]:
                     try:
@@ -477,7 +478,7 @@ class MemoryEngineCrudMixin:
                     metadata_filters={}, ids=list(scores), limit=len(scores)
                 )
                 for document in documents:
-                    metadata = self._safe_json_dict(document.get("metadata"))
+                    metadata = safe_json_dict(document.get("metadata"))
                     if (
                         session_id is not None
                         and metadata.get("session_id") != session_id
@@ -847,16 +848,7 @@ class MemoryEngineCrudMixin:
             return False
 
         # 解析 metadata（可能是JSON字符串）
-        current_metadata = memory.get("metadata", {})
-        if isinstance(current_metadata, str):
-            import json
-
-            try:
-                current_metadata = json.loads(current_metadata)
-            except (json.JSONDecodeError, TypeError):
-                current_metadata = {}
-        elif not isinstance(current_metadata, dict):
-            current_metadata = {}
+        current_metadata = safe_json_dict(memory.get("metadata", {}))
 
         # 处理内容更新 (需要重建所有索引)
         if "content" in updates:
@@ -916,17 +908,7 @@ class MemoryEngineCrudMixin:
 
         if metadata_updates:
             # 确保 current_metadata 是字典（再次检查）
-            if not isinstance(current_metadata, dict):
-                import json
-
-                try:
-                    current_metadata = (
-                        json.loads(current_metadata)
-                        if isinstance(current_metadata, str)
-                        else {}
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    current_metadata = {}
+            current_metadata = safe_json_dict(current_metadata)
 
             # 合并元数据
             current_metadata.update(metadata_updates)
@@ -986,7 +968,7 @@ class MemoryEngineCrudMixin:
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
 
-        current_metadata = self._safe_json_dict(current.get("metadata"))
+        current_metadata = safe_json_dict(current.get("metadata"))
         source_messages = await self.get_memory_source(memory_id)
         replacement_metadata = current_metadata.copy()
         replacement_metadata.update(metadata or {})
@@ -1260,8 +1242,6 @@ class MemoryEngineCrudMixin:
             )
             rows = await cursor.fetchall()
 
-            safe_json_dict = self._safe_json_dict
-
             def _compute_updates() -> list[tuple[str, int]]:
                 updates: list[tuple[str, int]] = []
                 for row in rows:
@@ -1438,7 +1418,6 @@ class MemoryEngineCrudMixin:
             )
             rows = await cursor.fetchall()
 
-            safe_json_dict = self._safe_json_dict
             parsed = await asyncio.to_thread(
                 lambda: [safe_json_dict(r["metadata"]) for r in rows]
             )

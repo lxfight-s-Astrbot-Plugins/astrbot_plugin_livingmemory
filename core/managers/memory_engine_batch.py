@@ -5,6 +5,7 @@ MemoryEngine 的 MemoryEngineBatchMixin 拆分模块
 
 from typing import Any
 import asyncio
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 from ..processors.atom_classifier import classify_atoms
 import json
@@ -186,7 +187,6 @@ class MemoryEngineBatchMixin:
             batch_size = 500
             last_id = 0
             candidates: list[int] = []
-            safe_json_dict = self._safe_json_dict
 
             # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             while True:
@@ -246,7 +246,7 @@ class MemoryEngineBatchMixin:
         metadata_updates: list[tuple[str, int]] = []
         archived_at = time.time()
         for document in documents:
-            metadata = self._safe_json_dict(document.get("metadata"))
+            metadata = safe_json_dict(document.get("metadata"))
             if str(metadata.get("status") or "active") == "archived":
                 continue
             metadata["status"] = "archived"
@@ -291,7 +291,7 @@ class MemoryEngineBatchMixin:
         memory = await self.get_memory(memory_id)
         if not memory:
             return False
-        metadata = self._safe_json_dict(memory.get("metadata"))
+        metadata = safe_json_dict(memory.get("metadata"))
         if str(metadata.get("status") or "active") != "archived":
             return True
 
@@ -538,7 +538,6 @@ class MemoryEngineBatchMixin:
             # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             batch_size = 500
             last_id = 0
-            safe_json_dict = self._safe_json_dict
 
             while True:
                 cursor = await self.db_connection.execute(
@@ -654,7 +653,6 @@ class MemoryEngineBatchMixin:
         )
         rows = await cursor.fetchall()
 
-        safe_json_dict = self._safe_json_dict
         candidates: list[dict[str, Any]] = []
         for row in rows:
             candidates.append(

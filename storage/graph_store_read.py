@@ -11,6 +11,8 @@ import aiosqlite
 
 from astrbot.api import logger
 
+from ..core.utils.json_utils import safe_json_dict
+
 
 class GraphStoreReadMixin:
     """GraphStore 拆分模块：GraphStoreReadMixin"""
@@ -72,7 +74,7 @@ class GraphStoreReadMixin:
                 grouped: dict[int, list[tuple[int, str, dict[str, Any]]]] = {}
                 for entry_id, source_memory_id, content, metadata in rows:
                     grouped.setdefault(int(source_memory_id), []).append(
-                        (int(entry_id), str(content or ""), self._from_json(metadata))
+                        (int(entry_id), str(content or ""), safe_json_dict(metadata))
                     )
                 yield [
                     (
@@ -139,7 +141,7 @@ class GraphStoreReadMixin:
                 if score_range == 0
                 else (max_score - float(row["score"])) / score_range
             )
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             hits.append(
                 {
                     "entry_id": int(row["id"]),
@@ -206,7 +208,7 @@ class GraphStoreReadMixin:
                 "node_type": row["node_type"],
                 "node_value": row["node_value"],
                 "canonical_value": row["canonical_value"],
-                "metadata": self._from_json(row["metadata"]),
+                "metadata": safe_json_dict(row["metadata"]),
             }
             for row in rows
         ]
@@ -253,7 +255,7 @@ class GraphStoreReadMixin:
 
         hits: list[dict[str, Any]] = []
         for row in rows:
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             hits.append(
                 {
                     "entry_id": int(row["id"]),

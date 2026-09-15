@@ -12,6 +12,8 @@ import aiosqlite
 
 from astrbot.api import logger
 
+from .schema import GRAPH_SCHEMA_STATEMENTS, WRITE_OPS_SCHEMA_STATEMENTS
+
 
 class DBMigration:
     """数据库迁移管理器"""
@@ -481,86 +483,8 @@ class DBMigration:
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("PRAGMA foreign_keys = ON")
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS graph_nodes (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        node_key TEXT NOT NULL UNIQUE,
-                        node_type TEXT NOT NULL,
-                        node_value TEXT NOT NULL,
-                        canonical_value TEXT NOT NULL,
-                        metadata TEXT DEFAULT '{}',
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
-                    )
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS graph_edges (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        edge_key TEXT NOT NULL UNIQUE,
-                        source_node_id INTEGER NOT NULL,
-                        target_node_id INTEGER NOT NULL,
-                        relation_type TEXT NOT NULL,
-                        source_memory_id INTEGER NOT NULL,
-                        weight REAL NOT NULL DEFAULT 1.0,
-                        confidence REAL NOT NULL DEFAULT 0.8,
-                        status TEXT NOT NULL DEFAULT 'active',
-                        metadata TEXT DEFAULT '{}',
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        FOREIGN KEY(source_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
-                        FOREIGN KEY(target_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS graph_entries (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        entry_key TEXT NOT NULL UNIQUE,
-                        source_memory_id INTEGER NOT NULL,
-                        session_id TEXT,
-                        persona_id TEXT,
-                        entry_type TEXT NOT NULL,
-                        relation_type TEXT,
-                        content TEXT NOT NULL,
-                        metadata TEXT DEFAULT '{}',
-                        edge_id INTEGER,
-                        vector_doc_id INTEGER,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        FOREIGN KEY(edge_id) REFERENCES graph_edges(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS graph_entry_nodes (
-                        entry_id INTEGER NOT NULL,
-                        node_id INTEGER NOT NULL,
-                        PRIMARY KEY(entry_id, node_id),
-                        FOREIGN KEY(entry_id) REFERENCES graph_entries(id) ON DELETE CASCADE,
-                        FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
-                    USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
-                    """
-                )
-                await db.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_graph_nodes_canonical ON graph_nodes(canonical_value)"
-                )
-                await db.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_graph_edges_memory_id ON graph_edges(source_memory_id)"
-                )
-                await db.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_graph_entries_memory_id ON graph_entries(source_memory_id)"
-                )
+                for statement in GRAPH_SCHEMA_STATEMENTS:
+                    await db.execute(statement)
                 await db.commit()
 
             logger.info("v4 -> v5 迁移完成")
@@ -693,34 +617,8 @@ class DBMigration:
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("PRAGMA busy_timeout = 10000")
-                await db.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS memory_write_ops (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        op_type TEXT NOT NULL,
-                        memory_id INTEGER,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        step TEXT NOT NULL DEFAULT 'started',
-                        payload TEXT DEFAULT '{}',
-                        error TEXT,
-                        retry_count INTEGER NOT NULL DEFAULT 0,
-                        created_at REAL NOT NULL,
-                        updated_at REAL NOT NULL
-                    )
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_status
-                    ON memory_write_ops(status, updated_at)
-                    """
-                )
-                await db.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_memory
-                    ON memory_write_ops(memory_id, op_type)
-                    """
-                )
+                for statement in WRITE_OPS_SCHEMA_STATEMENTS:
+                    await db.execute(statement)
 
                 if await self._table_exists(db, "documents"):
                     await db.execute(
