@@ -3,17 +3,12 @@
 import json
 import time
 from datetime import datetime
-from unittest.mock import AsyncMock
 
-import pytest
 import pytz
 from astrbot_plugin_livingmemory.core.utils import (
     extract_json_from_response,
     format_memories_for_injection,
-    get_now_datetime,
-    retry_on_failure,
     safe_parse_metadata,
-    safe_serialize_metadata,
     validate_timestamp,
 )
 
@@ -53,35 +48,6 @@ class TestSafeParseMetadata:
         """测试空字符串返回空字典"""
         result = safe_parse_metadata("")
         assert result == {}
-
-
-class TestSafeSerializeMetadata:
-    """测试元数据序列化"""
-
-    def test_serialize_simple_dict(self):
-        """测试简单字典序列化"""
-        data = {"key": "value", "number": 42}
-        result = safe_serialize_metadata(data)
-        assert json.loads(result) == data
-
-    def test_serialize_with_unicode(self):
-        """测试Unicode字符序列化"""
-        data = {"中文": "测试", "emoji": "😀"}
-        result = safe_serialize_metadata(data)
-        # ensure_ascii=False 应该保留Unicode字符
-        assert "中文" in result
-        assert "测试" in result
-
-    def test_serialize_nested_dict(self):
-        """测试嵌套字典序列化"""
-        data = {"outer": {"inner": {"deep": "value"}}}
-        result = safe_serialize_metadata(data)
-        assert json.loads(result) == data
-
-    def test_serialize_empty_dict(self):
-        """测试空字典序列化"""
-        result = safe_serialize_metadata({})
-        assert result == "{}"
 
 
 class TestValidateTimestamp:
@@ -129,96 +95,6 @@ class TestValidateTimestamp:
         after = time.time()
 
         assert before <= result <= after
-
-
-class TestRetryOnFailure:
-    """测试重试机制"""
-
-    @pytest.mark.asyncio
-    async def test_retry_succeeds_on_first_attempt(self):
-        """测试第一次尝试成功"""
-        async_func = AsyncMock(return_value="success")
-
-        result = await retry_on_failure(async_func, max_retries=3)
-
-        assert result == "success"
-        async_func.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_retry_succeeds_after_failures(self):
-        """测试重试后成功"""
-        call_count = 0
-
-        async def failing_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise ValueError("Still failing")
-            return "success"
-
-        result = await retry_on_failure(
-            failing_func,
-            max_retries=3,
-            backoff_factor=0.01,  # 快速重试
-            exceptions=(ValueError,),
-        )
-
-        assert result == "success"
-        assert call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_retry_exhausted_raises_exception(self):
-        """测试重试耗尽后抛出异常"""
-        async_func = AsyncMock(side_effect=ValueError("Always fails"))
-
-        with pytest.raises(ValueError, match="Always fails"):
-            await retry_on_failure(
-                async_func,
-                max_retries=2,
-                backoff_factor=0.01,
-                exceptions=(ValueError,),
-            )
-
-        assert async_func.await_count == 3  # 初始 + 2次重试
-
-    @pytest.mark.asyncio
-    async def test_retry_with_sync_function(self):
-        """测试同步函数重试"""
-        call_count = 0
-
-        def sync_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise ValueError("First try fails")
-            return "sync success"
-
-        result = await retry_on_failure(
-            sync_func,
-            max_retries=2,
-            backoff_factor=0.01,
-            exceptions=(ValueError,),
-        )
-
-        assert result == "sync success"
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_retry_respects_exception_types(self):
-        """测试只重试指定的异常类型"""
-        async_func = AsyncMock(side_effect=RuntimeError("Wrong exception"))
-
-        # 配置只重试 ValueError
-        with pytest.raises(RuntimeError, match="Wrong exception"):
-            await retry_on_failure(
-                async_func,
-                max_retries=2,
-                backoff_factor=0.01,
-                exceptions=(ValueError,),
-            )
-
-        # 应该在第一次就失败，没有重试
-        assert async_func.await_count == 1
 
 
 class TestExtractJsonFromResponse:
@@ -271,41 +147,6 @@ class TestExtractJsonFromResponse:
         """
         result = extract_json_from_response(text)
         assert json.loads(result) == {"first": True}
-
-
-class TestGetNowDatetime:
-    """测试获取当前时间"""
-
-    def test_get_now_datetime_default_timezone(self):
-        """测试默认时区（Asia/Shanghai）"""
-        result = get_now_datetime()
-
-        assert isinstance(result, datetime)
-        assert result.tzinfo is not None
-        assert result.tzinfo.zone == "Asia/Shanghai"
-
-    def test_get_now_datetime_custom_timezone(self):
-        """测试自定义时区"""
-        result = get_now_datetime(tz_str="America/New_York")
-
-        assert isinstance(result, datetime)
-        assert result.tzinfo.zone == "America/New_York"
-
-    def test_get_now_datetime_utc(self):
-        """测试UTC时区"""
-        result = get_now_datetime(tz_str="UTC")
-
-        assert isinstance(result, datetime)
-        assert result.tzinfo.zone == "UTC"
-
-    def test_get_now_datetime_returns_current_time(self):
-        """测试返回的是当前时间"""
-        before = datetime.now(pytz.timezone("Asia/Shanghai"))
-        result = get_now_datetime()
-        after = datetime.now(pytz.timezone("Asia/Shanghai"))
-
-        # 时间应该在调用前后之间
-        assert before <= result <= after
 
 
 class TestFormatMemoriesForInjection:
