@@ -11,15 +11,39 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ...storage.atom_store import AtomStore
 from ...storage.schema import WRITE_OPS_SCHEMA_STATEMENTS
 from ..models.memory_atom import AtomStatus, AtomType, DecayType, MemoryAtom
 from ..retrieval.hybrid_retriever import HybridResult
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float
 
+import aiosqlite
+from collections import OrderedDict
+
 
 class MemoryEngineWriteOpsMixin:
-    """MemoryEngine 拆分模块：MemoryEngineWriteOpsMixin"""
+    """MemoryEngine 拆分模块：MemoryEngineWriteOpsMixin
+
+    下述类级注解声明本模块依赖的宿主共享状态（由 MemoryEngine.__init__ 赋值），
+    仅作类型约束，不在此赋默认值。
+    """
+
+    # 宿主共享状态契约
+    db_connection: aiosqlite.Connection | None
+    config: dict[str, Any]
+    faiss_db: Any
+    atom_enabled: bool
+    atom_store: AtomStore | None
+    hybrid_retriever: Any | None
+    dual_route_retriever: Any | None
+    graph_memory_manager: Any | None
+    _search_cache_enabled: bool
+    _search_cache_ttl: float
+    _search_cache_max_size: int
+    _search_cache_generation: int
+    _search_cache: OrderedDict[tuple[Any, ...], tuple[float, list[HybridResult]]]
+    _write_op_max_retries: int
 
     async def _create_write_ops_table(self) -> None:
         """Create the resumable write-operation log."""

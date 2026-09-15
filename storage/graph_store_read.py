@@ -15,7 +15,14 @@ from ..core.utils.json_utils import safe_json_dict
 
 
 class GraphStoreReadMixin:
-    """GraphStore 拆分模块：GraphStoreReadMixin"""
+    """GraphStore 拆分模块：GraphStoreReadMixin
+
+    宿主契约：``_connect`` 连接工厂与 ``_NODE_TOKEN_QUERY_BATCH_SIZE`` 批量
+    常量由 ``GraphStore``（storage/graph_store.py）提供，此处仅作类型声明。
+    """
+
+    # 宿主共享状态契约
+    _NODE_TOKEN_QUERY_BATCH_SIZE: int
 
     async def list_vector_doc_ids(self) -> list[int]:
         async with self._connect() as db:
