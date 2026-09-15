@@ -1,6 +1,5 @@
 """记忆整合相关的 Page API 处理器。"""
 
-import aiosqlite
 from typing import TYPE_CHECKING, Any
 
 from astrbot.api import logger
@@ -24,39 +23,17 @@ class ConsolidationHandler:
             if config_manager
             else {}
         )
-        consolidated_count = 0
-        archived_count = 0
-        db_path = getattr(memory_engine, "db_path", None)
-        if db_path:
+        counts = {"consolidated_count": 0, "archived_count": 0}
+        if memory_engine is not None:
             try:
-                async with aiosqlite.connect(db_path) as db:
-                    cursor = await db.execute(
-                        "SELECT COUNT(*) FROM documents WHERE json_valid(metadata) "
-                        "AND json_array_length("
-                        "COALESCE(json_extract(metadata, '$.consolidated_from'), '[]')"
-                        ") > 0"
-                    )
-                    row = await cursor.fetchone()
-                    consolidated_count = int(row[0]) if row else 0
-
-                    cursor = await db.execute(
-                        "SELECT COUNT(*) FROM documents WHERE "
-                        "COALESCE("
-                        "CASE WHEN json_valid(metadata) "
-                        "THEN json_extract(metadata, '$.status') END,"
-                        "'active'"
-                        ") = 'archived'"
-                    )
-                    row = await cursor.fetchone()
-                    archived_count = int(row[0]) if row else 0
+                counts = await memory_engine.get_consolidation_stats()
             except Exception as e:
                 logger.warning(f"[PageAPI] 获取整合统计失败: {e}")
 
         return self.utils.ok(
             {
                 "config": config,
-                "consolidated_count": consolidated_count,
-                "archived_count": archived_count,
+                **counts,
             }
         )
 
