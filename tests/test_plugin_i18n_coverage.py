@@ -88,6 +88,80 @@ EXPECTED_OPTION_LABELS = {
             "delete": "Удалить",
         },
     },
+    "zh-CN": {
+        "bot_language": {
+            "zh": "中文",
+            "en": "English",
+            "ru": "Русский",
+        },
+        "recall_engine.injection_method": {
+            "extra_user_content": "追加到用户消息末尾",
+            "user_message_before": "用户消息前缀（已废弃）",
+            "user_message_after": "用户消息后缀（已废弃）",
+            "fake_tool_call": "伪造工具调用（已废弃）",
+            "fake_tool_call_deepseek_v4": "伪造工具调用（DeepSeek V4，已废弃）",
+            "system_prompt": "系统提示词（已废弃）",
+        },
+        "recall_engine.memory_type_filter": {
+            "all": "全部记忆",
+            "event_only": "事件与事实",
+        },
+        "filtering_settings.memory_scope_mode": {
+            "legacy": "Legacy（旧版）",
+            "session": "按会话隔离",
+            "user": "按用户共享",
+            "global": "全局共享",
+        },
+        "memory_consolidation.trigger": {
+            "daily": "每日定时",
+            "reflection": "反思时",
+        },
+        "memory_consolidation.granularity": {
+            "session": "同一会话",
+            "semantic": "语义聚类",
+        },
+        "memory_consolidation.keep_original": {
+            "archive": "归档保留",
+            "delete": "直接删除",
+        },
+    },
+    "ja-JP": {
+        "bot_language": {
+            "zh": "中国語",
+            "en": "English",
+            "ru": "Русский",
+        },
+        "recall_engine.injection_method": {
+            "extra_user_content": "ユーザーメッセージ末尾",
+            "user_message_before": "ユーザーメッセージ前（非推奨）",
+            "user_message_after": "ユーザーメッセージ後（非推奨）",
+            "fake_tool_call": "偽ツール呼び出し（非推奨）",
+            "fake_tool_call_deepseek_v4": "偽ツール呼び出し（DeepSeek V4・非推奨）",
+            "system_prompt": "システムプロンプト（非推奨）",
+        },
+        "recall_engine.memory_type_filter": {
+            "all": "すべての記憶",
+            "event_only": "出来事と事実",
+        },
+        "filtering_settings.memory_scope_mode": {
+            "legacy": "Legacy（旧版）",
+            "session": "セッション単位",
+            "user": "ユーザー単位",
+            "global": "グローバル",
+        },
+        "memory_consolidation.trigger": {
+            "daily": "毎日定時",
+            "reflection": "リフレクション時",
+        },
+        "memory_consolidation.granularity": {
+            "session": "同一セッション",
+            "semantic": "意味的クラスタリング",
+        },
+        "memory_consolidation.keep_original": {
+            "archive": "アーカイブして保持",
+            "delete": "直接削除",
+        },
+    },
 }
 
 

@@ -449,5 +449,11 @@
         "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value. Allowed range: 0-1."
       }
     }
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Memory Dashboard",
+      "description": "Browse, edit, and curate long-term memories."
+    }
   }
 }

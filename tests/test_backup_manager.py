@@ -289,7 +289,7 @@ def test_pluigin_version_constant_matches_metadata() -> None:
     if not metadata_path.exists():
         return  # skip if metadata.yaml not found (CI, etc.)
 
-    with open(metadata_path) as f:
+    with open(metadata_path, encoding="utf-8") as f:
         metadata = yaml.safe_load(f)
     assert PLUGIN_VERSION == metadata["version"], (
         f"PLUGIN_VERSION ({PLUGIN_VERSION}) must match metadata.yaml "
