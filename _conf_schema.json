@@ -246,7 +246,7 @@
             },
             "injection_method": {
                 "description": "记忆注入位置",
-                "hint": "记忆注入到 LLM 请求的位置。extra_user_content(推荐)：追加到用户消息末尾，不影响前缀缓存且不污染对话历史。user_message_before：作为用户消息前缀。user_message_after：作为用户消息后缀。fake_tool_call：伪造工具调用消息对注入到对话历史，使 LLM 自然地理解这是检索结果。fake_tool_call_deepseek_v4：⚠️已废弃，选择后自动回退至 fake_tool_call。Gemini 下若选择 fake_tool_call 会自动降级为 extra_user_content。system_prompt：⚠️已废弃，选择后自动回退至 extra_user_content。",
+                "hint": "记忆注入到 LLM 请求的位置。extra_user_content(唯一支持)：以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、完全不写入对话历史。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️均已废弃（会改写用户消息或向对话历史写入消息），选择后自动回退至 extra_user_content。",
                 "type": "string",
                 "default": "extra_user_content",
                 "options": [
@@ -259,8 +259,8 @@
                 ]
             },
             "auto_remove_injected": {
-                "description": "自动清除旧注入片段",
-                "hint": "注入新记忆前自动删除历史中已注入的旧记忆片段，避免重复累积和 token 浪费。建议开启。",
+                "description": "自动清除历史注入残留",
+                "hint": "注入新记忆前自动从请求上下文中移除老版本注入方式残留在对话历史里的记忆片段（新版本注入不会产生残留）。建议开启。",
                 "type": "bool",
                 "default": true
             },
