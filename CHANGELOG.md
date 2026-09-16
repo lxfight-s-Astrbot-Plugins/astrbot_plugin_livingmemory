@@ -34,6 +34,7 @@
 | [#270](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/270) | JSON 工具去重，schema DDL 归一 | [@lxfight](https://github.com/lxfight) |
 | [#271](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/271) | 召回作用域回退与写入侧语义对齐 | [@lxfight](https://github.com/lxfight) |
 | [#272](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/272) | Mixin 宿主契约声明为类注解 | [@lxfight](https://github.com/lxfight) |
+| [#273](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/273) | 记忆注入规范化为 add-only，不再干预宿主对话历史；版本 2.7.0-beta.2 | [@lxfight](https://github.com/lxfight) |
 
 ## [2.7.0-beta.1] - 2026-09-07
 
