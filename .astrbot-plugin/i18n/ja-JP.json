@@ -132,19 +132,19 @@
       },
       "injection_method": {
         "description": "メモリの注入位置",
-        "hint": "メモリを LLM リクエストのどこに注入するか。extra_user_content（推奨）：ユーザーメッセージの末尾に追加し、プレフィックスキャッシュに影響せず会話履歴も汚しません。user_message_before：ユーザーメッセージの前に付加。user_message_after：ユーザーメッセージの後ろに付加。fake_tool_call：偽のツール呼び出しメッセージ対を会話履歴に注入し、LLM に検索結果であると自然に理解させます。fake_tool_call_deepseek_v4：⚠️非推奨。選択すると自動的に fake_tool_call にフォールバックします。Gemini では fake_tool_call を選択すると自動的に extra_user_content にフォールバックします。system_prompt：⚠️非推奨。選択すると自動的に extra_user_content にフォールバックします。",
+        "hint": "メモリを LLM リクエストのどこに注入するか。extra_user_content（唯一のサポート対象）：mark_as_temp の一時パートとして現在のユーザーメッセージ末尾に追加され、AstrBot が履歴を保存する際に自動的に除外されるため、プレフィックスキャッシュに影響せず、会話履歴にも一切書き込まれません。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️すべて非推奨（ユーザーメッセージを書き換えるか、会話履歴にメッセージを書き込みます）。選択すると自動的に extra_user_content にフォールバックします。",
         "labels": [
           "ユーザーメッセージ末尾",
-          "ユーザーメッセージ前",
-          "ユーザーメッセージ後",
-          "偽ツール呼び出し",
+          "ユーザーメッセージ前（非推奨）",
+          "ユーザーメッセージ後（非推奨）",
+          "偽ツール呼び出し（非推奨）",
           "偽ツール呼び出し（DeepSeek V4・非推奨）",
           "システムプロンプト（非推奨）"
         ]
       },
       "auto_remove_injected": {
-        "description": "古い注入断片を自動削除",
-        "hint": "新しいメモリを注入する前に、履歴内の既存の注入済み断片を自動削除し、重複の蓄積とトークンの浪費を防ぎます。有効化を推奨します。"
+        "description": "履歴に残った旧注入の自動除去",
+        "hint": "新しいメモリを注入する前に、旧バージョンの注入方式が会話履歴に残した記憶断片をリクエストコンテキストから取り除きます（新バージョンの注入では残留しません）。有効化を推奨します。"
       },
       "inject_with_recent_context": {
         "description": "ターンをまたぐコンテキスト拡張検索を有効化",
