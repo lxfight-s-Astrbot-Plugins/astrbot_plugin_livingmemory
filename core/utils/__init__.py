@@ -129,8 +129,6 @@ __all__ = [
     "get_persona_id",
     "extract_json_from_response",
     "format_memories_for_injection",
-    "format_memories_for_fake_tool_call",
-    "format_memories_for_fake_tool_call_deepseek_v4",
 ]
 
 
@@ -138,8 +136,6 @@ __all__ = [
 
 # 自 formatting.py 拆分模块导出（保持向后兼容）
 from .formatting import (
-    format_memories_for_fake_tool_call,
-    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     safe_parse_metadata,
     validate_timestamp,

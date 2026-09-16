@@ -1,5 +1,33 @@
 # Releases and Upgrades
 
+## 2.7.0-beta.2 · September 16, 2026
+
+This prerelease covers the refactors and behavioral standardization since `2.7.0-beta.1`. Stay on 2.6.1 for the stable channel.
+
+[Download 2.7.0-beta.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.2) · [Stable 2.6.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.6.1) · [Full comparison](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/compare/2.7.0-beta.1...2.7.0-beta.2)
+
+### What's new
+
+- **Standardized memory injection — the plugin no longer touches host conversation history:** to stay compatible with AstrBot's architecture and its future technical direction, this release narrows the plugin's interactions with the LLM request pipeline and removes non-standard operations that exceeded the plugin's responsibilities. Memory injection is now exclusively an add-only write through AstrBot's official extension point: memories are appended to the current user message as a `mark_as_temp` temporary part that AstrBot filters out when saving conversation history. Injection never writes into conversation history and never affects the prefix cache.
+- **Removed history format normalization:** the plugin no longer rewrites the content structure of history messages; both content-parts lists and plain strings are preserved exactly as AstrBot stored them.
+- **Deprecated non-append injection modes:** `user_message_before`, `user_message_after`, `fake_tool_call` and `fake_tool_call_deepseek_v4` (plus the previously deprecated `system_prompt`) are deprecated; configured values automatically fall back to `extra_user_content` with a logged warning, no manual configuration changes required.
+- **Legacy residue cleanup retained:** `auto_remove_injected` only removes injection fragments left in history by legacy injection modes from the request context; it never touches the user's own history messages.
+- **Internal refactors (#268–#272):** dead code removal, page API and consolidation routed through the MemoryEngine public API, deduplicated JSON helpers and consolidated schema DDL, recall scope fallback aligned with write-side semantics, and Mixin host contracts declared as class annotations.
+
+### Upgrade notes
+
+- Legacy injection settings need no manual adjustment — they fall back automatically at runtime. To purge text-form injection residue left in stored history, run `/lmem cleanup` (fake tool-call message pairs are removed from context automatically on every request).
+
+### Complete PR list and authors
+
+| PR | Change | Author |
+| --- | --- | --- |
+| [#268](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/268) | Remove dead code paths and unused exports | [@lxfight](https://github.com/lxfight) |
+| [#269](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/269) | Route page API and consolidation through the MemoryEngine public API | [@lxfight](https://github.com/lxfight) |
+| [#270](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/270) | Dedupe JSON helpers and consolidate schema DDL into one source | [@lxfight](https://github.com/lxfight) |
+| [#271](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/271) | Align recall scope fallback with write-side semantics | [@lxfight](https://github.com/lxfight) |
+| [#272](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/272) | Declare mixin host contracts as class annotations | [@lxfight](https://github.com/lxfight) |
+
 ## 2.7.0-beta.1 · September 7, 2026
 
 This prerelease includes all merged changes since stable **2.6.1**. Stay on 2.6.1 for the stable channel, or install the exact beta tag to try the new dashboard and recall fixes.

@@ -1,8 +1,6 @@
 """
-Tests for InjectionAdapter — Provider/Model automatic injection strategy selection.
+Tests for InjectionAdapter — legacy injection modes mapped to the single add-only mode.
 """
-
-from unittest.mock import Mock
 
 import pytest
 
@@ -14,15 +12,20 @@ def adapter():
     return InjectionAdapter()
 
 
-def test_resolve_non_fake_mode_unchanged(adapter):
-    """非 fake_tool_call 且非废弃模式应原样返回。"""
-    assert adapter.resolve(None, "user_message_before") == ("user_message_before", None)
-    assert adapter.resolve(None, "extra_user_content") == ("extra_user_content", None)
+def test_resolve_supported_mode_unchanged(adapter):
+    """唯一支持的 extra_user_content 应原样返回，无降级原因。"""
+    assert adapter.resolve("extra_user_content") == ("extra_user_content", None)
+
+
+def test_resolve_empty_mode_falls_back_silently(adapter):
+    """空配置应直接使用默认注入方式，不产生回退日志。"""
+    assert adapter.resolve("") == ("extra_user_content", None)
+    assert adapter.resolve(None) == ("extra_user_content", None)
 
 
 def test_resolve_system_prompt_falls_back(adapter):
     """system_prompt 已废弃，应自动回退到 extra_user_content。"""
-    mode, reason = adapter.resolve(None, "system_prompt")
+    mode, reason = adapter.resolve("system_prompt")
 
     assert mode == "extra_user_content"
     assert reason is not None
@@ -30,23 +33,39 @@ def test_resolve_system_prompt_falls_back(adapter):
     assert "extra_user_content" in reason
 
 
-def test_resolve_deepseek_v4_mode_falls_back_to_fake_tool_call(adapter):
-    """DeepSeek V4 专用模式已废弃，应自动回退到标准 fake_tool_call。"""
-    mode, reason = adapter.resolve(None, "fake_tool_call_deepseek_v4")
+def test_resolve_user_message_before_falls_back(adapter):
+    """user_message_before 已废弃（改写用户消息并持久化），应回退。"""
+    mode, reason = adapter.resolve("user_message_before")
 
-    assert mode == "fake_tool_call"
+    assert mode == "extra_user_content"
     assert reason is not None
-    assert "fake_tool_call_deepseek_v4" in reason
+    assert "user_message_before" in reason
+    assert "extra_user_content" in reason
+
+
+def test_resolve_user_message_after_falls_back(adapter):
+    """user_message_after 已废弃（改写用户消息并持久化），应回退。"""
+    mode, reason = adapter.resolve("user_message_after")
+
+    assert mode == "extra_user_content"
+    assert reason is not None
+    assert "user_message_after" in reason
+    assert "extra_user_content" in reason
+
+
+def test_resolve_fake_tool_call_falls_back(adapter):
+    """fake_tool_call 已废弃（伪造消息对会持久化进历史），应回退。"""
+    mode, reason = adapter.resolve("fake_tool_call")
+
+    assert mode == "extra_user_content"
+    assert reason is not None
     assert "fake_tool_call" in reason
+    assert "extra_user_content" in reason
 
 
-def test_resolve_deepseek_v4_mode_still_downgrades_for_gemini(adapter):
-    """DeepSeek V4 旧配置在 Gemini 上仍应继续走 Gemini 兼容降级。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
-    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
-
-    mode, reason = adapter.resolve(gemini_provider, "fake_tool_call_deepseek_v4")
+def test_resolve_deepseek_v4_mode_falls_back(adapter):
+    """DeepSeek V4 专用模式已废弃，应自动回退到 extra_user_content。"""
+    mode, reason = adapter.resolve("fake_tool_call_deepseek_v4")
 
     assert mode == "extra_user_content"
     assert reason is not None
@@ -54,59 +73,18 @@ def test_resolve_deepseek_v4_mode_still_downgrades_for_gemini(adapter):
     assert "extra_user_content" in reason
 
 
-def test_resolve_gemini_by_provider_type(adapter):
-    """provider type 为 googlegenai_chat_completion 时应降级为 extra_user_content。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
-    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
-
-    mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
+def test_resolve_unknown_mode_falls_back(adapter):
+    """未知注入方式应回退到 extra_user_content 并给出原因。"""
+    mode, reason = adapter.resolve("some_new_mode")
 
     assert mode == "extra_user_content"
     assert reason is not None
-    assert "gemini" in reason.lower()
+    assert "some_new_mode" in reason
 
 
-def test_resolve_gemini_by_model_name(adapter):
-    """model 名包含 gemini 时应降级为 extra_user_content。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "some_other_type"}
-    gemini_provider.get_model = Mock(return_value="gemini-1.5-flash")
-
-    mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
+def test_resolve_does_not_need_provider(adapter):
+    """废弃回退是纯配置映射，不应依赖 provider 实例。"""
+    mode, reason = adapter.resolve("fake_tool_call")
 
     assert mode == "extra_user_content"
     assert reason is not None
-
-
-def test_resolve_openai_unchanged(adapter):
-    """OpenAI 风格 provider 不应降级。"""
-    openai_provider = Mock()
-    openai_provider.provider_config = {"type": "openai_chat_completion"}
-    openai_provider.get_model = Mock(return_value="gpt-4o")
-
-    mode, reason = adapter.resolve(openai_provider, "fake_tool_call")
-
-    assert mode == "fake_tool_call"
-    assert reason is None
-
-
-def test_resolve_no_provider(adapter):
-    """获取不到 provider 时不应降级。"""
-    mode, reason = adapter.resolve(None, "fake_tool_call")
-
-    assert mode == "fake_tool_call"
-    assert reason is None
-
-
-def test_resolve_returns_reason_on_fallback(adapter):
-    """降级时应返回 fallback reason，由调用方统一记录日志。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
-    gemini_provider.get_model = Mock(return_value="gemini-pro")
-
-    mode, reason = adapter.resolve(gemini_provider, "fake_tool_call")
-
-    assert mode == "extra_user_content"
-    assert reason is not None
-    assert "fake_tool_call is not fully compatible" in reason

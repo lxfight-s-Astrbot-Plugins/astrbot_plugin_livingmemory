@@ -90,16 +90,16 @@ class RecallEngineConfig(BaseModel):
         default="extra_user_content",
         description=(
             "记忆注入方式: "
-            "extra_user_content(推荐，临时消息追加到用户消息末尾，不影响前缀缓存且不污染对话历史), "
-            "user_message_before(用户消息前), "
-            "user_message_after(用户消息后), "
-            "fake_tool_call(伪造工具调用), "
-            "fake_tool_call_deepseek_v4(已废弃，自动回退至fake_tool_call), "
-            "system_prompt(已废弃，自动回退至extra_user_content)"
+            "extra_user_content(唯一支持，mark_as_temp 临时片段追加到用户消息末尾，"
+            "不影响前缀缓存且不写入对话历史); "
+            "user_message_before / user_message_after / fake_tool_call / "
+            "fake_tool_call_deepseek_v4 / system_prompt 均已废弃，"
+            "自动回退至 extra_user_content"
         ),
     )
     auto_remove_injected: bool = Field(
-        default=True, description="是否自动删除对话历史中已注入的记忆片段"
+        default=True,
+        description="是否自动从请求上下文中清理老版本注入方式残留在历史里的记忆片段",
     )
     inject_with_recent_context: bool = Field(
         default=False,

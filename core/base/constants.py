@@ -6,6 +6,7 @@ constants.py - 插件使用的常量
 MEMORY_INJECTION_HEADER = "<RAG-Faiss-Memory>"
 MEMORY_INJECTION_FOOTER = "</RAG-Faiss-Memory>"
 
-# 伪造工具调用注入相关常量
+# 伪造工具调用注入相关常量（fake_tool_call 注入方式已废弃，仅保留
+# FAKE_TOOL_CALL_ID_PREFIX 供 legacy 残留清理识别使用）
 FAKE_TOOL_CALL_NAME = "recall_long_term_memory"  # 复用已注册的工具名
 FAKE_TOOL_CALL_ID_PREFIX = "fake_recall_"  # ID 前缀，用于清理时识别伪造消息

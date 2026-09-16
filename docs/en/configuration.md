@@ -52,11 +52,11 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.rerank_enabled` | `false` | Reranks fused candidates by query relevance with a Rerank model |
 | `recall_engine.rerank_provider_id` | `""` | ID of a Rerank-type provider in AstrBot; leave empty to skip |
 | `recall_engine.rerank_candidates` | `20` | Fused candidates sent to the Rerank model (2-100); top_k kept after reranking |
-| `recall_engine.injection_method` | `extra_user_content` | Where or how recalled memories are injected |
+| `recall_engine.injection_method` | `extra_user_content` | Memory injection mode (the only supported add-only temporary-part injection) |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
 
-`extra_user_content` is the safest default. Gemini providers automatically fall back from `fake_tool_call` to `extra_user_content`. DeepSeek V4 thinking mode can now use normal `fake_tool_call` on recent AstrBot versions; the legacy `fake_tool_call_deepseek_v4` option is kept only as a compatibility alias and automatically falls back to `fake_tool_call`.
+`extra_user_content` is the only supported injection mode: memories are appended to the current user message as a `mark_as_temp` temporary part that AstrBot filters out when saving conversation history, so injection never affects the prefix cache and **never touches AstrBot's conversation history**. The plugin no longer rewrites history message formats or writes content into history. The legacy `user_message_before` / `user_message_after` / `fake_tool_call` / `fake_tool_call_deepseek_v4` / `system_prompt` options are all deprecated and automatically fall back to `extra_user_content`.
 
 ## Memory isolation
 

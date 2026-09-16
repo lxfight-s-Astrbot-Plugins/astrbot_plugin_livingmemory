@@ -26,8 +26,7 @@ The current beta is **2.7.0-beta.1** and the stable version is **2.6.1**. See [R
 | Private assistant | Enable persona and session filtering to avoid cross-persona memories |
 | Long-running group chat | Enable `enable_full_group_capture` to capture context that does not directly mention the bot |
 | Agent / tool loop | Keep agent memory tools enabled so the model can recall or write memory when useful |
-| Gemini provider | `fake_tool_call` automatically falls back to `extra_user_content` |
-| DeepSeek V4 thinking | Use normal `fake_tool_call`; the legacy `fake_tool_call_deepseek_v4` option is only a compatibility alias |
+| Injection mode | Only `extra_user_content` is supported (add-only temporary part, never written into conversation history); legacy modes fall back automatically |
 
 ## Open the dashboard
 

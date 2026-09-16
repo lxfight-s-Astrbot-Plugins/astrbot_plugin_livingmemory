@@ -5,6 +5,36 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.7.0-beta.2] - 2026-09-16
+
+本版本为预发布测试版，覆盖 `2.7.0-beta.1` 之后的重构与行为规范收敛。稳定使用可继续选择 2.6.1。
+
+### 变更
+
+- **记忆注入机制规范化，不再干预宿主对话历史**：为保持与 AstrBot 上游架构的长期兼容、适配其后续版本的技术演进，本版本对插件与 LLM 请求链路的交互方式进行了规范化收敛，收缩并移除了部分超出插件职责边界的非标准操作。记忆注入全面统一为 AstrBot 官方扩展点的追加式（add-only）写入：`req.extra_user_content_parts.append(TextPart(...).mark_as_temp())`，临时片段由 AstrBot 在保存对话历史时自动过滤，注入不写入对话历史、不影响前缀缓存。
+- **移除历史格式归一化逻辑**：插件不再改写历史消息的 content 结构，content parts 列表与纯文本字符串均保持 AstrBot 写入时的原样。
+- **废弃非追加式注入方式**：`user_message_before`、`user_message_after`、`fake_tool_call`、`fake_tool_call_deepseek_v4`（含此前已废弃的 `system_prompt`）会改写用户消息或向对话历史写入消息，配置后自动回退至 `extra_user_content` 并记录日志，无需手动调整配置。
+- **保留遗留残留清理**：`auto_remove_injected` 仅用于从请求上下文视图移除旧版本注入方式残留在历史中的记忆片段，不触及用户自身的任何历史消息。
+
+### 重构
+
+- **模块化与公共 API 收敛 (#268–#272)**：删除无效代码路径与未使用导出；页面 API 与记忆整合管理器收敛至 MemoryEngine 公共 API；JSON 工具去重并将 schema DDL 归一到单一来源；召回作用域回退与写入侧语义对齐；Mixin 宿主契约改为类注解声明。
+
+### 升级说明
+
+- 旧配置中的注入方式无需手动调整，运行时自动回退；如需清理历史中以文本形式残留的旧注入片段，可执行 `/lmem cleanup`（伪造工具调用消息对会在每次请求时自动从上下文中移除）。
+- 从 `2.7.0-beta.1` 升级时保留插件数据目录与配置即可。
+
+### 完整 PR 与作者
+
+| PR | 改动 | 作者 |
+| --- | --- | --- |
+| [#268](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/268) | 移除死代码路径与未使用导出 | [@lxfight](https://github.com/lxfight) |
+| [#269](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/269) | 页面 API 与整合管理器路由至 MemoryEngine 公共 API | [@lxfight](https://github.com/lxfight) |
+| [#270](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/270) | JSON 工具去重，schema DDL 归一 | [@lxfight](https://github.com/lxfight) |
+| [#271](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/271) | 召回作用域回退与写入侧语义对齐 | [@lxfight](https://github.com/lxfight) |
+| [#272](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/272) | Mixin 宿主契约声明为类注解 | [@lxfight](https://github.com/lxfight) |
+
 ## [2.7.0-beta.1] - 2026-09-07
 
 本版本为预发布测试版，汇总 2.6.1 之后的 #259–#262 与发布准备 #263；稳定版仍为 2.6.1。

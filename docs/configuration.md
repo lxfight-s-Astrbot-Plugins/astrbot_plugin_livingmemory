@@ -52,11 +52,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.rerank_enabled` | `false` | 启用 Rerank 模型对融合候选按查询相关性重排序 |
 | `recall_engine.rerank_provider_id` | `""` | AstrBot 中 Rerank 类型提供商的 ID，留空则跳过 |
 | `recall_engine.rerank_candidates` | `20` | 送入 Rerank 的融合候选数量（2–100），重排序后保留 top_k |
-| `recall_engine.injection_method` | `extra_user_content` | 记忆注入到 LLM 请求的位置或形式 |
+| `recall_engine.injection_method` | `extra_user_content` | 记忆注入方式（唯一支持 add-only 临时片段注入） |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
 | `recall_engine.search_cache_enabled` | `true` | 是否启用短期检索缓存 |
 
-`extra_user_content` 是最稳妥的默认注入方式。Gemini Provider 下选择 `fake_tool_call` 会自动降级到 `extra_user_content`；DeepSeek V4 thinking 模式现在可以直接使用普通 `fake_tool_call`，旧的 `fake_tool_call_deepseek_v4` 仅作为兼容别名保留，并会自动回退到 `fake_tool_call`。
+`extra_user_content` 是唯一支持的注入方式：记忆以 `mark_as_temp` 临时片段追加到当前用户消息末尾，AstrBot 保存对话历史时会自动过滤该片段，因此注入不影响前缀缓存，也**完全不写入 AstrBot 的对话历史**。插件不再改写历史消息格式或向对话历史写入内容。旧的 `user_message_before` / `user_message_after` / `fake_tool_call` / `fake_tool_call_deepseek_v4` / `system_prompt` 均已废弃，配置后自动回退到 `extra_user_content`。
 
 ## 记忆隔离
 

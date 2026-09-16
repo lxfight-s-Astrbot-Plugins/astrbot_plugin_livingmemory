@@ -21,7 +21,6 @@ from ..memory_scope import (
 )
 from ..utils import (
     OperationContext,
-    format_memories_for_fake_tool_call,
     format_memories_for_injection,
     get_persona_id,
 )
@@ -116,10 +115,6 @@ class MemoryRecall:
                 if not has_prompt_text and not has_extra_parts:
                     logger.debug(f"[{session_id}] 请求中无可用用户内容，跳过记忆召回")
                     return
-
-                normalized = self._normalize_text_only_context_parts(req, session_id)
-                if normalized > 0:
-                    logger.info(f"[{session_id}] 已归一化 {normalized} 条纯文本历史消息")
 
                 # 自动删除旧的注入记忆
                 if self.config_manager.get("recall_engine.auto_remove_injected", True):
@@ -275,67 +270,33 @@ class MemoryRecall:
                             f"内容={mem.content[:100]}..."
                         )
 
-                    # 根据配置选择注入方式（含 Provider 兼容降级）
+                    # 注入策略适配层负责把历史配置值映射到唯一的 add-only
+                    # 注入方式，废弃模式会返回回退原因供日志提示。
                     configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "extra_user_content"
                     )
-                    provider = None
-                    if configured_method in (
-                        "fake_tool_call",
-                        "fake_tool_call_deepseek_v4",
-                    ):
-                        try:
-                            provider = self.context.get_using_provider(session_id)
-                        except Exception as e:
-                            logger.warning(
-                                f"[{session_id}] 获取当前 Provider 失败，"
-                                f"将按无 Provider 继续解析注入模式: {e}"
-                            )
                     injection_method, fallback_reason = (
-                        self.injection_adapter.resolve(provider, configured_method)
+                        self.injection_adapter.resolve(configured_method)
                     )
                     if fallback_reason:
                         logger.warning(
-                            f"[{session_id}] 注入模式从 {configured_method} 降级为 "
+                            f"[{session_id}] 注入方式从 {configured_method} 回退为 "
                             f"{injection_method}: {fallback_reason}"
                         )
 
                     memory_str = format_memories_for_injection(memory_list)
 
-                    if injection_method == "user_message_before":
-                        req.prompt = memory_str + "\n\n" + (req.prompt or "")
-                        logger.info(
-                            f"[{session_id}] 成功向用户消息前注入 {len(recalled_memories)} 条记忆"
-                        )
-                    elif injection_method == "user_message_after":
-                        req.prompt = (req.prompt or "") + "\n\n" + memory_str
-                        logger.info(
-                            f"[{session_id}] 成功向用户消息后注入 {len(recalled_memories)} 条记忆"
-                        )
-                    elif injection_method == "fake_tool_call":
-                        fake_messages = format_memories_for_fake_tool_call(
-                            memory_list,
-                            query=actual_query,
-                            k=self.config_manager.get("recall_engine.top_k", 5),
-                            session_filtered=recall_session_id is not None,
-                            persona_filtered=use_persona_filtering,
-                        )
-                        if fake_messages:
-                            req.contexts.extend(fake_messages)
-                            logger.info(
-                                f"[{session_id}] 成功以伪造工具调用方式注入 "
-                                f"{len(recalled_memories)} 条记忆"
-                            )
-                    else:
-                        # extra_user_content（推荐）：追加到用户消息末尾，
-                        # 不影响前缀缓存且 mark_as_temp 后不污染对话历史
-                        req.extra_user_content_parts.append(
-                            TextPart(text=memory_str).mark_as_temp()
-                        )
-                        logger.info(
-                            f"[{session_id}] 成功向用户消息末尾注入 "
-                            f"{len(recalled_memories)} 条记忆"
-                        )
+                    # 唯一注入方式（add-only）：将记忆作为临时片段追加到
+                    # 当前用户消息末尾。mark_as_temp 标记的 part 由 AstrBot
+                    # 在保存对话历史时过滤，注入不会写入 AstrBot 的历史，
+                    # 也不影响前缀缓存。
+                    req.extra_user_content_parts.append(
+                        TextPart(text=memory_str).mark_as_temp()
+                    )
+                    logger.info(
+                        f"[{session_id}] 成功向用户消息末尾注入 "
+                        f"{len(recalled_memories)} 条记忆"
+                    )
                 else:
                     logger.info(f"[{session_id}] 未找到相关记忆")
 
@@ -399,49 +360,16 @@ class MemoryRecall:
             and MEMORY_INJECTION_FOOTER in text
         )
 
-    def _normalize_text_only_context_parts(
-        self, req: ProviderRequest, session_id: str
-    ) -> int:
-        """把历史中的纯文本 content parts 折叠回字符串，避免污染长期上下文格式"""
-        contexts = getattr(req, "contexts", None)
-        if not isinstance(contexts, list):
-            return 0
-
-        normalized = 0
-        for msg in contexts:
-            if not isinstance(msg, dict):
-                continue
-            if msg.get("role") != "user":
-                continue
-            content = msg.get("content")
-            if not isinstance(content, list) or not content:
-                continue
-
-            text_parts = []
-            text_only = True
-            for part in content:
-                if not isinstance(part, dict) or part.get("type") != "text":
-                    text_only = False
-                    break
-                text_parts.append(str(part.get("text", "") or ""))
-
-            if not text_only:
-                continue
-
-            msg["content"] = "".join(text_parts)
-            normalized += 1
-
-        if normalized:
-            logger.debug(f"[{session_id}] 已归一化 {normalized} 条纯文本历史 content parts")
-        return normalized
-
     def _remove_fake_tool_call_from_context(
         self, req: ProviderRequest, session_id: str
     ) -> int:
-        """从请求上下文中移除伪造的工具调用记忆（fake_tool_call 注入方式）
+        """从请求上下文中移除伪造的工具调用记忆（legacy 兼容清理）
 
-        识别并移除以 FAKE_TOOL_CALL_ID_PREFIX 为 ID 前缀的
-        assistant(tool_calls) + tool(result) 消息对。
+        老版本 fake_tool_call 注入方式会把伪造的
+        assistant(tool_calls) + tool(result) 消息对持久化进 AstrBot 历史。
+        该注入方式已废弃、不再产生新消息，此方法仅在请求视图里识别并
+        移除以 FAKE_TOOL_CALL_ID_PREFIX 为 ID 前缀的历史残留消息对，
+        不改写用户自身的任何历史消息。
         """
         from ..base.constants import FAKE_TOOL_CALL_ID_PREFIX
 
