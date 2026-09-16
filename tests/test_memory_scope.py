@@ -8,6 +8,7 @@ from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
 from astrbot_plugin_livingmemory.core.memory_scope import (
     GLOBAL_MEMORY_SCOPE,
     is_event_memory_allowed,
+    is_suspicious_session_id,
     parse_identity_aliases,
     parse_value_list,
     resolve_event_identity,
@@ -197,3 +198,11 @@ async def test_conversation_manager_applies_user_alias_only_to_user_messages(tmp
     assert assistant_message.sender_id == "bot-1"
     assert assistant_message.sender_name == "bot-1"
     await store.close()
+
+
+def test_is_suspicious_session_id_detects_leaked_errors():
+    assert is_suspicious_session_id("aiocqhttp:Error: connection refused") is True
+    assert is_suspicious_session_id("webrtc:ERROR:timeout") is True
+    assert is_suspicious_session_id("test:private:session-1") is False
+    assert is_suspicious_session_id("") is False
+    assert is_suspicious_session_id(None) is False

@@ -7,10 +7,14 @@ from __future__ import annotations
 import aiosqlite
 from typing import Any
 from ..core.utils.number_utils import safe_float
+from ..core.utils.json_utils import safe_json_dict
 
 
 class GraphStoreSnapshotMixin:
-    """GraphStore 拆分模块：GraphStoreSnapshotMixin"""
+    """GraphStore 拆分模块：GraphStoreSnapshotMixin
+
+    宿主契约：``_connect`` 连接工厂由 ``GraphStore`` 提供，无额外共享状态。
+    """
     async def get_subgraph_for_memories(
         self,
         memory_ids: list[int],
@@ -118,7 +122,7 @@ class GraphStoreSnapshotMixin:
                     "type": row["node_type"],
                     "label": row["node_value"],
                     "canonical_value": row["canonical_value"],
-                    "metadata": self._from_json(row["metadata"]),
+                    "metadata": safe_json_dict(row["metadata"]),
                     "entry_count": 0,
                     "memory_count": 0,
                     "degree": 0,
@@ -130,7 +134,7 @@ class GraphStoreSnapshotMixin:
         for row in entry_rows:
             entry_id = int(row["id"])
             memory_id = int(row["source_memory_id"])
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             node_ids_for_entry = list(dict.fromkeys(entry_node_map.get(entry_id, [])))
 
             entries.append(
@@ -187,7 +191,7 @@ class GraphStoreSnapshotMixin:
                 "weight": float(row["weight"]),
                 "confidence": float(row["confidence"]),
                 "status": row["status"],
-                "metadata": self._from_json(row["metadata"]),
+                "metadata": safe_json_dict(row["metadata"]),
             }
             edges.append(edge)
 
@@ -420,7 +424,7 @@ class GraphStoreSnapshotMixin:
                 "type": row["node_type"],
                 "label": row["node_value"],
                 "canonical_value": row["canonical_value"],
-                "metadata": self._from_json(row["metadata"]),
+                "metadata": safe_json_dict(row["metadata"]),
                 "entry_count": int(row["entry_count"] or 0),
                 "memory_count": int(row["memory_count"] or 0),
                 "degree": 0,
@@ -444,7 +448,7 @@ class GraphStoreSnapshotMixin:
                     "weight": float(row["weight"]),
                     "confidence": float(row["confidence"]),
                     "status": row["status"],
-                    "metadata": self._from_json(row["metadata"]),
+                    "metadata": safe_json_dict(row["metadata"]),
                 }
             )
             node_map[source]["degree"] += 1
@@ -460,7 +464,7 @@ class GraphStoreSnapshotMixin:
 
         memories: list[dict[str, Any]] = []
         for row in memory_rows:
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             summary = str(metadata.get("canonical_summary") or row["content"] or "")[
                 :500
             ]

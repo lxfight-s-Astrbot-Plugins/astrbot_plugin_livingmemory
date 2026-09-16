@@ -17,6 +17,7 @@ from ..core.models.memory_atom import (
     MemoryAtom,
     compute_ttl,
 )
+from ..core.utils.json_utils import safe_json_dict
 
 
 class AtomStore:
@@ -46,18 +47,6 @@ class AtomStore:
         if isinstance(payload, str):
             return payload
         return json.dumps(payload if payload is not None else {}, ensure_ascii=False)
-
-    @staticmethod
-    def _from_json(payload: str | dict[str, Any] | None) -> dict[str, Any]:
-        if isinstance(payload, dict):
-            return payload
-        if not payload:
-            return {}
-        try:
-            data = json.loads(payload)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-        return data if isinstance(data, dict) else {}
 
     async def initialize(self) -> None:
         """Create tables for memory atoms."""
@@ -606,7 +595,7 @@ class AtomStore:
             decay_type=DecayType(row["decay_type"]),
             session_id=row["session_id"],
             persona_id=row["persona_id"],
-            metadata=self._from_json(row["metadata"]),
+            metadata=safe_json_dict(row["metadata"]),
         )
 
 

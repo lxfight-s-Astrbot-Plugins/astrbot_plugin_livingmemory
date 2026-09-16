@@ -26,8 +26,7 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 | 私聊助手 | 开启人格隔离与会话隔离，避免不同身份之间串记忆 |
 | 群聊长期陪伴 | 开启 `enable_full_group_capture`，让插件捕获未直接 @Bot 的群聊上下文 |
 | Agent / Tool Loop | 保持主动记忆工具开启，让模型在需要时自行回忆或写入 |
-| Gemini Provider | 选择 `fake_tool_call` 时会自动降级到 `extra_user_content` |
-| DeepSeek V4 thinking | 现在可以直接使用普通 `fake_tool_call`，旧的 `fake_tool_call_deepseek_v4` 仅作兼容别名 |
+| 注入方式 | 仅支持 `extra_user_content`（add-only 临时片段，不写入对话历史）；旧方式自动回退 |
 
 ## 打开管理页面
 

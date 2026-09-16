@@ -117,7 +117,11 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                 else None
             )
 
-            recall_session_id = resolve_memory_scope(self.config_manager, event)
+            # 作用域解析失败时回退到原始会话，与写入侧（反思/总结/工具）保持一致
+            recall_session_id = (
+                resolve_memory_scope(self.config_manager, event)
+                or event.unified_msg_origin
+            )
             recall_persona_id = persona_id if use_persona_filtering else None
 
             default_k = int(self.config_manager.get("recall_engine.top_k", 5))

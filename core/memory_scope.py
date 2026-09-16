@@ -156,9 +156,26 @@ def resolve_memory_scope(config: Any, event: Any) -> str | None:
     return GLOBAL_MEMORY_SCOPE if isolated_sessions else None
 
 
+def is_suspicious_session_id(session_id: str | None) -> bool:
+    """Detect error strings leaked into unified_msg_origin.
+
+    Some platform adapters surface initialization errors through the message
+    origin; memory writes/recalls tagged with such an id would be unreachable
+    in later sessions, so entry points log a warning when they see one.
+
+    Args:
+        session_id: unified_msg_origin of the current event.
+
+    Returns:
+        bool: True when the id looks like a leaked error string.
+    """
+    return bool(session_id) and "error:" in str(session_id).lower()
+
+
 __all__ = [
     "GLOBAL_MEMORY_SCOPE",
     "is_event_memory_allowed",
+    "is_suspicious_session_id",
     "parse_identity_aliases",
     "parse_value_list",
     "resolve_event_identity",

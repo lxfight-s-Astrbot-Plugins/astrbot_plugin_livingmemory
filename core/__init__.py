@@ -16,13 +16,9 @@ LivingMemory核心模块
 from .base import (
     ConfigManager,
     ConfigurationError,
-    DatabaseError,
     InitializationError,
     LivingMemoryException,
-    MemoryProcessingError,
     ProviderNotReadyError,
-    RetrievalError,
-    ValidationError,
 )
 
 # 管理器
@@ -46,7 +42,6 @@ from .processors import (
     GraphExtractor,
     MemoryProcessor,
     TextProcessor,
-    store_round_with_length_check,
 )
 
 # 验证器
@@ -56,13 +51,9 @@ __all__ = [
     # 基础组件
     "ConfigManager",
     "ConfigurationError",
-    "DatabaseError",
     "InitializationError",
     "LivingMemoryException",
-    "MemoryProcessingError",
     "ProviderNotReadyError",
-    "RetrievalError",
-    "ValidationError",
     # 数据模型
     "MemoryEvent",
     "Message",
@@ -81,7 +72,6 @@ __all__ = [
     "GraphExtractor",
     "MemoryProcessor",
     "TextProcessor",
-    "store_round_with_length_check",
     # 验证器
     "IndexValidator",
 ]

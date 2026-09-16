@@ -45,6 +45,12 @@ class FakeMemoryEngine:
     async def get_memory(self, memory_id: int):
         return None
 
+    async def get_memory_record(self, memory_id: int):
+        return None
+
+    async def get_consolidation_stats(self):
+        return {"consolidated_count": 0, "archived_count": 0}
+
     async def add_memory(self, **kwargs):
         return 999
 
@@ -475,8 +481,11 @@ class TestGetStats:
 
 class TestListMemories:
     @pytest.mark.asyncio
-    async def test_missing_db_path(self, api):
-        api.plugin.initializer.memory_engine.db_path = None
+    async def test_engine_failure_returns_error(self, api):
+        async def raise_uninitialized(**kwargs):
+            raise RuntimeError("数据库连接未初始化")
+
+        api.plugin.initializer.memory_engine.list_memories_page = raise_uninitialized
         req = _mock_page_request(
             args={
                 "page": "1",
@@ -489,7 +498,6 @@ class TestListMemories:
         with _patch_page_request(req):
             result = await api.list_memories()
         assert result["status"] == "error"
-        assert "db_path" in result["message"]
 
     @pytest.mark.asyncio
     async def test_invalid_pagination(self, api):
@@ -508,107 +516,54 @@ class TestListMemories:
         assert "分页" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_valid_request(self, api):
-        req = _mock_page_request(
-            args={
-                "page": "1",
-                "page_size": "20",
-                "session_id": "",
-                "keyword": "",
-                "status": "all",
+    async def test_delegates_to_engine_and_normalizes_metadata(self, api):
+        engine = api.plugin.initializer.memory_engine
+        engine.list_memories_page = AsyncMock(
+            return_value={
+                "items": [
+                    {
+                        "id": 3,
+                        "doc_id": "uuid-3",
+                        "text": "记忆内容",
+                        "metadata": '{"memory_type": "FACT", "importance": 0.9}',
+                        "created_at": "c",
+                        "updated_at": "u",
+                    }
+                ],
+                "total": 1,
+                "page": 2,
+                "page_size": 20,
+                "has_more": False,
+                "sort": "created_desc",
             }
         )
-        with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.aiosqlite"
-            ) as mock_sqlite:
-                mock_conn = AsyncMock()
-                mock_conn.execute.return_value = mock_conn
-                mock_conn.fetchone.return_value = {"total": 0}
-                mock_conn.fetchall.return_value = []
-                mock_sqlite.connect.return_value.__aenter__.return_value = mock_conn
-                mock_sqlite.Row = dict
-
-                result = await api.list_memories()
-        assert result["status"] == "ok"
-        assert result["data"]["total"] == 0
-        assert result["data"]["items"] == []
-
-    @pytest.mark.asyncio
-    async def test_type_filter_and_sort_are_applied_in_sql(self, api, tmp_path):
-        db_path = tmp_path / "memories.db"
-        async with aiosqlite.connect(db_path) as db:
-            await db.execute(
-                """
-                CREATE TABLE documents (
-                    id INTEGER PRIMARY KEY,
-                    doc_id TEXT,
-                    text TEXT,
-                    metadata TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-                """
-            )
-            rows = [
-                (
-                    1,
-                    "1",
-                    "low preference",
-                    {"memory_type": "PREFERENCE", "importance": 0.3, "create_time": 10},
-                ),
-                (
-                    2,
-                    "2",
-                    "high preference",
-                    {"memory_type": "PREFERENCE", "importance": 0.9, "create_time": 20},
-                ),
-                (
-                    3,
-                    "3",
-                    "other fact",
-                    {"memory_type": "FACT", "importance": 1.0, "create_time": 30},
-                ),
-            ]
-            for memory_id, doc_id, text, metadata in rows:
-                await db.execute(
-                    """
-                    INSERT INTO documents
-                        (id, doc_id, text, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        memory_id,
-                        doc_id,
-                        text,
-                        json.dumps(metadata),
-                        "created",
-                        "updated",
-                    ),
-                )
-            await db.commit()
-
-        api.plugin.initializer.memory_engine.db_path = str(db_path)
         req = _mock_page_request(
             args={
-                "page": "1",
+                "page": "2",
                 "page_size": "20",
-                "session_id": "",
-                "keyword": "",
-                "status": "all",
-                "type": "PREFERENCE",
-                "sort": "importance_desc",
+                "session_id": "s1",
+                "keyword": "记忆",
+                "status": "active",
+                "type": "FACT",
+                "sort": "created_desc",
             }
         )
-
         with _patch_page_request(req):
             result = await api.list_memories()
 
         assert result["status"] == "ok"
-        assert result["data"]["total"] == 2
-        assert result["data"]["filters"]["type"] == "PREFERENCE"
-        assert result["data"]["sort"] == "importance_desc"
-        assert [item["id"] for item in result["data"]["items"]] == [2, 1]
+        assert result["data"]["total"] == 1
+        assert result["data"]["items"][0]["metadata"]["memory_type"] == "FACT"
+        assert result["data"]["sort"] == "created_desc"
+        engine.list_memories_page.assert_awaited_once()
+        kwargs = engine.list_memories_page.call_args.kwargs
+        assert kwargs["session_id"] == "s1"
+        assert kwargs["keyword"] == "记忆"
+        assert kwargs["status"] == "active"
+        assert kwargs["memory_type"] == "FACT"
+        assert kwargs["sort_key"] == "created_desc"
+        assert kwargs["page"] == 2
+        assert kwargs["page_size"] == 20
 
     @pytest.mark.asyncio
     async def test_plugin_not_ready(self, api_not_ready):
@@ -654,8 +609,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -672,8 +628,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -691,8 +648,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -718,8 +676,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -739,8 +698,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -759,8 +719,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "hello", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -777,8 +738,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value=None,
             ):
                 result = await api.update_memory()
@@ -800,8 +762,9 @@ class TestUpdateMemory:
                 "text": "hello",
                 "metadata": {"session_id": "s1", "persona_id": "p1", "importance": 0.5},
             }
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value=memory,
             ):
                 result = await api.update_memory()
@@ -827,8 +790,9 @@ class TestUpdateMemory:
                     "importance": "default",
                 },
             }
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value=memory,
             ):
                 api.plugin.initializer.memory_engine.replace_memory = AsyncMock(
@@ -876,8 +840,9 @@ class TestUpdateMemory:
             },
         }
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value=memory,
             ):
                 result = await api.update_memory()
@@ -905,8 +870,9 @@ class TestUpdateMemory:
             }
         )
         with _patch_page_request(req):
-            with patch(
-                "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler.MemoryHandler._get_memory_record",
+            with patch.object(
+                api.plugin.initializer.memory_engine,
+                "get_memory_record",
                 return_value={"id": 1, "text": "summary", "metadata": {}},
             ):
                 result = await api.update_memory()
@@ -1303,7 +1269,7 @@ async def test_memory_detail_includes_retained_source():
         return_value=[{"role": "user", "content": "exact detail"}]
     )
     api = PluginPageApi(FakePlugin(memory_engine=engine))
-    api.memory_handler._get_memory_record = AsyncMock(
+    engine.get_memory_record = AsyncMock(
         return_value={
             "id": 7,
             "doc_id": "memory-7",
@@ -1365,7 +1331,7 @@ async def test_resummarize_memory_rebuilds_from_retained_source():
     )
     plugin.initializer.memory_processor = processor
     api = PluginPageApi(plugin)
-    api.memory_handler._get_memory_record = AsyncMock(
+    engine.get_memory_record = AsyncMock(
         return_value={
             "id": 7,
             "text": "old summary",
@@ -1604,29 +1570,34 @@ class TestConsolidationHandler:
     @pytest.mark.asyncio
     async def test_get_status_returns_counts(self, tmp_path):
         from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+        from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
         from astrbot_plugin_livingmemory.core.page_api_modules.consolidation_handler import (
             ConsolidationHandler,
         )
         from astrbot_plugin_livingmemory.core.page_api_modules.utils import PageApiUtils
 
         db_path = str(tmp_path / "cons.db")
-        async with aiosqlite.connect(db_path) as db:
-            await db.execute(
+        engine = MemoryEngine.__new__(MemoryEngine)
+        engine.db_connection = await aiosqlite.connect(db_path)
+        engine.db_connection.row_factory = aiosqlite.Row
+        try:
+            await engine.db_connection.execute(
                 "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
             )
-            await db.execute(
+            await engine.db_connection.execute(
                 "INSERT INTO documents(text, metadata) VALUES ('a', ?)",
                 (json.dumps({"consolidated_from": [1, 2], "status": "active"}),),
             )
-            await db.execute(
+            await engine.db_connection.execute(
                 "INSERT INTO documents(text, metadata) VALUES ('b', ?)",
                 (json.dumps({"status": "archived"}),),
             )
-            await db.commit()
+            await engine.db_connection.commit()
 
-        engine = SimpleNamespace(db_path=db_path)
-        handler = ConsolidationHandler(PageApiUtils())
-        result = await handler.get_status(engine, None, ConfigManager())
+            handler = ConsolidationHandler(PageApiUtils())
+            result = await handler.get_status(engine, None, ConfigManager())
+        finally:
+            await engine.db_connection.close()
 
         assert result["status"] == "ok"
         assert result["data"]["consolidated_count"] == 1

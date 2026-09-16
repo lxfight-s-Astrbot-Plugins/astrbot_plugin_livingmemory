@@ -97,37 +97,15 @@ class MemoryConsolidationManager:
 
     async def _query_candidates(self, cfg: dict[str, Any]) -> list[dict[str, Any]]:
         """查询符合整合条件的候选记忆（低重要度 + 足够旧 + 活跃状态）。"""
-        db = getattr(self.memory_engine, "db_connection", None)
-        if db is None:
-            return []
-
         max_importance = float(cfg.get("max_importance", 0.5))
         cutoff = time.time() - int(cfg.get("min_age_days", 7)) * 86400.0
-
-        cursor = await db.execute(
-            """
-            SELECT id, text, metadata
-            FROM documents
-            WHERE COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'
-              AND CAST(COALESCE(json_extract(metadata, '$.importance'), '0.5') AS REAL) < ?
-              AND CAST(COALESCE(json_extract(metadata, '$.create_time'), '0') AS REAL) < ?
-            ORDER BY id
-            """,
-            (max_importance, cutoff),
-        )
-        rows = await cursor.fetchall()
-
-        safe_json_dict = self.memory_engine._safe_json_dict
-        candidates: list[dict[str, Any]] = []
-        for row in rows:
-            candidates.append(
-                {
-                    "id": int(row["id"]),
-                    "content": row["text"],
-                    "metadata": safe_json_dict(row["metadata"]),
-                }
+        try:
+            return await self.memory_engine.get_consolidation_candidates(
+                max_importance, cutoff
             )
-        return candidates
+        except Exception as e:
+            logger.error(f"[记忆整合] 查询候选记忆失败: {e}", exc_info=True)
+            return []
 
     async def _build_groups(
         self, candidates: list[dict[str, Any]], cfg: dict[str, Any]
@@ -167,10 +145,7 @@ class MemoryConsolidationManager:
 
         pairs: list[tuple[int, int, float]] = []
         try:
-            vector_retriever = getattr(self.memory_engine, "vector_retriever", None)
-            if vector_retriever is None:
-                return self._group_by_session(candidates)
-            pairs = await vector_retriever.find_similar_pairs(
+            pairs = await self.memory_engine.find_similar_pairs(
                 candidate_ids, threshold
             )
         except Exception as e:

@@ -97,7 +97,8 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
     memory_engine.search_memories.assert_awaited_once_with(
         query="项目约定",
         k=5,
-        session_id=None,
+        # 作用域解析失败时回退到原始会话（与写入侧语义一致）
+        session_id=_make_run_context().context.event.unified_msg_origin,
         persona_id=None,
     )
     get_persona.assert_not_awaited()

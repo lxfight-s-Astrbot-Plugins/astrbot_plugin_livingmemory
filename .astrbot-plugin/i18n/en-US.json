@@ -132,19 +132,19 @@
       },
       "injection_method": {
         "description": "Memory Injection Position",
-        "hint": "Where to inject memories into LLM requests. extra_user_content is recommended: append to the current user message without affecting prefix cache or polluting conversation history. user_message_before: inject as a user-message prefix. user_message_after: inject as a user-message suffix. fake_tool_call: inject as fake tool-call message pairs so the LLM understands them as retrieval results. fake_tool_call_deepseek_v4 is deprecated and automatically falls back to fake_tool_call. With Gemini, fake_tool_call automatically falls back to extra_user_content. system_prompt is deprecated and automatically falls back to extra_user_content.",
+        "hint": "Where to inject memories into LLM requests. extra_user_content is the only supported mode: memories are appended to the current user message as a mark_as_temp temporary part that AstrBot filters out when saving history, so injection never touches conversation history or the prefix cache. user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt are all deprecated (they rewrite the user message or write messages into conversation history) and automatically fall back to extra_user_content.",
         "labels": [
           "Extra User Content",
-          "Before User Message",
-          "After User Message",
-          "Fake Tool Call",
+          "Before User Message (deprecated)",
+          "After User Message (deprecated)",
+          "Fake Tool Call (deprecated)",
           "Fake Tool Call (DeepSeek V4, deprecated)",
           "System Prompt (deprecated)"
         ]
       },
       "auto_remove_injected": {
-        "description": "Auto-Clear Old Injection Fragments",
-        "hint": "Automatically remove previously injected memory fragments from history before injecting new ones, preventing duplicate accumulation and token waste. Recommended to keep enabled."
+        "description": "Auto-Clear Legacy Injection Fragments",
+        "hint": "Automatically remove injection fragments left in conversation history by legacy injection modes from the request context before injecting new ones (the current add-only injection never leaves residue). Recommended to keep enabled."
       },
       "inject_with_recent_context": {
         "description": "Enable Cross-Turn Context Expansion",

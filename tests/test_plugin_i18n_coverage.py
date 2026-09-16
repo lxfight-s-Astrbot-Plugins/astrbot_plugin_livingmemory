@@ -20,9 +20,9 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "Extra User Content",
-            "user_message_before": "Before User Message",
-            "user_message_after": "After User Message",
-            "fake_tool_call": "Fake Tool Call",
+            "user_message_before": "Before User Message (deprecated)",
+            "user_message_after": "After User Message (deprecated)",
+            "fake_tool_call": "Fake Tool Call (deprecated)",
             "fake_tool_call_deepseek_v4": "Fake Tool Call (DeepSeek V4, deprecated)",
             "system_prompt": "System Prompt (deprecated)",
         },
@@ -57,9 +57,9 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "Дополнительный контент пользователя",
-            "user_message_before": "Перед сообщением пользователя",
-            "user_message_after": "После сообщения пользователя",
-            "fake_tool_call": "Фейковый вызов инструмента",
+            "user_message_before": "Перед сообщением пользователя (устарело)",
+            "user_message_after": "После сообщения пользователя (устарело)",
+            "fake_tool_call": "Фейковый вызов инструмента (устарело)",
             "fake_tool_call_deepseek_v4": (
                 "Фейковый вызов инструмента (DeepSeek V4, устарело)"
             ),

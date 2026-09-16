@@ -2,14 +2,8 @@
 utils 子模块
 """
 
-import asyncio
-import json
 import re
 import time
-from datetime import datetime
-from typing import Any
-
-import pytz
 
 from astrbot.api import logger, sp
 from astrbot.api.event import AstrMessageEvent
@@ -17,76 +11,6 @@ from astrbot.api.star import Context
 
 from ..processors.text_processor import TextProcessor
 from .stopwords_manager import StopwordsManager, get_stopwords_manager
-
-
-
-
-def safe_serialize_metadata(metadata: dict[str, Any]) -> str:
-    """
-    安全序列化元数据为JSON字符串。
-
-    Args:
-        metadata: 元数据字典
-
-    Returns:
-        str: JSON字符串
-    """
-    try:
-        return json.dumps(metadata, ensure_ascii=False)
-    except (TypeError, ValueError) as e:
-        logger.error(f"序列化元数据失败: {e}, 数据: {metadata}")
-        return "{}"
-
-
-
-
-async def retry_on_failure(
-    func,
-    *args,
-    max_retries: int = 3,
-    backoff_factor: float = 1.0,
-    exceptions: tuple = (Exception,),
-    **kwargs,
-):
-    """
-    带重试机制的函数执行器。
-
-    Args:
-        func: 要执行的函数
-        *args: 函数位置参数
-        max_retries: 最大重试次数
-        backoff_factor: 退避因子
-        exceptions: 需要重试的异常类型
-        **kwargs: 函数关键字参数
-
-    Returns:
-        函数执行结果
-    """
-    last_exception: BaseException | None = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            if asyncio.iscoroutinefunction(func):
-                return await func(*args, **kwargs)
-            else:
-                return func(*args, **kwargs)
-        except exceptions as e:
-            last_exception = e
-            if attempt < max_retries:
-                wait_time = backoff_factor * (2**attempt)
-                logger.warning(
-                    f"函数 {func.__name__} 执行失败 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
-                )
-                logger.info(f"等待 {wait_time:.2f} 秒后重试...")
-                await asyncio.sleep(wait_time)
-            else:
-                logger.error(
-                    f"函数 {func.__name__} 重试 {max_retries} 次后仍然失败: {e}"
-                )
-
-    # 所有重试都失败，抛出最后一个异常
-    if last_exception is not None:
-        raise last_exception
 
 
 class OperationContext:
@@ -195,84 +119,16 @@ def extract_json_from_response(text: str) -> str:
     return text.strip()
 
 
-def get_now_datetime(tz_str: str = "Asia/Shanghai") -> datetime:
-    """
-    获取当前时间，并根据指定的时区设置时区。
-
-    Args:
-        tz_str: 时区字符串，默认为 "Asia/Shanghai"
-
-    Returns:
-        datetime: 带有时区信息的当前时间
-    """
-    # 如果传入的是 Context 对象，则使用从上下文获取时间的方法
-    # 检查传入的是否是 Context 对象
-    if isinstance(tz_str, Context):
-        # 如果是 Context 对象，调用专门的函数处理
-        return get_now_datetime_from_context(tz_str)
-
-    try:
-        timezone = pytz.timezone(tz_str)
-    except pytz.UnknownTimeZoneError:
-        # 如果时区无效，则使用默认值
-        logger.warning(f"无效的时区: {tz_str}，使用默认时区 Asia/Shanghai")
-        timezone = pytz.timezone("Asia/Shanghai")
-
-    return datetime.now(timezone)
-
-
-def get_now_datetime_from_context(context: Context) -> datetime:
-    """
-    从上下文中获取当前时间，根据插件配置设置时区。
-
-    Args:
-        context: AstrBot 上下文对象
-
-    Returns:
-        datetime: 带有时区信息的当前时间
-    """
-    try:
-        # 尝试从配置中获取时区
-        if hasattr(context, "plugin_config"):
-            config = getattr(context, "plugin_config", {})
-            if isinstance(config, dict):
-                tz_str = config.get("timezone_settings", {}).get(
-                    "timezone", "Asia/Shanghai"
-                )
-                return get_now_datetime(tz_str)
-        # 如果配置不存在，则使用默认值
-        return get_now_datetime()
-    except (AttributeError, KeyError):
-        # 如果配置不存在，则使用默认值
-        return get_now_datetime()
-
-
-
-
-
-
-
-
-
-
-
-
 __all__ = [
     "StopwordsManager",
     "get_stopwords_manager",
     "TextProcessor",
     "safe_parse_metadata",
-    "safe_serialize_metadata",
     "validate_timestamp",
-    "retry_on_failure",
     "OperationContext",
     "get_persona_id",
     "extract_json_from_response",
-    "get_now_datetime",
-    "get_now_datetime_from_context",
     "format_memories_for_injection",
-    "format_memories_for_fake_tool_call",
-    "format_memories_for_fake_tool_call_deepseek_v4",
 ]
 
 
@@ -280,8 +136,6 @@ __all__ = [
 
 # 自 formatting.py 拆分模块导出（保持向后兼容）
 from .formatting import (
-    format_memories_for_fake_tool_call,
-    format_memories_for_fake_tool_call_deepseek_v4,
     format_memories_for_injection,
     safe_parse_metadata,
     validate_timestamp,

@@ -5,6 +5,7 @@ MemoryEngine 的 MemoryEngineBatchMixin 拆分模块
 
 from typing import Any
 import asyncio
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 from ..processors.atom_classifier import classify_atoms
 import json
@@ -12,9 +13,29 @@ from astrbot.api import logger
 from pathlib import Path
 import time
 
+import aiosqlite
+
+from ...storage.atom_store import AtomStore
+
 
 class MemoryEngineBatchMixin:
-    """MemoryEngine 拆分模块：MemoryEngineBatchMixin"""
+    """MemoryEngine 拆分模块：MemoryEngineBatchMixin
+
+    下述类级注解声明本模块依赖的宿主共享状态（由 MemoryEngine.__init__ /
+    initialize 赋值），仅作类型约束，不在此赋默认值。
+    """
+
+    # 宿主共享状态契约
+    db_connection: aiosqlite.Connection | None
+    config: dict[str, Any]
+    faiss_db: Any
+    db_path: str
+    atom_store: AtomStore | None
+    vector_retriever: Any | None
+    bm25_retriever: Any | None
+    graph_memory_manager: Any | None
+    graph_store: Any | None
+    index_maintenance_status: dict[str, Any]
     async def batch_delete_memories(self, memory_ids: list[int]) -> int:
         """Batch delete multiple memories using bulk SQL operations."""
         if not memory_ids:
@@ -186,7 +207,6 @@ class MemoryEngineBatchMixin:
             batch_size = 500
             last_id = 0
             candidates: list[int] = []
-            safe_json_dict = self._safe_json_dict
 
             # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             while True:
@@ -246,7 +266,7 @@ class MemoryEngineBatchMixin:
         metadata_updates: list[tuple[str, int]] = []
         archived_at = time.time()
         for document in documents:
-            metadata = self._safe_json_dict(document.get("metadata"))
+            metadata = safe_json_dict(document.get("metadata"))
             if str(metadata.get("status") or "active") == "archived":
                 continue
             metadata["status"] = "archived"
@@ -291,7 +311,7 @@ class MemoryEngineBatchMixin:
         memory = await self.get_memory(memory_id)
         if not memory:
             return False
-        metadata = self._safe_json_dict(memory.get("metadata"))
+        metadata = safe_json_dict(memory.get("metadata"))
         if str(metadata.get("status") or "active") != "archived":
             return True
 
@@ -538,7 +558,6 @@ class MemoryEngineBatchMixin:
             # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             batch_size = 500
             last_id = 0
-            safe_json_dict = self._safe_json_dict
 
             while True:
                 cursor = await self.db_connection.execute(
@@ -621,6 +640,87 @@ class MemoryEngineBatchMixin:
                 "newest_memory": None,
                 "graph_memory_enabled": bool(self.graph_store is not None),
             }
+
+    async def get_consolidation_candidates(
+        self, max_importance: float, cutoff: float
+    ) -> list[dict[str, Any]]:
+        """
+        查询符合整合条件的候选记忆（活跃状态 + 低重要度 + 足够旧）。
+
+        Args:
+            max_importance: 重要性上限（低于该值的记忆参与整合）
+            cutoff: 创建时间上限（epoch 秒，早于该时间的记忆参与整合）
+
+        Returns:
+            List[Dict]: 候选列表，每项包含 id/content/metadata(已解析为 dict)
+
+        Raises:
+            RuntimeError: 数据库连接未初始化时抛出
+        """
+        if self.db_connection is None:
+            raise RuntimeError("数据库连接未初始化")
+
+        cursor = await self.db_connection.execute(
+            """
+            SELECT id, text, metadata
+            FROM documents
+            WHERE COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'
+              AND CAST(COALESCE(json_extract(metadata, '$.importance'), '0.5') AS REAL) < ?
+              AND CAST(COALESCE(json_extract(metadata, '$.create_time'), '0') AS REAL) < ?
+            ORDER BY id
+            """,
+            (max_importance, cutoff),
+        )
+        rows = await cursor.fetchall()
+
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            candidates.append(
+                {
+                    "id": int(row["id"]),
+                    "content": row["text"],
+                    "metadata": safe_json_dict(row["metadata"]),
+                }
+            )
+        return candidates
+
+    async def get_consolidation_stats(self) -> dict[str, int]:
+        """
+        统计已整合与已归档的记忆数量（供管理页面展示）。
+
+        Returns:
+            Dict: 包含 consolidated_count 与 archived_count 的字典
+
+        Raises:
+            RuntimeError: 数据库连接未初始化时抛出
+        """
+        if self.db_connection is None:
+            raise RuntimeError("数据库连接未初始化")
+
+        cursor = await self.db_connection.execute(
+            "SELECT COUNT(*) FROM documents WHERE json_valid(metadata) "
+            "AND json_array_length("
+            "COALESCE(json_extract(metadata, '$.consolidated_from'), '[]')"
+            ") > 0"
+        )
+        row = await cursor.fetchone()
+        consolidated_count = int(row[0]) if row else 0
+
+        cursor = await self.db_connection.execute(
+            "SELECT COUNT(*) FROM documents WHERE "
+            "COALESCE("
+            "CASE WHEN json_valid(metadata) "
+            "THEN json_extract(metadata, '$.status') END,"
+            "'active'"
+            ") = 'archived'"
+        )
+        row = await cursor.fetchone()
+        archived_count = int(row[0]) if row else 0
+
+        return {
+            "consolidated_count": consolidated_count,
+            "archived_count": archived_count,
+        }
 
     async def maintain_storage(self, *, vacuum: bool = False) -> dict[str, Any]:
         """Run SQLite storage maintenance and return size diagnostics."""

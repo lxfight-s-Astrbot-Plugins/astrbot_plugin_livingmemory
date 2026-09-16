@@ -11,9 +11,18 @@ import aiosqlite
 
 from astrbot.api import logger
 
+from ..core.utils.json_utils import safe_json_dict
+
 
 class GraphStoreReadMixin:
-    """GraphStore 拆分模块：GraphStoreReadMixin"""
+    """GraphStore 拆分模块：GraphStoreReadMixin
+
+    宿主契约：``_connect`` 连接工厂与 ``_NODE_TOKEN_QUERY_BATCH_SIZE`` 批量
+    常量由 ``GraphStore``（storage/graph_store.py）提供，此处仅作类型声明。
+    """
+
+    # 宿主共享状态契约
+    _NODE_TOKEN_QUERY_BATCH_SIZE: int
 
     async def list_vector_doc_ids(self) -> list[int]:
         async with self._connect() as db:
@@ -72,7 +81,7 @@ class GraphStoreReadMixin:
                 grouped: dict[int, list[tuple[int, str, dict[str, Any]]]] = {}
                 for entry_id, source_memory_id, content, metadata in rows:
                     grouped.setdefault(int(source_memory_id), []).append(
-                        (int(entry_id), str(content or ""), self._from_json(metadata))
+                        (int(entry_id), str(content or ""), safe_json_dict(metadata))
                     )
                 yield [
                     (
@@ -139,7 +148,7 @@ class GraphStoreReadMixin:
                 if score_range == 0
                 else (max_score - float(row["score"])) / score_range
             )
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             hits.append(
                 {
                     "entry_id": int(row["id"]),
@@ -206,7 +215,7 @@ class GraphStoreReadMixin:
                 "node_type": row["node_type"],
                 "node_value": row["node_value"],
                 "canonical_value": row["canonical_value"],
-                "metadata": self._from_json(row["metadata"]),
+                "metadata": safe_json_dict(row["metadata"]),
             }
             for row in rows
         ]
@@ -253,7 +262,7 @@ class GraphStoreReadMixin:
 
         hits: list[dict[str, Any]] = []
         for row in rows:
-            metadata = self._from_json(row["metadata"])
+            metadata = safe_json_dict(row["metadata"])
             hits.append(
                 {
                     "entry_id": int(row["id"]),

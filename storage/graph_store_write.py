@@ -12,88 +12,25 @@ import aiosqlite
 from astrbot.api import logger
 
 from ..core.models.graph_models import GraphEdge, GraphEntry, GraphNode
+from .schema import GRAPH_SCHEMA_STATEMENTS
 
 
 class GraphStoreWriteMixin:
-    """GraphStore 拆分模块：GraphStoreWriteMixin"""
+    """GraphStore 拆分模块：GraphStoreWriteMixin
+
+    宿主契约：``_connect`` / ``_now_iso`` / ``_to_json`` / ``_chunked`` 由
+    ``GraphStore`` 提供；``_node_fts_available`` 在 ``initialize`` 中赋值
+    （trigram tokenizer 不可用时保持 False），读取侧经 getattr 兜底。
+    """
+
+    # 宿主共享状态契约
+    _node_fts_available: bool
 
     async def initialize(self) -> None:
         """Create tables used by the graph-memory layer."""
         async with self._connect() as db:
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS graph_nodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    node_key TEXT NOT NULL UNIQUE,
-                    node_type TEXT NOT NULL,
-                    node_value TEXT NOT NULL,
-                    canonical_value TEXT NOT NULL,
-                    metadata TEXT DEFAULT '{}',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS graph_edges (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    edge_key TEXT NOT NULL UNIQUE,
-                    source_node_id INTEGER NOT NULL,
-                    target_node_id INTEGER NOT NULL,
-                    relation_type TEXT NOT NULL,
-                    source_memory_id INTEGER NOT NULL,
-                    weight REAL NOT NULL DEFAULT 1.0,
-                    confidence REAL NOT NULL DEFAULT 0.8,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    metadata TEXT DEFAULT '{}',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(source_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
-                    FOREIGN KEY(target_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
-                )
-                """
-            )
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS graph_entries (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entry_key TEXT NOT NULL UNIQUE,
-                    source_memory_id INTEGER NOT NULL,
-                    session_id TEXT,
-                    persona_id TEXT,
-                    entry_type TEXT NOT NULL,
-                    relation_type TEXT,
-                    content TEXT NOT NULL,
-                    metadata TEXT DEFAULT '{}',
-                    edge_id INTEGER,
-                    vector_doc_id INTEGER,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(edge_id) REFERENCES graph_edges(id) ON DELETE CASCADE
-                )
-                """
-            )
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS graph_entry_nodes (
-                    entry_id INTEGER NOT NULL,
-                    node_id INTEGER NOT NULL,
-                    PRIMARY KEY(entry_id, node_id),
-                    FOREIGN KEY(entry_id) REFERENCES graph_entries(id) ON DELETE CASCADE,
-                    FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
-                )
-                """
-            )
-            await db.execute(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
-                USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
-                """
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_graph_nodes_canonical ON graph_nodes(canonical_value)"
-            )
+            for statement in GRAPH_SCHEMA_STATEMENTS:
+                await db.execute(statement)
             # External-content triggers also cover graph snapshot replacement.
             existing = await db.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'livingmemory_graph_nodes_fts'"
@@ -139,12 +76,6 @@ class GraphStoreWriteMixin:
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
                 ON graph_edges(source_node_id, target_node_id, relation_type)
                 """
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_graph_edges_memory_id ON graph_edges(source_memory_id)"
-            )
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_graph_entries_memory_id ON graph_entries(source_memory_id)"
             )
             await db.execute(
                 """

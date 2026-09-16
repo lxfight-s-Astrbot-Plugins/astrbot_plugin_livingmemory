@@ -281,8 +281,7 @@ async def test_handle_memory_recall_skips_when_prompt_empty(handler, memory_engi
 async def test_handle_memory_recall_injection_user_message_before(
     handler, memory_engine
 ):
-    """injection_method=user_message_before 时，记忆应追加到 prompt 前面。"""
-    # 重新构造 handler，使用 user_message_before 注入方式
+    """injection_method=user_message_before 已废弃，应回退为 extra_user_content。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
@@ -317,15 +316,21 @@ async def test_handle_memory_recall_injection_user_message_before(
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    assert "mem_before" in req.prompt
-    assert req.prompt.index("<RAG-Faiss-Memory>") < req.prompt.index("user question")
+    # 废弃模式不应改写 prompt（改写会被 AstrBot 持久化进对话历史）
+    assert req.prompt == "user question"
+
+    # 记忆应以临时片段追加到用户消息末尾，且不落库
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "mem_before" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
 
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_injection_user_message_after(
     handler, memory_engine
 ):
-    """injection_method=user_message_after 时，记忆应追加到 prompt 后面。"""
+    """injection_method=user_message_after 已废弃，应回退为 extra_user_content。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
@@ -360,8 +365,14 @@ async def test_handle_memory_recall_injection_user_message_after(
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    assert "mem_after" in req.prompt
-    assert req.prompt.index("user question") < req.prompt.index("<RAG-Faiss-Memory>")
+    # 废弃模式不应改写 prompt
+    assert req.prompt == "user question"
+
+    # 记忆应以临时片段追加到用户消息末尾，且不落库
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "mem_after" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
 
 
 @pytest.mark.asyncio
@@ -631,115 +642,12 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
     memory_engine.add_memory.assert_not_awaited()
 
 
-# ==================== fake_tool_call 注入策略测试 ====================
-
-
-@pytest.mark.asyncio
-async def test_format_memories_for_fake_tool_call():
-    """format_memories_for_fake_tool_call 应生成正确的伪造工具调用消息对。"""
-    from astrbot_plugin_livingmemory.core.utils import (
-        format_memories_for_fake_tool_call,
-    )
-
-    memories = [
-        {
-            "id": 101,
-            "content": "用户喜欢Python编程",
-            "score": 0.85,
-            "metadata": {
-                "importance": 0.9,
-                "session_id": "s1",
-                "persona_id": "p1",
-                "create_time": 1700000000,
-                "last_access_time": 1700001000,
-            },
-            "timestamp": 1700000000,
-        },
-        {
-            "doc_id": 202,
-            "content": "用户讨论过机器学习项目",
-            "score": 0.72,
-            "metadata": {"importance": 0.7},
-            "timestamp": None,
-        },
-    ]
-
-    result = format_memories_for_fake_tool_call(
-        memories,
-        query="Python",
-        k=5,
-        session_filtered=True,
-        persona_filtered=False,
-    )
-
-    # 应返回 2 条消息
-    assert len(result) == 2
-
-    assistant_msg = result[0]
-    tool_msg = result[1]
-
-    # 验证 assistant 消息格式
-    assert assistant_msg["role"] == "assistant"
-    assert assistant_msg["content"] is None
-    assert len(assistant_msg["tool_calls"]) == 1
-
-    tc = assistant_msg["tool_calls"][0]
-    assert tc["type"] == "function"
-    assert tc["function"]["name"] == "recall_long_term_memory"
-    assert tc["id"].startswith("fake_recall_")
-
-    # 验证 tool 消息格式
-    assert tool_msg["role"] == "tool"
-    assert tool_msg["tool_call_id"] == tc["id"]
-    assert tool_msg["name"] == "recall_long_term_memory"
-    assert "Python" in tool_msg["content"]
-    assert '"session_filtered": true' in tool_msg["content"]
-    assert '"persona_filtered": false' in tool_msg["content"]
-    assert '"id": 101' in tool_msg["content"]
-    assert '"id": 202' in tool_msg["content"]
-    assert "用户喜欢Python编程" in tool_msg["content"]
-    assert "用户讨论过机器学习项目" in tool_msg["content"]
-
-
-@pytest.mark.asyncio
-async def test_format_memories_for_fake_tool_call_empty():
-    """空记忆列表应返回空列表。"""
-    from astrbot_plugin_livingmemory.core.utils import (
-        format_memories_for_fake_tool_call,
-    )
-
-    result = format_memories_for_fake_tool_call([], query="test", k=5)
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_fake_tool_call_uses_persona_summary_for_injection():
-    from astrbot_plugin_livingmemory.core.utils import (
-        format_memories_for_fake_tool_call,
-    )
-
-    result = format_memories_for_fake_tool_call(
-        [
-            {
-                "id": 1,
-                "content": "canonical retrieval text | repeated fact",
-                "score": 0.8,
-                "metadata": {
-                    "persona_summary": "persona injection text",
-                    "key_facts": ["repeated fact"],
-                },
-            }
-        ],
-        query="test",
-    )
-
-    payload = json.loads(result[1]["content"])
-    assert payload["results"][0]["content"] == "persona injection text"
+# ==================== fake_tool_call 兼容清理测试 ====================
 
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_injection_fake_tool_call(handler, memory_engine):
-    """injection_method=fake_tool_call 时，记忆应以伪造工具调用的形式注入到 contexts。"""
+    """injection_method=fake_tool_call 已废弃，应回退为 extra_user_content 临时片段注入。"""
     from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
     from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
@@ -779,32 +687,17 @@ async def test_handle_memory_recall_injection_fake_tool_call(handler, memory_eng
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    # contexts 应该新增了 2 条消息（assistant + tool）
-    assert len(req.contexts) == 2
-
-    assistant_msg = req.contexts[0]
-    tool_msg = req.contexts[1]
-
-    # 验证 assistant 消息
-    assert assistant_msg["role"] == "assistant"
-    assert assistant_msg["content"] is None
-    assert len(assistant_msg["tool_calls"]) == 1
-    assert (
-        assistant_msg["tool_calls"][0]["function"]["name"] == "recall_long_term_memory"
-    )
-
-    # 验证 tool 消息
-    assert tool_msg["role"] == "tool"
-    assert tool_msg["tool_call_id"] == assistant_msg["tool_calls"][0]["id"]
-    assert tool_msg["name"] == "recall_long_term_memory"
-    assert '"session_filtered": true' in tool_msg["content"]
-    assert '"persona_filtered": true' in tool_msg["content"]
-    assert '"id": 99' in tool_msg["content"]
-    assert "用户喜欢吃火锅" in tool_msg["content"]
-
-    # prompt 和 system_prompt 不应被修改
+    # 废弃模式回退：不应向 contexts 写入任何消息，也不应改写 prompt
+    assert len(req.contexts) == 0
     assert req.prompt == "今天吃什么"
     assert req.system_prompt == ""
+
+    # 记忆应以 mark_as_temp 临时片段追加到 extra_user_content_parts
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "用户喜欢吃火锅" in text_part.text
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
 
 
 @pytest.mark.asyncio
@@ -891,14 +784,14 @@ def _make_recall_conversation_manager():
     return manager
 
 
-# ==================== Provider 注入兼容测试 ====================
+# ==================== 废弃注入方式回退测试 ====================
 
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
     memory_engine,
 ):
-    """Gemini 下配置 fake_tool_call 应自动降级为 extra_user_content 注入。"""
+    """fake_tool_call 已废弃，任何 Provider 下都应回退为 extra_user_content 注入。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
     gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
@@ -952,16 +845,12 @@ async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
 
 
 @pytest.mark.asyncio
-async def test_handle_memory_recall_fake_tool_call_fetches_provider_for_fallback(
+async def test_handle_memory_recall_deprecated_modes_do_not_fetch_provider(
     memory_engine,
 ):
-    """fake_tool_call 模式应查询会话级 provider，以便执行兼容降级。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
-    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
-
+    """废弃模式的回退是纯配置映射，不应查询会话级 provider。"""
     context = Mock()
-    context.get_using_provider = Mock(return_value=gemini_provider)
+    context.get_using_provider = Mock(side_effect=RuntimeError("should not be called"))
 
     h = EventHandler(
         context=context,
@@ -998,14 +887,15 @@ async def test_handle_memory_recall_fake_tool_call_fetches_provider_for_fallback
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
+    context.get_using_provider.assert_not_called()
+    assert len(req.extra_user_content_parts) == 1
 
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_fake_tool_call_fallback_logs_once(
     memory_engine,
 ):
-    """Gemini fallback 应只记录一条 warning，避免重复日志。"""
+    """废弃注入方式的回退应只记录一条 warning，避免重复日志。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
     gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
@@ -1060,56 +950,10 @@ async def test_handle_memory_recall_fake_tool_call_fallback_logs_once(
 
 
 @pytest.mark.asyncio
-async def test_format_memories_for_fake_tool_call_deepseek_v4():
-    """DeepSeek V4 转录格式应包含头尾标记、工具名和结果内容。"""
-    from astrbot_plugin_livingmemory.core.utils import (
-        format_memories_for_fake_tool_call_deepseek_v4,
-    )
-
-    result = format_memories_for_fake_tool_call_deepseek_v4(
-        [
-            {
-                "id": 101,
-                "content": "用户喜欢重庆火锅",
-                "score": 0.9,
-                "metadata": {"importance": 0.8, "create_time": 1700000000},
-                "timestamp": 1700000000,
-            }
-        ],
-        query="今天吃什么",
-        k=3,
-        session_filtered=False,
-        persona_filtered=True,
-    )
-
-    assert result
-    assert "<RAG-Faiss-Memory>" in result
-    assert "[DeepSeekV4-FakeToolCall-Replay]" in result
-    assert "assistant -> recall_long_term_memory(" in result
-    assert '"query": "今天吃什么"' in result
-    assert '"k": 3' in result
-    assert '"session_filtered": false' in result
-    assert '"persona_filtered": true' in result
-    assert "用户喜欢重庆火锅" in result
-    assert "</RAG-Faiss-Memory>" in result
-
-
-@pytest.mark.asyncio
-async def test_format_memories_for_fake_tool_call_deepseek_v4_empty():
-    """空记忆时 DeepSeek V4 转录应返回空字符串。"""
-    from astrbot_plugin_livingmemory.core.utils import (
-        format_memories_for_fake_tool_call_deepseek_v4,
-    )
-
-    result = format_memories_for_fake_tool_call_deepseek_v4([], query="test", k=5)
-    assert result == ""
-
-
-@pytest.mark.asyncio
 async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
     memory_engine,
 ):
-    """DeepSeek V4 专用模式已废弃，应自动回退到普通 fake_tool_call。"""
+    """DeepSeek V4 专用模式已废弃，应自动回退到 extra_user_content。"""
     context = Mock()
     context.get_using_provider = Mock(return_value=None)
 
@@ -1153,27 +997,23 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
-    assert len(req.contexts) == 2
+    # 回退是纯配置映射，不查询 provider，也不写入 contexts
+    context.get_using_provider.assert_not_called()
+    assert len(req.contexts) == 0
     assert req.system_prompt == ""
     assert req.prompt == "今天吃什么"
-    assert req.extra_user_content_parts == []
-    assistant_msg, tool_msg = req.contexts
-    assert assistant_msg["role"] == "assistant"
-    assert assistant_msg["tool_calls"][0]["function"]["name"] == (
-        "recall_long_term_memory"
-    )
-    assert tool_msg["role"] == "tool"
-    assert '"session_filtered": false' in tool_msg["content"]
-    assert '"persona_filtered": true' in tool_msg["content"]
-    assert "用户喜欢吃火锅" in tool_msg["content"]
+    assert len(req.extra_user_content_parts) == 1
+    text_part = req.extra_user_content_parts[0]
+    assert "用户喜欢吃火锅" in text_part.text
+    assert "<RAG-Faiss-Memory>" in text_part.text
+    assert getattr(text_part, "_no_save", False) is True
 
 
 @pytest.mark.asyncio
 async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4_on_gemini(
     memory_engine,
 ):
-    """DeepSeek V4 旧配置在 Gemini 上应继续降级到 extra_user_content。"""
+    """DeepSeek V4 旧配置在任何 Provider 下都应回退到 extra_user_content。"""
     gemini_provider = Mock()
     gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
     gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
@@ -1221,7 +1061,7 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4_on_gemi
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
+    context.get_using_provider.assert_not_called()
     assert len(req.contexts) == 0
     assert req.system_prompt == ""
     assert req.prompt == "今天吃什么"
@@ -1236,7 +1076,7 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4_on_gemi
 async def test_handle_memory_recall_deepseek_v4_alias_falls_back_when_provider_lookup_fails(
     memory_engine,
 ):
-    """DeepSeek V4 旧配置在 provider 获取失败时仍应继续按 fake_tool_call 处理。"""
+    """DeepSeek V4 旧配置回退不依赖 provider，获取失败也不影响注入。"""
     context = Mock()
     context.get_using_provider = Mock(side_effect=ValueError("no provider"))
 
@@ -1280,10 +1120,10 @@ async def test_handle_memory_recall_deepseek_v4_alias_falls_back_when_provider_l
         get_persona.return_value = "p1"
         await h.handle_memory_recall(event, req)
 
-    context.get_using_provider.assert_called_once_with(event.unified_msg_origin)
-    assert len(req.contexts) == 2
+    assert len(req.contexts) == 0
     assert req.prompt == "今天吃什么"
-    assert req.extra_user_content_parts == []
+    assert len(req.extra_user_content_parts) == 1
+    assert getattr(req.extra_user_content_parts[0], "_no_save", False) is True
     assert req.system_prompt == ""
 
 
@@ -1291,7 +1131,7 @@ async def test_handle_memory_recall_deepseek_v4_alias_falls_back_when_provider_l
 async def test_handle_memory_recall_non_fake_modes_do_not_fetch_provider(
     memory_engine,
 ):
-    """普通注入模式不应获取 provider，避免无关异常影响 recall。"""
+    """注入不获取 provider，避免无关异常影响 recall。"""
     context = Mock()
     context.get_using_provider = Mock(side_effect=RuntimeError("should not be called"))
 
@@ -1331,7 +1171,10 @@ async def test_handle_memory_recall_non_fake_modes_do_not_fetch_provider(
         await h.handle_memory_recall(event, req)
 
     context.get_using_provider.assert_not_called()
-    assert "用户喜欢吃火锅" in req.prompt
+    # 废弃方式回退为 extra_user_content，prompt 不被改写
+    assert req.prompt == "今天吃什么"
+    assert len(req.extra_user_content_parts) == 1
+    assert getattr(req.extra_user_content_parts[0], "_no_save", False) is True
 
 
 # ==================== top_k=0 回归测试 ====================
@@ -1436,10 +1279,10 @@ async def test_top_k_0_cleans_livingmemory_temp_extra_parts(
 
 
 @pytest.mark.asyncio
-async def test_top_k_0_normalizes_text_only_history_content_parts(
+async def test_top_k_0_leaves_history_content_parts_untouched(
     memory_engine, memory_processor, conversation_manager
 ):
-    """历史里的纯文本 content parts 应折叠回字符串，真实多模态消息保持不变。"""
+    """插件不应改写历史消息：纯文本 parts 保持原样，不做格式归一化。"""
     handler = _make_handler_with_top_k_0(
         memory_engine, memory_processor, conversation_manager
     )
@@ -1449,20 +1292,19 @@ async def test_top_k_0_normalizes_text_only_history_content_parts(
         {"type": "text", "text": "look"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
     ]
+    text_only_parts = [
+        {"type": "text", "text": "hello"},
+        {"type": "text", "text": "\nworld"},
+    ]
     req.contexts = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "hello"},
-                {"type": "text", "text": "\nworld"},
-            ],
-        },
+        {"role": "user", "content": text_only_parts},
         {"role": "user", "content": multimodal_content},
     ]
 
     await handler.handle_memory_recall(event, req)
 
-    assert req.contexts[0]["content"] == "hello\nworld"
+    # 历史消息对象保持原样（同一对象、同一格式），插件不做任何改写
+    assert req.contexts[0]["content"] is text_only_parts
     assert req.contexts[1]["content"] is multimodal_content
     memory_engine.search_memories.assert_not_awaited()
 
