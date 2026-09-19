@@ -20,6 +20,8 @@ from ...storage.atom_store import AtomStore
 
 import aiosqlite
 
+from .agentic_recall_types import AgenticRecallOutcome as AgenticRecallOutcome
+
 
 class MemoryEngineCrudMixin:
     """MemoryEngine 拆分模块：MemoryEngineCrudMixin

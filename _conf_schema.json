@@ -473,11 +473,50 @@
                 "type": "bool",
                 "default": true
             },
+            "enable_agentic_recall_beta": {
+                "description": "Beta：自主多轮回忆",
+                "hint": "试验功能，需同时开启上方主动回忆工具。开启后增强 recall_long_term_memory（支持按当前发言人查找、按时间范围过滤、排除已看候选），新增 read_memory_evidence 深读工具，并注入自主回忆规则；搜索与深读共享单请求预算。关闭则恢复旧检索逻辑。保存并成功重载后对新请求生效。",
+                "type": "bool",
+                "default": false
+            },
             "enable_memorize_tool": {
                 "description": "启用主动记忆写入工具",
                 "hint": "开启后注册 memorize_long_term_memory，允许 Agent 主动写入长期记忆。",
                 "type": "bool",
                 "default": false
+            },
+            "agentic_recall_max_calls": {
+                "description": "自主回忆最大工具调用次数",
+                "hint": "单次请求内记忆搜索/深读工具共享的最大调用次数，建议 3-6。（允许范围：1–20）",
+                "type": "int",
+                "default": 4,
+                "slider": {
+                    "min": 1,
+                    "max": 20,
+                    "step": 1
+                }
+            },
+            "agentic_recall_time_budget_seconds": {
+                "description": "自主回忆工具耗时预算（秒）",
+                "hint": "从本轮首次记忆工具调用起，记忆工具累计可工作的最长时间，超时后停止检索并基于已有证据回答，建议 10-60。（允许范围：1–300）",
+                "type": "int",
+                "default": 20,
+                "slider": {
+                    "min": 1,
+                    "max": 300,
+                    "step": 1
+                }
+            },
+            "agentic_recall_max_result_chars": {
+                "description": "自主回忆单次返回长度上限（字符）",
+                "hint": "Beta 记忆工具单次返回内容的最大字符数，超出部分可分页续读，建议 4000-30000。（允许范围：500–100000）",
+                "type": "int",
+                "default": 12000,
+                "slider": {
+                    "min": 500,
+                    "max": 100000,
+                    "step": 500
+                }
             }
         }
     },
