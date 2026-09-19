@@ -22,6 +22,7 @@ from astrbot.api.platform import MessageType
 from ...storage.conversation_store import ConversationStore
 from ..memory_scope import resolve_sender_alias
 from ..models.conversation_models import Message, Session
+from ..utils.history_alignment import compute_revert_cutoff
 
 
 class ConversationManager:
@@ -161,6 +162,19 @@ class ConversationManager:
                 sender_name,
             )
 
+        # 记录 LLM 轮次标识（webchat 事件 extra 携带），用于 WebUI
+        # 编辑/重试后的对话历史对账（见 core/utils/history_alignment.py）
+        metadata: dict[str, Any] = {}
+        checkpoint_id = None
+        get_extra = getattr(event, "get_extra", None)
+        if callable(get_extra):
+            try:
+                checkpoint_id = get_extra("llm_checkpoint_id")
+            except Exception:
+                checkpoint_id = None
+        if isinstance(checkpoint_id, str) and checkpoint_id:
+            metadata["llm_checkpoint_id"] = checkpoint_id
+
         return await self.add_message(
             session_id=session_id,
             role=role,
@@ -170,6 +184,7 @@ class ConversationManager:
             group_id=group_id,
             platform=platform,
             is_bot_message=(role == "assistant"),
+            metadata=metadata,
         )
 
     async def add_message(
@@ -182,6 +197,7 @@ class ConversationManager:
         group_id: str | None = None,
         platform: str = "unknown",
         is_bot_message: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> Message:
         """
         添加消息到会话
@@ -194,6 +210,7 @@ class ConversationManager:
             sender_name: 发送者昵称
             group_id: 群组ID(群聊场景)
             platform: 平台标识
+            metadata: 额外元数据（如 llm_checkpoint_id）
 
         Returns:
             创建的Message对象
@@ -213,8 +230,10 @@ class ConversationManager:
             group_id=group_id,
             platform=platform,
             timestamp=time.time(),
-            metadata={"is_bot_message": True} if is_bot_message else {},
+            metadata=dict(metadata or {}),
         )
+        if is_bot_message:
+            message.metadata["is_bot_message"] = True
 
         # 存储到数据库
         message_id = await self.store.add_message(message)
@@ -541,6 +560,92 @@ class ConversationManager:
         await self.reset_session_metadata(session_id)
 
         logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
+
+    async def reconcile_session_tail(
+        self,
+        session_id: str,
+        ctx_checkpoints: list[str],
+    ) -> int:
+        """与 AstrBot LLM 历史对账：清理已被 WebUI 编辑/重试撤销的尾部轮次。
+
+        WebUI 的「编辑上一条消息并重新请求」「换模型重试上一条对话」会在
+        LLM 侧截断/删除对应轮次，但对插件不可见。本方法以 req.contexts 中的
+        ``_checkpoint`` 段为锚点，删除插件会话库尾部残留的被撤销消息，并同步
+        修正 message_count 与总结游标。无法安全判定的场景（如遗留数据没有
+        checkpoint）保守跳过。
+
+        说明：
+        1. 位置排序键与滑动窗口/游标语义一致（``timestamp ASC, id ASC``）；
+        2. 与后台记忆总结任务并发时，本方法只做尾部删除；被删消息若已被总结
+           写入记忆，不会自动撤回（由 CHANGELOG 声明为已知局限），游标钳制
+           后会跳过被删范围，避免重复总结。
+
+        Args:
+            session_id: 会话ID
+            ctx_checkpoints: AstrBot LLM 历史（req.contexts）中 ``_checkpoint``
+                段的 id 有序列表（不含当前请求的消息轮次）
+
+        Returns:
+            int: 删除的消息数量（0 表示无需删除或无法安全判定）
+        """
+        if not session_id:
+            return 0
+        try:
+            # 快速退出：会话为空无需对账
+            total = await self.store.get_message_count(session_id)
+            if total <= 0:
+                return 0
+
+            # 尾行短路：库尾（最后完整轮次）与 LLM 历史末位 checkpoint 一致时，
+            # 不存在被回滚的尾部（AstrBot 只允许编辑/重试最新轮），可直接返回，
+            # 避免每个请求都做全量遍历
+            ctx_checkpoints = list(ctx_checkpoints or [])
+            if ctx_checkpoints:
+                last_message = await self.store.get_last_message(session_id)
+                if last_message is not None:
+                    last_checkpoint = (last_message.metadata or {}).get(
+                        "llm_checkpoint_id"
+                    )
+                    if (
+                        isinstance(last_checkpoint, str)
+                        and last_checkpoint == ctx_checkpoints[-1]
+                    ):
+                        return 0
+
+            rows = await self.store.get_session_message_refs_asc(session_id)
+            if not rows:
+                return 0
+
+            cutoff = compute_revert_cutoff(rows, ctx_checkpoints)
+            if cutoff is None:
+                return 0
+
+            deleted = await self.store.delete_messages_from_position(
+                session_id, cutoff
+            )
+            if deleted > 0:
+                await self.invalidate_cache(session_id)
+                logger.info(
+                    f"[{session_id}] 检测到 WebUI 对话回滚（编辑/重试），"
+                    f"已清理 {deleted} 条被撤销消息"
+                )
+            return deleted
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"[{session_id}] 对话历史对账失败（已跳过）: {exc}")
+            return 0
+
+    async def get_last_message(self, session_id: str) -> Message | None:
+        """获取会话最后一条消息（按会话顺序）。
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Message 或 None
+        """
+        return await self.store.get_last_message(session_id)
 
     async def cleanup_expired_sessions(self) -> int:
         """
