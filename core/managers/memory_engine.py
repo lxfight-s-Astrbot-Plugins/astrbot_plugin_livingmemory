@@ -29,12 +29,14 @@ from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
 from .memory_engine_batch import MemoryEngineBatchMixin
+from .memory_engine_agentic import MemoryEngineAgenticMixin
 from .memory_engine_crud import MemoryEngineCrudMixin
 from .memory_engine_write_ops import MemoryEngineWriteOpsMixin
 
 
 class MemoryEngine(
-    MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngineBatchMixin
+    MemoryEngineWriteOpsMixin, MemoryEngineCrudMixin, MemoryEngineBatchMixin,
+    MemoryEngineAgenticMixin,
 ):
     """
     统一记忆引擎

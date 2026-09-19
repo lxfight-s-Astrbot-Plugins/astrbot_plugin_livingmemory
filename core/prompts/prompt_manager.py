@@ -146,6 +146,19 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
             "--- END REMINDER ---"
         ),
     },
+    "agent_recall_policy": {
+        "id": "agent_recall_policy",
+        "name": "自主回忆规则（Beta）",
+        "name_en": "Agentic Recall Policy (Beta)",
+        "description": "Beta 自主多轮回忆注入给主对话模型的规则，说明何时查证、可用工具与停止条件",
+        "description_en": "Policy injected to the main conversation model for the Beta agentic recall: when to verify, available tools, and stop conditions",
+        "usage_note": "仅在主动回忆工具与 Beta 开关同时开启、且当前请求实际提供相关工具时，作为临时片段注入。{available_tools} 会被替换为当前请求实际可用的记忆工具说明。",
+        "usage_note_en": "Injected as a temporary part only when both the recall tool and the Beta switch are on and the request actually offers the tools. {available_tools} is replaced with the memory tools available in this request.",
+        "category": "agent_recall",
+        "file": "agent_recall_policy.txt",
+        "variables": ["{available_tools}"],
+        "default": "",
+    },
 }
 
 # 分类信息（用于前端分组展示）
@@ -167,6 +180,12 @@ PROMPT_CATEGORIES: dict[str, dict[str, str]] = {
         "name_en": "Memory Injection",
         "description": "向 LLM 上下文注入历史记忆时的说明与提醒文本",
         "description_en": "Explanatory and reminder text injected into the LLM context with historical memories",
+    },
+    "agent_recall": {
+        "name": "自主回忆（Beta）",
+        "name_en": "Agentic Recall (Beta)",
+        "description": "Beta 自主多轮回忆注入给主对话模型的规则与能力说明",
+        "description_en": "Rules and capability notes injected to the main conversation model for the Beta agentic multi-round recall",
     },
 }
 

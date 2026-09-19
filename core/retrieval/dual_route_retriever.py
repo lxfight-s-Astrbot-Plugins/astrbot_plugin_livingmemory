@@ -8,6 +8,7 @@ from typing import Any
 
 from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridResult, HybridRetriever
+from .recall_diagnostics import merge_route
 from .route_execution import search_route
 from .vector_search import query_embeddings
 
@@ -43,37 +44,54 @@ class DualRouteRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        *,
+        relevance_only: bool = False,
     ) -> list[HybridResult]:
         """Run both retrieval routes and merge their memory candidates."""
         timeout = self.config.get("retrieval_timeout_seconds", 10.0) * 2 + 1
-        cache = {}
-        token = query_embeddings.set(cache)
+        outer_cache = query_embeddings.get() if relevance_only else None
+        cache = outer_cache if outer_cache is not None else {}
+        token = query_embeddings.set(cache) if outer_cache is None else None
+        doc_diagnostics: dict[str, Any] = {}
+        graph_diagnostics: dict[str, Any] = {}
+        # 旧调用不增加下游关键字参数，保留宿主和已有替身的调用契约。
+        doc_options = {"diagnostics": doc_diagnostics} if diagnostics is not None else {}
+        graph_options = {"diagnostics": graph_diagnostics} if diagnostics is not None else {}
+        if relevance_only:
+            doc_options["relevance_only"] = True
+            graph_options["relevance_only"] = True
         try:
-            (doc_results, _), (graph_results, _) = await asyncio.gather(
+            (doc_results, doc_error), (graph_results, graph_error) = await asyncio.gather(
                 search_route(
                     "document",
                     self.document_retriever.search(
-                        query, max(k * 2, k), session_id, persona_id
+                        query, max(k * 2, k), session_id, persona_id, **doc_options
                     ),
                     timeout,
                 ),
                 search_route(
                     "graph",
                     self.graph_retriever.search(
-                        query, max(k * 2, k), session_id, persona_id
+                        query, max(k * 2, k), session_id, persona_id, **graph_options
                     ),
                     timeout,
                 ),
             )
+            merge_route(diagnostics, "document", doc_diagnostics, doc_error)
+            merge_route(diagnostics, "graph", graph_diagnostics, graph_error)
         finally:
-            query_embeddings.reset(token)
-            for task in cache.values():
-                if not task.done():
-                    task.cancel()
-            if cache:
-                await asyncio.gather(*cache.values(), return_exceptions=True)
+            if token is not None:
+                query_embeddings.reset(token)
+                for task in cache.values():
+                    if not task.done():
+                        task.cancel()
+                if cache:
+                    await asyncio.gather(*cache.values(), return_exceptions=True)
 
         if not graph_results:
+            if diagnostics is not None and len(doc_results) > k:
+                diagnostics["candidate_limited"] = True
             return doc_results[:k]
         if not doc_results and not graph_results:
             return []
@@ -169,6 +187,8 @@ class DualRouteRetriever:
             )
             if intent:
                 score_breakdown["query_intent"] = intent
+            if relevance_only:
+                score_breakdown["agentic_relevance"] = final_score
             if doc_result is not None:
                 score_breakdown["document_keyword_score"] = round(
                     float(doc_result.bm25_score or 0.0),
@@ -209,6 +229,8 @@ class DualRouteRetriever:
             )
 
         merged_results.sort(key=lambda item: item.final_score, reverse=True)
+        if diagnostics is not None and len(merged_results) > k:
+            diagnostics["candidate_limited"] = True
         return merged_results[:k]
 
     def _route_weights_for_query(self, query: str) -> tuple[float, float, str]:

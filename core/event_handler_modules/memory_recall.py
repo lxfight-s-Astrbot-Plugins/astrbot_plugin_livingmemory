@@ -126,6 +126,9 @@ class MemoryRecall:
                         logger.info(
                             f"[{session_id}] 已清理 {removed} 处历史记忆注入片段"
                         )
+                # 新规则的临时片段只携带本插件专用标记，去重独立于旧清理开关，
+                # 重复执行钩子也不会叠加。
+                self._remove_agent_recall_policy_from_context(req)
 
                 # 先提取用户消息（消息存储和召回都需要）
                 actual_query = await self.message_utils.get_event_message_str(event)
@@ -150,6 +153,10 @@ class MemoryRecall:
                         content=message_to_store,
                     )
                     await self.message_utils.enforce_message_limit(session_id)
+
+                # Beta 自主回忆规则：独立于自动召回是否命中；即使 top_k=0
+                # 也可为当前请求可用的主动工具提供规则说明。
+                self._maybe_inject_agent_recall_policy(req, session_id)
 
                 # 若 top_k <= 0，跳过记忆检索和注入，但上述清理和消息存储已执行
                 top_k = self.config_manager.get("recall_engine.top_k", 5)
@@ -304,6 +311,138 @@ class MemoryRecall:
             raise
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
+
+    def _remove_agent_recall_policy_from_context(self, req: ProviderRequest) -> int:
+        """移除本插件上一轮注入的自主回忆规则临时片段（重复钩子去重）。
+
+        只识别带本插件专用边界标记的临时片段，不动记忆注入片段、
+        真实工具结果或其他插件的临时内容。
+        """
+        from ..base.constants import (
+            AGENT_RECALL_POLICY_FOOTER,
+            AGENT_RECALL_POLICY_HEADER,
+        )
+
+        parts = getattr(req, "extra_user_content_parts", None)
+        if not parts:
+            return 0
+        kept = [
+            part
+            for part in parts
+            if not self._is_agent_recall_policy_part(
+                part, AGENT_RECALL_POLICY_HEADER, AGENT_RECALL_POLICY_FOOTER
+            )
+        ]
+        removed = len(parts) - len(kept)
+        if removed:
+            req.extra_user_content_parts = kept
+        return removed
+
+    @staticmethod
+    def _is_agent_recall_policy_part(
+        part, header: str, footer: str
+    ) -> bool:
+        text = getattr(part, "text", "")
+        return (
+            getattr(part, "_no_save", False)
+            and isinstance(text, str)
+            and header in text
+            and footer in text
+        )
+
+    def _load_agent_recall_policy(self) -> str | None:
+        """按 自定义覆盖 > 内置默认文件 顺序读取自主回忆规则。"""
+        try:
+            from ..prompts import get_prompt_manager
+
+            manager = get_prompt_manager()
+            if manager is not None:
+                content = manager.get_prompt("agent_recall_policy")
+                if content and content.strip():
+                    return content
+        except Exception:
+            pass
+        try:
+            from pathlib import Path
+
+            builtin = (
+                Path(__file__).resolve().parents[1]
+                / "prompts"
+                / "agent_recall_policy.txt"
+            )
+            if builtin.exists():
+                content = builtin.read_text(encoding="utf-8")
+                if content.strip():
+                    return content
+        except Exception:
+            pass
+        return None
+
+    def _maybe_inject_agent_recall_policy(
+        self, req: ProviderRequest, session_id: str
+    ) -> None:
+        """Beta：按需注入自主回忆规则（add-only 临时片段，先清后加可去重）。
+
+        仅在主动回忆工具与 Beta 开关同时开启、插件就绪、事件已放行、且当前
+        请求实际提供 recall_long_term_memory 工具时注入；能力说明严格以
+        当前请求的 func_tool 集合为准。
+        """
+        from ..base.constants import (
+            AGENT_RECALL_POLICY_FOOTER,
+            AGENT_RECALL_POLICY_HEADER,
+        )
+
+        try:
+            if not self.config_manager.get("agent_tools.enable_recall_tool", True):
+                return
+            if not self.config_manager.get(
+                "agent_tools.enable_agentic_recall_beta", False
+            ):
+                return
+            if self.memory_engine is None:
+                return
+            func_tool = getattr(req, "func_tool", None)
+            get_names = getattr(func_tool, "names", None)
+            names: list[str] = []
+            if callable(get_names):
+                try:
+                    names = list(get_names())
+                except Exception:
+                    names = []
+            if "recall_long_term_memory" not in names:
+                return
+            policy = self._load_agent_recall_policy()
+            if not policy:
+                return
+            available = [
+                '- recall_long_term_memory: search long-term memory by topic '
+                'keywords, or browse the current speaker\'s past experiences with '
+                'target="current_speaker" (query may be empty) when the question '
+                "has no usable keywords; refine follow-up searches with "
+                "exclude_ids / start_time / end_time / search_offset."
+            ]
+            if "read_memory_evidence" in names:
+                available.append(
+                    "- read_memory_evidence: deep-read one memory by its integer "
+                    "memory_id for exact facts or retained original messages "
+                    "(permission and lifecycle re-checked); pass the returned "
+                    "next_cursor unchanged as cursor to continue long evidence. "
+                    "For original-message pages, keep include_source=true."
+                )
+            policy_text = policy.replace("{available_tools}", "\n".join(available))
+            wrapped = (
+                f"{AGENT_RECALL_POLICY_HEADER}\n"
+                f"{policy_text.strip()}\n"
+                f"{AGENT_RECALL_POLICY_FOOTER}"
+            )
+            req.extra_user_content_parts.append(
+                TextPart(text=wrapped).mark_as_temp()
+            )
+            logger.info(f"[{session_id}] 已注入自主回忆规则（Beta）")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"[{session_id}] 注入自主回忆规则失败: {e}")
 
     def _remove_injected_memories_from_context(
         self, req: ProviderRequest, session_id: str

@@ -48,6 +48,9 @@ class AtomRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        *,
+        relevance_only: bool = False,
+        diagnostics: dict[str, Any] | None = None,
     ) -> list[AtomRetrievalResult]:
         """Search atoms by FTS, score by relevance and temporal decay."""
         atoms = await self.atom_store.search_fts(
@@ -56,12 +59,14 @@ class AtomRetriever:
             session_id=session_id,
             persona_id=persona_id,
         )
+        if diagnostics is not None:
+            diagnostics["candidate_limited"] = len(atoms) >= max(k * 2, k) or len(atoms) > k
 
         results: list[AtomRetrievalResult] = []
         for atom in atoms:
             base_score = float(atom.metadata.get("bm25_score", 0.5))
             temporal_score = float(atom.metadata.get("temporal_score", 1.0))
-            final_score = base_score * temporal_score
+            final_score = base_score if relevance_only else base_score * temporal_score
             results.append(
                 AtomRetrievalResult(
                     atom_id=atom.atom_id,
