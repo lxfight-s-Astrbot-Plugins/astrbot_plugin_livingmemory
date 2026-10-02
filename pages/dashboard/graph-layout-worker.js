@@ -9,21 +9,24 @@
 importScripts("graph-layout-core.js");
 
 var layout = GraphLayoutCore.createForceLayout();
+var generation = 0;
 
 self.onmessage = function(e) {
   var msg = e.data;
   if (msg.type === "begin") {
+    generation = msg.generation;
     layout.begin(msg.nodes, msg.edges, msg.centerId);
     return;
   }
   if (msg.type === "step") {
+    if (msg.generation !== generation) return;
     layout.runLayoutSteps(msg.count);
     var positions = {};
     var sim = layout._sim;
     for (var i = 0; i < sim.length; i++) {
       positions[sim[i].id] = { x: sim[i].x, y: sim[i].y };
     }
-    var out = { type: "positions", positions: positions, done: layout._done };
+    var out = { type: "positions", generation: generation, positions: positions, done: layout._done };
     if (layout._done) {
       out.targets = layout.positions;
       out.rings = layout.rings;
@@ -33,9 +36,11 @@ self.onmessage = function(e) {
     return;
   }
   if (msg.type === "end") {
+    if (msg.generation !== generation) return;
     layout.end();
     self.postMessage({
       type: "done",
+      generation: generation,
       targets: layout.positions,
       rings: layout.rings,
       communities: layout.communities,

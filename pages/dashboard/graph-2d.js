@@ -66,23 +66,39 @@
     this.centerId = null;
     this._worker = null;
     this._pending = null;
+    this._generation = 0;
+    this._failed = false;
     this._lastPositions = {};
     this._lastSimPositions = {};
     try {
-      this._worker = new Worker("./graph-layout-worker.js");
+      this._worker = new Worker("./graph-layout-worker.js?protocol=2");
       this.isWorker = true;
       var self = this;
       this._worker.onmessage = function(e) { self._onMessage(e.data); };
+      this._worker.onerror = this._worker.onmessageerror = function(e) {
+        if (e.preventDefault) e.preventDefault();
+        self._failed = true;
+        self._worker.terminate();
+        if (self._pending) {
+          var pending = self._pending;
+          self._pending = null;
+          pending.reject(new Error("Graph layout worker failed"));
+        }
+      };
     } catch (err) {
       this._worker = null;
     }
   }
 
   WorkerForceLayout.prototype.begin = function(nodes, edges, centerId) {
+    this.invalidate();
     this._done = false;
+    this.centerId = centerId == null ? null : centerId;
     this._lastSimPositions = {};
+    if (this._failed) return;
     this._worker.postMessage({
       type: "begin",
+      generation: this._generation,
       nodes: nodes.map(function(n) {
         return { id: n.id, weight: n.weight || 0, degree: n.degree || 0, memory_count: n.memory_count || 0 };
       }),
@@ -95,14 +111,29 @@
 
   WorkerForceLayout.prototype.runLayoutSteps = function(count) {
     var self = this;
-    return new Promise(function(resolve) {
-      self._pending = resolve;
-      self._worker.postMessage({ type: "step", count: count });
+    return new Promise(function(resolve, reject) {
+      if (self._failed) { reject(new Error("Graph layout worker failed")); return; }
+      self._pending = { resolve: resolve, reject: reject };
+      self._worker.postMessage({ type: "step", count: count, generation: self._generation });
     });
   };
 
+  WorkerForceLayout.prototype.invalidate = function() {
+    this._generation++;
+    if (this._pending) {
+      var pending = this._pending;
+      this._pending = null;
+      pending.resolve();
+    }
+  };
+
+  WorkerForceLayout.prototype.destroy = function() {
+    this.invalidate();
+    this._worker.terminate();
+  };
+
   WorkerForceLayout.prototype.end = function() {
-    this._worker.postMessage({ type: "end" });
+    this._worker.postMessage({ type: "end", generation: this._generation });
   };
 
   WorkerForceLayout.prototype.compute = function(nodes, edges, focusId) {
@@ -119,6 +150,7 @@
   };
 
   WorkerForceLayout.prototype._onMessage = function(msg) {
+    if (this._failed || msg.generation !== this._generation) return;
     if (msg.type === "positions") {
       this._lastSimPositions = msg.positions;
       this._done = msg.done;
@@ -128,9 +160,9 @@
         this.communities = msg.communities;
       }
       if (this._pending) {
-        var resolve = this._pending;
+        var pending = this._pending;
         this._pending = null;
-        resolve();
+        pending.resolve();
       }
     }
   };
@@ -226,7 +258,7 @@
   };
 
   Animator.prototype.start = function() {
-    if (this._running) return;
+    if (this._running || !this._pageVisible || document.hidden) return;
     this._running = true;
     var self = this;
     this._rafId = requestAnimationFrame(function() { self._tick(); });
@@ -267,6 +299,7 @@
 
   Animator.prototype.layoutGraph = function(centerId) {
     var self = this;
+    this._layoutGeneration += 1;
     /* Save previous positions for animation */
     this._nodes.forEach(function(n) {
       n._prevX = n.x;
@@ -278,20 +311,19 @@
     var signature = this._graphSignature();
     var cached = this._layoutCache[signature];
     if (cached) {
-      /* 代数守卫+1：丢弃可能仍在跑的渐进布局链路（避免旧链路回包
-         覆盖刚注入的缓存位置）。 */
-      this._layoutGeneration += 1;
+      /* 丢弃 Worker 在途消息，避免旧链路回包覆盖刚注入的缓存位置。 */
+      if (this._layout.invalidate) this._layout.invalidate();
       this._layout.positions = cached.positions;
       this._layout.rings = cached.rings;
       this._layout.communities = cached.communities;
       this._layout._done = true;
-      if (centerId != null) this._layout.centerId = centerId;
+      this._layout.centerId = centerId == null ? null : centerId;
       this._lastLayoutSignature = signature;
       this._finishLayout(centerId, true);
       return;
     }
     if (signature === this._lastLayoutSignature && this._layout._done) {
-      if (centerId != null) this._layout.centerId = centerId;
+      this._layout.centerId = centerId == null ? null : centerId;
       this._finishLayout(centerId, true);
       return;
     }
@@ -307,7 +339,6 @@
     } else {
       this.stop();
       this._animProgress = 1;
-      this._layoutGeneration += 1;
       /* tier>0 时清空上一张图的边子集/社区束，避免渐进过程中画出过期边；
          布局完成后由 _finishLayout 的 prepareGraph 统一重建。 */
       if (this.renderer.performanceTier > 0) {
@@ -346,7 +377,17 @@
     var self = this;
     /* 代数守卫：若期间又加载了新图，丢弃这条过期链路。 */
     if (generation !== this._layoutGeneration) return;
-    await this._layout.runLayoutSteps(8);
+    try {
+      await this._layout.runLayoutSteps(8);
+    } catch (err) {
+      if (generation !== this._layoutGeneration) return;
+      if (!this._layout.isWorker) throw err;
+      // Worker construction may succeed even when its script is blocked or fails.
+      this._layout.destroy();
+      this._layout = new ForceDirectedLayout();
+      this._layout.begin(this._nodes, this._edges, centerId);
+      return this._progressiveLayout(centerId, generation);
+    }
     if (generation !== this._layoutGeneration) return;
     this._applyLayoutPositions();
     if (!this._layout._done) {
@@ -394,7 +435,7 @@
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
     this._animProgress = (immediate || this._instantLayout) ? 1 : 0;
-    if (this._instantLayout) {
+    if (immediate || this._instantLayout) {
       this._nodes.forEach(function(node) {
         if (node.fixed) return;
         var target = self._layout.getTarget(node.id);
@@ -415,7 +456,7 @@
     this.renderer.clear();
     var sel = this.renderer._selection;
     var hoverId = this.interaction.getHoverId();
-    this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, 1);
+    this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, 1, this.interaction.getHoverType());
     this._needsRender = false;
   };
 
@@ -449,7 +490,7 @@
 
     /* 页面隐藏（SPA 切到其他 tab 页）时停止循环：布局计算（Worker）仍在
        后台继续，返回图谱页时 setPageVisible(true) 会恢复渲染。 */
-    if (!this._pageVisible) {
+    if (!this._pageVisible || document.hidden) {
       this._running = false;
       return;
     }
@@ -460,8 +501,7 @@
        由 _finishLayout 在收敛后统一完成。 */
     if (!this._layout._done) {
       this._needsRender = true;
-      var self = this;
-      this._rafId = requestAnimationFrame(function() { self._tick(); });
+      this._running = false; // _finishLayout wakes rendering once positions are ready.
       return;
     }
 
@@ -519,7 +559,7 @@
     if (dirty || this._needsRender) {
       this.renderer.clear();
       var sel = this.renderer._selection;
-      this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, this._animProgress);
+      this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, this._animProgress, this.interaction.getHoverType());
       this._needsRender = false;
     }
 
@@ -595,24 +635,31 @@
     this.renderer.resize();
     this.animator.start();
 
+    this._onVisibilityChange = function() {
+      if (document.hidden) self.animator.stop();
+      else self.animator.wake();
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+
     /* Resize observer */
     if (typeof window.ResizeObserver === "function") {
-      var ro = new ResizeObserver(function() {
+      this._resizeObserver = new ResizeObserver(function() {
         self.resize();
       });
-      ro.observe(this.container);
+      this._resizeObserver.observe(this.container);
     }
-    window.addEventListener("resize", function() {
+    this._onResize = function() {
       self.resize();
-    }, { passive: true });
+    };
+    window.addEventListener("resize", this._onResize, { passive: true });
 
     /* Theme observer */
     if (typeof window.MutationObserver === "function") {
-      var mo = new MutationObserver(function() {
+      this._themeObserver = new MutationObserver(function() {
         self.renderer._bgCacheKey = null;
         self.animator.wake();
       });
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-style"] });
+      this._themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-style"] });
     }
 
     this._initialized = true;
@@ -750,8 +797,16 @@
   };
 
   Graph2D.prototype.destroy = function() {
+    if (!this._initialized) return;
     this.animator.setPageVisible(false);
-    if (this.animator) this.animator.stop();
+    this.animator._layoutGeneration++;
+    this.animator._onLayoutDone = null;
+    if (this.animator._layout.destroy) this.animator._layout.destroy();
+    this.interaction.destroy();
+    if (this._resizeObserver) this._resizeObserver.disconnect();
+    if (this._themeObserver) this._themeObserver.disconnect();
+    window.removeEventListener("resize", this._onResize);
+    document.removeEventListener("visibilitychange", this._onVisibilityChange);
     if (this.canvas && this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);
     }

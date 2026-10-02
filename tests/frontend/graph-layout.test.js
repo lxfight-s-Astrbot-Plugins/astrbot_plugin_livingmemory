@@ -41,11 +41,13 @@ function makeCanvas() {
     getBoundingClientRect: () => ({ width: 800, height: 600 }),
     clientWidth: 800,
     clientHeight: 600,
+    removeChild() {},
   };
   return {
     getContext: () => makeCtx(),
     parentElement: parent,
     addEventListener() {},
+    removeEventListener() {},
     style: {},
     width: 800,
     height: 600,
@@ -70,11 +72,13 @@ function loadGraph() {
       disconnect() {}
     },
     addEventListener() {},
+    removeEventListener() {},
   };
   global.document = {
     documentElement: { getAttribute: () => "light" },
     createElement: () => makeCanvas(),
     addEventListener() {},
+    removeEventListener() {},
   };
   global.getComputedStyle = () => ({ getPropertyValue: () => "" });
   global.requestAnimationFrame = (cb) => {
@@ -462,6 +466,7 @@ function installFakeWorker() {
     constructor() {
       const worker = this;
       this.onmessage = null;
+      this._deferResponses = false;
       const posts = [];
       const fakeSelf = {
         postMessage(msg) { posts.push(msg); },
@@ -487,8 +492,8 @@ function installFakeWorker() {
         fakeSelf.onmessage({ data: msg });
         global.self = saved;
       };
-      this._flush = () => {
-        while (posts.length) {
+      this._flush = (limit = Infinity) => {
+        while (posts.length && limit-- > 0) {
           const msg = posts.shift();
           if (worker.onmessage) worker.onmessage({ data: msg });
         }
@@ -496,7 +501,7 @@ function installFakeWorker() {
     }
     postMessage(msg) {
       this._dispatch(msg);
-      this._flush();
+      if (!this._deferResponses) this._flush();
     }
     terminate() {}
   };
@@ -604,4 +609,162 @@ test("worker layout falls back to inline when Worker unavailable", async () => {
   assert.equal(g.animator._layout._done, true);
   assert.equal(Object.keys(g.animator._layout.positions).length, 120);
   global.Worker = savedWorker;
+});
+
+test("delayed worker replies cannot settle or overwrite a newer graph", async t => {
+  const queue = loadGraph();
+  installFakeWorker();
+  t.after(() => { delete global.Worker; });
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  const layout = graph.animator._layout;
+  layout._worker._deferResponses = true;
+  graph.loadData(makePayload(40, 39));
+  const oldPending = layout._pending;
+  graph.loadData(makePayload(20, 19));
+  const newPending = layout._pending;
+  assert.notEqual(oldPending, newPending);
+  layout._worker._flush(1);
+  assert.equal(layout._pending, newPending, "Old replies must not resolve the new step");
+  assert.deepEqual(layout._lastSimPositions, {});
+  layout._worker._deferResponses = false;
+  layout._worker._flush();
+  await settle(queue);
+  assert.equal(Object.keys(layout.positions).length, 20);
+  assert.equal(layout._done, true);
+});
+
+test("an in-flight worker cannot overwrite a restored cached layout", async t => {
+  const queue = loadGraph();
+  installFakeWorker();
+  t.after(() => { delete global.Worker; });
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  const small = makePayload(10, 9);
+  graph.loadData(small);
+  await settle(queue);
+  const layout = graph.animator._layout;
+  const positions = layout.positions;
+  graph.animator._instantLayout = false;
+  layout._worker._deferResponses = true;
+  graph.loadData(makePayload(100, 99));
+  graph.loadData(small);
+  layout._worker._flush();
+  await settle(queue);
+  assert.equal(layout.positions, positions);
+  assert.equal(layout._done, true);
+  for (const node of graph._nodes) {
+    assert.equal(node.x, positions[node.id].tx);
+    assert.equal(node.y, positions[node.id].ty);
+  }
+});
+
+test("worker script errors fall back to sliced inline layout and finish loading", async t => {
+  const queue = loadGraph();
+  installFakeWorker();
+  t.after(() => { delete global.Worker; });
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  const worker = graph.animator._layout._worker;
+  worker._deferResponses = true;
+  let completions = 0, terminated = 0;
+  worker.terminate = () => { terminated++; };
+  graph.loadData(makePayload(120, 119), { onLayoutDone: () => { completions++; } });
+  worker.onerror({ preventDefault() {} });
+  await settle(queue);
+  assert.notEqual(graph.animator._layout.isWorker, true);
+  assert.equal(graph.animator._layout._done, true);
+  assert.equal(Object.keys(graph.animator._layout.positions).length, 120);
+  assert.equal(completions, 1);
+  assert.ok(terminated > 0);
+});
+
+test("waiting for a worker response does not spin a rendering RAF loop", t => {
+  const queue = loadGraph();
+  installFakeWorker();
+  t.after(() => { delete global.Worker; });
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  graph.animator._layout._worker._deferResponses = true;
+  graph.loadData(makePayload(120, 119));
+  for (let i = 0; i < 5 && queue.length; i++) queue.shift()();
+  assert.equal(queue.length, 0);
+  assert.equal(graph.animator._running, false);
+  graph.animator._layout.invalidate();
+});
+
+test("browser visibility and SPA activity jointly control graph rendering", async () => {
+  const queue = loadGraph();
+  const events = {};
+  document.addEventListener = (name, callback) => { events[name] = callback; };
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  graph.loadData(makePayload(2, 1));
+  await settle(queue);
+  document.hidden = true;
+  events.visibilitychange();
+  graph.animator.wake();
+  assert.equal(graph.animator._running, false);
+  graph.setActive(false);
+  document.hidden = false;
+  events.visibilitychange();
+  assert.equal(graph.animator._running, false, "Visible browser must not wake an inactive SPA page");
+  graph.setActive(true);
+  assert.equal(graph.animator._running, true);
+  await settle(queue);
+});
+
+test("overlapping node and edge ids highlight only the hovered object type", async () => {
+  const queue = loadGraph();
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  graph.loadData(makePayload(2, 1));
+  await settle(queue);
+  graph.interaction._hoverId = 1;
+  graph.interaction._hoverType = "edge";
+  graph.animator.wake(); await settle(queue);
+  assert.equal(graph.renderer._drawnEdges[0].isHovered, true);
+  assert.equal(graph.renderer._drawnNodes.find(node => node.id === 1).isHovered, false);
+  graph.interaction._hoverType = "node";
+  graph.animator.wake(); await settle(queue);
+  assert.equal(graph.renderer._drawnEdges[0].isHovered, false);
+  assert.equal(graph.renderer._drawnNodes.find(node => node.id === 1).isHovered, true);
+});
+
+test("destroy disconnects observers, listeners and a pending layout worker", async t => {
+  const queue = loadGraph();
+  installFakeWorker();
+  t.after(() => { delete global.Worker; });
+  let disconnected = 0, removed = 0, terminated = 0;
+  global.ResizeObserver = global.MutationObserver = class {
+    observe() {} disconnect() { disconnected++; }
+  };
+  window.removeEventListener = document.removeEventListener = () => { removed++; };
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  const worker = graph.animator._layout._worker;
+  worker._deferResponses = true;
+  worker.terminate = () => { terminated++; };
+  graph.loadData(makePayload(40, 39));
+  graph.destroy();
+  await settle(queue);
+  assert.equal(graph._initialized, false);
+  assert.equal(graph.animator._running, false);
+  assert.equal(disconnected, 2);
+  assert.ok(removed >= 3);
+  assert.equal(terminated, 1);
+});
+
+test("a synchronous small graph invalidates an earlier inline progressive layout", async () => {
+  const queue = loadGraph();
+  const graph = window.Graph2D;
+  graph.init(makeContainer());
+  graph.loadData(makePayload(120, 119));
+  const previousGeneration = graph.animator._layoutGeneration;
+  let completions = 0;
+  graph.loadData(makePayload(2, 1), { onLayoutDone: () => { completions++; } });
+  assert.ok(graph.animator._layoutGeneration > previousGeneration);
+  await settle(queue);
+  assert.equal(completions, 1);
+  assert.equal(Object.keys(graph.animator._layout.positions).length, 2);
 });
