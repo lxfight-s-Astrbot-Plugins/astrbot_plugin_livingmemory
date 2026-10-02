@@ -345,6 +345,30 @@ test("offline list details preserve an explicitly scaled importance of one", asy
   assert.match(el("peek-body").innerHTML, /detail.importance: 1\.0\/10/);
 });
 
+test("editing content submits the displayed low importance without amplifying it", async t => {
+  const el = environment(t);
+  const state = {};
+  const posts = [];
+  const panel = new PeekPanel(state, {
+    get: async () => ({ memory_id: 1, summary: "original", importance: 0.1, status: "active", memory_type: "GENERAL", topics: [], key_facts: [] }),
+    post: async (path, body) => { posts.push({ path, body }); return { new_memory_id: 2 }; },
+  });
+  await panel.renderMemory({ memory_id: 1 });
+  const detail = state._detailCache;
+  panel.renderEditView(detail);
+  // Read the actual rendered slider default, rather than assuming its scale.
+  el("edit-importance").value = el("peek-body").innerHTML.match(/id="edit-importance"[^>]*value="([^"]+)"/)[1];
+  el("edit-content-area").value = "edited content";
+  el("edit-status").value = "active";
+  el("edit-type").value = "GENERAL";
+  await panel.saveEdit(detail);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].path, "memories/update");
+  assert.equal(posts[0].body.field, "structured");
+  assert.equal(posts[0].body.value_scale, "display");
+  assert.equal(posts[0].body.value.importance, 1);
+});
+
 test("failed detail fetch retains a usable fallback cache and closing invalidates late replies", async t => {
   environment(t);
   const state = {};
