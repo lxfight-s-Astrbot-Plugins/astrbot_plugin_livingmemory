@@ -19,6 +19,10 @@
 .transfer-controls .input { min-width: 0; max-width: 100%; }
 .memory-selection { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--accent-light); border-radius: var(--theme-radius); }
 .memory-selection[hidden] { display: none; }
+.memory-summary-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.memory-summary-line > .cons-badge { flex: 0 0 auto; }
+.memory-summary-line > .memory-open { flex: 1; min-width: 0; width: 0; }
+.memory-summary-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #mem-selection-count { margin-right: auto; font-size: 12px; }
 #transfer-feedback { flex: 0 0 auto; margin-bottom: 12px; border: 1px solid var(--border-normal); border-radius: var(--theme-radius); background: var(--bg-card); }
 .pagination { flex-wrap: wrap; gap: 10px; }

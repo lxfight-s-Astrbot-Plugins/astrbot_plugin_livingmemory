@@ -125,6 +125,74 @@ test("the latest memory fetch wins when responses arrive out of order", async ()
   assert.equal(state.memory.items[0].summary, "FAST RESULT");
 });
 
+test("scrolling reuses measured row height and resizing measures it again", t => {
+  const state = createState();
+  state.memory.items = Array.from({ length: 100 }, (_, i) => ({ memory_id: i + 1, summary: "memory", created_at: "--" }));
+  let reads = 0, height = 63, resize;
+  const row = { getBoundingClientRect() { reads++; return { height }; } };
+  const tbody = { style: {}, innerHTML: "", querySelector: () => row };
+  const scroll = { scrollTop: 0, clientHeight: 400, clientWidth: 800, addEventListener() {} };
+  const frames = [];
+  globalThis.window = { t: key => key, requestAnimationFrame: callback => frames.push(callback) };
+  globalThis.document = { getElementById: id => id === "memories-body" ? tbody : scroll };
+  globalThis.ResizeObserver = class { constructor(callback) { resize = callback; } observe() {} };
+  t.after(() => { delete globalThis.window; delete globalThis.document; delete globalThis.ResizeObserver; });
+  const page = new MemoryPage(state, {}, {});
+  page.updateSelectionControls = () => {};
+  page.renderVirtual();
+  for (let i = 1; i <= 10; i++) {
+    scroll.scrollTop = i * 100;
+    page.renderVirtualSlice();
+  }
+  assert.equal(reads, 1, "Scrolling must not force a new row-height layout on every window");
+  assert.equal(page._measuredRowHeight, 63);
+  height = 87.5; scroll.clientWidth = 600;
+  resize(); resize(); resize();
+  assert.equal(frames.length, 1);
+  frames.shift()();
+  assert.equal(reads, 2);
+  assert.equal(page._measuredRowHeight, 87.5, "Fractional CSS heights must not accumulate spacer drift");
+});
+
+test("a stale scroll offset cannot leave a shortened list blank", t => {
+  const state = createState();
+  state.memory.items = [{ memory_id: 1, summary: "only remaining memory", created_at: "--" }];
+  const tbody = { style: {}, innerHTML: "" };
+  const scroll = { scrollTop: 100000, clientHeight: 400, addEventListener() {} };
+  globalThis.window = { t: key => key };
+  globalThis.document = { getElementById: id => id === "memories-body" ? tbody : scroll };
+  t.after(() => { delete globalThis.window; delete globalThis.document; });
+  const page = new MemoryPage(state, {}, {});
+  page.updateSelectionControls = () => {};
+  page.renderVirtual();
+  assert.match(tbody.innerHTML, /data-key="m:1"/);
+  assert.doesNotMatch(tbody.innerHTML, /virtual-spacer/);
+});
+
+test("select-all and clear update the visible checkboxes without replacing rows", t => {
+  const state = createState();
+  state.memory.items = [{ memory_id: 1 }, { memory_id: 2 }];
+  let writes = 0;
+  const rows = [1, 2].map(id => ({ selected: false,
+    checkbox: { dataset: { memoryId: String(id) }, checked: false },
+    classList: { toggle(_name, selected) { rows[id - 1].selected = selected; } },
+  }));
+  rows.forEach(row => { row.checkbox.closest = () => row; });
+  const tbody = { style: {}, set innerHTML(_value) { writes++; }, querySelectorAll: () => rows.map(row => row.checkbox) };
+  const scroll = { addEventListener() {}, clientHeight: 400, scrollTop: 0 };
+  globalThis.window = { t: key => key };
+  globalThis.document = { getElementById: id => id === "memories-scroll" ? scroll : tbody };
+  t.after(() => { delete globalThis.document; delete globalThis.window; });
+  const page = new MemoryPage(state, {}, {});
+  page.updateSelectionControls = () => {};
+  page.toggleAllOnPage(true);
+  assert.equal(writes, 0);
+  assert.ok(rows.every(row => row.selected && row.checkbox.checked));
+  page.toggleAllOnPage(false);
+  assert.equal(writes, 0);
+  assert.ok(rows.every(row => !row.selected && !row.checkbox.checked));
+});
+
 test("the bound scroll listener uses the current item count", () => {
   const state = createState();
   const tbody = { innerHTML: "", style: {} };

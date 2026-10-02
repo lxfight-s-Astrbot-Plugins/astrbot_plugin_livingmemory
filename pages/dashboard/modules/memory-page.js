@@ -74,6 +74,7 @@ export class MemoryPage {
         content: item.text || item.content,
         memory_type: (item.metadata && item.metadata.memory_type) || "GENERAL",
         importance: normalizeImportance(item.metadata && item.metadata.importance),
+        importance_scale: "display",
         status: (item.metadata && item.metadata.status) || "active",
         created_at: (item.metadata && item.metadata.create_time)
           ? new Date(item.metadata.create_time * 1000).toLocaleString()
@@ -138,6 +139,7 @@ export class MemoryPage {
    */
   renderVirtual(options = {}) {
     this._visibleSlice = null;
+    this._measuredRowHeight = null;
     const scrollEl = document.getElementById("memories-scroll");
     if (scrollEl && options.resetScroll) scrollEl.scrollTop = 0;
 
@@ -149,26 +151,33 @@ export class MemoryPage {
     // 绑定滚动事件（仅绑定一次）
     if (scrollEl && !scrollEl._virtualScrollBound) {
       scrollEl._virtualScrollBound = true;
-      scrollEl.addEventListener("scroll", () => {
-        if (this._scrollFramePending) return;
-        this._scrollFramePending = true;
-        window.requestAnimationFrame(() => {
-          this._scrollFramePending = false;
-          this.renderVirtualSlice();
-        });
-      }, { passive: true });
+      scrollEl.addEventListener("scroll", () => this.scheduleVirtualRender(), { passive: true });
       if (typeof ResizeObserver !== "undefined") {
         this._resizeObserver = new ResizeObserver(() => {
           if (!scrollEl.clientWidth) return;
-          this._measuredRowHeight = null;
+          const width = scrollEl.clientWidth;
+          const height = scrollEl.clientHeight;
+          if (width === this._viewWidth && height === this._viewHeight) return;
+          if (width !== this._viewWidth) this._measuredRowHeight = null;
+          this._viewWidth = width;
+          this._viewHeight = height;
           this._visibleSlice = null;
-          this.renderVirtualSlice();
+          this.scheduleVirtualRender();
         });
         this._resizeObserver.observe(scrollEl);
       }
     }
 
     this.renderVirtualSlice();
+  }
+
+  scheduleVirtualRender() {
+    if (this._scrollFramePending) return;
+    this._scrollFramePending = true;
+    window.requestAnimationFrame(() => {
+      this._scrollFramePending = false;
+      this.renderVirtualSlice();
+    });
   }
 
   renderVirtualSlice() {
@@ -183,8 +192,8 @@ export class MemoryPage {
     // 硬编码 56px 会让 spacer 逐行漂移、末尾行不可达
     const rowHeight = this._measuredRowHeight || this.ROW_HEIGHT;
     const totalHeight = this.state.memory.items.length * rowHeight;
-    const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-    const viewHeight = scrollEl ? scrollEl.clientHeight : 600;
+    const viewHeight = scrollEl?.clientHeight || 600;
+    const scrollTop = Math.min(scrollEl?.scrollTop || 0, Math.max(0, totalHeight - viewHeight));
     const start = Math.max(0, Math.floor(scrollTop / rowHeight) - this.SCROLL_BUFFER);
     const end = Math.min(
       this.state.memory.items.length,
@@ -193,7 +202,7 @@ export class MemoryPage {
     const padTop = start * rowHeight;
     const padBottom = totalHeight - end * rowHeight;
     const columns = window.matchMedia?.("(max-width: 768px)").matches ? 4 : 7;
-    const slice = `${start}:${end}:${rowHeight}`;
+    const slice = `${start}:${end}:${rowHeight}:${columns}`;
     if (slice === this._visibleSlice) return;
     this._visibleSlice = slice;
     const spacerRow = (height) => height > 0
@@ -215,7 +224,7 @@ export class MemoryPage {
       const consBadge = item.consolidated_count > 0
         ? '<span class="type-tag cons-badge" title="' + esc(window.t("table.consolidatedTitle")) + '">' + window.t("table.consolidated", item.consolidated_count) + '</span> '
         : "";
-      html += '<td class="cell-summary">' + consBadge + '<button class="memory-open memory-summary-text" type="button" aria-label="' + esc(window.t("table.openMemory", item.memory_id)) + '">' + esc(item.summary || "") + '</button><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
+      html += '<td class="cell-summary"><div class="memory-summary-line">' + consBadge + '<button class="memory-open memory-summary-text" type="button" aria-label="' + esc(window.t("table.openMemory", item.memory_id)) + '">' + esc(item.summary || "") + '</button></div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
       html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
       html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
       html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';
@@ -238,13 +247,15 @@ export class MemoryPage {
    * @param {number} assumed - 本次渲染假设的行高
    */
   _measureRowHeight(tbody, assumed) {
-    if (this._remeasuring) return;
+    if (this._remeasuring || this._measuredRowHeight != null) return;
     if (!tbody || typeof tbody.querySelector !== "function") return;
-    const row = tbody.querySelector("tr[data-key]");
+    // Collapsed borders can make the first row next to a spacer half a pixel shorter.
+    const row = tbody.querySelector("tr[data-key] + tr[data-key]") || tbody.querySelector("tr[data-key]");
     if (!row) return;
-    const h = row.offsetHeight;
+    const h = typeof row.getBoundingClientRect === "function" ? row.getBoundingClientRect().height : row.offsetHeight;
+    if (h <= 0) return; // A hidden page must be measured again when visible.
+    this._measuredRowHeight = h;
     if (h > 0 && Math.abs(h - assumed) > 0.5) {
-      this._measuredRowHeight = h;
       this._remeasuring = true;
       try {
         this.renderVirtualSlice();
@@ -259,7 +270,8 @@ export class MemoryPage {
    */
   renderEmpty() {
     const tbody = document.getElementById("memories-body");
-    tbody.innerHTML = '<tr><td colspan="7" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+    const columns = window.matchMedia?.("(max-width: 768px)").matches ? 4 : 7;
+    tbody.innerHTML = '<tr><td colspan="' + columns + '" class="table-empty">' + window.t("table.noData") + '</td></tr>';
     tbody.style.paddingTop = "0";
     tbody.style.paddingBottom = "0";
     this.updateSelectionControls();
@@ -314,7 +326,17 @@ export class MemoryPage {
       if (checked) this.state.memory.selectedIds.add(item.memory_id);
       else this.state.memory.selectedIds.delete(item.memory_id);
     }
-    this.renderVirtual();
+    this.syncVisibleSelection();
+  }
+
+  syncVisibleSelection() {
+    const tbody = document.getElementById("memories-body");
+    for (const checkbox of tbody?.querySelectorAll?.(".memory-select") || []) {
+      const selected = this.state.memory.selectedIds.has(Number(checkbox.dataset.memoryId));
+      checkbox.checked = selected;
+      checkbox.closest("tr")?.classList.toggle("is-selected", selected);
+    }
+    this.updateSelectionControls();
   }
 
   async deleteSelected() {
@@ -570,6 +592,16 @@ export class MemoryPage {
    * 初始化事件监听
    */
   initEventListeners() {
+    if (typeof MutationObserver !== "undefined") {
+      this._appearanceObserver = new MutationObserver(() => {
+        this._measuredRowHeight = null;
+        this._visibleSlice = null;
+        if (document.getElementById("memories-scroll")?.clientWidth) this.scheduleVirtualRender();
+      });
+      this._appearanceObserver.observe(document.documentElement, {
+        attributes: true, attributeFilter: ["data-style", "data-theme"],
+      });
+    }
     document.getElementById("memory-retry")?.addEventListener("click", () => this.fetch());
     // 表格行点击事件
     const tbody = document.getElementById("memories-body");
@@ -641,7 +673,7 @@ export class MemoryPage {
     document.getElementById("mem-refresh").addEventListener("click", () => this.fetch());
     document.getElementById("mem-clear-selection").addEventListener("click", () => {
       this.state.memory.selectedIds.clear();
-      this.renderVirtual();
+      this.syncVisibleSelection();
     });
 
     // 分页：上一页

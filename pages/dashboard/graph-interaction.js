@@ -27,29 +27,75 @@
     this._hoverType = null;
     this._pinchDist = 0;
     this._pinchScale = 1;
+    this._pinching = false;
+    this._moveFrame = null;
+    this._pendingMove = null;
+    this._listeners = [];
+    this.canvas.style.touchAction = "none";
     this._bind();
   }
 
   Interaction.prototype._bind = function() {
     var self = this;
     var el = this.canvas;
-    el.addEventListener("mousedown", function(e) { self._onMouseDown(e); });
-    el.addEventListener("mousemove", function(e) { self._onMouseMove(e); });
-    window.addEventListener("mouseup", function(e) { self._onMouseUp(e); });
-    el.addEventListener("mouseleave", function(e) {
-      self._onMouseUp(e);
+    function listen(target, name, callback, options) {
+      target.addEventListener(name, callback, options);
+      self._listeners.push({ target: target, name: name, callback: callback, options: options });
+    }
+    listen(el, "mousedown", function(e) { self._flushMove(); self._onMouseDown(e); });
+    listen(el, "mousemove", function(e) { self._queueMove(e); });
+    listen(window, "mouseup", function(e) { self._onMouseUp(e); });
+    listen(el, "mouseleave", function() {
+      self._cancelGesture();
       if (self._hoverId !== null) {
         self._hoverId = null; self._hoverType = null;
         if (self.cb.onNodeHover) self.cb.onNodeHover(null);
         self._requestRender();
       }
     });
-    el.addEventListener("wheel", function(e) { self._onWheel(e); }, { passive: false });
-    el.addEventListener("dblclick", function(e) { self._onDblClick(e); });
-    el.addEventListener("touchstart", function(e) { self._onTouchStart(e); }, { passive: false });
-    el.addEventListener("touchmove", function(e) { self._onTouchMove(e); }, { passive: false });
-    el.addEventListener("touchend", function(e) { self._onTouchEnd(e); });
-    el.addEventListener("contextmenu", function(e) { e.preventDefault(); });
+    listen(el, "wheel", function(e) { self._onWheel(e); }, { passive: false });
+    listen(el, "dblclick", function(e) { self._onDblClick(e); });
+    listen(el, "touchstart", function(e) { self._onTouchStart(e); }, { passive: false });
+    listen(el, "touchmove", function(e) { self._onTouchMove(e); }, { passive: false });
+    listen(el, "touchend", function(e) { self._onTouchEnd(e); });
+    listen(el, "touchcancel", function() { self._cancelGesture(); self._pinching = false; self._pinchDist = 0; });
+    listen(el, "contextmenu", function(e) { e.preventDefault(); });
+  };
+
+  // Hit testing and coordinate reads happen once per frame, using the latest pointer.
+  Interaction.prototype._queueMove = function(e) {
+    this._pendingMove = { clientX: e.clientX, clientY: e.clientY };
+    if (this._moveFrame !== null) return;
+    var self = this;
+    this._moveFrame = requestAnimationFrame(function() {
+      self._moveFrame = null;
+      self._flushMove();
+    });
+  };
+
+  Interaction.prototype._flushMove = function() {
+    if (this._moveFrame !== null) cancelAnimationFrame(this._moveFrame);
+    this._moveFrame = null;
+    var move = this._pendingMove;
+    this._pendingMove = null;
+    if (move) this._onMouseMove(move);
+  };
+
+  Interaction.prototype._cancelGesture = function() {
+    if (this._moveFrame !== null) cancelAnimationFrame(this._moveFrame);
+    this._moveFrame = null;
+    this._pendingMove = null;
+    this._dragging = this._panning = false;
+    this._dragNode = null;
+    this.canvas.style.cursor = "grab";
+  };
+
+  Interaction.prototype.destroy = function() {
+    this._cancelGesture();
+    this._listeners.forEach(function(listener) {
+      listener.target.removeEventListener(listener.name, listener.callback, listener.options);
+    });
+    this._listeners = [];
   };
 
   Interaction.prototype._requestRender = function() {
@@ -113,6 +159,7 @@
     var hitE = this.renderer.hitTestEdge(pos.x, pos.y);
     if (hitE) {
       if (this._hoverId !== hitE.id || this._hoverType !== "edge") {
+        if (this._hoverType === "node" && this.cb.onNodeHover) this.cb.onNodeHover(null);
         this._hoverId = hitE.id; this._hoverType = "edge";
         this._requestRender();
       }
@@ -129,6 +176,7 @@
   };
 
   Interaction.prototype._onMouseUp = function(e) {
+    this._flushMove();
     if (this._dragging && this._dragNode) {
       var pos = getPos(e, this.canvas);
       var dx = pos.x - this._dragStart.x, dy = pos.y - this._dragStart.y;
@@ -149,6 +197,7 @@
 
   Interaction.prototype._onWheel = function(e) {
     e.preventDefault();
+    this._flushMove();
     var vr = this.renderer.viewport;
     var delta = e.deltaY > 0 ? -CFG.ZOOM_STEP * 60 : CFG.ZOOM_STEP * 60;
     var newScale = clamp(vr.scale + delta, CFG.ZOOM_MIN, CFG.ZOOM_MAX);
@@ -168,34 +217,45 @@
   };
 
   Interaction.prototype._onTouchStart = function(e) {
+    e.preventDefault();
     if (e.touches.length === 2) {
+      this._cancelGesture();
+      this._pinching = true;
       var t0 = e.touches[0], t1 = e.touches[1];
       this._pinchDist = Math.sqrt((t1.clientX - t0.clientX) ** 2 + (t1.clientY - t0.clientY) ** 2);
       this._pinchScale = this.renderer.viewport.scale;
+      var pos = getPos({ clientX: (t0.clientX + t1.clientX) / 2, clientY: (t0.clientY + t1.clientY) / 2 }, this.canvas);
+      this._pinchWorld = this.renderer.screenToWorld(pos.x, pos.y);
       return;
     }
-    if (e.touches.length === 1) {
-      this._onMouseDown({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, button: 0 });
+    if (e.touches.length === 1 && !this._pinching) {
+      this._onMouseDown({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, button: 0, preventDefault: function() {} });
     }
-    e.preventDefault();
   };
 
   Interaction.prototype._onTouchMove = function(e) {
+    e.preventDefault();
     if (e.touches.length === 2 && this._pinchDist > 0) {
       var t0 = e.touches[0], t1 = e.touches[1];
       var d = Math.sqrt((t1.clientX - t0.clientX) ** 2 + (t1.clientY - t0.clientY) ** 2);
       this.renderer.viewport.scale = clamp(this._pinchScale * (d / this._pinchDist), CFG.ZOOM_MIN, CFG.ZOOM_MAX);
+      var pos = getPos({ clientX: (t0.clientX + t1.clientX) / 2, clientY: (t0.clientY + t1.clientY) / 2 }, this.canvas);
+      var after = this.renderer.screenToWorld(pos.x, pos.y);
+      this.renderer.viewport.ox += this._pinchWorld.x - after.x;
+      this.renderer.viewport.oy += this._pinchWorld.y - after.y;
       this._requestRender();
       return;
     }
-    if (e.touches.length === 1) {
-      this._onMouseMove({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+    if (e.touches.length === 1 && !this._pinching) {
+      this._queueMove(e.touches[0]);
     }
-    e.preventDefault();
   };
 
   Interaction.prototype._onTouchEnd = function(e) {
-    if (e.touches.length < 2) this._pinchDist = 0;
+    if (this._pinching) {
+      if (!e.touches.length) { this._pinching = false; this._pinchDist = 0; }
+      return;
+    }
     var t = e.changedTouches[0] || {};
     this._onMouseUp({ clientX: t.clientX || 0, clientY: t.clientY || 0 });
   };

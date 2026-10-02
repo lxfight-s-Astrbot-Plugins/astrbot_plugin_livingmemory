@@ -253,7 +253,7 @@
     return this.nodeWorldRadius(nodeData, isCenter) * this.viewport.scale;
   };
 
-  Renderer.prototype.render = function(nodes, edges, nodeMap, selection, hoverId, layout, animProgress) {
+  Renderer.prototype.render = function(nodes, edges, nodeMap, selection, hoverId, layout, animProgress, hoverType) {
     var ctx = this.ctx;
     var scale = this.viewport.scale;
     var dark = isDark();
@@ -341,7 +341,7 @@
         isActive: isActive, isHighlighted: isMemHl,
         isMuted: isMuted, hasFocus: hasFocus,
         isCrossCommunity: !sameCommunity,
-        isHovered: edge.id === hoverId,
+        isHovered: hoverType !== "node" && edge.id === hoverId,
         color: edge.__color || TYPE_COLORS.other,
       };
       this._drawnEdges.push(de);
@@ -394,7 +394,7 @@
       var drawInfo = {
         id: nd.id, sx: sp.x, sy: sp.y, sr: sr,
         isSelected: isSel, isHighlighted: isHl, isMuted: isMuted,
-        isHovered: nd.id === hoverId, isCenter: isCenter, hasFocus: hasNodeFocus,
+        isHovered: hoverType !== "edge" && nd.id === hoverId, isCenter: isCenter, hasFocus: hasNodeFocus,
         type: nd.type || "other", label: nd.label || "Unnamed",
         memoryCount: nd.memory_count || 0, degree: nd.degree || 0,
         labelScore: nd.labelScore || 0,

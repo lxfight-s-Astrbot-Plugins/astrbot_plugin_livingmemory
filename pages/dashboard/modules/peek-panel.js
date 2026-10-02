@@ -15,6 +15,14 @@ import {
   confirmDiscardChanges
 } from "./utils.js";
 
+// Cached details use the UI's 0-10 scale; converting a low display score again
+// would turn 1/10 into 10/10 during rendering or an otherwise unchanged save.
+function detailImportance(detail) {
+  if (detail.importance_scale !== "display") return normalizeImportance(detail.importance);
+  const value = Number(detail.importance);
+  return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : 5;
+}
+
 export class PeekPanel {
   constructor(state, apiClient) {
     this.state = state;
@@ -82,7 +90,8 @@ export class PeekPanel {
   }
 
   async requestClose() {
-    if (!await this.canDiscard()) return false;
+    const generation = ++this._detailGeneration;
+    if (!await this.canDiscard() || generation !== this._detailGeneration) return false;
     this.close();
     return true;
   }
@@ -121,21 +130,22 @@ export class PeekPanel {
    * @param {Object} memory - 记忆对象
    */
   async renderMemory(memory) {
+    if (this._confirmResolve || this._batchEditResolve) return;
+    // Invalidate both outstanding fetches and earlier discard decisions.
+    const generation = ++this._detailGeneration;
+    if ((this.state.isEditing || this._saving) && !await this.canDiscard()) return;
+    if (generation !== this._detailGeneration) return;
     this.state.selectedMemory = memory;
     this.state.isEditing = false;
     this.state._nodeDetailCache = null;
     const memoryId = memory.memory_id || memory.id;
     this.state._detailCache = null;
 
-    // 竞态守卫：慢响应覆盖新点击/已关闭的面板（或关闭后自行重新打开）
-    const generation = ++this._detailGeneration;
-
     // 从 API 获取完整详情
     let detail = null;
     try {
       detail = await this.api.get("memories/detail", { memory_id: memoryId });
       if (generation !== this._detailGeneration) return;
-      if (detail) this.state._detailCache = detail;
     } catch (_) {
       detail = null;
     }
@@ -150,6 +160,7 @@ export class PeekPanel {
         summary: memory.summary || "",
         memory_type: memory.memory_type || rawMeta.memory_type || "GENERAL",
         importance: memory.importance != null ? Number(memory.importance) : 5,
+        importance_scale: memory.importance_scale,
         status: memory.status || rawMeta.status || "active",
         session_id: rawMeta.session_id || "--",
         persona_id: rawMeta.persona_id || "--",
@@ -162,9 +173,12 @@ export class PeekPanel {
       };
     }
 
-    // 确保数值类型正确
+    // GET requests may share the same response object; keep display normalization local.
+    detail = { ...detail };
     if (detail.memory_id != null) detail.memory_id = parseInt(detail.memory_id);
-    detail.importance = normalizeImportance(detail.importance);
+    detail.importance = detailImportance(detail);
+    detail.importance_scale = "display";
+    this.state._detailCache = detail;
 
     this.renderDetailView(detail);
     this.open(true);
@@ -182,7 +196,7 @@ export class PeekPanel {
     const id = detail.memory_id;
     const type = detail.memory_type || "GENERAL";
     const status = detail.status || "active";
-    const importance = normalizeImportance(detail.importance).toFixed(1);
+    const importance = detailImportance(detail).toFixed(1);
     const content = getDetailText(detail);
     const created = detail.created_at || "--";
     const updated = detail.updated_at || "--";
@@ -331,7 +345,7 @@ export class PeekPanel {
 
     const id = detail.memory_id;
     const content = getDetailText(detail);
-    const importance = normalizeImportance(detail.importance).toFixed(1);
+    const importance = detailImportance(detail).toFixed(1);
     const type = detail.memory_type || "GENERAL";
     const status = detail.status || "active";
     const topics = Array.isArray(detail.topics) ? detail.topics : [];
@@ -478,7 +492,7 @@ export class PeekPanel {
         if (!sameList(newKeyFacts, oldKeyFacts)) messages.push(window.t("detail.keyFactsUpdated"));
         if (newStatus !== detail.status) messages.push(window.t("detail.statusUpdated", statusLabel(newStatus)));
         if (newType !== detail.memory_type) messages.push(window.t("detail.typeUpdated", newType));
-        if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
+        if (Math.abs(newImportance - detailImportance(detail)) > 0.01) {
           messages.push(window.t("detail.importanceUpdated", newImportance.toFixed(1)));
         }
       } else {
@@ -495,7 +509,7 @@ export class PeekPanel {
           });
           messages.push(window.t("detail.typeUpdated", newType));
         }
-        if (Math.abs(newImportance - normalizeImportance(detail.importance)) > 0.01) {
+        if (Math.abs(newImportance - detailImportance(detail)) > 0.01) {
           await this.api.post("memories/update", {
             memory_id: id,
             field: "importance",
@@ -553,7 +567,12 @@ export class PeekPanel {
    * 渲染图节点详情
    * @param {Object} nodeData - 节点数据
    */
-  renderNode(nodeData) {
+  async renderNode(nodeData) {
+    if (this._confirmResolve || this._batchEditResolve) return;
+    const generation = ++this._detailGeneration;
+    if ((this.state.isEditing || this._saving) && !await this.canDiscard()) return;
+    if (generation !== this._detailGeneration) return;
+    this.state.selectedMemory = null;
     this.state._nodeDetailCache = nodeData;
     this.state._detailCache = null;
     this.state.isEditing = false;

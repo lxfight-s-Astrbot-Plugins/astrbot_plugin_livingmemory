@@ -242,3 +242,149 @@ test("starting a new recall clears old results and failure restores input withou
   assert.equal(el("recall-search-btn").disabled, false);
   assert.equal(el("recall-feedback").textContent, "offline");
 });
+
+test("switching memory or node details preserves a dirty draft when discard is cancelled", async t => {
+  const el = environment(t);
+  const original = { memory_id: 1 };
+  const state = { selectedMemory: original, isEditing: true, _detailCache: original };
+  let requests = 0;
+  const panel = new PeekPanel(state, { get: async () => { requests++; return {}; } });
+  panel._editSnapshot = JSON.stringify(["original"]);
+  el("edit-value").value = "draft";
+  panel.renderDetailView = () => { throw new Error("Draft must not be replaced"); };
+  let opening = panel.renderMemory({ memory_id: 2 });
+  assert.equal(el("discard-dialog").open, true);
+  el("discard-dialog").close("cancel"); await opening;
+  assert.equal(state.selectedMemory, original);
+  assert.equal(state._detailCache, original);
+  assert.equal(state.isEditing, true);
+  opening = panel.renderNode({ id: 3 });
+  el("discard-dialog").close("cancel"); await opening;
+  assert.equal(state._detailCache, original);
+  assert.equal(el("edit-value").value, "draft");
+  assert.equal(requests, 0);
+});
+
+test("only the latest detail click proceeds after a shared discard decision", async t => {
+  const el = environment(t);
+  const state = { selectedMemory: { memory_id: 1 }, isEditing: true };
+  const requests = [], rendered = [];
+  const panel = new PeekPanel(state, { get: async (_path, params) => {
+    requests.push(params.memory_id); return { memory_id: params.memory_id, importance: 0.5 };
+  } });
+  panel._editSnapshot = JSON.stringify(["original"]);
+  el("edit-value").value = "draft";
+  panel.renderDetailView = detail => { rendered.push(detail.memory_id); };
+  panel.open = () => {};
+  const first = panel.renderMemory({ memory_id: 2 });
+  const second = panel.renderMemory({ memory_id: 3 });
+  el("discard-dialog").close("discard");
+  await Promise.all([first, second]);
+  assert.deepEqual(requests, [3]);
+  assert.deepEqual(rendered, [3]);
+});
+
+test("node selection invalidates pending memory details instead of reopening the old memory", async t => {
+  environment(t);
+  const request = deferred();
+  const state = {};
+  const panel = new PeekPanel(state, { get: () => request.promise });
+  panel.open = () => {};
+  let memoriesRendered = 0;
+  panel.renderDetailView = () => { memoriesRendered++; };
+  const opening = panel.renderMemory({ memory_id: 1 });
+  await panel.renderNode({ id: 2, label: "node", type: "fact" });
+  request.resolve({ memory_id: 1, importance: 0.5 });
+  await opening;
+  assert.equal(memoriesRendered, 0);
+  assert.equal(state._nodeDetailCache.id, 2);
+  assert.equal(state.selectedMemory, null);
+});
+
+test("shared API details retain raw importance across repeated opens", async t => {
+  environment(t);
+  const detail = { memory_id: 1, importance: 0.1 };
+  const state = {};
+  const panel = new PeekPanel(state, { get: async () => detail });
+  const values = [];
+  panel.renderDetailView = item => values.push(item.importance);
+  panel.open = () => {};
+  await panel.renderMemory({ memory_id: 1 });
+  await panel.renderMemory({ memory_id: 1 });
+  assert.equal(detail.importance, 0.1);
+  assert.deepEqual(values, [1, 1]);
+});
+
+test("low importance stays on the same scale through detail, edit and unchanged save", async t => {
+  const el = environment(t);
+  const state = {};
+  const posts = [];
+  const panel = new PeekPanel(state, {
+    get: async () => ({ memory_id: 1, summary: "original", importance: 0.1, status: "active", memory_type: "GENERAL", topics: [], key_facts: [] }),
+    post: async (_path, body) => { posts.push(body); },
+  });
+  await panel.renderMemory({ memory_id: 1 });
+  assert.match(el("peek-body").innerHTML, /detail.importance: 1\.0\/10/);
+  const detail = state._detailCache;
+  panel.renderEditView(detail);
+  assert.match(el("peek-body").innerHTML, /id="edit-importance"[^>]*value="1\.0"/);
+  el("edit-content-area").value = "original";
+  el("edit-topics-area").value = "";
+  el("edit-key-facts-area").value = "";
+  el("edit-status").value = "active";
+  el("edit-type").value = "GENERAL";
+  el("edit-importance").value = "1.0";
+  await panel.saveEdit(detail);
+  assert.deepEqual(posts, [], "An unchanged low-importance memory must not be rewritten");
+});
+
+test("offline list details preserve an explicitly scaled importance of one", async t => {
+  const el = environment(t);
+  const panel = new PeekPanel({}, { get: async () => { throw new Error("offline"); } });
+  await panel.renderMemory({ memory_id: 1, summary: "fallback", importance: 1, importance_scale: "display" });
+  assert.match(el("peek-body").innerHTML, /detail.importance: 1\.0\/10/);
+});
+
+test("editing content submits the displayed low importance without amplifying it", async t => {
+  const el = environment(t);
+  const state = {};
+  const posts = [];
+  const panel = new PeekPanel(state, {
+    get: async () => ({ memory_id: 1, summary: "original", importance: 0.1, status: "active", memory_type: "GENERAL", topics: [], key_facts: [] }),
+    post: async (path, body) => { posts.push({ path, body }); return { new_memory_id: 2 }; },
+  });
+  await panel.renderMemory({ memory_id: 1 });
+  const detail = state._detailCache;
+  panel.renderEditView(detail);
+  // Read the actual rendered slider default, rather than assuming its scale.
+  el("edit-importance").value = el("peek-body").innerHTML.match(/id="edit-importance"[^>]*value="([^"]+)"/)[1];
+  el("edit-content-area").value = "edited content";
+  el("edit-status").value = "active";
+  el("edit-type").value = "GENERAL";
+  await panel.saveEdit(detail);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].path, "memories/update");
+  assert.equal(posts[0].body.field, "structured");
+  assert.equal(posts[0].body.value_scale, "display");
+  assert.equal(posts[0].body.value.importance, 1);
+});
+
+test("failed detail fetch retains a usable fallback cache and closing invalidates late replies", async t => {
+  environment(t);
+  const state = {};
+  const panel = new PeekPanel(state, { get: async () => { throw new Error("offline"); } });
+  panel.renderDetailView = () => {};
+  panel.open = () => {};
+  await panel.renderMemory({ memory_id: 1, summary: "fallback" });
+  assert.equal(state._detailCache.summary, "fallback");
+  const request = deferred();
+  panel.api.get = () => request.promise;
+  let opens = 0;
+  panel.open = () => { opens++; };
+  const opening = panel.renderMemory({ memory_id: 2 });
+  panel.close();
+  request.resolve({ memory_id: 2 });
+  await opening;
+  assert.equal(opens, 0);
+  assert.equal(state._detailCache, null);
+});
