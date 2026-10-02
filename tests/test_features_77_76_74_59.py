@@ -487,8 +487,8 @@ async def test_search_exactly_at_limit_not_truncated():
 
 
 @pytest.mark.asyncio
-async def test_system_prompt_contains_current_date():
-    """_build_system_prompt_with_persona should include today's date."""
+async def test_system_prompt_keeps_current_date_out_of_fixed_prefix():
+    """动态日期在 user prompt 中提供，默认 system prompt 保持固定。"""
     from datetime import datetime
 
     llm = _DummyLLMProvider(_VALID_JSON_RESPONSE)
@@ -497,12 +497,12 @@ async def test_system_prompt_contains_current_date():
     system_prompt = await processor._build_system_prompt_with_persona(None)
 
     today = datetime.now().strftime("%Y-%m-%d")
-    assert today in system_prompt, f"Expected {today!r} in system_prompt"
+    assert today not in system_prompt
 
 
 @pytest.mark.asyncio
-async def test_system_prompt_with_persona_contains_current_date():
-    """_build_system_prompt_with_persona with a persona should also include today's date."""
+async def test_system_prompt_with_persona_keeps_current_date_out_of_fixed_prefix():
+    """加入人格后默认 system prompt 也不包含动态日期。"""
     from datetime import datetime
 
     llm = _DummyLLMProvider(_VALID_JSON_RESPONSE)
@@ -516,7 +516,7 @@ async def test_system_prompt_with_persona_contains_current_date():
     system_prompt = await processor._build_system_prompt_with_persona("persona_1")
 
     today = datetime.now().strftime("%Y-%m-%d")
-    assert today in system_prompt
+    assert today not in system_prompt
     # Should also contain persona content
     assert "专业助手" in system_prompt
 

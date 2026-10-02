@@ -60,17 +60,16 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "name_en": "Memory System Prompt (Base)",
         "description": "记忆总结时使用的系统提示词基础模板（无人格附加内容）",
         "description_en": "Base system prompt template used for memory summarization (without persona content)",
-        "usage_note": "每次记忆总结时作为 system prompt 发送给 LLM，告知 LLM 其角色和任务。{current_date} 会被当前时间替换。",
-        "usage_note_en": "Sent as the system prompt to the LLM on every memory summarization, describing its role and task. {current_date} is replaced with the current time.",
+        "usage_note": "每次记忆总结时作为 system prompt 发送给 LLM。默认保持固定内容，当前时间在对话提示词末尾提供，利于前缀缓存。自定义模板仍支持 {current_date}。",
+        "usage_note_en": "Sent as the system prompt on every summary. Defaults stay static; the current time is provided at the end of the conversation prompt for prefix caching. Custom templates still support {current_date}.",
         "category": "system_prompt",
         "file": "memory_system_prompt_base.txt",
         "variables": ["{current_date}"],
         "default": (
             "你正在总结对话记忆。请严格按照JSON格式输出。\n"
-            "当前日期时间: {current_date}\n"
             "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、\u201c明天\u201d、"
-            "\u201c昨天\u201d、\u201c下周\u201d、\u201c上个月\u201d等）转换为具体日期后再写入记忆，"
-            "以便未来查阅时仍能准确理解时间信息。"
+            "\u201c昨天\u201d、\u201c下周\u201d、\u201c上个月\u201d等）按该条消息的发送时间转换为具体日期后再写入记忆。"
+            "只有消息缺少时间时才参考本次请求的当前日期时间。跨日期消息须分别确定时间。"
         ),
     },
     "memory_system_prompt_with_persona": {
@@ -94,8 +93,8 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
             "2. **第一人称视角**: 以“我”的视角回顾对话,不要说“bot”、“助手”等第三人称\n"
             "3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
             "4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
-            "5. **时间转换**: 将对话中的相对时间（今天、明天、下周等）"
-            "转换为具体日期（当前日期: {current_date}）\n\n"
+            "5. **时间转换**: 按每条消息的发送时间将相对时间（今天、明天、下周等）"
+            "转换为具体日期；只有消息缺少时间时才参考本次请求的当前日期时间\n\n"
             "例如:\n"
             "- 如果你是活泼可爱的性格,记忆中可以使用“呀”、“呢”、“~”等语气词\n"
             "- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
