@@ -248,9 +248,25 @@
         "description": "Enable Active Recall Tool",
         "hint": "When enabled, registers recall_long_term_memory so the Agent can actively search long-term memories."
       },
+      "enable_agentic_recall_beta": {
+        "description": "Beta: Agentic Multi-Round Recall",
+        "hint": "Experimental; requires the active recall tool enabled above. When on, recall_long_term_memory is enhanced (current-speaker lookup, time-range filters, exclude seen candidates), the read_memory_evidence deep-read tool is added, and an agentic recall policy is injected. Search and deep read share a per-request budget. Turning it off restores the legacy recall behavior. Takes effect for new requests after saving and a successful reload."
+      },
       "enable_memorize_tool": {
         "description": "Enable Active Memory Write Tool",
         "hint": "When enabled, registers memorize_long_term_memory so the Agent can actively write long-term memories."
+      },
+      "agentic_recall_max_calls": {
+        "description": "Max agentic recall tool calls",
+        "hint": "Shared per-request call budget for the memory search and deep-read tools. Suggested 3-6. (Allowed: 1-20)"
+      },
+      "agentic_recall_time_budget_seconds": {
+        "description": "Agentic recall tool time budget (seconds)",
+        "hint": "Total working time for memory tools since the first call of this request; when exceeded, recall stops and the model answers with evidence already gathered. Suggested 10-60. (Allowed: 1-300)"
+      },
+      "agentic_recall_max_result_chars": {
+        "description": "Max chars per agentic tool result",
+        "hint": "Maximum characters a Beta memory tool returns in one call; longer content can be read via pagination. Suggested 4000-30000. (Allowed: 500-100000)"
       }
     },
     "graph_memory": {

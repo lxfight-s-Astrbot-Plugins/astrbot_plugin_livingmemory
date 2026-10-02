@@ -15,6 +15,7 @@ from astrbot.api import logger
 
 from ..utils.number_utils import clamp_float, safe_float
 from .bm25_retriever import BM25Retriever
+from .recall_diagnostics import record_route
 from .route_execution import search_route
 from .rrf_fusion import BM25Result, FusedResult, RRFFusion, VectorResult
 from .vector_retriever import VectorRetriever
@@ -158,6 +159,9 @@ class HybridRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        *,
+        relevance_only: bool = False,
     ) -> list[HybridResult]:
         """
         执行混合检索
@@ -167,6 +171,7 @@ class HybridRetriever:
             k: 返回的结果数量
             session_id: 会话ID过滤(可选)
             persona_id: 人格ID过滤(可选)
+            diagnostics: 可选路线故障输出（仅 Beta 主动检索使用，不改变返回契约）
 
         Returns:
             List[HybridResult]: 混合检索结果,按最终分数降序排列
@@ -191,6 +196,12 @@ class HybridRetriever:
                 ),
             ),
         )
+        record_route(diagnostics, "bm25", bm25_error)
+        record_route(diagnostics, "vector", vector_error)
+        if diagnostics is not None:
+            diagnostics["candidate_limited"] = (
+                len(bm25_results) >= candidate_k or len(vector_results) >= candidate_k
+            )
 
         # 2. 处理退化情况
         if bm25_error and vector_error:
@@ -198,11 +209,19 @@ class HybridRetriever:
 
         if bm25_error:
             if self.fallback_enabled and vector_results:
+                if relevance_only:
+                    return self._apply_relevance(
+                        self.rrf_fusion._convert_vector_only(vector_results, k)
+                    )
                 return self._fallback_vector_only(vector_results, k)
             return []
 
         if vector_error:
             if self.fallback_enabled and bm25_results:
+                if relevance_only:
+                    return self._apply_relevance(
+                        self.rrf_fusion._convert_bm25_only(bm25_results, k)
+                    )
                 return self._fallback_bm25_only(bm25_results, k)
             return []
 
@@ -227,6 +246,12 @@ class HybridRetriever:
             self.rerank_enabled and self.rerank_provider_resolver is not None
         )
         fuse_top_k = self.rerank_candidates if rerank_active else k
+        if relevance_only:
+            fuse_top_k = max(k, fuse_top_k)
+        if diagnostics is not None and len(
+            {r.doc_id for r in bm25_results} | {r.doc_id for r in vector_results}
+        ) > min(k, fuse_top_k):
+            diagnostics["candidate_limited"] = True
 
         fused_results = self.rrf_fusion.fuse(
             rrf_bm25_results, rrf_vector_results, top_k=fuse_top_k
@@ -238,6 +263,10 @@ class HybridRetriever:
         # 3.5 Rerank 重排序：按查询相关性重打分并截断到 top_k
         if rerank_active:
             fused_results = await self._apply_rerank(query, fused_results, k)
+
+        if relevance_only:
+            # Beta 在任何新鲜度截断前使用相关性，成功的 Rerank 优先保留。
+            return self._apply_relevance(fused_results)[:k]
 
         # 4. 应用加权（通过线程池卸载 CPU 密集型 json.loads + 循环）
         current_time = time.time()
@@ -252,6 +281,25 @@ class HybridRetriever:
             )
 
         return weighted_results
+
+    def _apply_relevance(self, fused_results: list[FusedResult]) -> list[HybridResult]:
+        converted = {
+            item.doc_id: item
+            for item in self._apply_weighting(fused_results, time.time())
+        }
+        max_rrf = max((item.rrf_score for item in fused_results), default=1.0) or 1.0
+        results = []
+        for item in fused_results:
+            result = converted[item.doc_id]
+            relevance = (
+                item.rerank_score
+                if item.rerank_score is not None else item.rrf_score / max_rrf
+            )
+            result.final_score = relevance
+            result.score_breakdown["agentic_relevance"] = relevance
+            results.append(result)
+        results.sort(key=lambda result: result.final_score, reverse=True)
+        return results
 
     async def _apply_rerank(
         self, query: str, fused_results: list[FusedResult], k: int

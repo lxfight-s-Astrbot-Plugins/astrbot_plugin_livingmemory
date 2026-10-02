@@ -13,6 +13,7 @@ from ..models.memory_atom import compute_decay_score
 from ..utils.number_utils import clamp_float, safe_float
 from .graph_keyword_retriever import GraphKeywordRetriever
 from .graph_vector_retriever import GraphVectorRetriever
+from .recall_diagnostics import record_route
 from .route_execution import search_route
 from .rrf_fusion import BM25Result, RRFFusion, VectorResult
 
@@ -57,13 +58,16 @@ class GraphRetriever:
         k: int = 10,
         session_id: str | None = None,
         persona_id: str | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        *,
+        relevance_only: bool = False,
     ) -> list[GraphResult]:
         """Run graph keyword and vector retrieval in parallel."""
         if not query or not query.strip():
             return []
 
         timeout = self.config.get("retrieval_timeout_seconds", 10.0)
-        (keyword_results, _), (vector_results, _) = await asyncio.gather(
+        (keyword_results, keyword_error), (vector_results, vector_error) = await asyncio.gather(
             search_route(
                 "graph keyword",
                 self.keyword_retriever.search(query, k, session_id, persona_id),
@@ -75,6 +79,13 @@ class GraphRetriever:
                 timeout,
             ),
         )
+        record_route(diagnostics, "keyword", keyword_error)
+        record_route(diagnostics, "vector", vector_error)
+        if diagnostics is not None:
+            diagnostics["candidate_limited"] = (
+                len(keyword_results) >= k or len(vector_results) >= k
+                or len({r.doc_id for r in keyword_results} | {r.doc_id for r in vector_results}) > k
+            )
 
         if not keyword_results and not vector_results:
             return []
@@ -153,6 +164,8 @@ class GraphRetriever:
                 + self.score_gamma * recency_weight
                 + self.score_delta * graph_confidence
             ) * temporal_factor
+            if relevance_only:
+                final_score = rrf_normalized
 
             results.append(
                 GraphResult(
@@ -170,6 +183,7 @@ class GraphRetriever:
                         "graph_confidence": round(graph_confidence, 4),
                         "graph_temporal_factor": round(temporal_factor, 4),
                         "graph_final_score": round(final_score, 4),
+                        **({"agentic_relevance": final_score} if relevance_only else {}),
                     },
                 )
             )

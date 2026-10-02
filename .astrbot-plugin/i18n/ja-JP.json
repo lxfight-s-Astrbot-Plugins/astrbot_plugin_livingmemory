@@ -248,9 +248,25 @@
         "description": "能動的な想起ツールを有効化",
         "hint": "有効にすると recall_long_term_memory を登録し、Agent が長期記憶を能動的に検索できるようにします。"
       },
+      "enable_agentic_recall_beta": {
+        "description": "Beta：エージェント型多ラウンド想起",
+        "hint": "試験機能。上の能動的想起ツールも有効にしてください。有効にすると recall_long_term_memory が強化され（現在の発言者による検索・時間範囲フィルター・表示済み候補の除外）、read_memory_evidence 深読みツールとエージェント型想起ルールが追加されます。検索と深読みは1リクエストの予算を共有します。オフにすると従来の検索動作に戻ります。保存とリロード完了後、新規リクエストから有効になります。"
+      },
       "enable_memorize_tool": {
         "description": "能動的なメモリ書き込みツールを有効化",
         "hint": "有効にすると memorize_long_term_memory を登録し、Agent が長期記憶を能動的に書き込めるようにします。"
+      },
+      "agentic_recall_max_calls": {
+        "description": "エージェント型想起の最大ツール呼び出し回数",
+        "hint": "1リクエスト内でメモリ検索／深読みツールが共有する最大呼び出し回数。3-6 が推奨。（許可範囲：1–20）"
+      },
+      "agentic_recall_time_budget_seconds": {
+        "description": "エージェント型想起ツールの時間予算（秒）",
+        "hint": "リクエスト内で最初のメモリツール呼び出しからの累計作業時間の上限。超過後は検索を停止し、取得済みの証拠に基づいて回答します。10-60 が推奨。（許可範囲：1–300）"
+      },
+      "agentic_recall_max_result_chars": {
+        "description": "1回の返答の最大文字数",
+        "hint": "Beta メモリツールが1回の呼び出しで返す内容の最大文字数。超過分はページングで続きを読めます。4000-30000 が推奨。（許可範囲：500–100000）"
       }
     },
     "graph_memory": {

@@ -151,8 +151,27 @@ class AgentToolsConfig(BaseModel):
     enable_recall_tool: bool = Field(
         default=True, description="是否启用 Agent 主动回忆工具"
     )
+    enable_agentic_recall_beta: bool = Field(
+        default=False,
+        description="是否启用 Beta 自主多轮回忆（受 enable_recall_tool 约束）",
+    )
     enable_memorize_tool: bool = Field(
         default=False, description="是否启用 Agent 主动记忆写入工具"
+    )
+    agentic_recall_max_calls: int = Field(
+        default=4, ge=1, le=20, description="自主回忆单请求最大记忆工具调用次数"
+    )
+    agentic_recall_time_budget_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=300,
+        description="自主回忆记忆工具累计耗时预算（秒）",
+    )
+    agentic_recall_max_result_chars: int = Field(
+        default=12000,
+        ge=500,
+        le=100000,
+        description="自主回忆单次工具返回最大字符数",
     )
 
 

@@ -40,7 +40,7 @@ class PluginPageApi:
         self.memory_handler = MemoryHandler(self.utils)
         self.recall_handler = RecallHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
-        self.prompt_handler = PromptHandler(self.utils)
+        self.prompt_handler = PromptHandler(self.utils, plugin)
         self.consolidation_handler = ConsolidationHandler(self.utils)
 
         # BackupHandler 需要 data_dir，延迟初始化

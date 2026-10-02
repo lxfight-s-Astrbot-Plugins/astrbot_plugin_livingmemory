@@ -17,8 +17,29 @@ if TYPE_CHECKING:
 class PromptHandler:
     """提示词管理处理器"""
 
-    def __init__(self, utils: "PageApiUtils") -> None:
+    def __init__(self, utils: "PageApiUtils", plugin: Any = None) -> None:
         self.utils = utils
+        self._plugin = plugin
+
+    def _beta_recall_enabled(self) -> bool:
+        """Beta 自主回忆是否生效（同时要求主动回忆主开关开启）。"""
+        if self._plugin is None:
+            return True
+        config_manager = getattr(self._plugin, "config_manager", None) or getattr(
+            getattr(self._plugin, "initializer", None), "config_manager", None
+        )
+        if config_manager is None:
+            return True
+        try:
+            recall_on = bool(
+                config_manager.get("agent_tools.enable_recall_tool", True)
+            )
+            beta_on = bool(
+                config_manager.get("agent_tools.enable_agentic_recall_beta", False)
+            )
+            return recall_on and beta_on
+        except Exception:
+            return True
 
     # ---- 辅助 -----------------------------------------------------------
 
@@ -35,18 +56,26 @@ class PromptHandler:
     # ---- API 方法 --------------------------------------------------------
 
     async def list_prompts(self) -> dict[str, Any]:
-        """列出所有提示词及其元数据"""
+        """列出所有提示词及其元数据。
+
+        Beta 自主回忆关闭时不展示其专属模板与分类（模板加载能力保留，
+        不删除用户自定义内容），保持关闭态界面与旧版一致。
+        """
         try:
             mgr = self._get_manager()
             prompts = mgr.list_prompts()
             categories_list = []
             for cat_id, cat_info in mgr.get_categories().items():
+                if cat_id == "agent_recall" and not self._beta_recall_enabled():
+                    continue
                 categories_list.append(
                     {
                         "id": cat_id,
                         **cat_info,
                     }
                 )
+            if not self._beta_recall_enabled():
+                prompts = [p for p in prompts if p.get("id") != "agent_recall_policy"]
             return self.utils.ok(
                 {
                     "prompts": prompts,

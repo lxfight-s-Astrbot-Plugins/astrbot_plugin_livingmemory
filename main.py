@@ -27,7 +27,12 @@ from .core.passive_group_capture import is_plugin_enabled_for_session
 from .core.passive_group_capture import is_session_enabled
 from .core.passive_group_capture import set_active_plugin
 from .core.plugin_initializer import PluginInitializer
-from .core.tools import MemoryMemorizeTool, MemorySearchTool
+from .core.tools import (
+    AgenticMemorySearchTool,
+    MemoryMemorizeTool,
+    MemoryReadTool,
+    MemorySearchTool,
+)
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
 _ASTRBOT_DISTRIBUTION_NAMES = ("AstrBot", "astrbot")
@@ -225,16 +230,40 @@ class LivingMemoryPlugin(Star):
         return True
 
     def _register_agent_tools_if_needed(self) -> None:
-        """在核心组件就绪后注册 Agent 工具（回忆/写入）。"""
+        """在核心组件就绪后注册 Agent 工具（回忆/写入）。
+
+        Beta 自主多轮回忆开启时，用增强版搜索工具替代基线工具（同名
+        recall_long_term_memory，注册时二选一），并额外注册深读工具；
+        Beta 关闭时保持 f054c82 基线的工具集合与行为不变。开关经宿主
+        重载插件后生效。
+        """
         if self._llm_tools_registered:
             return
         if not self.initializer.memory_engine or not self.initializer.memory_processor:
             return
 
+        recall_enabled = bool(
+            self.config_manager.get("agent_tools.enable_recall_tool", True)
+        )
+        beta_enabled = recall_enabled and bool(
+            self.config_manager.get("agent_tools.enable_agentic_recall_beta", False)
+        )
+
         tools = []
-        if self.config_manager.get("agent_tools.enable_recall_tool", True):
+        if recall_enabled:
+            search_tool_cls = (
+                AgenticMemorySearchTool if beta_enabled else MemorySearchTool
+            )
             tools.append(
-                MemorySearchTool(
+                search_tool_cls(
+                    context=self.context,
+                    config_manager=self.config_manager,
+                    memory_engine=self.initializer.memory_engine,
+                )
+            )
+        if beta_enabled:
+            tools.append(
+                MemoryReadTool(
                     context=self.context,
                     config_manager=self.config_manager,
                     memory_engine=self.initializer.memory_engine,
