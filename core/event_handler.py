@@ -57,6 +57,14 @@ class EventHandler:
         self._group_capture = GroupCapture(
             config_manager, conversation_manager, self._message_utils
         )
+        # 后台存储任务跟踪
+        self._storage_tasks: set[asyncio.Task] = set()
+        self._storage_sessions_inflight: set[str] = set()
+        self._storage_state_lock = asyncio.Lock()
+        # 会话 -> 进行中的总结任务：回滚时按会话取消（召回模块也会用到）
+        self._storage_session_tasks: dict[str, asyncio.Task] = {}
+        self._shutting_down = False
+
         self._injection_adapter = InjectionAdapter()
         self._memory_recall = MemoryRecall(
             context,
@@ -65,13 +73,8 @@ class EventHandler:
             conversation_manager,
             self._message_utils,
             self._injection_adapter,
+            storage_session_tasks=self._storage_session_tasks,
         )
-
-        # 后台存储任务跟踪
-        self._storage_tasks: set[asyncio.Task] = set()
-        self._storage_sessions_inflight: set[str] = set()
-        self._storage_state_lock = asyncio.Lock()
-        self._shutting_down = False
 
         self._memory_reflection = MemoryReflection(
             context,
@@ -84,6 +87,7 @@ class EventHandler:
             self._storage_sessions_inflight,
             self._storage_state_lock,
             consolidation_manager,
+            storage_session_tasks=self._storage_session_tasks,
         )
 
     async def handle_all_group_messages(self, event: AstrMessageEvent):
@@ -120,4 +124,5 @@ class EventHandler:
             await asyncio.gather(*self._storage_tasks, return_exceptions=True)
             self._storage_tasks.clear()
         self._storage_sessions_inflight.clear()
+        self._storage_session_tasks.clear()
         logger.info("EventHandler 已关闭")

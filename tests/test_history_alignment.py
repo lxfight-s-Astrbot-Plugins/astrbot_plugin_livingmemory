@@ -88,6 +88,39 @@ class TestComputeRevertCutoff:
         ]
         assert compute_revert_cutoff(rows, ["C1"]) == 2
 
+    def test_mid_gap_with_tail_revert_keeps_valid_turn(self):
+        # 中段缺口 + 尾部回滚：store=A/B/C/D，LLM 历史=[A,C]（B 因 store 缺行/插件
+        # 禁用等原因形成中段空洞，D 是被回滚的尾部）。
+        # 只能删除已确认的连续失效尾部 D，仍在 LLM 历史中的 C 必须保留。
+        rows = _rows(["A", "B", "C", "D"])
+        assert compute_revert_cutoff(rows, ["A", "C"]) == 6
+
+    def test_mid_gap_user_only_returns_safe_tail_boundary(self):
+        # 同上但只有 user 行：返回安全尾部边界（D 的位置），不跨越有效轮次 C
+        rows = [
+            _row("user", "A", 0),
+            _row("user", "B", 1),
+            _row("user", "C", 2),
+            _row("user", "D", 3),
+        ]
+        assert compute_revert_cutoff(rows, ["A", "C"]) == 3
+
+    def test_mid_gap_without_tail_revert_deletes_nothing(self):
+        # 中段缺口且无回滚尾部：保守不删（store=C1/X/C3，LLM 历史=[C1,C3]）
+        rows = _rows(["C1", "X", "C3"])
+        assert compute_revert_cutoff(rows, ["C1", "C3"]) is None
+
+    def test_mid_gap_stale_assistant_does_not_expand_deletion(self):
+        # 保留区内的孤立 assistant 行（checkpoint 不在 LLM 历史）同样不得
+        # 把删除区向前扩展，只能返回已确认的安全尾部边界
+        rows = [
+            *_turn("C1", 0),
+            _row("assistant", "X", 2),
+            *_turn("C3", 3),
+            *_turn("C4", 5),
+        ]
+        assert compute_revert_cutoff(rows, ["C1", "C3"]) == 5
+
     def test_legacy_tail_without_checkpoint_returns_none(self):
         rows = [_row("user", "C1", 0), _row("assistant", None, 1)]
         assert compute_revert_cutoff(rows, ["C1"]) is None

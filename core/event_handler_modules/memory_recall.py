@@ -24,6 +24,7 @@ from ..utils import (
     format_memories_for_injection,
     get_persona_id,
 )
+from .memory_reflection import cancel_session_storage_task
 
 if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
@@ -44,6 +45,7 @@ class MemoryRecall:
         conversation_manager: "ConversationManager",
         message_utils: "MessageUtils",
         injection_adapter: "InjectionAdapter",
+        storage_session_tasks: dict[str, asyncio.Task] | None = None,
     ):
         """
         初始化记忆召回模块
@@ -55,6 +57,8 @@ class MemoryRecall:
             conversation_manager: 会话管理器
             message_utils: 消息处理工具
             injection_adapter: 注入适配器
+            storage_session_tasks: 会话 -> 进行中总结任务映射（共享状态），
+                用于在检测到 WebUI 编辑/重试回滚后取消过期总结任务
         """
         self.context = context
         self.config_manager = config_manager
@@ -62,6 +66,9 @@ class MemoryRecall:
         self.conversation_manager = conversation_manager
         self.message_utils = message_utils
         self.injection_adapter = injection_adapter
+        self._storage_session_tasks: dict[str, asyncio.Task] = (
+            storage_session_tasks if storage_session_tasks is not None else {}
+        )
 
     @staticmethod
     def _message_timestamp_seconds(value) -> float | None:
@@ -490,11 +497,16 @@ class MemoryRecall:
             if isinstance(checkpoint_id, str) and checkpoint_id:
                 ctx_checkpoints.append(checkpoint_id)
         try:
-            await self.conversation_manager.reconcile_session_tail(
+            deleted = await self.conversation_manager.reconcile_session_tail(
                 session_id, ctx_checkpoints
             )
         except Exception as exc:
             logger.warning(f"[{session_id}] 对话历史对账调用失败（已跳过）: {exc}")
+            return
+        if deleted > 0:
+            # 已确认发生回滚：取消进行中的总结任务，避免它继续用旧范围调用 LLM
+            # 并写入过期内容（修订号校验是最终防线，取消负责尽早止损）
+            cancel_session_storage_task(self._storage_session_tasks, session_id)
 
     def _remove_injected_memories_from_context(
         self, req: ProviderRequest, session_id: str

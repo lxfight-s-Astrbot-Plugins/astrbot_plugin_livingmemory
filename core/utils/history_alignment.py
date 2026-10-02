@@ -76,9 +76,15 @@ def compute_revert_cutoff(
     ctx_set = set(ctx_checkpoints)
     ctx_idx = len(ctx_checkpoints) - 1
     deletion_start: int | None = None
+    # 是否已对齐到 LLM 历史中的有效轮次（即已进入"保留区"）。
+    # 删除区必须始终是"连续失效尾部"：一旦在保留区内再次遇到缺口
+    # （轮次 checkpoint 不在 LLM 历史中），那只能是中段空洞（store 缺行、
+    # 插件曾被禁用等），绝不允许把删除区跨越已确认有效的轮次向后扩展，
+    # 否则会误删仍在 LLM 历史中的轮次（如 store=A/B/C/D、ctx=[A,C] 时的 C）。
+    aligned = False
 
     # 从尾部向头部走：anchor 是 user 消息的 checkpoint；
-    # assistant 行只参与删除区域，不参与匹配。
+    # assistant 行只参与删除区域与保留区判定，不参与位置对齐。
     i = len(store_rows) - 1
     while i >= 0:
         row = store_rows[i]
@@ -92,6 +98,7 @@ def compute_revert_cutoff(
             if ctx_idx >= 0 and checkpoint == ctx_checkpoints[ctx_idx]:
                 # 该轮次在 LLM 历史中存在
                 ctx_idx -= 1
+                aligned = True
             elif checkpoint in ctx_set:
                 # checkpoint 存在于 LLM 历史，但不在当前对齐位置：说明 store
                 # 缺少某些轮次的对应行（如纯图片消息未入库、插件曾被禁用），
@@ -105,17 +112,30 @@ def compute_revert_cutoff(
                 if found < 0:
                     return None
                 ctx_idx = found - 1
+                aligned = True
             else:
-                # 不在 LLM 历史中 → 被回滚的轮次，记入待删除区域
+                # 不在 LLM 历史中 → 被回滚的轮次，记入待删除区域；
+                # 但已进入保留区后再次出现缺口 = 中段空洞，
+                # 只返回已确认的安全尾部边界，不扩大删除范围
+                if aligned:
+                    return deletion_start
                 if deletion_start is None or i < deletion_start:
                     deletion_start = i
         else:
-            if deletion_start is None and not checkpoint:
-                # 匹配段内的非 user 行缺 checkpoint（遗留数据）→ 保守放弃
-                return None
-            if deletion_start is None and checkpoint and checkpoint not in ctx_set:
-                # 孤立回复（如被取代轮次的迟到 Bot 回复），一并清理
-                deletion_start = i
+            if not checkpoint:
+                if deletion_start is None:
+                    # 匹配段内的非 user 行缺 checkpoint（遗留数据）→ 保守放弃
+                    return None
+            elif checkpoint not in ctx_set:
+                # 孤立回复（如被取代轮次的迟到 Bot 回复），一并清理；
+                # 已进入保留区后同样不得把删除区向前扩展
+                if aligned:
+                    return deletion_start
+                if deletion_start is None or i < deletion_start:
+                    deletion_start = i
+            else:
+                # 仍存在于 LLM 历史 → 进入保留区
+                aligned = True
 
         # ctx 序列已耗尽：剩余 store 头部轮次对应"上下文压缩"保留，不再处理
         if ctx_idx < 0:

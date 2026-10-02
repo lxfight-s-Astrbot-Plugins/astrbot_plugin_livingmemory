@@ -79,6 +79,15 @@ class ConversationManager:
         # 缓存锁，保护并发访问
         self._cache_lock = asyncio.Lock()
 
+        # 会话修订号: {session_id: revision}
+        # 任何会使"基于旧消息范围"的后台记忆总结任务失效的破坏性操作
+        # （WebUI 编辑/重试回滚、清空会话/重置元数据）都会推进该编号。
+        # 后台任务在写入记忆与推进总结游标前必须校验修订号未变化，
+        # 否则回滚期间正在执行的总结会把已撤销内容写入长期记忆。
+        self._session_revisions: dict[str, int] = {}
+        # 每会话锁：使"修订号推进"与"带修订校验的游标更新"彼此原子
+        self._session_locks: dict[str, asyncio.Lock] = {}
+
         logger.info(
             f"[ConversationManager] 初始化完成: "
             f"缓存大小={max_cache_size}, 上下文窗口={context_window_size}"
@@ -578,7 +587,10 @@ class ConversationManager:
         1. 位置排序键与滑动窗口/游标语义一致（``timestamp ASC, id ASC``）；
         2. 与后台记忆总结任务并发时，本方法只做尾部删除；被删消息若已被总结
            写入记忆，不会自动撤回（由 CHANGELOG 声明为已知局限），游标钳制
-           后会跳过被删范围，避免重复总结。
+           后会跳过被删范围，避免重复总结；
+        3. 删除成功后推进会话修订号（见 :meth:`bump_session_revision`），
+           使删除前取好消息范围、仍在等待 LLM 的总结任务失效——它不得再写入
+           已撤销内容，也不得把 ``last_summarized_index`` 写回旧位置。
 
         Args:
             session_id: 会话ID
@@ -624,6 +636,9 @@ class ConversationManager:
                 session_id, cutoff
             )
             if deleted > 0:
+                # 推进会话修订号：使基于旧消息范围的后台总结任务失效，
+                # 避免回滚期间正在执行的总结把已撤销内容写入记忆
+                await self.bump_session_revision(session_id)
                 await self.invalidate_cache(session_id)
                 logger.info(
                     f"[{session_id}] 检测到 WebUI 对话回滚（编辑/重试），"
@@ -635,6 +650,54 @@ class ConversationManager:
         except Exception as exc:
             logger.warning(f"[{session_id}] 对话历史对账失败（已跳过）: {exc}")
             return 0
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        """获取（惰性创建）会话级锁，用于协调修订号与总结游标更新。"""
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    async def get_session_revision(self, session_id: str) -> int:
+        """获取会话修订号（0 表示尚无使后台总结任务失效的变更）。"""
+        return self._session_revisions.get(session_id, 0)
+
+    async def bump_session_revision(self, session_id: str) -> int:
+        """推进会话修订号，使基于旧消息范围的后台总结任务失效。
+
+        用于 WebUI 编辑/重试回滚、清空会话等破坏性操作。后台任务必须通过
+        :meth:`update_session_metadata_if_revision` 或自行比对修订号后放弃写入。
+        """
+        async with self._session_lock(session_id):
+            revision = self._session_revisions.get(session_id, 0) + 1
+            self._session_revisions[session_id] = revision
+        logger.info(
+            f"[{session_id}] 会话修订号推进至 {revision}（进行中的总结任务已失效）"
+        )
+        return revision
+
+    async def update_session_metadata_if_revision(
+        self,
+        session_id: str,
+        key: str,
+        value: Any,
+        expected_revision: int,
+    ) -> bool:
+        """仅在会话修订号未变化时更新元数据（校验与写入原子）。
+
+        与 :meth:`bump_session_revision` 争用同一会话锁，因此在回滚面前是原子的：
+        回滚要么发生在本方法写入之前（校验失败、返回 ``False``，调用方必须放弃
+        推进游标），要么发生在其后（回滚会重新钳制游标与待处理范围）。
+
+        Returns:
+            bool: True 表示已写入；False 表示会话已被回滚/清空，写入被拒绝。
+        """
+        async with self._session_lock(session_id):
+            if self._session_revisions.get(session_id, 0) != expected_revision:
+                return False
+            await self.update_session_metadata(session_id, key, value)
+            return True
 
     async def get_last_message(self, session_id: str) -> Message | None:
         """获取会话最后一条消息（按会话顺序）。
@@ -905,6 +968,9 @@ class ConversationManager:
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )
+        # 元数据被整体清空会使基于旧范围的后台总结任务失效（其游标写回会
+        # 复活已清空的总结进度），因此同步推进会话修订号
+        await self.bump_session_revision(session_id)
 
 
 def create_conversation_manager(
