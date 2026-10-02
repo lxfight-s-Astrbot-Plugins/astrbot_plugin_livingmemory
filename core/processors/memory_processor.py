@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import json
 import random
 import re
 from datetime import datetime
@@ -248,11 +249,12 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         """后备基础 system prompt（当 PromptManager 不可用时）"""
         return (
             "你正在总结对话记忆。请严格按照JSON格式输出。\n"
-            f"当前日期时间: {current_date}\n"
             "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、"
             "\u201c明天\u201d、\u201c昨天\u201d、"
             "\u201c下周\u201d、\u201c上个月\u201d等）"
-            "转换为具体日期后再写入记忆，以便未来查阅时仍能准确理解时间信息。"
+            "按该条消息的发送时间转换为具体日期后再写入记忆。"
+            "只有消息缺少时间时才参考本次请求的当前日期时间。"
+            "跨日期消息须分别确定时间，以便未来查阅时仍能准确理解时间信息。"
         )
 
     @staticmethod
@@ -270,7 +272,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             f'2. **第一人称视角**: 以"我"的视角回顾对话,不要说"bot"、"助手"等第三人称\n'
             f"3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
             f"4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
-            f"5. **时间转换**: 将对话中的相对时间（今天、明天、下周等）转换为具体日期（当前日期: {current_date}）\n\n"
+            "5. **时间转换**: 按每条消息的发送时间将相对时间（今天、明天、下周等）转换为具体日期；只有消息缺少时间时才参考本次请求的当前日期时间\n\n"
             f"例如:\n"
             f'- 如果你是活泼可爱的性格,记忆中可以使用"呀"、"呢"、"~"等语气词\n'
             f"- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
@@ -336,28 +338,45 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             fixed = fixed[:-3]
         fixed = fixed.strip()
 
-        # 修复未闭合的字符串（截断的 JSON）
-        open_quotes = fixed.count('"') - fixed.count('\\"')
-        if open_quotes % 2 != 0:
-            fixed += '"'
+        # 按 JSON 字符串边界修复，保留字段之间合法的换行/缩进以及字符串中的括号。
+        result: list[str] = []
+        closing: list[str] = []
+        in_string = False
+        escaped = False
+        for index, char in enumerate(fixed):
+            if in_string:
+                if ord(char) < 0x20:
+                    # 非法的裸控制字符仅在字符串内转义。
+                    if escaped:
+                        result.append("\\")
+                    result.append(json.dumps(char)[1:-1])
+                    escaped = False
+                    continue
+                result.append(char)
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
 
-        # 修复未闭合的数组
-        open_brackets = fixed.count("[") - fixed.count("]")
-        if open_brackets > 0:
-            fixed += "]" * open_brackets
+            if char == '"':
+                in_string = True
+            elif char in "[{":
+                closing.append("]" if char == "[" else "}")
+            elif char in "]}" and closing and closing[-1] == char:
+                closing.pop()
+            elif char == "," and fixed[index + 1:].lstrip().startswith(("]", "}")):
+                continue
+            result.append(char)
 
-        # 修复未闭合的对象
-        open_braces = fixed.count("{") - fixed.count("}")
-        if open_braces > 0:
-            fixed += "}" * open_braces
-
-        # 移除尾部逗号（JSON 不允许）
-        fixed = re.sub(r",(\s*[}\]])", r"\1", fixed)
-
-        # 修复常见的转义问题
-        fixed = fixed.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-
-        return fixed
+        if in_string:
+            if escaped:
+                result.append("\\")
+            result.append('"')
+        result.extend(reversed(closing))
+        return "".join(result)
 
     async def process_conversation(
         self,

@@ -157,9 +157,6 @@ class MemoryProcessorBuildMixin:
     def _parse_merge_response(self, text: str) -> dict[str, Any]:
         """解析合并 LLM 响应中的 JSON，失败时抛出异常。"""
         candidates = [text]
-        fixed = self._try_fix_json(text)
-        if fixed != text.strip():
-            candidates.append(fixed)
 
         from ..utils import extract_json_from_response
 
@@ -169,12 +166,17 @@ class MemoryProcessorBuildMixin:
 
         last_error: Exception | None = None
         for candidate in candidates:
-            try:
-                data = json.loads(self._try_fix_json(candidate))
-            except (json.JSONDecodeError, TypeError) as e:
-                last_error = e
-                continue
-            if isinstance(data, dict):
-                return data
+            for attempt in range(2):
+                try:
+                    data = json.loads(candidate)
+                except (json.JSONDecodeError, TypeError) as e:
+                    last_error = e
+                    if attempt == 0:
+                        candidate = self._try_fix_json(candidate)
+                    continue
+                if isinstance(data, dict):
+                    return data
+                last_error = TypeError("合并结果必须是 JSON 对象")
+                break
 
         raise RuntimeError(f"合并结果 JSON 解析失败: {last_error}")
