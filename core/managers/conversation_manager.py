@@ -812,17 +812,8 @@ class ConversationManager:
         async with self._session_lock(session_id):
             if self._session_revisions.get(session_id, 0) != expected_revision:
                 return False
-            if key == "last_summarized_index":
-                # 兜底自愈：回滚的删除发生在锁外，因此"已通过修订号校验"的旧写入
-                # 仍可能在其后提交。这里在锁内按当前消息数再次钳制，保证任意交错
-                # 顺序都不会留下 cursor > message_count 的倒挂。
-                count = await self.store.get_message_count(session_id)
-                if isinstance(value, int) and value > count:
-                    logger.warning(
-                        f"[{session_id}] 总结游标写入 {value} 超出消息数 {count}，"
-                        f"已钳制为 {count}"
-                    )
-                    value = count
+            # 钳制在 update_session_metadata 内完成；此处已持锁，因此等价于
+            # "锁内按当前消息数钳制"，保证任意交错顺序都不会留下倒挂。
             await self.update_session_metadata(session_id, key, value)
             return True
 
@@ -1008,14 +999,26 @@ class ConversationManager:
     async def update_session_metadata(
         self, session_id: str, key: str, value: Any
     ) -> None:
-        """
-        更新会话元数据
+        """更新会话元数据。
+
+        ``last_summarized_index`` 会先按当前消息数钳制：无条件写入（手动总结、
+        反思自愈等）也必须满足 ``cursor <= message_count``，否则旧游标会被写回，
+        反思自愈再把它钳到消息数，导致重发的那一轮被静默吞掉（不触发总结）。
+        调用方若已持有会话锁，本方法内的钳制同样处于该临界区内。
 
         Args:
             session_id: 会话ID
             key: 元数据键
             value: 元数据值
         """
+        if key == "last_summarized_index":
+            count = await self.store.get_message_count(session_id)
+            if isinstance(value, int) and value > count:
+                logger.warning(
+                    f"[{session_id}] 总结游标写入 {value} 超出消息数 {count}，"
+                    f"已钳制为 {count}"
+                )
+                value = count
         session = await self.store.get_session(session_id)
         if not session:
             logger.warning(
