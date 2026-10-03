@@ -486,9 +486,15 @@ class MemoryReflection:
                 exc_info=True,
             )
             return
+        if not removed:
+            logger.error(
+                f"[{session_id}] 回滚补偿删除记忆 {memory_id} 未生效"
+                f"（removed={removed}），已撤销内容可能仍可被检索"
+            )
+            return
         logger.warning(
             f"[{session_id}] 会话已回滚，已补偿删除刚落库的记忆 {memory_id}"
-            f"（removed={removed}），避免已撤销内容污染长期记忆"
+            f"，避免已撤销内容污染长期记忆"
         )
 
     def cancel_storage_task(self, session_id: str) -> bool:
@@ -519,6 +525,8 @@ class MemoryReflection:
         if expected_revision is None:
             expected_revision = await self._read_session_revision(session_id)
 
+        # 记忆 id 在 try 外初始化：取消可能发生在赋值之前，异常分支需要它
+        memory_id: int | None = None
         async with OperationContext("记忆存储", session_id):
             try:
                 # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
@@ -696,6 +704,15 @@ class MemoryReflection:
                                 exc_info=True,
                             )
 
+            except asyncio.CancelledError:
+                # 回滚会 cancel 本任务；取消在 await 点生效并穿透 except Exception。
+                # 若取消发生在 add_memory 之后，内容已 durable，必须补偿删除
+                # （shield：保证补偿不被这次取消再次打断）
+                if memory_id is not None:
+                    await asyncio.shield(
+                        self._compensate_rolled_back_memory(session_id, memory_id)
+                    )
+                raise
             except Exception as e:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
                 await self._record_pending_summary(

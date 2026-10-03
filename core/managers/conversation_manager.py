@@ -11,6 +11,7 @@
 """
 
 import asyncio
+import copy
 import time
 from collections import OrderedDict
 from typing import Any
@@ -695,23 +696,31 @@ class ConversationManager:
         return lock
 
     async def trim_session_messages(self, session_id: str, delete_count: int) -> int:
-        """清理已总结的旧消息（滑动窗口），并使在途总结任务失效。
+        """清理已总结的旧消息（滑动窗口），并在锁内钳制总结游标。
 
-        与 :meth:`clear_session` 同理：滑动窗口改变了消息范围，必须推进会话修订号，
-        否则在途总结任务会把基于旧范围的游标写回；钳制与修订号推进在同一临界区内
-        完成，避免与条件写入交错时产生倒挂。
+        **刻意不推进会话修订号**：滑动窗口只删除**已总结**的消息，被删内容不在任何
+        在途总结任务的范围内；而任务提交的 ``end_index`` 是"触发时的消息总数"，经
+        store 的原子钳制后恰好等于清理后的总数，本来就是正确游标。若在此推进修订号，
+        在途任务的合法提交会被判废并触发补偿删除，把刚写完的合法记忆删掉（记忆空洞
+        且浪费一次 LLM 总结）。
+
+        这里只做两件事：持会话锁（避免与条件写入交错产生倒挂）+ 钳制游标
+        （``pending_summary`` 的绝对下标由 store 在删除时同步前移）。
         """
         if delete_count <= 0:
             return 0
         async with self._session_lock(session_id):
             deleted = await self.store.trim_session_messages(session_id, delete_count)
-            if deleted > 0:
+            repaired = (
                 await self._repair_summary_state_locked(session_id)
-                await self._bump_session_revision_locked(session_id)
+                if deleted > 0
+                else {}
+            )
         if deleted > 0:
             await self.invalidate_cache(session_id)
             logger.info(
                 f"[ConversationManager] 滑动窗口清理 {deleted} 条已总结消息: {session_id}"
+                + (f"，已钳制 {repaired}" if repaired else "")
             )
         return deleted
 
@@ -761,21 +770,13 @@ class ConversationManager:
             )
         return repaired
 
-    @staticmethod
-    def _summary_state_out_of_range(metadata: dict[str, Any], count: int) -> bool:
-        """游标倒挂或待处理范围越界？（用于避免无谓写入）"""
-        cursor = metadata.get("last_summarized_index")
-        if isinstance(cursor, int) and cursor > count:
-            return True
-        pending = metadata.get("pending_summary")
-        if isinstance(pending, dict):
-            start = pending.get("start_index")
-            end = pending.get("end_index")
-            if isinstance(start, int) and start >= count:
-                return True
-            if isinstance(end, int) and end > count:
-                return True
-        return False
+    def _summary_state_out_of_range(self, metadata: dict[str, Any], count: int) -> bool:
+        """游标倒挂或待处理范围越界？（判定与 store 的钳制规则严格一致）
+
+        直接在副本上跑 store 的 ``_clamp_summary_metadata`` 并看是否有改动，
+        避免"两套规则"漂移（例如不足一轮的 pending、非整数游标）。
+        """
+        return bool(self.store._clamp_summary_metadata(copy.deepcopy(metadata), count))
 
     async def _repair_summary_state_locked(self, session_id: str) -> dict[str, Any]:
         """把总结游标/待处理范围钳制回当前消息数量内（调用方须持会话锁）。

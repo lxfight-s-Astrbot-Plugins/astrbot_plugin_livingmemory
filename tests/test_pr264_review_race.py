@@ -51,6 +51,24 @@ async def _force_dangling_cursor(manager, store, sid: str, value: int) -> None:
     await store.connection.commit()
 
 
+async def _force_pending_summary(manager, store, sid: str, pending) -> None:
+    """模拟"历史/外部写入"留下的越界 pending_summary。
+
+    公共写入会在 store 的写锁内即时钳制 pending，因此只能直接写库还原其形态。
+    """
+    session = await store.get_session(sid)
+    metadata = dict(session.metadata or {})
+    if pending is None:
+        metadata.pop("pending_summary", None)
+    else:
+        metadata["pending_summary"] = pending
+    await store.connection.execute(
+        "UPDATE sessions SET metadata = ? WHERE session_id = ?",
+        (json.dumps(metadata, ensure_ascii=False), sid),
+    )
+    await store.connection.commit()
+
+
 async def _cleanup(handler, store) -> None:
     await handler.shutdown()
     await store.close()
@@ -278,8 +296,8 @@ async def test_self_heal_clears_or_clamps_pending_summary(tmp_path):
     try:
         await _seed_turns(manager, sid, ("C1", "C2"))  # 4 条
         await _force_dangling_cursor(manager, store, sid, 10)
-        await manager.update_session_metadata(
-            sid, "pending_summary", {"start_index": 10, "end_index": 12, "retry_count": 1}
+        await _force_pending_summary(
+            manager, store, sid, {"start_index": 10, "end_index": 12, "retry_count": 1}
         )
         assert await manager.reconcile_session_tail(sid, ["C1", "C2"]) == 0
         count = await store.get_message_count(sid)
@@ -289,8 +307,8 @@ async def test_self_heal_clears_or_clamps_pending_summary(tmp_path):
         ) == "missing"
 
         # 终点越界但起点仍有效 -> 保留并收敛
-        await manager.update_session_metadata(
-            sid, "pending_summary", {"start_index": 2, "end_index": 99, "retry_count": 1}
+        await _force_pending_summary(
+            manager, store, sid, {"start_index": 2, "end_index": 99, "retry_count": 1}
         )
         assert await manager.reconcile_session_tail(sid, ["C1", "C2"]) == 0
         pending = await manager.get_session_metadata(sid, "pending_summary", None)
@@ -382,22 +400,186 @@ async def test_concurrent_new_message_survives_rollback(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_trim_bumps_revision_and_keeps_cursor_sane(tmp_path):
-    """滑动窗口清理必须推进修订号（使在途总结任务失效）并保持游标自洽。"""
+async def test_trim_does_not_invalidate_inflight_summary(tmp_path):
+    """滑动窗口清理不得推进修订号：在途任务的合法提交必须仍然成功。
+
+    trim 只删**已总结**消息，任务范围的内容一条都没被删；任务提交的 end_index
+    经原子钳制后恰好等于清理后的总数，本来就是正确游标。若 trim 推进修订号，
+    该提交会被判废并触发补偿删除，把刚写完的合法记忆删掉。
+    """
     handler, manager, store = await _make_real_handler(tmp_path)
-    sid = SID_PREFIX + "trim"
+    sid = SID_PREFIX + "trim-inflight"
     try:
-        await _seed_turns(manager, sid, ("C1", "C2", "C3"))  # 6 条
-        await manager.update_session_metadata(sid, "last_summarized_index", 6)
-        revision_before = await manager.get_session_revision(sid)
+        await _seed_turns(manager, sid, ("C1", "C2", "C3", "C4"))  # 8 条
+        await manager.update_session_metadata(sid, "last_summarized_index", 4)
 
         deleted = await manager.trim_session_messages(sid, 2)
         assert deleted == 2
-        assert await manager.get_session_revision(sid) == revision_before + 1
+        assert await manager.get_session_revision(sid) == 0  # 不得推进
+
         count = await store.get_message_count(sid)
-        assert count == 4
-        assert await _cursor(manager, sid) <= count
+        assert count == 6
+        # 在途任务在 trim 之前捕获的 end_index=8，必须被接受并钳制到 6
+        committed = await manager.update_session_metadata_if_revision(
+            sid, "last_summarized_index", 8, 0
+        )
+        assert committed is True
+        assert await _cursor(manager, sid) == count
     finally:
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_trim_keeps_inflight_summary_memory(tmp_path):
+    """端到端：trim 与在途总结交错时，刚写入的合法记忆不得被补偿删除。"""
+    from unittest.mock import AsyncMock
+
+    engine = AsyncMock()
+    engine.add_memory = AsyncMock(return_value=4242)
+    engine.delete_memory = AsyncMock(return_value=True)
+    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
+    sid = SID_PREFIX + "trim-memory"
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    task = None
+    try:
+        await _seed_turns(manager, sid, ("C1", "C2", "C3", "C4"))  # 8 条
+        await manager.update_session_metadata(sid, "last_summarized_index", 4)
+
+        async def slow_add_memory(**kwargs):
+            entered.set()
+            await release.wait()
+            return 4242
+
+        engine.add_memory = AsyncMock(side_effect=slow_add_memory)
+        handler._memory_reflection.memory_processor.process_conversation = AsyncMock(
+            return_value=("summary", {"topics": []}, 0.5)
+        )
+        task = asyncio.create_task(
+            handler._memory_reflection._storage_task(
+                session_id=sid,
+                history_messages=[
+                    Message(
+                        id=5,
+                        session_id=sid,
+                        role="user",
+                        content="q-C3",
+                        sender_id="u1",
+                        sender_name="User",
+                        group_id=None,
+                        platform="test",
+                        metadata={},
+                    ),
+                    Message(
+                        id=6,
+                        session_id=sid,
+                        role="assistant",
+                        content="a-C3",
+                        sender_id="bot",
+                        sender_name="Bot",
+                        group_id=None,
+                        platform="test",
+                        metadata={"is_bot_message": True},
+                    ),
+                ],
+                persona_id="p1",
+                start_index=4,
+                end_index=8,
+                retry_count=0,
+                memory_scope="livingmemory:test",
+                expected_revision=0,
+            )
+        )
+        await asyncio.wait_for(entered.wait(), 3)
+        # 记忆已写入、游标提交之前，发生常规滑动窗口清理
+        assert await manager.trim_session_messages(sid, 2) == 2
+        release.set()
+        await asyncio.wait_for(task, 5)
+
+        # 这次总结的范围没有被撤销 -> 记忆必须保留
+        engine.delete_memory.assert_not_awaited()
+        count = await store.get_message_count(sid)
+        assert await _cursor(manager, sid) == count
+    finally:
+        release.set()
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_memory_write_compensates(tmp_path):
+    """取消（回滚会 cancel 任务）发生在记忆写入之后时，仍要补偿删除。"""
+    from unittest.mock import AsyncMock
+
+    engine = AsyncMock()
+    engine.add_memory = AsyncMock(return_value=4242)
+    engine.delete_memory = AsyncMock(return_value=True)
+    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
+    sid = SID_PREFIX + "cancel-compensate"
+    committing = asyncio.Event()
+    original_conditional = manager.update_session_metadata_if_revision
+    task = None
+    try:
+        await _seed_turns(manager, sid, ("C1", "C2"))
+
+        async def slow_conditional(session_id, key, value, expected_revision):
+            committing.set()
+            await asyncio.sleep(30)  # 停在游标提交处，等待被取消
+            return await original_conditional(
+                session_id, key, value, expected_revision
+            )
+
+        manager.update_session_metadata_if_revision = slow_conditional
+        handler._memory_reflection.memory_processor.process_conversation = AsyncMock(
+            return_value=("summary", {"topics": []}, 0.5)
+        )
+        task = asyncio.create_task(
+            handler._memory_reflection._storage_task(
+                session_id=sid,
+                history_messages=[
+                    Message(
+                        id=1,
+                        session_id=sid,
+                        role="user",
+                        content="q-C1",
+                        sender_id="u1",
+                        sender_name="User",
+                        group_id=None,
+                        platform="test",
+                        metadata={},
+                    ),
+                    Message(
+                        id=2,
+                        session_id=sid,
+                        role="assistant",
+                        content="a-C1",
+                        sender_id="bot",
+                        sender_name="Bot",
+                        group_id=None,
+                        platform="test",
+                        metadata={"is_bot_message": True},
+                    ),
+                ],
+                persona_id="p1",
+                start_index=0,
+                end_index=2,
+                retry_count=0,
+                memory_scope="livingmemory:test",
+                expected_revision=0,
+            )
+        )
+        await asyncio.wait_for(committing.wait(), 3)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+        engine.delete_memory.assert_awaited_once_with(4242)
+    finally:
+        manager.update_session_metadata_if_revision = original_conditional
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         await _cleanup(handler, store)
 
 

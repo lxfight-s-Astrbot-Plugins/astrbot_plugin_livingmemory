@@ -289,6 +289,22 @@ class ConversationStoreMessagesMixin:
             metadata["last_summarized_index"] = max(
                 0, last_summarized_index - deleted_count
             )
+            # pending_summary 存的是**绝对下标**：滑动窗口从头部删除后必须整体前移，
+            # 否则下一轮会从旧下标起步，跳过 [新游标, 旧 pending_start) 区间
+            pending = metadata.get("pending_summary")
+            if isinstance(pending, dict):
+                try:
+                    pending_start = int(pending.get("start_index", 0) or 0)
+                    pending_end = int(pending.get("end_index", 0) or 0)
+                except (TypeError, ValueError):
+                    metadata.pop("pending_summary", None)
+                else:
+                    shifted = dict(pending)
+                    shifted["start_index"] = max(0, pending_start - deleted_count)
+                    shifted["end_index"] = max(0, pending_end - deleted_count)
+                    metadata["pending_summary"] = shifted
+            kept_count = max(0, actual_count - deleted_count)
+            self._clamp_summary_metadata(metadata, kept_count)
             await self.connection.execute(
                 """
                 UPDATE sessions
@@ -297,7 +313,7 @@ class ConversationStoreMessagesMixin:
                 WHERE session_id = ?
                 """,
                 (
-                    max(0, actual_count - deleted_count),
+                    kept_count,
                     json.dumps(metadata, ensure_ascii=False),
                     session_id,
                 ),
@@ -497,6 +513,8 @@ class ConversationStoreMessagesMixin:
         Returns:
             dict: 实际被修正的键（被清除的键值为 ``None``）
         """
+        if "last_summarized_index" not in metadata and "pending_summary" not in metadata:
+            return {}
         repaired: dict = {}
         try:
             cursor = int(metadata.get("last_summarized_index", 0) or 0)
@@ -593,11 +611,13 @@ class ConversationStoreMessagesMixin:
         Returns:
             int: 删除的消息数量
         """
-        if self.connection is None or position < 0:
+        if self.connection is None:
+            return 0
+        ids = [int(i) for i in (message_ids or []) if i is not None]
+        if not ids and position < 0:
             return 0
 
         async with self._write_lock:
-            ids = [int(i) for i in (message_ids or []) if i is not None]
             if ids:
                 # 精确按 id 删除：并发新增的消息不受影响
                 placeholders = ",".join("?" for _ in ids)
