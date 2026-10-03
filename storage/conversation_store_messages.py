@@ -5,6 +5,7 @@ ConversationStore 的 ConversationStoreMessagesMixin 拆分模块
 
 import json
 import time
+from typing import Any
 
 from astrbot.api import logger
 from ..core.models.conversation_models import Message, serialize_to_json
@@ -288,6 +289,22 @@ class ConversationStoreMessagesMixin:
             metadata["last_summarized_index"] = max(
                 0, last_summarized_index - deleted_count
             )
+            # pending_summary 存的是**绝对下标**：滑动窗口从头部删除后必须整体前移，
+            # 否则下一轮会从旧下标起步，跳过 [新游标, 旧 pending_start) 区间
+            pending = metadata.get("pending_summary")
+            if isinstance(pending, dict):
+                try:
+                    pending_start = int(pending.get("start_index", 0) or 0)
+                    pending_end = int(pending.get("end_index", 0) or 0)
+                except (TypeError, ValueError):
+                    metadata.pop("pending_summary", None)
+                else:
+                    shifted = dict(pending)
+                    shifted["start_index"] = max(0, pending_start - deleted_count)
+                    shifted["end_index"] = max(0, pending_end - deleted_count)
+                    metadata["pending_summary"] = shifted
+            kept_count = max(0, actual_count - deleted_count)
+            self._clamp_summary_metadata(metadata, kept_count)
             await self.connection.execute(
                 """
                 UPDATE sessions
@@ -296,7 +313,7 @@ class ConversationStoreMessagesMixin:
                 WHERE session_id = ?
                 """,
                 (
-                    max(0, actual_count - deleted_count),
+                    kept_count,
                     json.dumps(metadata, ensure_ascii=False),
                     session_id,
                 ),
@@ -341,6 +358,357 @@ class ConversationStoreMessagesMixin:
             f"[ConversationStore] 删除会话消息: session={session_id}, count={deleted_count}"
         )
         return deleted_count
+
+    async def get_session_messages_asc(
+        self, session_id: str, limit: int | None = None
+    ) -> list[Message]:
+        """按会话顺序返回消息，含完整 metadata。
+
+        排序键为 ``timestamp ASC, id ASC``，与滑动窗口/游标语义
+        （get_messages_range 的 timestamp 序，trim 的 timestamp,id 序）保持一致；
+        常规情况下与插入顺序（id 升序）等价，时钟跳变时以时间序为准。
+
+        Args:
+            session_id: 会话ID
+            limit: 限制数量，None 表示不限制
+
+        Returns:
+            List[Message]: 消息列表（升序）
+        """
+        if self.connection is None:
+            return []
+
+        query = """
+            SELECT id, session_id, role, content, sender_id, sender_name,
+                   group_id, platform, timestamp, metadata
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp ASC, id ASC
+        """
+        params: tuple = (session_id,)
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (session_id, limit)
+
+        async with self.connection.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+
+        messages = []
+        for row in rows:
+            messages.append(
+                Message.from_dict(
+                    {
+                        "id": row["id"],
+                        "session_id": row["session_id"],
+                        "role": row["role"],
+                        "content": row["content"],
+                        "sender_id": row["sender_id"],
+                        "sender_name": row["sender_name"],
+                        "group_id": row["group_id"],
+                        "platform": row["platform"],
+                        "timestamp": row["timestamp"],
+                        "metadata": row["metadata"],
+                    }
+                )
+            )
+        return messages
+
+    async def get_session_message_refs_asc(
+        self, session_id: str
+    ) -> list[dict[str, Any]]:
+        """按会话顺序返回对账所需的最小字段（id/role/metadata）。
+
+        供对话历史对账使用，避免构造完整 Message 对象（跳过 content 等大字段）。
+        排序键与 get_session_messages_asc 一致（``timestamp ASC, id ASC``）。
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            List[dict]: [{"id", "role", "metadata"}]（metadata 已解析为 dict）
+        """
+        if self.connection is None:
+            return []
+
+        query = """
+            SELECT id, role, metadata
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp ASC, id ASC
+        """
+        refs: list[dict[str, Any]] = []
+        async with self.connection.execute(query, (session_id,)) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            metadata = row["metadata"] or "{}"
+            try:
+                metadata = json.loads(metadata)
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+            refs.append(
+                {
+                    "id": row["id"],
+                    "role": row["role"],
+                    "metadata": metadata if isinstance(metadata, dict) else {},
+                }
+            )
+        return refs
+
+    async def get_last_message(self, session_id: str) -> Message | None:
+        """获取会话最后一条消息（按会话顺序）。
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Message 或 None
+        """
+        if self.connection is None:
+            return None
+
+        async with self.connection.execute(
+            """
+            SELECT id, session_id, role, content, sender_id, sender_name,
+                   group_id, platform, timestamp, metadata
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+        """,
+            (session_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if not row:
+            return None
+        return Message.from_dict(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "role": row["role"],
+                "content": row["content"],
+                "sender_id": row["sender_id"],
+                "sender_name": row["sender_name"],
+                "group_id": row["group_id"],
+                "platform": row["platform"],
+                "timestamp": row["timestamp"],
+                "metadata": row["metadata"],
+            }
+        )
+
+    @staticmethod
+    def _clamp_summary_metadata(metadata: dict, kept_count: int) -> dict:
+        """把总结游标与待处理范围钳制到 ``kept_count`` 条消息以内。
+
+        规则（滑动窗口、按位置删除、按 id 删除、元数据写入共用一套，避免语义分叉）：
+
+        - ``last_summarized_index`` 收敛到 ``min(cursor, kept_count)``；
+        - ``pending_summary`` 起点越过末尾则整条清除；终点越界则收敛；
+          收敛后不足一轮（< 2 条）则清除。
+
+        Args:
+            metadata: 会话元数据（原地修改）
+            kept_count: 保留的消息条数
+
+        Returns:
+            dict: 实际被修正的键（被清除的键值为 ``None``）
+        """
+        if "last_summarized_index" not in metadata and "pending_summary" not in metadata:
+            return {}
+        repaired: dict = {}
+        try:
+            cursor = int(metadata.get("last_summarized_index", 0) or 0)
+        except (TypeError, ValueError):
+            cursor = 0
+        cursor = max(0, cursor)
+        clamped_cursor = min(cursor, kept_count)
+        metadata["last_summarized_index"] = clamped_cursor
+        if clamped_cursor != cursor:
+            repaired["last_summarized_index"] = clamped_cursor
+
+        pending = metadata.get("pending_summary")
+        if isinstance(pending, dict):
+            before = json.dumps(pending, sort_keys=True, ensure_ascii=False)
+            try:
+                pending_start = int(pending.get("start_index", 0) or 0)
+                pending_end = int(pending.get("end_index", 0) or 0)
+            except (TypeError, ValueError):
+                pending = None
+            else:
+                if pending_start >= kept_count:
+                    pending = None
+                else:
+                    clamped_end = min(pending_end, kept_count)
+                    if clamped_end - pending_start < 2:
+                        pending = None
+                    else:
+                        pending["end_index"] = clamped_end
+            if pending is None:
+                metadata.pop("pending_summary", None)
+            else:
+                metadata["pending_summary"] = pending
+            after_obj = metadata.get("pending_summary")
+            after = (
+                json.dumps(after_obj, sort_keys=True, ensure_ascii=False)
+                if after_obj is not None
+                else None
+            )
+            if before != after:
+                repaired["pending_summary"] = after_obj
+        return repaired
+
+    async def update_session_metadata_atomic(
+        self, session_id: str, metadata: dict
+    ) -> dict:
+        """原子写入会话元数据，并在同一临界区内钳制总结游标。
+
+        与滑动窗口清理、对账删除共用 ``_write_lock``，因此"读消息数 -> 钳制 ->
+        写入"不会被 trim/delete 穿插，避免把越界游标写回（进而使新一轮被跳过总结）。
+
+        Args:
+            session_id: 会话ID
+            metadata: 完整的元数据字典（会被钳制后写入）
+
+        Returns:
+            dict: 实际被修正的键（无修正时为空字典）
+        """
+        if self.connection is None:
+            return {}
+        async with self._write_lock:
+            kept_count = await self.get_message_count(session_id)
+            repaired = self._clamp_summary_metadata(metadata, kept_count)
+            await self.connection.execute(
+                """
+                UPDATE sessions
+                SET metadata = ?
+                WHERE session_id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False), session_id),
+            )
+            await self.connection.commit()
+        return repaired
+
+    async def delete_messages_from_position(
+        self, session_id: str, position: int, message_ids: list[int] | None = None
+    ) -> int:
+        """从指定位置（0-based，按会话顺序）开始删除会话消息，并同步计数与总结游标。
+
+        用于对话历史对账：WebUI 编辑/重试会截断 LLM 历史，本方法原子地删除
+        插件会话库中对应的被撤销消息，同时修正 message_count、
+        last_summarized_index 与 pending_summary，避免游标漂移。
+
+        位置排序键为 ``timestamp ASC, id ASC``，与滑动窗口/游标语义保持一致
+        （常规下等价于插入顺序；时钟跳变时以时间序为准）。
+
+        Args:
+            session_id: 会话ID
+            position: 0-based 起始位置（该位置及之后的消息被删除，等于保留条数）；
+                      position < 0 时不执行任何删除
+            message_ids: 可选。给出时**只删除这些 id**（对账快照里确认失效的消息）。
+                按位置/时间边界删除会连带删掉"快照之后并发新增的合法消息"，并在库中
+                留下永久缺口，因此对账应传入快照 id 集合；此时 position 不参与删除条件
+
+        Returns:
+            int: 删除的消息数量
+        """
+        if self.connection is None:
+            return 0
+        ids = [int(i) for i in (message_ids or []) if i is not None]
+        if not ids and position < 0:
+            return 0
+
+        async with self._write_lock:
+            if ids:
+                # 精确按 id 删除：并发新增的消息不受影响
+                placeholders = ",".join("?" for _ in ids)
+                cursor = await self.connection.execute(
+                    f"""
+                    DELETE FROM messages
+                    WHERE session_id = ? AND id IN ({placeholders})
+                    """,
+                    (session_id, *ids),
+                )
+                deleted_count = max(0, cursor.rowcount)
+                if deleted_count <= 0:
+                    return 0
+                kept_count = await self.get_message_count(session_id)
+            else:
+                # 定位起始消息（按会话顺序），position == 0 表示从第一条删除
+                async with self.connection.execute(
+                    """
+                    SELECT id, timestamp FROM messages
+                    WHERE session_id = ?
+                    ORDER BY timestamp ASC, id ASC
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (session_id, position),
+                ) as cursor:
+                    row = await cursor.fetchone()
+
+                if not row:
+                    return 0
+                start_id = row["id"]
+                start_timestamp = row["timestamp"]
+
+                cursor = await self.connection.execute(
+                    """
+                    DELETE FROM messages
+                    WHERE session_id = ?
+                      AND (timestamp > ? OR (timestamp = ? AND id >= ?))
+                    """,
+                    (session_id, start_timestamp, start_timestamp, start_id),
+                )
+                deleted_count = max(0, cursor.rowcount)
+                if deleted_count <= 0:
+                    return 0
+
+                kept_count = position
+
+            # 读取会话行以同步 message_count 与总结游标
+            async with self.connection.execute(
+                """
+                SELECT metadata, message_count
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ) as cursor:
+                session_row = await cursor.fetchone()
+
+            if not session_row:
+                await self.connection.commit()
+                return deleted_count
+
+            try:
+                metadata = json.loads(session_row["metadata"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+
+            # 游标/待处理范围钳制：与按 id 删除、元数据原子写入共用同一套规则
+            self._clamp_summary_metadata(metadata, kept_count)
+
+            await self.connection.execute(
+                """
+                UPDATE sessions
+                SET message_count = ?,
+                    metadata = ?
+                WHERE session_id = ?
+                """,
+                (
+                    kept_count,
+                    json.dumps(metadata, ensure_ascii=False),
+                    session_id,
+                ),
+            )
+            await self.connection.commit()
+
+            logger.info(
+                f"[ConversationStore] 删除会话消息（对账回滚）: session={session_id}, "
+                f"position={position}, count={deleted_count}"
+            )
+            return deleted_count
 
     async def get_user_message_stats(self, session_id: str) -> dict[str, int]:
         """
