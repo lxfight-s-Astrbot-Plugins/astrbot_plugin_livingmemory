@@ -558,15 +558,17 @@ class ConversationManager:
         Args:
             session_id: 会话ID
         """
-        # 删除数据库中的消息
-        await self.store.delete_session_messages(session_id)
+        # 删除消息 + 重置元数据 + 推进修订号必须落在同一临界区：否则"已通过
+        # 修订号校验、正在写旧游标"的后台总结任务会在清空之后复活总结进度
+        # （count=0 但 cursor>0），使清空后的新消息被跳过总结。
+        async with self._session_lock(session_id):
+            await self.store.delete_session_messages(session_id)
+            await self._reset_session_metadata_locked(session_id)
+            await self._bump_session_revision_locked(session_id)
 
-        # 清除缓存
+        # 清除缓存（放在锁外，尽量缩短临界区）
         async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
-        # 同步重置会话元数据，特别是记忆总结的计数器
-        await self.reset_session_metadata(session_id)
+            self._cache.pop(session_id, None)
 
         logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
 
@@ -622,6 +624,10 @@ class ConversationManager:
                         isinstance(last_checkpoint, str)
                         and last_checkpoint == ctx_checkpoints[-1]
                     ):
+                        # 短路返回前做一次廉价自愈：游标倒挂（cursor > count，
+                        # 例如回滚后旧写入落地、或异常中断遗留）不会被反思逻辑
+                        # 自行修复，会导致新消息永远跳过总结。
+                        await self._repair_cursor_if_out_of_range(session_id, total)
                         return 0
 
             rows = await self.store.get_session_message_refs_asc(session_id)
@@ -636,13 +642,18 @@ class ConversationManager:
                 session_id, cutoff
             )
             if deleted > 0:
-                # 推进会话修订号：使基于旧消息范围的后台总结任务失效，
-                # 避免回滚期间正在执行的总结把已撤销内容写入记忆
-                await self.bump_session_revision(session_id)
+                # 删除本身在锁外完成（放进锁内会与"正在写元数据"的后台任务
+                # 互相阻塞，且回滚必须能在旧写入等待期间完成清理）；但
+                # **游标钳制与修订号推进必须在同一临界区内**，这样无论旧写入
+                # 落在删除之前还是之后，最终状态都满足 cursor <= message_count。
+                async with self._session_lock(session_id):
+                    repaired = await self._repair_summary_state_locked(session_id)
+                    await self._bump_session_revision_locked(session_id)
                 await self.invalidate_cache(session_id)
                 logger.info(
                     f"[{session_id}] 检测到 WebUI 对话回滚（编辑/重试），"
                     f"已清理 {deleted} 条被撤销消息"
+                    + (f"，已钳制 {repaired}" if repaired else "")
                 )
             return deleted
         except asyncio.CancelledError:
@@ -670,12 +681,101 @@ class ConversationManager:
         :meth:`update_session_metadata_if_revision` 或自行比对修订号后放弃写入。
         """
         async with self._session_lock(session_id):
-            revision = self._session_revisions.get(session_id, 0) + 1
-            self._session_revisions[session_id] = revision
+            revision = await self._bump_session_revision_locked(session_id)
         logger.info(
             f"[{session_id}] 会话修订号推进至 {revision}（进行中的总结任务已失效）"
         )
         return revision
+
+    async def _bump_session_revision_locked(self, session_id: str) -> int:
+        """推进修订号（调用方必须已持有该会话的 ``_session_lock``）。"""
+        revision = self._session_revisions.get(session_id, 0) + 1
+        self._session_revisions[session_id] = revision
+        return revision
+
+    async def _persist_session_metadata(
+        self, session_id: str, metadata: dict[str, Any]
+    ) -> None:
+        """整体写回会话元数据（不加锁，调用方自行保证互斥）。"""
+        if self.store.connection is None:
+            return
+        try:
+            await self.store.connection.execute(
+                """
+                    UPDATE sessions
+                    SET metadata = ?
+                    WHERE session_id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False), session_id),
+            )
+            await self.store.connection.commit()
+        except Exception as e:
+            logger.error(f"更新会话元数据失败: {e}", exc_info=True)
+
+    async def _repair_summary_state_locked(self, session_id: str) -> dict[str, Any]:
+        """把总结游标/待处理范围钳制回当前消息数量内（调用方须持会话锁）。
+
+        处理两类失效状态（都会导致"新消息被跳过总结"）：
+        - ``last_summarized_index > message_count``：回滚/清空后旧游标倒挂；
+        - ``pending_summary`` 越界：起点已越过末尾则整条清除，终点越界则收敛。
+
+        Returns:
+            dict: 实际被修正的键（空字典表示无需修正）。
+        """
+        session = await self.store.get_session(session_id)
+        if not session:
+            return {}
+        count = await self.store.get_message_count(session_id)
+        metadata = session.metadata or {}
+        repaired: dict[str, Any] = {}
+
+        cursor = metadata.get("last_summarized_index")
+        if isinstance(cursor, int) and cursor > count:
+            metadata["last_summarized_index"] = count
+            repaired["last_summarized_index"] = count
+
+        pending = metadata.get("pending_summary")
+        if isinstance(pending, dict):
+            start = pending.get("start_index")
+            end = pending.get("end_index")
+            if isinstance(start, int) and start >= count:
+                metadata.pop("pending_summary", None)
+                repaired["pending_summary"] = None
+            elif isinstance(end, int) and end > count:
+                clamped = dict(pending)
+                clamped["end_index"] = count
+                metadata["pending_summary"] = clamped
+                repaired["pending_summary"] = clamped
+
+        if repaired:
+            await self._persist_session_metadata(session_id, metadata)
+        return repaired
+
+    async def _repair_cursor_if_out_of_range(self, session_id: str, total: int) -> None:
+        """廉价自愈入口：仅在游标倒挂或待处理范围越界时才进入临界区修正。"""
+        session = await self.store.get_session(session_id)
+        if not session:
+            return
+        metadata = session.metadata or {}
+        cursor = metadata.get("last_summarized_index")
+        pending = metadata.get("pending_summary")
+        cursor_bad = isinstance(cursor, int) and cursor > total
+        pending_bad = isinstance(pending, dict) and (
+            (
+                isinstance(pending.get("start_index"), int)
+                and pending["start_index"] >= total
+            )
+            or (isinstance(pending.get("end_index"), int) and pending["end_index"] > total)
+        )
+        if not (cursor_bad or pending_bad):
+            return
+        async with self._session_lock(session_id):
+            repaired = await self._repair_summary_state_locked(session_id)
+            await self._bump_session_revision_locked(session_id)
+        logger.warning(
+            f"[{session_id}] 总结游标/待处理范围越界"
+            f"（cursor={cursor}, count={total}），已钳制并推进修订号: {repaired}"
+        )
 
     async def update_session_metadata_if_revision(
         self,
@@ -696,6 +796,17 @@ class ConversationManager:
         async with self._session_lock(session_id):
             if self._session_revisions.get(session_id, 0) != expected_revision:
                 return False
+            if key == "last_summarized_index":
+                # 兜底自愈：回滚的删除发生在锁外，因此"已通过修订号校验"的旧写入
+                # 仍可能在其后提交。这里在锁内按当前消息数再次钳制，保证任意交错
+                # 顺序都不会留下 cursor > message_count 的倒挂。
+                count = await self.store.get_message_count(session_id)
+                if isinstance(value, int) and value > count:
+                    logger.warning(
+                        f"[{session_id}] 总结游标写入 {value} 超出消息数 {count}，"
+                        f"已钳制为 {count}"
+                    )
+                    value = count
             await self.update_session_metadata(session_id, key, value)
             return True
 
@@ -900,19 +1011,7 @@ class ConversationManager:
         session.metadata[key] = value
 
         # 保存到数据库
-        if self.store.connection is not None:
-            try:
-                await self.store.connection.execute(
-                    """
-                    UPDATE sessions
-                    SET metadata = ?
-                    WHERE session_id = ?
-                """,
-                    (json.dumps(session.metadata, ensure_ascii=False), session_id),
-                )
-                await self.store.connection.commit()
-            except Exception as e:
-                logger.error(f"更新会话元数据失败: {e}", exc_info=True)
+        await self._persist_session_metadata(session_id, session.metadata)
 
         logger.debug(
             f"[ConversationManager] 更新会话元数据: {session_id}, {key}={value}"
@@ -942,7 +1041,15 @@ class ConversationManager:
         """
         重置指定会话的所有元数据，特别是 'last_summarized_index'。
         这会使下一次记忆总结从头开始，不会包含旧的上下文。
+
+        重置与修订号推进在同一临界区内完成，避免"旧游标写回"复活已清空的进度。
         """
+        async with self._session_lock(session_id):
+            await self._reset_session_metadata_locked(session_id)
+            await self._bump_session_revision_locked(session_id)
+
+    async def _reset_session_metadata_locked(self, session_id: str) -> None:
+        """清空会话元数据（调用方必须已持有该会话的 ``_session_lock``）。"""
         session = await self.store.get_session(session_id)
         if not session:
             logger.warning(
@@ -952,25 +1059,10 @@ class ConversationManager:
         # 将元数据重置为空字典
         session.metadata = {}
         # 保存回数据库
-        if self.store.connection is not None:
-            try:
-                await self.store.connection.execute(
-                    """
-                    UPDATE sessions
-                    SET metadata = ?
-                    WHERE session_id = ?
-                """,
-                    ("{}", session_id),
-                )
-                await self.store.connection.commit()
-            except Exception as e:
-                logger.error(f"重置会话元数据失败: {e}", exc_info=True)
+        await self._persist_session_metadata(session_id, {})
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )
-        # 元数据被整体清空会使基于旧范围的后台总结任务失效（其游标写回会
-        # 复活已清空的总结进度），因此同步推进会话修订号
-        await self.bump_session_revision(session_id)
 
 
 def create_conversation_manager(
