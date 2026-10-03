@@ -468,6 +468,29 @@ class MemoryReflection:
         )
         return True
 
+    async def _compensate_rolled_back_memory(
+        self, session_id: str, memory_id: int
+    ) -> None:
+        """回滚后补偿删除刚落库的记忆（关闭"校验通过 -> 写入完成"之间的窗口）。
+
+        游标更新会被修订号校验正确拒绝，但内容此时已经 durable；仅靠"写入前校验"
+        无法撤回，因此这里做补偿删除，避免已撤销内容留在长期记忆里。
+        """
+        if not self.memory_engine:
+            return
+        try:
+            removed = await self.memory_engine.delete_memory(memory_id)
+        except Exception as exc:
+            logger.error(
+                f"[{session_id}] 回滚补偿删除记忆 {memory_id} 失败: {exc}",
+                exc_info=True,
+            )
+            return
+        logger.warning(
+            f"[{session_id}] 会话已回滚，已补偿删除刚落库的记忆 {memory_id}"
+            f"（removed={removed}），避免已撤销内容污染长期记忆"
+        )
+
     def cancel_storage_task(self, session_id: str) -> bool:
         """取消指定会话进行中的后台总结任务（会话回滚时调用）。"""
         return cancel_session_storage_task(self._storage_session_tasks, session_id)
@@ -610,6 +633,7 @@ class MemoryReflection:
                     return
 
                 # 正常流程：添加到记忆引擎
+                memory_id: int | None = None
                 if self.memory_engine:
                     source_threshold = float(
                         self.config_manager.get(
@@ -622,7 +646,7 @@ class MemoryReflection:
                         if importance >= source_threshold
                         else None
                     )
-                    await self.memory_engine.add_memory(
+                    memory_id = await self.memory_engine.add_memory(
                         content=content,
                         session_id=memory_scope,
                         persona_id=persona_id,
@@ -646,6 +670,12 @@ class MemoryReflection:
                         if committed:
                             logger.info(
                                 f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
+                            )
+                        elif memory_id is not None:
+                            # 修订号校验发生在写入之前：等待期间若发生回滚，
+                            # 刚落库的记忆属于已撤销内容，必须补偿删除
+                            await self._compensate_rolled_back_memory(
+                                session_id, memory_id
                             )
                     except Exception as meta_err:
                         logger.error(

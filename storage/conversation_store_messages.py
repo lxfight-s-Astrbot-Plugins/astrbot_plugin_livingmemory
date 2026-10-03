@@ -480,8 +480,98 @@ class ConversationStoreMessagesMixin:
             }
         )
 
+    @staticmethod
+    def _clamp_summary_metadata(metadata: dict, kept_count: int) -> dict:
+        """把总结游标与待处理范围钳制到 ``kept_count`` 条消息以内。
+
+        规则（滑动窗口、按位置删除、按 id 删除、元数据写入共用一套，避免语义分叉）：
+
+        - ``last_summarized_index`` 收敛到 ``min(cursor, kept_count)``；
+        - ``pending_summary`` 起点越过末尾则整条清除；终点越界则收敛；
+          收敛后不足一轮（< 2 条）则清除。
+
+        Args:
+            metadata: 会话元数据（原地修改）
+            kept_count: 保留的消息条数
+
+        Returns:
+            dict: 实际被修正的键（被清除的键值为 ``None``）
+        """
+        repaired: dict = {}
+        try:
+            cursor = int(metadata.get("last_summarized_index", 0) or 0)
+        except (TypeError, ValueError):
+            cursor = 0
+        cursor = max(0, cursor)
+        clamped_cursor = min(cursor, kept_count)
+        metadata["last_summarized_index"] = clamped_cursor
+        if clamped_cursor != cursor:
+            repaired["last_summarized_index"] = clamped_cursor
+
+        pending = metadata.get("pending_summary")
+        if isinstance(pending, dict):
+            before = json.dumps(pending, sort_keys=True, ensure_ascii=False)
+            try:
+                pending_start = int(pending.get("start_index", 0) or 0)
+                pending_end = int(pending.get("end_index", 0) or 0)
+            except (TypeError, ValueError):
+                pending = None
+            else:
+                if pending_start >= kept_count:
+                    pending = None
+                else:
+                    clamped_end = min(pending_end, kept_count)
+                    if clamped_end - pending_start < 2:
+                        pending = None
+                    else:
+                        pending["end_index"] = clamped_end
+            if pending is None:
+                metadata.pop("pending_summary", None)
+            else:
+                metadata["pending_summary"] = pending
+            after_obj = metadata.get("pending_summary")
+            after = (
+                json.dumps(after_obj, sort_keys=True, ensure_ascii=False)
+                if after_obj is not None
+                else None
+            )
+            if before != after:
+                repaired["pending_summary"] = after_obj
+        return repaired
+
+    async def update_session_metadata_atomic(
+        self, session_id: str, metadata: dict
+    ) -> dict:
+        """原子写入会话元数据，并在同一临界区内钳制总结游标。
+
+        与滑动窗口清理、对账删除共用 ``_write_lock``，因此"读消息数 -> 钳制 ->
+        写入"不会被 trim/delete 穿插，避免把越界游标写回（进而使新一轮被跳过总结）。
+
+        Args:
+            session_id: 会话ID
+            metadata: 完整的元数据字典（会被钳制后写入）
+
+        Returns:
+            dict: 实际被修正的键（无修正时为空字典）
+        """
+        if self.connection is None:
+            return {}
+        async with self._write_lock:
+            kept_count = await self.get_message_count(session_id)
+            repaired = self._clamp_summary_metadata(metadata, kept_count)
+            await self.connection.execute(
+                """
+                UPDATE sessions
+                SET metadata = ?
+                WHERE session_id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False), session_id),
+            )
+            await self.connection.commit()
+        return repaired
+
     async def delete_messages_from_position(
-        self, session_id: str, position: int
+        self, session_id: str, position: int, message_ids: list[int] | None = None
     ) -> int:
         """从指定位置（0-based，按会话顺序）开始删除会话消息，并同步计数与总结游标。
 
@@ -496,6 +586,9 @@ class ConversationStoreMessagesMixin:
             session_id: 会话ID
             position: 0-based 起始位置（该位置及之后的消息被删除，等于保留条数）；
                       position < 0 时不执行任何删除
+            message_ids: 可选。给出时**只删除这些 id**（对账快照里确认失效的消息）。
+                按位置/时间边界删除会连带删掉"快照之后并发新增的合法消息"，并在库中
+                留下永久缺口，因此对账应传入快照 id 集合；此时 position 不参与删除条件
 
         Returns:
             int: 删除的消息数量
@@ -504,36 +597,52 @@ class ConversationStoreMessagesMixin:
             return 0
 
         async with self._write_lock:
-            # 定位起始消息（按会话顺序），position == 0 表示从第一条删除
-            async with self.connection.execute(
-                """
-                SELECT id, timestamp FROM messages
-                WHERE session_id = ?
-                ORDER BY timestamp ASC, id ASC
-                LIMIT 1 OFFSET ?
-                """,
-                (session_id, position),
-            ) as cursor:
-                row = await cursor.fetchone()
+            ids = [int(i) for i in (message_ids or []) if i is not None]
+            if ids:
+                # 精确按 id 删除：并发新增的消息不受影响
+                placeholders = ",".join("?" for _ in ids)
+                cursor = await self.connection.execute(
+                    f"""
+                    DELETE FROM messages
+                    WHERE session_id = ? AND id IN ({placeholders})
+                    """,
+                    (session_id, *ids),
+                )
+                deleted_count = max(0, cursor.rowcount)
+                if deleted_count <= 0:
+                    return 0
+                kept_count = await self.get_message_count(session_id)
+            else:
+                # 定位起始消息（按会话顺序），position == 0 表示从第一条删除
+                async with self.connection.execute(
+                    """
+                    SELECT id, timestamp FROM messages
+                    WHERE session_id = ?
+                    ORDER BY timestamp ASC, id ASC
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (session_id, position),
+                ) as cursor:
+                    row = await cursor.fetchone()
 
-            if not row:
-                return 0
-            start_id = row["id"]
-            start_timestamp = row["timestamp"]
+                if not row:
+                    return 0
+                start_id = row["id"]
+                start_timestamp = row["timestamp"]
 
-            cursor = await self.connection.execute(
-                """
-                DELETE FROM messages
-                WHERE session_id = ?
-                  AND (timestamp > ? OR (timestamp = ? AND id >= ?))
-                """,
-                (session_id, start_timestamp, start_timestamp, start_id),
-            )
-            deleted_count = max(0, cursor.rowcount)
-            if deleted_count <= 0:
-                return 0
+                cursor = await self.connection.execute(
+                    """
+                    DELETE FROM messages
+                    WHERE session_id = ?
+                      AND (timestamp > ? OR (timestamp = ? AND id >= ?))
+                    """,
+                    (session_id, start_timestamp, start_timestamp, start_id),
+                )
+                deleted_count = max(0, cursor.rowcount)
+                if deleted_count <= 0:
+                    return 0
 
-            kept_count = position
+                kept_count = position
 
             # 读取会话行以同步 message_count 与总结游标
             async with self.connection.execute(
@@ -557,39 +666,8 @@ class ConversationStoreMessagesMixin:
             if not isinstance(metadata, dict):
                 metadata = {}
 
-            # last_summarized_index 收敛到切口（被删段若已总结则游标前移）
-            try:
-                last_summarized_index = int(
-                    metadata.get("last_summarized_index", 0) or 0
-                )
-            except (TypeError, ValueError):
-                last_summarized_index = 0
-            last_summarized_index = max(0, last_summarized_index)
-            metadata["last_summarized_index"] = min(
-                last_summarized_index, kept_count
-            )
-
-            # pending_summary：范围被整体删除则清空，越界则钳制，剩余不足一轮则清空
-            pending = metadata.get("pending_summary")
-            if isinstance(pending, dict):
-                try:
-                    pending_start = int(pending.get("start_index", 0) or 0)
-                    pending_end = int(pending.get("end_index", 0) or 0)
-                except (TypeError, ValueError):
-                    pending = None
-                else:
-                    if pending_start >= kept_count:
-                        pending = None
-                    else:
-                        clamped_end = min(pending_end, kept_count)
-                        if clamped_end - pending_start < 2:
-                            pending = None
-                        else:
-                            pending["end_index"] = clamped_end
-                if pending is None:
-                    metadata.pop("pending_summary", None)
-                else:
-                    metadata["pending_summary"] = pending
+            # 游标/待处理范围钳制：与按 id 删除、元数据原子写入共用同一套规则
+            self._clamp_summary_metadata(metadata, kept_count)
 
             await self.connection.execute(
                 """

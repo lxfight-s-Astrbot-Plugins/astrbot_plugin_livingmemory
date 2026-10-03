@@ -11,7 +11,6 @@
 """
 
 import asyncio
-import json
 import time
 from collections import OrderedDict
 from typing import Any
@@ -652,8 +651,17 @@ class ConversationManager:
                 await self._repair_cursor_if_out_of_range(session_id, total)
                 return 0
 
+            # 只删除快照中确认失效的那些 id：按位置/时间边界删除会连带删掉
+            # 快照之后并发新增的合法消息，并在库中留下永久缺口（对账再也认不出它）
+            doomed = [
+                int(row["id"]) for row in rows[cutoff:] if row.get("id") is not None
+            ]
+            if not doomed:
+                await self._repair_cursor_if_out_of_range(session_id, total)
+                return 0
+
             deleted = await self.store.delete_messages_from_position(
-                session_id, cutoff
+                session_id, cutoff, message_ids=doomed
             )
             if deleted > 0:
                 # 删除本身在锁外完成（放进锁内会与"正在写元数据"的后台任务
@@ -686,6 +694,27 @@ class ConversationManager:
             self._session_locks[session_id] = lock
         return lock
 
+    async def trim_session_messages(self, session_id: str, delete_count: int) -> int:
+        """清理已总结的旧消息（滑动窗口），并使在途总结任务失效。
+
+        与 :meth:`clear_session` 同理：滑动窗口改变了消息范围，必须推进会话修订号，
+        否则在途总结任务会把基于旧范围的游标写回；钳制与修订号推进在同一临界区内
+        完成，避免与条件写入交错时产生倒挂。
+        """
+        if delete_count <= 0:
+            return 0
+        async with self._session_lock(session_id):
+            deleted = await self.store.trim_session_messages(session_id, delete_count)
+            if deleted > 0:
+                await self._repair_summary_state_locked(session_id)
+                await self._bump_session_revision_locked(session_id)
+        if deleted > 0:
+            await self.invalidate_cache(session_id)
+            logger.info(
+                f"[ConversationManager] 滑动窗口清理 {deleted} 条已总结消息: {session_id}"
+            )
+        return deleted
+
     async def get_session_revision(self, session_id: str) -> int:
         """获取会话修订号（0 表示尚无使后台总结任务失效的变更）。"""
         return self._session_revisions.get(session_id, 0)
@@ -711,29 +740,52 @@ class ConversationManager:
 
     async def _persist_session_metadata(
         self, session_id: str, metadata: dict[str, Any]
-    ) -> None:
-        """整体写回会话元数据（不加锁，调用方自行保证互斥）。"""
+    ) -> dict[str, Any]:
+        """整体写回会话元数据，并原子钳制总结游标（返回被修正的键）。
+
+        钳制在 store 的 ``_write_lock`` 内完成，与滑动窗口清理、对账删除互斥：
+        "读消息数 -> 钳制 -> 写入"不会被 trim/delete 穿插，因此不会把越界游标写回。
+        """
         if self.store.connection is None:
-            return
+            return {}
         try:
-            await self.store.connection.execute(
-                """
-                    UPDATE sessions
-                    SET metadata = ?
-                    WHERE session_id = ?
-                """,
-                (json.dumps(metadata, ensure_ascii=False), session_id),
+            repaired = await self.store.update_session_metadata_atomic(
+                session_id, metadata
             )
-            await self.store.connection.commit()
         except Exception as e:
             logger.error(f"更新会话元数据失败: {e}", exc_info=True)
+            return {}
+        if repaired:
+            logger.warning(
+                f"[{session_id}] 会话元数据写入时钳制了越界总结游标: {repaired}"
+            )
+        return repaired
+
+    @staticmethod
+    def _summary_state_out_of_range(metadata: dict[str, Any], count: int) -> bool:
+        """游标倒挂或待处理范围越界？（用于避免无谓写入）"""
+        cursor = metadata.get("last_summarized_index")
+        if isinstance(cursor, int) and cursor > count:
+            return True
+        pending = metadata.get("pending_summary")
+        if isinstance(pending, dict):
+            start = pending.get("start_index")
+            end = pending.get("end_index")
+            if isinstance(start, int) and start >= count:
+                return True
+            if isinstance(end, int) and end > count:
+                return True
+        return False
 
     async def _repair_summary_state_locked(self, session_id: str) -> dict[str, Any]:
         """把总结游标/待处理范围钳制回当前消息数量内（调用方须持会话锁）。
 
         处理两类失效状态（都会导致"新消息被跳过总结"）：
         - ``last_summarized_index > message_count``：回滚/清空后旧游标倒挂；
-        - ``pending_summary`` 越界：起点已越过末尾则整条清除，终点越界则收敛。
+        - ``pending_summary`` 越界：起点已越过末尾则整条清除，终点越界则收敛，
+          收敛后不足一轮（< 2 条）则清除。
+
+        钳制规则与滑动窗口、按 id 删除共用 store 的 ``_clamp_summary_metadata``。
 
         Returns:
             dict: 实际被修正的键（空字典表示无需修正）。
@@ -741,31 +793,11 @@ class ConversationManager:
         session = await self.store.get_session(session_id)
         if not session:
             return {}
-        count = await self.store.get_message_count(session_id)
         metadata = session.metadata or {}
-        repaired: dict[str, Any] = {}
-
-        cursor = metadata.get("last_summarized_index")
-        if isinstance(cursor, int) and cursor > count:
-            metadata["last_summarized_index"] = count
-            repaired["last_summarized_index"] = count
-
-        pending = metadata.get("pending_summary")
-        if isinstance(pending, dict):
-            start = pending.get("start_index")
-            end = pending.get("end_index")
-            if isinstance(start, int) and start >= count:
-                metadata.pop("pending_summary", None)
-                repaired["pending_summary"] = None
-            elif isinstance(end, int) and end > count:
-                clamped = dict(pending)
-                clamped["end_index"] = count
-                metadata["pending_summary"] = clamped
-                repaired["pending_summary"] = clamped
-
-        if repaired:
-            await self._persist_session_metadata(session_id, metadata)
-        return repaired
+        count = await self.store.get_message_count(session_id)
+        if not self._summary_state_out_of_range(metadata, count):
+            return {}
+        return await self._persist_session_metadata(session_id, metadata)
 
     async def _repair_cursor_if_out_of_range(self, session_id: str, total: int) -> None:
         """廉价自愈入口：仅在游标倒挂或待处理范围越界时才进入临界区修正。"""
@@ -773,18 +805,9 @@ class ConversationManager:
         if not session:
             return
         metadata = session.metadata or {}
-        cursor = metadata.get("last_summarized_index")
-        pending = metadata.get("pending_summary")
-        cursor_bad = isinstance(cursor, int) and cursor > total
-        pending_bad = isinstance(pending, dict) and (
-            (
-                isinstance(pending.get("start_index"), int)
-                and pending["start_index"] >= total
-            )
-            or (isinstance(pending.get("end_index"), int) and pending["end_index"] > total)
-        )
-        if not (cursor_bad or pending_bad):
+        if not self._summary_state_out_of_range(metadata, total):
             return
+        cursor = metadata.get("last_summarized_index")
         async with self._session_lock(session_id):
             repaired = await self._repair_summary_state_locked(session_id)
             await self._bump_session_revision_locked(session_id)
@@ -1001,24 +1024,16 @@ class ConversationManager:
     ) -> None:
         """更新会话元数据。
 
-        ``last_summarized_index`` 会先按当前消息数钳制：无条件写入（手动总结、
-        反思自愈等）也必须满足 ``cursor <= message_count``，否则旧游标会被写回，
-        反思自愈再把它钳到消息数，导致重发的那一轮被静默吞掉（不触发总结）。
-        调用方若已持有会话锁，本方法内的钳制同样处于该临界区内。
+        ``last_summarized_index`` 与 ``pending_summary`` 会在 store 的写锁内按当前
+        消息数原子钳制：无条件写入（手动总结、反思自愈等）也必须满足
+        ``cursor <= message_count``，否则旧游标会被写回，反思自愈再把它钳到消息数，
+        导致重发的那一轮被静默吞掉（不触发总结）。
 
         Args:
             session_id: 会话ID
             key: 元数据键
             value: 元数据值
         """
-        if key == "last_summarized_index":
-            count = await self.store.get_message_count(session_id)
-            if isinstance(value, int) and value > count:
-                logger.warning(
-                    f"[{session_id}] 总结游标写入 {value} 超出消息数 {count}，"
-                    f"已钳制为 {count}"
-                )
-                value = count
         session = await self.store.get_session(session_id)
         if not session:
             logger.warning(

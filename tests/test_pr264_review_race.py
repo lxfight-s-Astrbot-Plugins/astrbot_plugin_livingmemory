@@ -17,8 +17,11 @@ revision=0 校验后会持有会话锁、暂停在真正的元数据写入之前
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
+
+from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 
 from tests.test_event_handler import _make_real_handler, _seed_turns
 
@@ -39,7 +42,13 @@ async def _force_dangling_cursor(manager, store, sid: str, value: int) -> None:
     session = await store.get_session(sid)
     metadata = dict(session.metadata or {})
     metadata["last_summarized_index"] = value
-    await manager._persist_session_metadata(sid, metadata)
+    # 直接写库：修复后所有公共写入路径都会原子钳制，只有"旧版本/外部写入"
+    # 才可能留下这种倒挂状态，这里如实还原它的形态
+    await store.connection.execute(
+        "UPDATE sessions SET metadata = ? WHERE session_id = ?",
+        (json.dumps(metadata, ensure_ascii=False), sid),
+    )
+    await store.connection.commit()
 
 
 async def _cleanup(handler, store) -> None:
@@ -65,8 +74,10 @@ async def test_rollback_atomic_with_cursor_commit(tmp_path):
             await release.wait()
         await original_update(session_id, key, value)
 
-    async def notify_delete(session_id, position):
-        result = await original_delete(session_id, position)
+    async def notify_delete(session_id, position, **kwargs):
+        # 对账现在会携带快照 id 集合（按 id 精确删除，避免误删并发新增消息）；
+        # 拦截点与时序假设不变，仅透传额外参数
+        result = await original_delete(session_id, position, **kwargs)
         deleted.set()
         return result
 
@@ -227,7 +238,7 @@ async def test_self_heal_when_delete_reports_zero(tmp_path):
         await _seed_turns(manager, sid, ("C1", "C2"))
         await _force_dangling_cursor(manager, store, sid, 99)
 
-        async def zero_delete(session_id, position):
+        async def zero_delete(session_id, position, **kwargs):
             return 0
 
         store.delete_messages_from_position = zero_delete
@@ -331,6 +342,144 @@ async def test_self_heal_on_empty_session(tmp_path):
         await _cleanup(handler, store)
 
 
+# ---------------------------------------------------------------- 三项局限的回归
+@pytest.mark.asyncio
+async def test_concurrent_new_message_survives_rollback(tmp_path):
+    """对账按快照 id 删除：快照之后并发新增的合法消息不得被误删。
+
+    按位置/时间边界删除会把并发新增的消息一起删掉，并在库中留下永久缺口
+    （对账再也认不出那个 checkpoint）。
+    """
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = SID_PREFIX + "concurrent-add"
+    original_delete = store.delete_messages_from_position
+    try:
+        await _seed_turns(manager, sid, ("C1", "C2"))
+
+        async def delete_after_new_message(session_id, position, **kwargs):
+            # 模拟"快照读取之后、删除执行之前"并发到达的新消息
+            await manager.add_message(
+                session_id=session_id,
+                role="user",
+                content="q-C3",
+                sender_id="u1",
+                metadata={"llm_checkpoint_id": "C3"},
+            )
+            return await original_delete(session_id, position, **kwargs)
+
+        store.delete_messages_from_position = delete_after_new_message
+        removed = await manager.reconcile_session_tail(sid, ["C1"])
+        assert removed == 2  # 只删除被撤销的 C2 两条
+
+        refs = await store.get_session_message_refs_asc(sid)
+        checkpoints = [
+            (row["metadata"] or {}).get("llm_checkpoint_id") for row in refs
+        ]
+        assert checkpoints == ["C1", "C1", "C3"], checkpoints
+    finally:
+        store.delete_messages_from_position = original_delete
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_trim_bumps_revision_and_keeps_cursor_sane(tmp_path):
+    """滑动窗口清理必须推进修订号（使在途总结任务失效）并保持游标自洽。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = SID_PREFIX + "trim"
+    try:
+        await _seed_turns(manager, sid, ("C1", "C2", "C3"))  # 6 条
+        await manager.update_session_metadata(sid, "last_summarized_index", 6)
+        revision_before = await manager.get_session_revision(sid)
+
+        deleted = await manager.trim_session_messages(sid, 2)
+        assert deleted == 2
+        assert await manager.get_session_revision(sid) == revision_before + 1
+        count = await store.get_message_count(sid)
+        assert count == 4
+        assert await _cursor(manager, sid) <= count
+    finally:
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_rollback_during_memory_write_compensates(tmp_path):
+    """回滚发生在记忆写入期间：游标被拒绝，且刚落库的记忆必须被补偿删除。
+
+    修订号校验发生在调用记忆引擎之前，仅靠它无法撤回已经 durable 的内容。
+    """
+    from unittest.mock import AsyncMock
+
+    engine = AsyncMock()
+    engine.add_memory = AsyncMock(return_value=4242)
+    engine.delete_memory = AsyncMock(return_value=True)
+    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
+    sid = SID_PREFIX + "compensate"
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    task = None
+    try:
+        await _seed_turns(manager, sid, ("C1", "C2"))
+
+        async def slow_add_memory(**kwargs):
+            entered.set()
+            await release.wait()
+            return 4242
+
+        engine.add_memory = AsyncMock(side_effect=slow_add_memory)
+        handler._memory_reflection.memory_processor.process_conversation = AsyncMock(
+            return_value=("summary", {"topics": []}, 0.5)
+        )
+        task = asyncio.create_task(
+            handler._memory_reflection._storage_task(
+                session_id=sid,
+                history_messages=[
+                    Message(
+                        id=1,
+                        session_id=sid,
+                        role="user",
+                        content="q-C1",
+                        sender_id="u1",
+                        sender_name="User",
+                        group_id=None,
+                        platform="test",
+                        metadata={},
+                    ),
+                    Message(
+                        id=2,
+                        session_id=sid,
+                        role="assistant",
+                        content="a-C1",
+                        sender_id="bot",
+                        sender_name="Bot",
+                        group_id=None,
+                        platform="test",
+                        metadata={"is_bot_message": True},
+                    ),
+                ],
+                persona_id="p1",
+                start_index=0,
+                end_index=4,
+                retry_count=0,
+                memory_scope="livingmemory:test",
+                expected_revision=0,
+            )
+        )
+        await asyncio.wait_for(entered.wait(), 3)
+        # 写入期间发生回滚
+        assert await manager.reconcile_session_tail(sid, ["C1"]) == 2
+        release.set()
+        await asyncio.wait_for(task, 5)
+
+        engine.delete_memory.assert_awaited_once_with(4242)
+        assert await _cursor(manager, sid) <= await store.get_message_count(sid)
+    finally:
+        release.set()
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await _cleanup(handler, store)
+
+
 # ---------------------------------------------------------------- 多种交错顺序
 @pytest.mark.asyncio
 async def test_interleavings_keep_invariant(tmp_path):
@@ -359,8 +508,10 @@ async def test_interleavings_keep_invariant(tmp_path):
                         await release.wait()
                     await original_update(session_id, key, value)
 
-                async def notify_delete(session_id, position, _deleted=deleted):
-                    result = await original_delete(session_id, position)
+                async def notify_delete(
+                    session_id, position, _deleted=deleted, **kwargs
+                ):
+                    result = await original_delete(session_id, position, **kwargs)
                     _deleted.set()
                     return result
 

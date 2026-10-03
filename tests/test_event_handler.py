@@ -221,11 +221,11 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
 
     conversation_manager.store.get_message_count = AsyncMock(return_value=101)
     conversation_manager.get_session_metadata = AsyncMock(return_value=80)
-    conversation_manager.store.trim_session_messages = AsyncMock(return_value=20)
+    conversation_manager.trim_session_messages = AsyncMock(return_value=20)
 
     await handler._message_utils.enforce_message_limit("test:private:sid-1")
 
-    conversation_manager.store.trim_session_messages.assert_awaited_once_with(
+    conversation_manager.trim_session_messages.assert_awaited_once_with(
         "test:private:sid-1", 20
     )
     conversation_manager.get_session_metadata.assert_any_await(
