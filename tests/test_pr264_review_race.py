@@ -158,7 +158,8 @@ async def test_clear_session_atomic_against_late_cursor_write(tmp_path):
         await asyncio.wait_for(started.wait(), 2)
         clearer = asyncio.create_task(manager.clear_session(sid))
         tasks.append(clearer)
-        await asyncio.sleep(0.05)  # 让清空排队在会话锁上
+        await asyncio.sleep(0)  # 让 clearer 跑到会话锁上
+        assert not clearer.done(), "清空必须阻塞在旧写入持有的会话锁上"
         release.set()
         await asyncio.wait_for(asyncio.gather(*tasks), 3)
 
@@ -222,6 +223,47 @@ async def test_self_heal_clears_or_clamps_pending_summary(tmp_path):
         assert isinstance(pending, dict)
         assert pending["end_index"] == count
         assert pending["start_index"] == 2
+    finally:
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_self_heal_on_conservative_bail_path(tmp_path):
+    """无法安全判定删除范围（遗留数据无 checkpoint）时，仍要修掉倒挂游标。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = SID_PREFIX + "self-heal-bail"
+    try:
+        for index in range(2):
+            await manager.add_message(
+                session_id=sid, role="user", content=f"q{index}", sender_id="u1"
+            )
+            await manager.add_message(
+                session_id=sid, role="assistant", content=f"a{index}", sender_id="bot1"
+            )
+        await manager.update_session_metadata(sid, "last_summarized_index", 99)
+
+        # 库尾没有 checkpoint -> 不走短路；无 checkpoint 数据 -> 对账保守放弃
+        assert await manager.reconcile_session_tail(sid, ["C1"]) == 0
+        count = await store.get_message_count(sid)
+        assert await _cursor(manager, sid) == count == 4
+        assert await manager.get_session_revision(sid) >= 1
+    finally:
+        await _cleanup(handler, store)
+
+
+@pytest.mark.asyncio
+async def test_self_heal_on_empty_session(tmp_path):
+    """空会话残留倒挂游标（清空与旧写入交错）也要被修掉。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = SID_PREFIX + "self-heal-empty"
+    try:
+        await _seed_turns(manager, sid, ("C1",))
+        await manager.update_session_metadata(sid, "last_summarized_index", 7)
+        await store.delete_session_messages(sid)
+
+        assert await manager.reconcile_session_tail(sid, ["C1"]) == 0
+        assert await _cursor(manager, sid) == 0
+        assert await manager.get_session_revision(sid) >= 1
     finally:
         await _cleanup(handler, store)
 

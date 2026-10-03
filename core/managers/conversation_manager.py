@@ -564,13 +564,16 @@ class ConversationManager:
         async with self._session_lock(session_id):
             await self.store.delete_session_messages(session_id)
             await self._reset_session_metadata_locked(session_id)
-            await self._bump_session_revision_locked(session_id)
+            revision = await self._bump_session_revision_locked(session_id)
 
         # 清除缓存（放在锁外，尽量缩短临界区）
         async with self._cache_lock:
             self._cache.pop(session_id, None)
 
-        logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
+        logger.info(
+            f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}"
+            f"（会话修订号推进至 {revision}，进行中的总结任务已失效）"
+        )
 
     async def reconcile_session_tail(
         self,
@@ -590,9 +593,15 @@ class ConversationManager:
         2. 与后台记忆总结任务并发时，本方法只做尾部删除；被删消息若已被总结
            写入记忆，不会自动撤回（由 CHANGELOG 声明为已知局限），游标钳制
            后会跳过被删范围，避免重复总结；
-        3. 删除成功后推进会话修订号（见 :meth:`bump_session_revision`），
-           使删除前取好消息范围、仍在等待 LLM 的总结任务失效——它不得再写入
-           已撤销内容，也不得把 ``last_summarized_index`` 写回旧位置。
+        3. 删除成功后，在**同一会话锁临界区**内钳制总结游标
+           （``last_summarized_index`` 与越界的 ``pending_summary``）并推进会话
+           修订号（见 :meth:`bump_session_revision`），使删除前取好消息范围、
+           仍在等待 LLM 的总结任务失效——它不得再写入已撤销内容，也不得把游标
+           写回旧位置（条件写入侧还会按当前消息数兜底钳制，见
+           :meth:`update_session_metadata_if_revision`）；
+        4. 即使无需删除（空会话、库尾一致、无法安全判定、删除数为 0），也会做
+           一次廉价自愈，修正倒挂的游标/越界待处理范围——否则反思逻辑不会自愈，
+           新消息会被永久跳过总结。
 
         Args:
             session_id: 会话ID
@@ -608,6 +617,8 @@ class ConversationManager:
             # 快速退出：会话为空无需对账
             total = await self.store.get_message_count(session_id)
             if total <= 0:
+                # 空会话同样可能残留倒挂游标（清空与旧写入交错），一并自愈
+                await self._repair_cursor_if_out_of_range(session_id, 0)
                 return 0
 
             # 尾行短路：库尾（最后完整轮次）与 LLM 历史末位 checkpoint 一致时，
@@ -632,10 +643,13 @@ class ConversationManager:
 
             rows = await self.store.get_session_message_refs_asc(session_id)
             if not rows:
+                await self._repair_cursor_if_out_of_range(session_id, total)
                 return 0
 
             cutoff = compute_revert_cutoff(rows, ctx_checkpoints)
             if cutoff is None:
+                # 保守放弃删除，但不放任倒挂游标
+                await self._repair_cursor_if_out_of_range(session_id, total)
                 return 0
 
             deleted = await self.store.delete_messages_from_position(
@@ -655,6 +669,8 @@ class ConversationManager:
                     f"已清理 {deleted} 条被撤销消息"
                     + (f"，已钳制 {repaired}" if repaired else "")
                 )
+            else:
+                await self._repair_cursor_if_out_of_range(session_id, total)
             return deleted
         except asyncio.CancelledError:
             raise
