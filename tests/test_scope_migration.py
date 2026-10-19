@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import aiosqlite
 import pytest
@@ -236,5 +237,175 @@ async def test_records_without_scope_are_counted_and_migrated(tmp_path):
         breakdown = await migrator.survey()
         assert breakdown.documents == {TARGET: 2}
         assert breakdown.atoms == {TARGET: 1}
+    finally:
+        await conn.close()
+
+
+async def _make_db_with_graph(tmp_path, doc_scopes, atom_scopes, graph_scopes):
+    """三表齐全的最小库（图记忆开启时的真实结构）。"""
+    conn = await _make_db(tmp_path, doc_scopes, atom_scopes)
+    await conn.execute(
+        "CREATE TABLE graph_entries (id INTEGER PRIMARY KEY, session_id TEXT)"
+    )
+    for idx, scope in enumerate(graph_scopes, start=1):
+        await conn.execute(
+            "INSERT INTO graph_entries (id, session_id) VALUES (?, ?)", (idx, scope)
+        )
+    await conn.commit()
+    return conn
+
+
+@pytest.mark.asyncio
+async def test_missing_optional_tables_are_skipped(tmp_path):
+    """图记忆关闭时 memory_atoms / graph_entries 不存在，文档迁移仍应可用（M1）。"""
+    conn = await aiosqlite.connect(tmp_path / "lm.db")
+    await conn.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
+    )
+    await conn.execute(
+        "INSERT INTO documents (id, metadata) VALUES (1, ?)",
+        (json.dumps({"session_id": OLD_PRIVATE}),),
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        breakdown = await migrator.survey()
+        assert breakdown.documents == {OLD_PRIVATE: 1}
+        assert breakdown.atoms == {}
+        assert breakdown.graph_entries == {}
+        assert breakdown.missing_tables == ["memory_atoms", "graph_entries"]
+        assert breakdown.total == 1
+
+        plan = await migrator.plan(TARGET)
+        assert plan.documents == 1
+        assert plan.total == 1
+
+        result = await migrator.execute(plan)
+        assert result.documents == 1
+        assert result.atoms == 0
+        assert result.graph_entries == 0
+        assert (await migrator.survey()).documents == {TARGET: 1}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_migrates_graph_entries(tmp_path):
+    """graph_entries.session_id 是第三份 scope 副本，必须一并迁移（M3）。"""
+    conn = await _make_db_with_graph(
+        tmp_path, [OLD_PRIVATE], [OLD_PRIVATE], [OLD_PRIVATE, TARGET]
+    )
+    try:
+        migrator = ScopeMigrator(conn)
+        breakdown = await migrator.survey()
+        assert breakdown.graph_entries == {OLD_PRIVATE: 1, TARGET: 1}
+        assert breakdown.total == 4  # 1 文档 + 1 原子 + 2 图记忆
+
+        plan = await migrator.plan(TARGET)
+        assert plan.documents == 1
+        assert plan.atoms == 1
+        assert plan.graph_entries == 1
+        assert plan.total == 3
+
+        result = await migrator.execute(plan)
+        assert result.documents == 1
+        assert result.atoms == 1
+        assert result.graph_entries == 1
+        assert result.remaining == 0
+
+        breakdown = await migrator.survey()
+        assert breakdown.documents == {TARGET: 1}
+        assert breakdown.atoms == {TARGET: 1}
+        assert breakdown.graph_entries == {TARGET: 2}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_rolls_back_all_tables_when_a_later_update_fails(tmp_path):
+    """第三条 UPDATE 失败时，前两条也不能残留（M2）。"""
+    conn = await _make_db_with_graph(
+        tmp_path, [OLD_PRIVATE], [OLD_PRIVATE], [OLD_PRIVATE]
+    )
+    await conn.execute(
+        "CREATE TRIGGER block_graph_update BEFORE UPDATE ON graph_entries "
+        "BEGIN SELECT RAISE(ABORT, 'boom'); END;"
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        plan = await migrator.plan(TARGET)
+        with pytest.raises(sqlite3.IntegrityError):
+            await migrator.execute(plan)
+
+        breakdown = await migrator.survey()
+        assert breakdown.documents == {OLD_PRIVATE: 1}
+        assert breakdown.atoms == {OLD_PRIVATE: 1}
+        assert breakdown.graph_entries == {OLD_PRIVATE: 1}
+        assert not conn.in_transaction
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_backup_runs_outside_pending_transaction(tmp_path):
+    """共享连接残留未提交写入时，VACUUM INTO 备份也不能失败（M2）。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    # 模拟其他协程留在共享连接上的未提交写入：VACUUM INTO 在事务中会直接报错
+    await conn.execute(
+        "INSERT INTO documents (id, metadata) VALUES (2, ?)",
+        (json.dumps({"session_id": TARGET}),),
+    )
+    backup = tmp_path / "backups" / "snapshot.db"
+    try:
+        migrator = ScopeMigrator(conn)
+        plan = await migrator.plan(TARGET)
+        result = await migrator.execute(plan, backup_path=backup)
+
+        assert backup.exists()
+        assert result.documents == 1
+        assert result.remaining == 0
+
+        snapshot = await aiosqlite.connect(backup)
+        try:
+            cursor = await snapshot.execute("SELECT COUNT(*) FROM documents")
+            assert (await cursor.fetchone())[0] == 2
+        finally:
+            await snapshot.close()
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_and_non_object_metadata_are_normalized_and_migrated(tmp_path):
+    """坏 JSON / 非对象根之前会被计数但静默不改，现在应归一化后真正迁移（m1/m2）。"""
+    conn = await aiosqlite.connect(tmp_path / "lm.db")
+    await conn.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
+    )
+    rows = ["{bad json", "[]", "5", "null", '"text"']
+    for idx, metadata in enumerate(rows, start=1):
+        await conn.execute(
+            "INSERT INTO documents (id, metadata) VALUES (?, ?)", (idx, metadata)
+        )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        breakdown = await migrator.survey()  # 不应因坏 metadata 抛错
+        assert breakdown.documents == {"": 5}
+
+        plan = await migrator.plan(TARGET)
+        assert plan.documents == 5
+        result = await migrator.execute(plan)
+        assert result.documents == 5
+        assert result.remaining == 0
+
+        cursor = await conn.execute("SELECT id, metadata FROM documents ORDER BY id")
+        for _, metadata_str in await cursor.fetchall():
+            metadata = json.loads(metadata_str)
+            assert isinstance(metadata, dict)
+            assert metadata["session_id"] == TARGET
+
+        assert (await migrator.survey()).documents == {TARGET: 5}
     finally:
         await conn.close()

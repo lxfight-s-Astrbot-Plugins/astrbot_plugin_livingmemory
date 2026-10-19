@@ -311,13 +311,15 @@ class CommandHandler:
                 )
             )
 
-    @staticmethod
-    def _resolve_target_scope(event: AstrMessageEvent, raw: str) -> str:
-        """把用户输入解析为目标作用域。
+    def _resolve_target_scope(self, event: AstrMessageEvent, raw: str) -> str:
+        """把用户输入解析为目标/来源作用域。
 
         ``global`` / ``session`` / ``user`` 为关键字，分别解析为全局作用域、
         当前会话的 unified_msg_origin、以及基于当前事件身份构造的用户作用域；
         其余输入按字面作用域原样使用（便于迁移到自定义作用域）。
+
+        ``user`` 需要传入 ``config_manager`` 才能应用 ``access_control.identity_aliases``，
+        否则算出的作用域与运行时实际读写的作用域不一致，迁移后的数据仍然失联。
         """
         value = (raw or "").strip()
         if not value:
@@ -330,30 +332,37 @@ class CommandHandler:
             return str(getattr(event, "unified_msg_origin", "") or "")
         if key == "user":
             platform = str(event.get_platform_name() or "").casefold()
-            identity = resolve_event_identity(None, event).casefold()
+            identity = resolve_event_identity(self.config_manager, event).casefold()
             return f"livingmemory:user:{platform or 'unknown'}:{identity}"
         return value
 
     def _scope_migration_backup_path(self) -> Path:
-        """迁移备份路径：数据库同级 backups 目录，带时间戳。"""
+        """迁移备份路径：数据库同级 backups 目录，带微秒时间戳避免同秒冲突。"""
         db_path = Path(getattr(self.memory_engine, "db_path", "livingmemory.db"))
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         return db_path.parent / "backups" / f"scope_migration_{stamp}.db"
 
     async def handle_migrate_scope(
         self,
         event: AstrMessageEvent,
         target: str = "",
-        source: str = "",
         action: str = "",
+        source: str = "",
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem migrate-scope 命令。
 
         用法::
 
-            /lmem migrate-scope <target> [source] [apply]
+            /lmem migrate-scope <target> [apply] [source]
 
-        默认仅预览（dry-run），追加 ``apply`` 才真正写库（写库前自动备份）。
+        AstrBot 的命令过滤器按位置解析参数并丢弃空 token
+        （``astrbot/core/star/filter/command.py``），因此 ``apply`` 必须排在可选
+        ``source`` 之前：``/lmem migrate-scope global apply`` 才是批量执行，
+        ``/lmem migrate-scope global apply <source>`` 仅迁移指定来源。
+
+        默认仅预览（dry-run），传 ``apply`` 才真正写库（写库前自动备份）；第二步
+        也接受 ``dry-run`` 以显式预览。``source`` 传 ``all`` / ``*`` / ``-`` 表示
+        全部来源，其余按 ``global`` / ``session`` / ``user`` 关键字或字面作用域解析。
         """
         if not self.memory_engine:
             yield event.plain_result(
@@ -367,6 +376,22 @@ class CommandHandler:
                 yield event.plain_result(t("migrate_scope.usage"))
                 return
 
+            mode = (action or "").strip().casefold()
+            if mode in {"apply", "yes", "confirm"}:
+                apply_changes = True
+            elif mode in {"", "dry-run", "dry_run", "preview"}:
+                apply_changes = False
+            else:
+                # 旧参数顺序或拼写错误：给出正确用法，避免被误当成 source 过滤
+                yield event.plain_result(t("migrate_scope.usage"))
+                return
+
+            raw_source = (source or "").strip()
+            if raw_source.casefold() in {"", "all", "*", "-"}:
+                source_scope = None
+            else:
+                source_scope = self._resolve_target_scope(event, raw_source)
+
             db_connection = getattr(self.memory_engine, "db_connection", None)
             if db_connection is None:
                 yield event.plain_result(
@@ -375,9 +400,6 @@ class CommandHandler:
                     )
                 )
                 return
-
-            source_scope = source.strip() or None
-            apply_changes = action.strip().casefold() in {"apply", "yes", "confirm"}
 
             migrator = ScopeMigrator(db_connection)
             breakdown = await migrator.survey()
@@ -389,6 +411,7 @@ class CommandHandler:
                     scope=scope or t("migrate_scope.empty_scope"),
                     documents=breakdown.documents.get(scope, 0),
                     atoms=breakdown.atoms.get(scope, 0),
+                    graph_entries=breakdown.graph_entries.get(scope, 0),
                 )
                 for scope in breakdown.scopes
             )
@@ -399,11 +422,28 @@ class CommandHandler:
                     total=breakdown.total,
                 )
             )
+            if breakdown.missing_tables:
+                yield event.plain_result(
+                    t(
+                        "migrate_scope.missing_tables",
+                        tables=", ".join(breakdown.missing_tables),
+                    )
+                )
 
             if plan.is_noop:
-                yield event.plain_result(
-                    t("migrate_scope.nothing_to_do", target=resolved)
-                )
+                if source_scope is not None:
+                    # 来源过滤没命中，与"全部记录已在目标作用域"是两回事，不能混报
+                    yield event.plain_result(
+                        t(
+                            "migrate_scope.source_matched_nothing",
+                            target=resolved,
+                            source=source_scope,
+                        )
+                    )
+                else:
+                    yield event.plain_result(
+                        t("migrate_scope.nothing_to_do", target=resolved)
+                    )
                 return
 
             impact_detail = "\n".join(
@@ -420,6 +460,7 @@ class CommandHandler:
                     target=resolved,
                     documents=plan.documents,
                     atoms=plan.atoms,
+                    graph_entries=plan.graph_entries,
                     total=plan.total,
                     source=source_scope or t("migrate_scope.any_source"),
                     impact=impact_detail,
@@ -439,10 +480,19 @@ class CommandHandler:
                     target=result.target,
                     documents=result.documents,
                     atoms=result.atoms,
+                    graph_entries=result.graph_entries,
                     total=result.total,
                     backup=result.backup_path or t("common.never"),
                 )
             )
+            if result.remaining:
+                yield event.plain_result(
+                    t(
+                        "migrate_scope.remaining_notice",
+                        target=result.target,
+                        remaining=result.remaining,
+                    )
+                )
             yield event.plain_result(t("migrate_scope.rebuild_hint"))
 
         except Exception as e:

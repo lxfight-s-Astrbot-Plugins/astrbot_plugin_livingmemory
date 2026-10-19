@@ -23,7 +23,7 @@
       "summarize": ["Confirm current session has at least 2 unsummarized messages", "Confirm LLM Provider responds normally", "Check logs for summary processing stack trace"],
       "reset": ["Confirm session ID is valid and session storage is accessible", "Confirm database is not occupied", "Check logs for clear_session call stack"],
       "cleanup": ["Confirm current session has readable historical records", "Confirm conversation storage is readable/writable", "Check logs for cleanup call stack"],
-      "migrate_scope": ["Confirm the target scope is written correctly (global/session/user or a literal value)", "A database backup is created automatically before migrating", "Run /lmem rebuild-index afterwards to rebuild the index"]
+      "migrate_scope": ["Confirm the target scope is written correctly (global/session/user or a literal value)", "A database backup is created automatically before migrating", "Graph entries are migrated together with the memories; run /lmem rebuild-graph only if graph recall still looks stale"]
     }
   },
   "status": {
@@ -59,17 +59,20 @@
   },
   "migrate_scope": {
     "action_name": "Scope migration",
-    "usage": "Usage: /lmem migrate-scope <target> [source] [apply]\n\ntarget options:\n• global — migrate to the global scope livingmemory:global\n• session — migrate to the current session\n• user — migrate to the current user (shared across DMs/groups)\n• any other string — used literally as the scope\n\nsource is optional and limits migration to that origin scope.\nDefault is dry-run; append apply to actually write.",
+    "usage": "Usage: /lmem migrate-scope <target> [apply] [source]\n\ntarget options:\n• global — migrate to the global scope livingmemory:global\n• session — migrate to the current session\n• user — migrate to the current user (shared across DMs/groups)\n• any other string — used literally as the scope\n\napply is optional (dry-run is also accepted) and defaults to a preview; pass apply to actually write.\nsource is optional (must come after apply) and limits migration to that origin scope; all / * / - mean every source.\n\nExamples:\n  /lmem migrate-scope global                # preview a bulk migration\n  /lmem migrate-scope global apply          # run the bulk migration\n  /lmem migrate-scope global apply <scope>  # migrate one source scope",
     "empty_scope": "(empty scope)",
-    "scope_line": "• {scope}: memories {documents} / atoms {atoms}",
-    "survey": "Current scope distribution (memories / atoms):\n{scopes}\n\nTotal: {total}",
+    "scope_line": "• {scope}: memories {documents} / atoms {atoms} / graph entries {graph_entries}",
+    "survey": "Current scope distribution (memories / atoms / graph entries):\n{scopes}\n\nTotal: {total}",
     "nothing_to_do": "Nothing to migrate: all records are already in the target scope {target}.",
+    "source_matched_nothing": "No records match the source scope {source} (target scope {target}).",
+    "missing_tables": "Note: optional tables missing from this database were skipped: {tables}",
     "any_source": "all sources",
     "impact_line": "• {scope}: {count}",
-    "plan": "Migration preview (dry-run)\n\nTarget scope: {target}\nSource filter: {source}\n\nAffected:\n{impact}\n\nTotal {total} (memories {documents} / atoms {atoms})",
-    "dry_run_hint": "This is a preview only; no data was written.\nTo apply: /lmem migrate-scope <target> [source] apply",
-    "done": "Scope migration finished.\n\nTarget scope: {target}\nUpdated: memories {documents} / atoms {atoms} (total {total})\nDatabase backup: {backup}",
-    "rebuild_hint": "Consider running /lmem rebuild-index so the vector index matches the new scope."
+    "plan": "Migration preview (dry-run)\n\nTarget scope: {target}\nSource filter: {source}\n\nAffected:\n{impact}\n\nTotal {total} (memories {documents} / atoms {atoms} / graph entries {graph_entries})",
+    "dry_run_hint": "This is a preview only; no data was written.\nTo apply: /lmem migrate-scope <target> apply [source]",
+    "done": "Scope migration finished.\n\nTarget scope: {target}\nUpdated: memories {documents} / atoms {atoms} / graph entries {graph_entries} (total {total})\nDatabase backup: {backup}",
+    "remaining_notice": "Note: {remaining} records are still not in the target scope {target} (possibly written concurrently); run the migration again.",
+    "rebuild_hint": "Graph entries were migrated in the same transaction; run /lmem rebuild-graph only if graph recall still looks stale."
   },
   "rebuild_graph": {
     "action_name": "Rebuild graph memory",
@@ -106,7 +109,7 @@
     "notice_exec": "AstrBot conversation history has been updated, memory injection fragments have been cleaned."
   },
   "help": {
-    "text": "LivingMemory User Guide\n\nCore commands:\n/lmem status              View system status\n/lmem search <keyword> [count]  Search memories (default 5)\n/lmem forget <ID>          Delete specified memory\n/lmem rebuild-index       Rebuild index (fix inconsistency)\n/lmem rebuild-graph       Rebuild graph memory index (backfill old data)\n/lmem webui               Show WebUI management interface entry\n/lmem summarize [message_count]  Summarize now or re-summarize the latest messages\n/lmem reset               Reset current session memory context\n/lmem cleanup [preview|exec] Clean up memory injection fragments in historical messages (default preview)\n/lmem help                Show this help\n\nUsage tips:\n• Use search command for daily queries\n• For complex management, go to Plugins -> LivingMemory -> Pages -> dashboard in AstrBot Dashboard\n• Memories are automatically saved from conversations\n• Use forget to delete sensitive information\n• Execute rebuild-index when index is inconsistent\n• After enabling graph memory, execute rebuild-graph to backfill old data\n• After plugin update, execute cleanup to clean old data\n\ncleanup command examples:\n  /lmem cleanup          # Preview mode, shows statistics only\n  /lmem cleanup preview  # Same as above\n  /lmem cleanup exec     # Perform actual cleanup\n\nMore info: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory User Guide\n\nCore commands:\n/lmem status              View system status\n/lmem search <keyword> [count]  Search memories (default 5)\n/lmem forget <ID>          Delete specified memory\n/lmem rebuild-index       Rebuild index (fix inconsistency)\n/lmem rebuild-graph       Rebuild graph memory index (backfill old data)\n/lmem migrate-scope <target> [apply] [source]  Migrate existing memories to a scope (dry-run by default)\n/lmem webui               Show WebUI management interface entry\n/lmem summarize [message_count]  Summarize now or re-summarize the latest messages\n/lmem reset               Reset current session memory context\n/lmem cleanup [preview|exec] Clean up memory injection fragments in historical messages (default preview)\n/lmem help                Show this help\n\nUsage tips:\n• Use search command for daily queries\n• For complex management, go to Plugins -> LivingMemory -> Pages -> dashboard in AstrBot Dashboard\n• Memories are automatically saved from conversations\n• Use forget to delete sensitive information\n• Execute rebuild-index when index is inconsistent\n• After enabling graph memory, execute rebuild-graph to backfill old data\n• After plugin update, execute cleanup to clean old data\n\ncleanup command examples:\n  /lmem cleanup          # Preview mode, shows statistics only\n  /lmem cleanup preview  # Same as above\n  /lmem cleanup exec     # Perform actual cleanup\n\nMore info: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "Plugin is ready. Use /lmem help to view available commands.",

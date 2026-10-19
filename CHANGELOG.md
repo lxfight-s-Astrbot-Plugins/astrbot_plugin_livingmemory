@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **记忆作用域迁移命令 (#285/#287)**：新增 `/lmem migrate-scope <target> [apply] [source]`，把既有记忆（`documents`、`memory_atoms`、`graph_entries`）显式改写到指定作用域，解决切换 `filtering_settings.memory_scope_mode` 后旧记忆失联的问题。默认 dry-run 预览，`apply` 前自动生成数据库备份；`source` 支持 `all`/`*`/`-` 表示全部来源，也支持 `global`/`session`/`user` 关键字与字面作用域。
+
 ### 修复
 
 - **记忆整合 JSON 解析 (#278)**：先解析原始响应；JSON 修复保留结构空白，只在字符串内转义裸控制字符，避免合法多行 JSON、字符串内括号与逗号被破坏。
