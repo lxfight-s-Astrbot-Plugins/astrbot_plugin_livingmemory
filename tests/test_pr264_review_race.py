@@ -83,7 +83,8 @@ async def test_rollback_atomic_with_cursor_commit(tmp_path):
     started = asyncio.Event()
     release = asyncio.Event()
     deleted = asyncio.Event()
-    original_update = manager.update_session_metadata
+    # #289 起条件写入在锁内调用无锁变体，拦截点随之下移到该私有方法
+    original_update = manager._update_session_metadata_locked
     original_delete = store.delete_messages_from_position
 
     async def delayed_update(session_id, key, value):
@@ -99,7 +100,7 @@ async def test_rollback_atomic_with_cursor_commit(tmp_path):
         deleted.set()
         return result
 
-    manager.update_session_metadata = delayed_update
+    manager._update_session_metadata_locked = delayed_update
     store.delete_messages_from_position = notify_delete
     tasks = []
     try:
@@ -181,7 +182,8 @@ async def test_clear_session_atomic_against_late_cursor_write(tmp_path):
     await _seed_turns(manager, sid, ("C1", "C2"))
     started = asyncio.Event()
     release = asyncio.Event()
-    original_update = manager.update_session_metadata
+    # #289 起条件写入在锁内调用无锁变体，拦截点随之下移到该私有方法
+    original_update = manager._update_session_metadata_locked
 
     async def delayed_update(session_id, key, value):
         if key == "last_summarized_index":
@@ -196,7 +198,7 @@ async def test_clear_session_atomic_against_late_cursor_write(tmp_path):
         delete_started.set()
         return await original_delete_all(session_id)
 
-    manager.update_session_metadata = delayed_update
+    manager._update_session_metadata_locked = delayed_update
     store.delete_session_messages = notify_delete_all
     tasks = []
     try:
@@ -672,7 +674,8 @@ async def test_interleavings_keep_invariant(tmp_path):
     - 奇数轮：回滚先完成 -> 携带旧修订号的写入必须被拒绝，且不留游标。
     """
     handler, manager, store = await _make_real_handler(tmp_path)
-    original_update = manager.update_session_metadata
+    # #289 起条件写入在锁内调用无锁变体，拦截点随之下移到该私有方法
+    original_update = manager._update_session_metadata_locked
     original_delete = store.delete_messages_from_position
     try:
         for round_index in range(4):
@@ -697,7 +700,7 @@ async def test_interleavings_keep_invariant(tmp_path):
                     _deleted.set()
                     return result
 
-                manager.update_session_metadata = delayed_update
+                manager._update_session_metadata_locked = delayed_update
                 store.delete_messages_from_position = notify_delete
                 writer = asyncio.create_task(
                     manager.update_session_metadata_if_revision(
@@ -732,9 +735,9 @@ async def test_interleavings_keep_invariant(tmp_path):
             )
             assert count == 2
             assert cursor <= count, (round_index, cursor, count)
-            manager.update_session_metadata = original_update
+            manager._update_session_metadata_locked = original_update
             store.delete_messages_from_position = original_delete
     finally:
-        manager.update_session_metadata = original_update
+        manager._update_session_metadata_locked = original_update
         store.delete_messages_from_position = original_delete
         await _cleanup(handler, store)

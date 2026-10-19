@@ -731,6 +731,23 @@ class ConversationManager:
             self._session_locks[session_id] = lock
         return lock
 
+    def _prune_session_state(self, session_ids: list[str]) -> None:
+        """回收已删除会话的锁与修订号条目（#289）。
+
+        只回收当前未上锁且无等待者的锁：若仍有在途操作持有或等待该会话锁，
+        直接删除会让后续 ``_session_lock()`` 创建出第二把锁，同一会话出现两个
+        临界区；这类残留留到下次清理再回收（修订号随锁一并保留，避免旧修订号
+        校验意外通过）。
+        """
+        for session_id in session_ids:
+            lock = self._session_locks.get(session_id)
+            if lock is not None:
+                # asyncio.Lock 的 _waiters 是等待队列，空队列为 None/空
+                if lock.locked() or getattr(lock, "_waiters", None):
+                    continue
+                self._session_locks.pop(session_id, None)
+            self._session_revisions.pop(session_id, None)
+
     async def trim_session_messages(self, session_id: str, delete_count: int) -> int:
         """清理已总结的旧消息（滑动窗口），并在锁内钳制总结游标。
 
@@ -872,9 +889,9 @@ class ConversationManager:
         async with self._session_lock(session_id):
             if self._session_revisions.get(session_id, 0) != expected_revision:
                 return False
-            # 钳制在 update_session_metadata 内完成；此处已持锁，因此等价于
-            # "锁内按当前消息数钳制"，保证任意交错顺序都不会留下倒挂。
-            await self.update_session_metadata(session_id, key, value)
+            # 已持会话锁：调用无锁变体，避免 asyncio.Lock 不可重入导致死锁（#289）；
+            # 钳制仍在 store 的写锁内完成，语义与公共写入一致。
+            await self._update_session_metadata_locked(session_id, key, value)
             return True
 
     async def get_last_message(self, session_id: str) -> Message | None:
@@ -890,13 +907,19 @@ class ConversationManager:
 
     async def cleanup_expired_sessions(self) -> int:
         """
-        清理过期会话
+        清理过期会话，并回收对应的会话锁与修订号条目。
 
         Returns:
             清理的会话数量
         """
         ttl_seconds = max(60, int(self.session_ttl))
-        deleted_count = await self.store.delete_old_sessions(ttl_seconds=ttl_seconds)
+        deleted_sessions = await self.store.delete_old_sessions(
+            ttl_seconds=ttl_seconds
+        )
+        deleted_count = len(deleted_sessions)
+
+        # 会话已从库中删除，回收其内存状态，避免长期运行后字典无限增长（#289）
+        self._prune_session_state(deleted_sessions)
 
         # 清空缓存(可能包含已删除的会话)
         async with self._cache_lock:
@@ -1059,17 +1082,31 @@ class ConversationManager:
     async def update_session_metadata(
         self, session_id: str, key: str, value: Any
     ) -> None:
-        """更新会话元数据。
+        """更新会话元数据（整字典读-改-写在会话锁内完成）。
 
         ``last_summarized_index`` 与 ``pending_summary`` 会在 store 的写锁内按当前
         消息数原子钳制：无条件写入（手动总结、反思自愈等）也必须满足
         ``cursor <= message_count``，否则旧游标会被写回，反思自愈再把它钳到消息数，
         导致重发的那一轮被静默吞掉（不触发总结）。
 
+        整个"读会话 → 改键 → 写回"持会话锁，与 :meth:`bump_session_revision`、
+        对账回滚等临界区互斥，避免并发写入基于同一旧快照互相覆盖无关键（#289）。
+
         Args:
             session_id: 会话ID
             key: 元数据键
             value: 元数据值
+        """
+        async with self._session_lock(session_id):
+            await self._update_session_metadata_locked(session_id, key, value)
+
+    async def _update_session_metadata_locked(
+        self, session_id: str, key: str, value: Any
+    ) -> None:
+        """更新会话元数据（调用方必须已持有该会话的 ``_session_lock``）。
+
+        ``asyncio.Lock`` 不可重入，锁内调用方（如
+        :meth:`update_session_metadata_if_revision`）必须使用本方法，而不是公共包装。
         """
         session = await self.store.get_session(session_id)
         if not session:
