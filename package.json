@@ -12,7 +12,8 @@
   "overrides": {
     "@vitejs/plugin-vue": "^6.0.7",
     "vite": "^6.4.2",
-    "source-map-js": "^1.2.2"
+    "source-map-js": "^1.2.2",
+    "vue": "^3.5.42"
   },
   "devDependencies": {
     "vitepress": "^1.6.4"
