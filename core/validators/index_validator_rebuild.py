@@ -12,6 +12,7 @@ import os
 import time
 
 from ..faiss_async_persist import get_async_persister
+from ..utils.faiss_path_bridge import read_index_safe, write_index_safe
 
 
 class IndexValidatorRebuildMixin:
@@ -561,7 +562,7 @@ class IndexValidatorRebuildMixin:
                     == provider_fingerprint
                     and int(checkpoint_metadata.get("dimension", 0)) == dimension
                 ):
-                    candidate = await asyncio.to_thread(faiss.read_index, temp_path)
+                    candidate = await asyncio.to_thread(read_index_safe, temp_path)
                     if int(getattr(candidate, "d", 0)) == dimension:
                         temp_index = candidate
                         logger.info(f"恢复向量重建检查点: vectors={candidate.ntotal}")
@@ -590,7 +591,7 @@ class IndexValidatorRebuildMixin:
             if not temp_path or not metadata_path:
                 return
             writing_path = f"{temp_path}.writing"
-            await asyncio.to_thread(faiss.write_index, temp_index, writing_path)
+            await asyncio.to_thread(write_index_safe, temp_index, writing_path)
             os.replace(writing_path, temp_path)
             checkpoint_metadata = {
                 "provider_fingerprint": provider_fingerprint,
