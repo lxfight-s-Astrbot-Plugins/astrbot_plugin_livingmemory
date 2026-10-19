@@ -21,6 +21,24 @@ from ..utils import get_persona_id
 
 _DEFAULT_MEMORY_SCOPE = object()
 
+
+def cancel_session_storage_task(
+    session_tasks: dict[str, asyncio.Task], session_id: str
+) -> bool:
+    """取消指定会话进行中的后台记忆总结任务。
+
+    会话历史被回滚（WebUI 编辑/重试）时调用：任务持有的消息范围已失效，
+    取消可避免它继续调用 LLM 并写入过期内容。修订号校验仍是最终防线
+    （取消在 LLM 调用期间可能延迟生效）。
+    """
+    task = session_tasks.get(session_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    logger.info(f"[{session_id}] 会话历史已回滚，取消进行中的记忆总结任务")
+    return True
+
+
 if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
     from ..managers.conversation_manager import ConversationManager
@@ -44,6 +62,7 @@ class MemoryReflection:
         storage_sessions_inflight: set[str],
         storage_state_lock: asyncio.Lock,
         consolidation_manager=None,
+        storage_session_tasks: dict[str, asyncio.Task] | None = None,
     ):
         """
         初始化记忆反思模块
@@ -58,6 +77,7 @@ class MemoryReflection:
             storage_tasks: 后台存储任务集合（共享状态）
             storage_sessions_inflight: 正在处理的会话集合（共享状态）
             storage_state_lock: 存储状态锁（共享状态）
+            storage_session_tasks: 会话 -> 进行中任务映射（共享状态，用于回滚取消）
             consolidation_manager: 记忆整合管理器（用于反思触发）
         """
         self.context = context
@@ -69,6 +89,10 @@ class MemoryReflection:
         self._storage_tasks = storage_tasks
         self._storage_sessions_inflight = storage_sessions_inflight
         self._storage_state_lock = storage_state_lock
+        # 会话 -> 进行中的总结任务：会话回滚时按会话精准取消（共享状态）
+        self._storage_session_tasks: dict[str, asyncio.Task] = (
+            storage_session_tasks if storage_session_tasks is not None else {}
+        )
         self.consolidation_manager = consolidation_manager
         self._shutting_down = False
 
@@ -148,6 +172,53 @@ class MemoryReflection:
                 )
                 return
 
+            # WebUI 编辑/重试防护：若本回复属于已被取代的轮次
+            # （checkpoint 与最近一条用户消息不一致，例如重试瞬间旧回复
+            # 迟到落库），跳过存储，避免脏写污染会话库。
+            # 注意：库尾为 assistant 且 checkpoint 不同的情况（如纯图片轮次
+            # 的回复紧跟在前一轮回复之后）不属于被取代轮次，仍正常入库——
+            # 真正迟到的孤立回复将由 on_llm_request 对账在下次请求时清理。
+            checkpoint_id = None
+            get_extra = getattr(event, "get_extra", None)
+            if callable(get_extra):
+                try:
+                    checkpoint_id = get_extra("llm_checkpoint_id")
+                except Exception:
+                    checkpoint_id = None
+            if isinstance(checkpoint_id, str) and checkpoint_id:
+                try:
+                    last_message = await self.conversation_manager.get_last_message(
+                        session_id
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        f"[{session_id}] 读取最后一条消息失败，跳过守卫: {exc}"
+                    )
+                    last_message = None
+                if last_message is not None:
+                    last_metadata = last_message.metadata or {}
+                    last_checkpoint = last_metadata.get("llm_checkpoint_id")
+                    if isinstance(last_checkpoint, str) and last_checkpoint:
+                        if (
+                            last_message.role == "user"
+                            and last_checkpoint != checkpoint_id
+                        ):
+                            logger.debug(
+                                f"[{session_id}] 检测到被取代的回复"
+                                f"（checkpoint {last_checkpoint} -> {checkpoint_id}），"
+                                "跳过存储"
+                            )
+                            return
+                        if (
+                            last_message.role == "assistant"
+                            and last_checkpoint == checkpoint_id
+                        ):
+                            logger.debug(
+                                f"[{session_id}] 检测到重复回复"
+                                f"（checkpoint {checkpoint_id}），跳过存储"
+                            )
+                            return
+
             # 添加助手响应
             await self.conversation_manager.add_message_from_event(
                 event=event,
@@ -173,6 +244,11 @@ class MemoryReflection:
             actual_message_count = (
                 await self.conversation_manager.store.get_message_count(session_id)
             )
+
+            # 在读取总结范围之前捕获会话修订号：范围计算与后台任务启动之间
+            # 若发生 WebUI 编辑/重试回滚，任务必须整体失效（否则会用回滚前的
+            # 消息范围写入已撤销内容）
+            expected_revision = await self._read_session_revision(session_id)
 
             # 数据一致性检查
             if session_info.message_count != actual_message_count:
@@ -314,6 +390,7 @@ class MemoryReflection:
                                     resolve_memory_scope(self.config_manager, event)
                                     or session_id
                                 ),
+                                expected_revision=expected_revision,
                             )
                         )
                     except Exception:
@@ -321,6 +398,7 @@ class MemoryReflection:
                         raise
 
                     self._storage_tasks.add(task)
+                    self._storage_session_tasks[session_id] = task
                     task.add_done_callback(
                         lambda t, sid=session_id: self._on_storage_task_done(t, sid)
                     )
@@ -329,6 +407,99 @@ class MemoryReflection:
             raise
         except Exception as e:
             logger.error(f"处理记忆反思时发生错误: {e}", exc_info=True)
+
+    async def _read_session_revision(self, session_id: str) -> int | None:
+        """读取会话修订号；不可用（老版本/Mock）时返回 None，退化为不校验。"""
+        manager = self.conversation_manager
+        reader = getattr(manager, "get_session_revision", None) if manager else None
+        if not callable(reader):
+            return None
+        try:
+            value = await reader(session_id)
+        except Exception:
+            return None
+        return value if isinstance(value, int) else None
+
+    async def _revision_still_valid(
+        self, session_id: str, expected_revision: int | None
+    ) -> bool:
+        """本任务是否仍然有效（会话未被回滚/清空）。"""
+        if expected_revision is None:
+            return True
+        current = await self._read_session_revision(session_id)
+        return current is not None and current == expected_revision
+
+    async def _commit_session_metadata(
+        self, session_id: str, key: str, value, expected_revision: int | None
+    ) -> bool:
+        """写入会话元数据；修订号可用时做原子校验（校验与写入不可分割）。
+
+        Returns:
+            bool: False 表示会话已被回滚/清空，写入被拒绝（调用方必须放弃）。
+        """
+        manager = self.conversation_manager
+        if manager is None:
+            return False
+        conditional = getattr(manager, "update_session_metadata_if_revision", None)
+        if expected_revision is not None and callable(conditional):
+            return bool(await conditional(session_id, key, value, expected_revision))
+        await manager.update_session_metadata(session_id, key, value)
+        return True
+
+    async def _commit_summary_cursor(
+        self, session_id: str, end_index: int, expected_revision: int | None
+    ) -> bool:
+        """原子推进 ``last_summarized_index`` 并清除 ``pending_summary``。
+
+        回滚会同时钳制这两个游标，因此这里必须与回滚互斥：修订号已变化时
+        不得把游标写回旧位置（否则新消息会被跳过总结）。
+        """
+        committed = await self._commit_session_metadata(
+            session_id, "last_summarized_index", end_index, expected_revision
+        )
+        if not committed:
+            logger.warning(
+                f"[{session_id}] 会话已回滚（修订号变化），"
+                f"放弃把总结游标推进到 {end_index}"
+            )
+            return False
+        await self._commit_session_metadata(
+            session_id, "pending_summary", None, expected_revision
+        )
+        return True
+
+    async def _compensate_rolled_back_memory(
+        self, session_id: str, memory_id: int
+    ) -> None:
+        """回滚后补偿删除刚落库的记忆（关闭"校验通过 -> 写入完成"之间的窗口）。
+
+        游标更新会被修订号校验正确拒绝，但内容此时已经 durable；仅靠"写入前校验"
+        无法撤回，因此这里做补偿删除，避免已撤销内容留在长期记忆里。
+        """
+        if not self.memory_engine:
+            return
+        try:
+            removed = await self.memory_engine.delete_memory(memory_id)
+        except Exception as exc:
+            logger.error(
+                f"[{session_id}] 回滚补偿删除记忆 {memory_id} 失败: {exc}",
+                exc_info=True,
+            )
+            return
+        if not removed:
+            logger.error(
+                f"[{session_id}] 回滚补偿删除记忆 {memory_id} 未生效"
+                f"（removed={removed}），已撤销内容可能仍可被检索"
+            )
+            return
+        logger.warning(
+            f"[{session_id}] 会话已回滚，已补偿删除刚落库的记忆 {memory_id}"
+            f"，避免已撤销内容污染长期记忆"
+        )
+
+    def cancel_storage_task(self, session_id: str) -> bool:
+        """取消指定会话进行中的后台总结任务（会话回滚时调用）。"""
+        return cancel_session_storage_task(self._storage_session_tasks, session_id)
 
     async def _storage_task(
         self,
@@ -339,6 +510,7 @@ class MemoryReflection:
         end_index: int,
         retry_count: int,
         memory_scope: str | None | object = _DEFAULT_MEMORY_SCOPE,
+        expected_revision: int | None = None,
     ):
         """后台存储任务"""
         from ..utils import OperationContext
@@ -346,6 +518,15 @@ class MemoryReflection:
         if memory_scope is _DEFAULT_MEMORY_SCOPE:
             memory_scope = session_id
 
+        # 会话修订号：WebUI 编辑/重试回滚或清空会话会推进修订号，使本任务
+        # （持有回滚前的 history_messages 与总结范围）失效。
+        # 调用方应在读取总结范围前捕获并传入；未传入时在此处补读。
+        # 修订号不可用时（老版本会话管理器/测试替身）退化为不校验。
+        if expected_revision is None:
+            expected_revision = await self._read_session_revision(session_id)
+
+        # 记忆 id 在 try 外初始化：取消可能发生在赋值之前，异常分支需要它
+        memory_id: int | None = None
         async with OperationContext("记忆存储", session_id):
             try:
                 # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
@@ -363,6 +544,13 @@ class MemoryReflection:
                     logger.info(
                         f"[{session_id}] 检测到过期总结任务，跳过: "
                         f"current={summarized_index}, target_end={end_index}"
+                    )
+                    return
+
+                if not await self._revision_still_valid(session_id, expected_revision):
+                    logger.info(
+                        f"[{session_id}] 会话已回滚（修订号变化），跳过过期总结 "
+                        f"范围=[{start_index}:{end_index}]"
                     )
                     return
 
@@ -384,7 +572,11 @@ class MemoryReflection:
                 if not self.memory_processor:
                     logger.error(f"[{session_id}] MemoryProcessor 未初始化，记录待重试")
                     await self._record_pending_summary(
-                        session_id, start_index, end_index, retry_count
+                        session_id,
+                        start_index,
+                        end_index,
+                        retry_count,
+                        expected_revision,
                     )
                     return
 
@@ -431,11 +623,25 @@ class MemoryReflection:
                         exc_info=True,
                     )
                     await self._record_pending_summary(
-                        session_id, start_index, end_index, retry_count
+                        session_id,
+                        start_index,
+                        end_index,
+                        retry_count,
+                        expected_revision,
+                    )
+                    return
+
+                # 回滚会推进会话修订号：等待 LLM 期间若发生编辑/重试回滚，
+                # 本任务的消息范围已失效，不得把被撤销内容写入长期记忆
+                if not await self._revision_still_valid(session_id, expected_revision):
+                    logger.info(
+                        f"[{session_id}] 会话已回滚（修订号变化），放弃写入过期总结 "
+                        f"范围=[{start_index}:{end_index}]"
                     )
                     return
 
                 # 正常流程：添加到记忆引擎
+                memory_id: int | None = None
                 if self.memory_engine:
                     source_threshold = float(
                         self.config_manager.get(
@@ -448,7 +654,7 @@ class MemoryReflection:
                         if importance >= source_threshold
                         else None
                     )
-                    await self.memory_engine.add_memory(
+                    memory_id = await self.memory_engine.add_memory(
                         content=content,
                         session_id=memory_scope,
                         persona_id=persona_id,
@@ -462,18 +668,23 @@ class MemoryReflection:
                         f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
                     )
 
-                # 成功：更新已总结的位置，清除待处理记录
+                # 成功：更新已总结的位置，清除待处理记录（原子校验修订号，
+                # 避免把游标写回回滚前的旧位置）
                 if self.conversation_manager:
                     try:
-                        await self.conversation_manager.update_session_metadata(
-                            session_id, "last_summarized_index", end_index
+                        committed = await self._commit_summary_cursor(
+                            session_id, end_index, expected_revision
                         )
-                        await self.conversation_manager.update_session_metadata(
-                            session_id, "pending_summary", None
-                        )
-                        logger.info(
-                            f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
-                        )
+                        if committed:
+                            logger.info(
+                                f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
+                            )
+                        elif memory_id is not None:
+                            # 修订号校验发生在写入之前：等待期间若发生回滚，
+                            # 刚落库的记忆属于已撤销内容，必须补偿删除
+                            await self._compensate_rolled_back_memory(
+                                session_id, memory_id
+                            )
                     except Exception as meta_err:
                         logger.error(
                             f"[{session_id}] 记忆已存储但元数据更新失败: {meta_err}。"
@@ -483,11 +694,8 @@ class MemoryReflection:
                         # Advance the index anyway to prevent re-processing the
                         # same message range (memory is already stored durably).
                         try:
-                            await self.conversation_manager.update_session_metadata(
-                                session_id, "last_summarized_index", end_index
-                            )
-                            await self.conversation_manager.update_session_metadata(
-                                session_id, "pending_summary", None
+                            await self._commit_summary_cursor(
+                                session_id, end_index, expected_revision
                             )
                         except Exception:
                             logger.error(
@@ -496,10 +704,23 @@ class MemoryReflection:
                                 exc_info=True,
                             )
 
+            except asyncio.CancelledError:
+                # 回滚会 cancel 本任务；取消在 await 点生效并穿透 except Exception。
+                # 若取消发生在 add_memory 之后，内容已 durable，必须补偿删除
+                # （shield：保证补偿不被这次取消再次打断）
+                if memory_id is not None:
+                    await asyncio.shield(
+                        self._compensate_rolled_back_memory(session_id, memory_id)
+                    )
+                raise
             except Exception as e:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
                 await self._record_pending_summary(
-                    session_id, start_index, end_index, retry_count
+                    session_id,
+                    start_index,
+                    end_index,
+                    retry_count,
+                    expected_revision,
                 )
 
     async def _record_pending_summary(
@@ -508,8 +729,9 @@ class MemoryReflection:
         start_index: int,
         end_index: int,
         current_retry_count: int,
+        expected_revision: int | None = None,
     ):
-        """记录待处理的失败总结信息"""
+        """记录待处理的失败总结信息（回滚后不得复活旧范围）。"""
         if not self.conversation_manager:
             return
 
@@ -520,9 +742,17 @@ class MemoryReflection:
             "retry_count": new_retry_count,
         }
 
-        await self.conversation_manager.update_session_metadata(
-            session_id, "pending_summary", pending_summary
+        committed = await self._commit_session_metadata(
+            session_id, "pending_summary", pending_summary, expected_revision
         )
+        if not committed:
+            # 会话已被回滚/清空：该范围的消息已不存在，记录待重试会造成
+            # 下一次触发按旧范围总结已撤销内容
+            logger.info(
+                f"[{session_id}] 会话已回滚（修订号变化），跳过记录待重试总结 "
+                f"范围=[{start_index}:{end_index}]"
+            )
+            return
 
         logger.warning(
             f"[{session_id}] 记录待重试总结: 范围=[{start_index}:{end_index}], "
@@ -533,6 +763,8 @@ class MemoryReflection:
         """存储任务完成回调"""
         self._storage_tasks.discard(task)
         self._storage_sessions_inflight.discard(session_id)
+        if self._storage_session_tasks.get(session_id) is task:
+            self._storage_session_tasks.pop(session_id, None)
 
         if task.cancelled():
             logger.info(f"[{session_id}] 存储任务已取消")

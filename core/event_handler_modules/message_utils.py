@@ -246,7 +246,7 @@ class MessageUtils:
             )
 
             actually_deleted = (
-                await self.conversation_manager.store.trim_session_messages(
+                await self.conversation_manager.trim_session_messages(
                     session_id,
                     safe_to_delete,
                 )

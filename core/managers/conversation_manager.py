@@ -11,7 +11,7 @@
 """
 
 import asyncio
-import json
+import copy
 import time
 from collections import OrderedDict
 from typing import Any
@@ -22,6 +22,7 @@ from astrbot.api.platform import MessageType
 from ...storage.conversation_store import ConversationStore
 from ..memory_scope import resolve_sender_alias
 from ..models.conversation_models import Message, Session
+from ..utils.history_alignment import compute_revert_cutoff
 
 
 class ConversationManager:
@@ -77,6 +78,15 @@ class ConversationManager:
         self._cache: OrderedDict = OrderedDict()
         # 缓存锁，保护并发访问
         self._cache_lock = asyncio.Lock()
+
+        # 会话修订号: {session_id: revision}
+        # 任何会使"基于旧消息范围"的后台记忆总结任务失效的破坏性操作
+        # （WebUI 编辑/重试回滚、清空会话/重置元数据）都会推进该编号。
+        # 后台任务在写入记忆与推进总结游标前必须校验修订号未变化，
+        # 否则回滚期间正在执行的总结会把已撤销内容写入长期记忆。
+        self._session_revisions: dict[str, int] = {}
+        # 每会话锁：使"修订号推进"与"带修订校验的游标更新"彼此原子
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
         logger.info(
             f"[ConversationManager] 初始化完成: "
@@ -161,6 +171,19 @@ class ConversationManager:
                 sender_name,
             )
 
+        # 记录 LLM 轮次标识（webchat 事件 extra 携带），用于 WebUI
+        # 编辑/重试后的对话历史对账（见 core/utils/history_alignment.py）
+        metadata: dict[str, Any] = {}
+        checkpoint_id = None
+        get_extra = getattr(event, "get_extra", None)
+        if callable(get_extra):
+            try:
+                checkpoint_id = get_extra("llm_checkpoint_id")
+            except Exception:
+                checkpoint_id = None
+        if isinstance(checkpoint_id, str) and checkpoint_id:
+            metadata["llm_checkpoint_id"] = checkpoint_id
+
         return await self.add_message(
             session_id=session_id,
             role=role,
@@ -170,6 +193,7 @@ class ConversationManager:
             group_id=group_id,
             platform=platform,
             is_bot_message=(role == "assistant"),
+            metadata=metadata,
         )
 
     async def add_message(
@@ -182,6 +206,7 @@ class ConversationManager:
         group_id: str | None = None,
         platform: str = "unknown",
         is_bot_message: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> Message:
         """
         添加消息到会话
@@ -194,6 +219,7 @@ class ConversationManager:
             sender_name: 发送者昵称
             group_id: 群组ID(群聊场景)
             platform: 平台标识
+            metadata: 额外元数据（如 llm_checkpoint_id）
 
         Returns:
             创建的Message对象
@@ -213,8 +239,10 @@ class ConversationManager:
             group_id=group_id,
             platform=platform,
             timestamp=time.time(),
-            metadata={"is_bot_message": True} if is_bot_message else {},
+            metadata=dict(metadata or {}),
         )
+        if is_bot_message:
+            message.metadata["is_bot_message"] = True
 
         # 存储到数据库
         message_id = await self.store.add_message(message)
@@ -530,17 +558,299 @@ class ConversationManager:
         Args:
             session_id: 会话ID
         """
-        # 删除数据库中的消息
-        await self.store.delete_session_messages(session_id)
+        # 删除消息 + 重置元数据 + 推进修订号必须落在同一临界区：否则"已通过
+        # 修订号校验、正在写旧游标"的后台总结任务会在清空之后复活总结进度
+        # （count=0 但 cursor>0），使清空后的新消息被跳过总结。
+        async with self._session_lock(session_id):
+            await self.store.delete_session_messages(session_id)
+            await self._reset_session_metadata_locked(session_id)
+            revision = await self._bump_session_revision_locked(session_id)
 
-        # 清除缓存
+        # 清除缓存（放在锁外，尽量缩短临界区）
         async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
-        # 同步重置会话元数据，特别是记忆总结的计数器
-        await self.reset_session_metadata(session_id)
+            self._cache.pop(session_id, None)
 
-        logger.info(f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}")
+        logger.info(
+            f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}"
+            f"（会话修订号推进至 {revision}，进行中的总结任务已失效）"
+        )
+
+    async def reconcile_session_tail(
+        self,
+        session_id: str,
+        ctx_checkpoints: list[str],
+    ) -> int:
+        """与 AstrBot LLM 历史对账：清理已被 WebUI 编辑/重试撤销的尾部轮次。
+
+        WebUI 的「编辑上一条消息并重新请求」「换模型重试上一条对话」会在
+        LLM 侧截断/删除对应轮次，但对插件不可见。本方法以 req.contexts 中的
+        ``_checkpoint`` 段为锚点，删除插件会话库尾部残留的被撤销消息，并同步
+        修正 message_count 与总结游标。无法安全判定的场景（如遗留数据没有
+        checkpoint）保守跳过。
+
+        说明：
+        1. 位置排序键与滑动窗口/游标语义一致（``timestamp ASC, id ASC``）；
+        2. 与后台记忆总结任务并发时，本方法只做尾部删除；被删消息若已被总结
+           写入记忆，不会自动撤回（由 CHANGELOG 声明为已知局限），游标钳制
+           后会跳过被删范围，避免重复总结；
+        3. 删除成功后，在**同一会话锁临界区**内钳制总结游标
+           （``last_summarized_index`` 与越界的 ``pending_summary``）并推进会话
+           修订号（见 :meth:`bump_session_revision`），使删除前取好消息范围、
+           仍在等待 LLM 的总结任务失效——它不得再写入已撤销内容，也不得把游标
+           写回旧位置（条件写入侧还会按当前消息数兜底钳制，见
+           :meth:`update_session_metadata_if_revision`）；
+        4. 即使无需删除（空会话、库尾一致、无法安全判定、删除数为 0），也会做
+           一次廉价自愈，修正倒挂的游标/越界待处理范围——否则反思逻辑不会自愈，
+           新消息会被永久跳过总结。
+
+        Args:
+            session_id: 会话ID
+            ctx_checkpoints: AstrBot LLM 历史（req.contexts）中 ``_checkpoint``
+                段的 id 有序列表（不含当前请求的消息轮次）
+
+        Returns:
+            int: 删除的消息数量（0 表示无需删除或无法安全判定）
+        """
+        if not session_id:
+            return 0
+        try:
+            # 快速退出：会话为空无需对账
+            total = await self.store.get_message_count(session_id)
+            if total <= 0:
+                # 空会话同样可能残留倒挂游标（清空与旧写入交错），一并自愈
+                await self._repair_cursor_if_out_of_range(session_id, 0)
+                return 0
+
+            # 尾行短路：库尾（最后完整轮次）与 LLM 历史末位 checkpoint 一致时，
+            # 不存在被回滚的尾部（AstrBot 只允许编辑/重试最新轮），可直接返回，
+            # 避免每个请求都做全量遍历
+            ctx_checkpoints = list(ctx_checkpoints or [])
+            if ctx_checkpoints:
+                last_message = await self.store.get_last_message(session_id)
+                if last_message is not None:
+                    last_checkpoint = (last_message.metadata or {}).get(
+                        "llm_checkpoint_id"
+                    )
+                    if (
+                        isinstance(last_checkpoint, str)
+                        and last_checkpoint == ctx_checkpoints[-1]
+                    ):
+                        # 短路返回前做一次廉价自愈：游标倒挂（cursor > count，
+                        # 例如回滚后旧写入落地、或异常中断遗留）不会被反思逻辑
+                        # 自行修复，会导致新消息永远跳过总结。
+                        await self._repair_cursor_if_out_of_range(session_id, total)
+                        return 0
+
+            rows = await self.store.get_session_message_refs_asc(session_id)
+            if not rows:
+                await self._repair_cursor_if_out_of_range(session_id, total)
+                return 0
+
+            cutoff = compute_revert_cutoff(rows, ctx_checkpoints)
+            if cutoff is None:
+                # 保守放弃删除，但不放任倒挂游标
+                await self._repair_cursor_if_out_of_range(session_id, total)
+                return 0
+
+            # 只删除快照中确认失效的那些 id：按位置/时间边界删除会连带删掉
+            # 快照之后并发新增的合法消息，并在库中留下永久缺口（对账再也认不出它）
+            doomed = [
+                int(row["id"]) for row in rows[cutoff:] if row.get("id") is not None
+            ]
+            if not doomed:
+                await self._repair_cursor_if_out_of_range(session_id, total)
+                return 0
+
+            deleted = await self.store.delete_messages_from_position(
+                session_id, cutoff, message_ids=doomed
+            )
+            if deleted > 0:
+                # 删除本身在锁外完成（放进锁内会与"正在写元数据"的后台任务
+                # 互相阻塞，且回滚必须能在旧写入等待期间完成清理）；但
+                # **游标钳制与修订号推进必须在同一临界区内**，这样无论旧写入
+                # 落在删除之前还是之后，最终状态都满足 cursor <= message_count。
+                async with self._session_lock(session_id):
+                    repaired = await self._repair_summary_state_locked(session_id)
+                    await self._bump_session_revision_locked(session_id)
+                await self.invalidate_cache(session_id)
+                logger.info(
+                    f"[{session_id}] 检测到 WebUI 对话回滚（编辑/重试），"
+                    f"已清理 {deleted} 条被撤销消息"
+                    + (f"，已钳制 {repaired}" if repaired else "")
+                )
+            else:
+                await self._repair_cursor_if_out_of_range(session_id, total)
+            return deleted
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"[{session_id}] 对话历史对账失败（已跳过）: {exc}")
+            return 0
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        """获取（惰性创建）会话级锁，用于协调修订号与总结游标更新。"""
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    async def trim_session_messages(self, session_id: str, delete_count: int) -> int:
+        """清理已总结的旧消息（滑动窗口），并在锁内钳制总结游标。
+
+        **刻意不推进会话修订号**：滑动窗口只删除**已总结**的消息，被删内容不在任何
+        在途总结任务的范围内；而任务提交的 ``end_index`` 是"触发时的消息总数"，经
+        store 的原子钳制后恰好等于清理后的总数，本来就是正确游标。若在此推进修订号，
+        在途任务的合法提交会被判废并触发补偿删除，把刚写完的合法记忆删掉（记忆空洞
+        且浪费一次 LLM 总结）。
+
+        这里只做两件事：持会话锁（避免与条件写入交错产生倒挂）+ 钳制游标
+        （``pending_summary`` 的绝对下标由 store 在删除时同步前移）。
+        """
+        if delete_count <= 0:
+            return 0
+        async with self._session_lock(session_id):
+            deleted = await self.store.trim_session_messages(session_id, delete_count)
+            repaired = (
+                await self._repair_summary_state_locked(session_id)
+                if deleted > 0
+                else {}
+            )
+        if deleted > 0:
+            await self.invalidate_cache(session_id)
+            logger.info(
+                f"[ConversationManager] 滑动窗口清理 {deleted} 条已总结消息: {session_id}"
+                + (f"，已钳制 {repaired}" if repaired else "")
+            )
+        return deleted
+
+    async def get_session_revision(self, session_id: str) -> int:
+        """获取会话修订号（0 表示尚无使后台总结任务失效的变更）。"""
+        return self._session_revisions.get(session_id, 0)
+
+    async def bump_session_revision(self, session_id: str) -> int:
+        """推进会话修订号，使基于旧消息范围的后台总结任务失效。
+
+        用于 WebUI 编辑/重试回滚、清空会话等破坏性操作。后台任务必须通过
+        :meth:`update_session_metadata_if_revision` 或自行比对修订号后放弃写入。
+        """
+        async with self._session_lock(session_id):
+            revision = await self._bump_session_revision_locked(session_id)
+        logger.info(
+            f"[{session_id}] 会话修订号推进至 {revision}（进行中的总结任务已失效）"
+        )
+        return revision
+
+    async def _bump_session_revision_locked(self, session_id: str) -> int:
+        """推进修订号（调用方必须已持有该会话的 ``_session_lock``）。"""
+        revision = self._session_revisions.get(session_id, 0) + 1
+        self._session_revisions[session_id] = revision
+        return revision
+
+    async def _persist_session_metadata(
+        self, session_id: str, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
+        """整体写回会话元数据，并原子钳制总结游标（返回被修正的键）。
+
+        钳制在 store 的 ``_write_lock`` 内完成，与滑动窗口清理、对账删除互斥：
+        "读消息数 -> 钳制 -> 写入"不会被 trim/delete 穿插，因此不会把越界游标写回。
+        """
+        if self.store.connection is None:
+            return {}
+        try:
+            repaired = await self.store.update_session_metadata_atomic(
+                session_id, metadata
+            )
+        except Exception as e:
+            logger.error(f"更新会话元数据失败: {e}", exc_info=True)
+            return {}
+        if repaired:
+            logger.warning(
+                f"[{session_id}] 会话元数据写入时钳制了越界总结游标: {repaired}"
+            )
+        return repaired
+
+    def _summary_state_out_of_range(self, metadata: dict[str, Any], count: int) -> bool:
+        """游标倒挂或待处理范围越界？（判定与 store 的钳制规则严格一致）
+
+        直接在副本上跑 store 的 ``_clamp_summary_metadata`` 并看是否有改动，
+        避免"两套规则"漂移（例如不足一轮的 pending、非整数游标）。
+        """
+        return bool(self.store._clamp_summary_metadata(copy.deepcopy(metadata), count))
+
+    async def _repair_summary_state_locked(self, session_id: str) -> dict[str, Any]:
+        """把总结游标/待处理范围钳制回当前消息数量内（调用方须持会话锁）。
+
+        处理两类失效状态（都会导致"新消息被跳过总结"）：
+        - ``last_summarized_index > message_count``：回滚/清空后旧游标倒挂；
+        - ``pending_summary`` 越界：起点已越过末尾则整条清除，终点越界则收敛，
+          收敛后不足一轮（< 2 条）则清除。
+
+        钳制规则与滑动窗口、按 id 删除共用 store 的 ``_clamp_summary_metadata``。
+
+        Returns:
+            dict: 实际被修正的键（空字典表示无需修正）。
+        """
+        session = await self.store.get_session(session_id)
+        if not session:
+            return {}
+        metadata = session.metadata or {}
+        count = await self.store.get_message_count(session_id)
+        if not self._summary_state_out_of_range(metadata, count):
+            return {}
+        return await self._persist_session_metadata(session_id, metadata)
+
+    async def _repair_cursor_if_out_of_range(self, session_id: str, total: int) -> None:
+        """廉价自愈入口：仅在游标倒挂或待处理范围越界时才进入临界区修正。"""
+        session = await self.store.get_session(session_id)
+        if not session:
+            return
+        metadata = session.metadata or {}
+        if not self._summary_state_out_of_range(metadata, total):
+            return
+        cursor = metadata.get("last_summarized_index")
+        async with self._session_lock(session_id):
+            repaired = await self._repair_summary_state_locked(session_id)
+            await self._bump_session_revision_locked(session_id)
+        logger.warning(
+            f"[{session_id}] 总结游标/待处理范围越界"
+            f"（cursor={cursor}, count={total}），已钳制并推进修订号: {repaired}"
+        )
+
+    async def update_session_metadata_if_revision(
+        self,
+        session_id: str,
+        key: str,
+        value: Any,
+        expected_revision: int,
+    ) -> bool:
+        """仅在会话修订号未变化时更新元数据（校验与写入原子）。
+
+        与 :meth:`bump_session_revision` 争用同一会话锁，因此在回滚面前是原子的：
+        回滚要么发生在本方法写入之前（校验失败、返回 ``False``，调用方必须放弃
+        推进游标），要么发生在其后（回滚会重新钳制游标与待处理范围）。
+
+        Returns:
+            bool: True 表示已写入；False 表示会话已被回滚/清空，写入被拒绝。
+        """
+        async with self._session_lock(session_id):
+            if self._session_revisions.get(session_id, 0) != expected_revision:
+                return False
+            # 钳制在 update_session_metadata 内完成；此处已持锁，因此等价于
+            # "锁内按当前消息数钳制"，保证任意交错顺序都不会留下倒挂。
+            await self.update_session_metadata(session_id, key, value)
+            return True
+
+    async def get_last_message(self, session_id: str) -> Message | None:
+        """获取会话最后一条消息（按会话顺序）。
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Message 或 None
+        """
+        return await self.store.get_last_message(session_id)
 
     async def cleanup_expired_sessions(self) -> int:
         """
@@ -713,8 +1023,12 @@ class ConversationManager:
     async def update_session_metadata(
         self, session_id: str, key: str, value: Any
     ) -> None:
-        """
-        更新会话元数据
+        """更新会话元数据。
+
+        ``last_summarized_index`` 与 ``pending_summary`` 会在 store 的写锁内按当前
+        消息数原子钳制：无条件写入（手动总结、反思自愈等）也必须满足
+        ``cursor <= message_count``，否则旧游标会被写回，反思自愈再把它钳到消息数，
+        导致重发的那一轮被静默吞掉（不触发总结）。
 
         Args:
             session_id: 会话ID
@@ -732,19 +1046,7 @@ class ConversationManager:
         session.metadata[key] = value
 
         # 保存到数据库
-        if self.store.connection is not None:
-            try:
-                await self.store.connection.execute(
-                    """
-                    UPDATE sessions
-                    SET metadata = ?
-                    WHERE session_id = ?
-                """,
-                    (json.dumps(session.metadata, ensure_ascii=False), session_id),
-                )
-                await self.store.connection.commit()
-            except Exception as e:
-                logger.error(f"更新会话元数据失败: {e}", exc_info=True)
+        await self._persist_session_metadata(session_id, session.metadata)
 
         logger.debug(
             f"[ConversationManager] 更新会话元数据: {session_id}, {key}={value}"
@@ -774,7 +1076,15 @@ class ConversationManager:
         """
         重置指定会话的所有元数据，特别是 'last_summarized_index'。
         这会使下一次记忆总结从头开始，不会包含旧的上下文。
+
+        重置与修订号推进在同一临界区内完成，避免"旧游标写回"复活已清空的进度。
         """
+        async with self._session_lock(session_id):
+            await self._reset_session_metadata_locked(session_id)
+            await self._bump_session_revision_locked(session_id)
+
+    async def _reset_session_metadata_locked(self, session_id: str) -> None:
+        """清空会话元数据（调用方必须已持有该会话的 ``_session_lock``）。"""
         session = await self.store.get_session(session_id)
         if not session:
             logger.warning(
@@ -784,19 +1094,7 @@ class ConversationManager:
         # 将元数据重置为空字典
         session.metadata = {}
         # 保存回数据库
-        if self.store.connection is not None:
-            try:
-                await self.store.connection.execute(
-                    """
-                    UPDATE sessions
-                    SET metadata = ?
-                    WHERE session_id = ?
-                """,
-                    ("{}", session_id),
-                )
-                await self.store.connection.commit()
-            except Exception as e:
-                logger.error(f"重置会话元数据失败: {e}", exc_info=True)
+        await self._persist_session_metadata(session_id, {})
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )
