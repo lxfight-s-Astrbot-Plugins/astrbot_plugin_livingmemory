@@ -283,7 +283,7 @@ class ConversationStore(ConversationStoreMessagesMixin):
 
     async def delete_old_sessions(
         self, days: int = 30, ttl_seconds: int | None = None
-    ) -> int:
+    ) -> list[str]:
         """
         删除过期会话及其消息
 
@@ -292,7 +292,7 @@ class ConversationStore(ConversationStoreMessagesMixin):
             ttl_seconds: 秒级TTL阈值（优先使用）
 
         Returns:
-            int: 删除的会话数量
+            list[str]: 被删除的会话 ID 列表（调用方据此回收会话锁/修订号等内存状态）
         """
         effective_ttl_seconds = (
             int(ttl_seconds) if ttl_seconds is not None else int(days * 24 * 60 * 60)
@@ -302,7 +302,7 @@ class ConversationStore(ConversationStoreMessagesMixin):
         cutoff_time = time.time() - effective_ttl_seconds
 
         if self.connection is None:
-            return 0
+            return []
         async with self._write_lock:
             # 获取要删除的会话ID列表
             async with self.connection.execute(
@@ -316,7 +316,7 @@ class ConversationStore(ConversationStoreMessagesMixin):
                 session_ids = [row["session_id"] for row in rows]
 
             if not session_ids:
-                return 0
+                return []
 
             # 删除这些会话的所有消息
             placeholders = ",".join("?" * len(session_ids))
@@ -337,7 +337,7 @@ class ConversationStore(ConversationStoreMessagesMixin):
             f"[ConversationStore] 删除了 {len(session_ids)} 个过期会话 "
             f"(超过 {effective_ttl_seconds} 秒)"
         )
-        return len(session_ids)
+        return session_ids
 
     async def get_session_participants(self, session_id: str) -> list[str]:
         """

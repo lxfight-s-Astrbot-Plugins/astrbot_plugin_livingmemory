@@ -4,6 +4,7 @@ Tests for EventHandler core behaviors.
 
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime
 from types import SimpleNamespace
@@ -2013,6 +2014,39 @@ async def test_reflection_guard_skips_stale_assistant(tmp_path):
     await handler.handle_memory_reflection(event, resp)
 
     assert await store.get_message_count(sid) == 1
+
+    await handler.shutdown()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reflection_guard_logs_warning_for_superseded_reply(tmp_path, caplog):
+    """#289：被取代的回复被丢弃时必须告警，并带上 session 与旧->新 checkpoint。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:sid-1"
+    await manager.add_message(
+        session_id=sid,
+        role="user",
+        content="q1",
+        sender_id="u1",
+        metadata={"llm_checkpoint_id": "C1"},
+    )
+
+    event = _make_event(checkpoint="C2")
+    with caplog.at_level(logging.WARNING):
+        await handler.handle_memory_reflection(event, _make_resp("old reply"))
+
+    # 行为不变：回复仍被丢弃
+    assert await store.get_message_count(sid) == 1
+    warned = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    ]
+    assert any(
+        sid in message and "C1" in message and "C2" in message and "被取代" in message
+        for message in warned
+    ), warned
 
     await handler.shutdown()
     await store.close()

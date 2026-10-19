@@ -257,7 +257,10 @@ class MemoryReflection:
                             last_message.role == "user"
                             and last_checkpoint != checkpoint_id
                         ):
-                            logger.debug(
+                            # 被取代的回复会被丢弃而不入库：用 warning 暴露
+                            # checkpoint 漂移（旧->新），避免平台时间戳异常时
+                            # 助手消息被静默丢掉（#289）
+                            logger.warning(
                                 f"[{session_id}] 检测到被取代的回复"
                                 f"（checkpoint {last_checkpoint} -> {checkpoint_id}），"
                                 "跳过存储"
