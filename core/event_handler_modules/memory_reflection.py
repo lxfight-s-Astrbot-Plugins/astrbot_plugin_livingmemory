@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import math
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from astrbot.api import logger
@@ -20,6 +22,17 @@ from ..memory_source import serialize_source_messages
 from ..utils import get_persona_id
 
 _DEFAULT_MEMORY_SCOPE = object()
+
+
+def _message_timestamp(message: Any) -> float | None:
+    """读取已入库消息的时间戳；缺失或非法时返回 None（该相邻对不参与切分）。"""
+    value = getattr(message, "timestamp", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    timestamp = float(value)
+    if not math.isfinite(timestamp) or timestamp <= 0:
+        return None
+    return timestamp
 
 
 def cancel_session_storage_task(
@@ -103,6 +116,47 @@ class MemoryReflection:
         task = asyncio.create_task(self.consolidation_manager.maybe_run("reflection"))
         self._storage_tasks.add(task)
         task.add_done_callback(self._storage_tasks.discard)
+
+    @staticmethod
+    def _find_window_split_boundary(
+        messages: list[Any],
+        *,
+        split_by_day: bool,
+        gap_minutes: int,
+        min_segment_messages: int = 2,
+    ) -> tuple[int, str] | None:
+        """在候选消息中寻找最早的总结窗口切分边界（本地日期变化或空闲间隔）。
+
+        Args:
+            messages: ``[start_index, end_index)`` 范围内的消息，按入库顺序排列。
+            split_by_day: 相邻消息的本地日历日期不同时切分。
+            gap_minutes: 相邻消息时间差超过该分钟数时切分；``<= 0`` 表示禁用。
+            min_segment_messages: 边界前最老片段至少需要的消息数。更早的边界会被
+                跳过，否则保留的“不足一轮跳过”逻辑会让该会话永远无法推进。
+
+        Returns:
+            ``(最老片段的条数, 原因)``，原因为 ``"day"`` 或 ``"gap"``；
+            没有可用边界时返回 ``None``（保持原有整段总结行为）。
+        """
+        if len(messages) <= min_segment_messages:
+            return None
+
+        timestamps = [_message_timestamp(message) for message in messages]
+        gap_seconds = gap_minutes * 60 if gap_minutes > 0 else 0
+        for index in range(min_segment_messages, len(messages)):
+            previous = timestamps[index - 1]
+            current = timestamps[index]
+            # 时间戳缺失或乱序（后一条更早）时保守不切分
+            if previous is None or current is None or current < previous:
+                continue
+            if split_by_day and (
+                datetime.fromtimestamp(previous).date()
+                != datetime.fromtimestamp(current).date()
+            ):
+                return index, "day"
+            if gap_seconds and current - previous > gap_seconds:
+                return index, "gap"
+        return None
 
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
@@ -347,6 +401,45 @@ class MemoryReflection:
                     logger.debug(f"[{session_id}] 消息数不足一轮对话，跳过总结")
                     return
 
+                # 窗口切分配置：跨天或空闲间隔超过阈值时只总结最老片段（FIFO），
+                # 避免一整段跨天/跨长空闲的对话被合并进同一条记忆。
+                split_by_day = bool(
+                    self.config_manager.get(
+                        "reflection_engine.window_split_by_day", True
+                    )
+                )
+                try:
+                    gap_minutes = int(
+                        self.config_manager.get(
+                            "reflection_engine.window_split_gap_minutes", 180
+                        )
+                    )
+                except (TypeError, ValueError):
+                    gap_minutes = 180
+
+                # 候选范围只取一次：切分扫描与总结输入复用同一批消息
+                candidate_messages = (
+                    await self.conversation_manager.get_messages_range(
+                        session_id=session_id,
+                        start_index=start_index,
+                        end_index=end_index,
+                    )
+                )
+                split = self._find_window_split_boundary(
+                    candidate_messages,
+                    split_by_day=split_by_day,
+                    gap_minutes=gap_minutes,
+                )
+                if split is not None:
+                    split_offset, split_reason = split
+                    end_index = start_index + split_offset
+                    reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
+                    logger.info(
+                        f"[{session_id}] 总结窗口按{reason_text}在消息 {end_index} 处切分："
+                        f"仅总结最老片段 [{start_index}:{end_index}]，"
+                        f"较新片段 [{end_index}:{total_messages}] 留待后续触发"
+                    )
+
                 messages_to_summarize = end_index - start_index
                 rounds_to_summarize = messages_to_summarize // 2
 
@@ -356,10 +449,7 @@ class MemoryReflection:
                     f"本次总结 {rounds_to_summarize} 轮"
                 )
 
-                # 获取需要总结的消息
-                history_messages = await self.conversation_manager.get_messages_range(
-                    session_id=session_id, start_index=start_index, end_index=end_index
-                )
+                history_messages = candidate_messages[:messages_to_summarize]
 
                 logger.info(
                     f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结"

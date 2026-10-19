@@ -5,6 +5,8 @@ Tests for EventHandler core behaviors.
 import asyncio
 import json
 import time
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -1679,6 +1681,102 @@ async def test_pending_summary_retry_merges_range(
     call_kwargs = conversation_manager.get_messages_range.await_args.kwargs
     assert call_kwargs["start_index"] == 2  # pending_start
     assert call_kwargs["end_index"] == 12  # total_messages
+
+
+# ==================== #255 总结窗口按天/空闲间隔切分 ====================
+
+
+def _window_handler(
+    memory_engine, memory_processor, conversation_manager, **reflection_cfg
+):
+    """构建 reflection_engine 可定制的 EventHandler（其余依赖沿用 mock）。"""
+    return EventHandler(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "recall_engine": {"top_k": 3, "injection_method": "extra_user_content"},
+                "reflection_engine": {"summary_trigger_rounds": 1, **reflection_cfg},
+                "session_manager": {"max_messages_per_session": 100},
+            }
+        ),
+        memory_engine=memory_engine,
+        memory_processor=memory_processor,
+        conversation_manager=conversation_manager,
+    )
+
+
+def _ts(day: int, hour: int, minute: int) -> float:
+    return datetime(2025, 3, day, hour, minute).timestamp()
+
+
+def _day_split_timestamps() -> list[float]:
+    """4 条 03-01 晚间 + 8 条 03-02 上午：第一个边界在第 4 条之后。"""
+    return [_ts(1, 22, i) for i in range(4)] + [_ts(2, 9, i) for i in range(8)]
+
+
+def _gap_split_timestamps() -> list[float]:
+    """6 条 09:00-09:05 + 6 条 12:06-12:11：同一天，间隔 181 分钟。"""
+    return [_ts(1, 9, i) for i in range(6)] + [_ts(1, 12, 6 + i) for i in range(6)]
+
+
+def _same_day_timestamps() -> list[float]:
+    """12 条同一天、间隔 1 分钟的消息：没有边界，保持整段总结。"""
+    return [_ts(1, 9, i) for i in range(12)]
+
+
+@pytest.mark.parametrize(
+    ("reflection_cfg", "timestamps", "expected_end"),
+    [
+        ({}, _day_split_timestamps(), 4),
+        ({}, _gap_split_timestamps(), 6),
+        ({}, _same_day_timestamps(), 12),
+        ({"window_split_gap_minutes": 0}, _gap_split_timestamps(), 12),
+        (
+            {"window_split_by_day": False, "window_split_gap_minutes": 0},
+            _day_split_timestamps(),
+            12,
+        ),
+    ],
+    ids=["day-split", "gap-split", "no-boundary", "gap-disabled", "split-disabled"],
+)
+@pytest.mark.asyncio
+async def test_reflection_window_split_chooses_oldest_segment(
+    memory_engine,
+    memory_processor,
+    conversation_manager,
+    reflection_cfg,
+    timestamps,
+    expected_end,
+):
+    """#255：触发总结时 end_index 收敛到第一个切分边界，只总结最老片段。"""
+    conversation_manager.get_messages_range = AsyncMock(
+        return_value=[SimpleNamespace(timestamp=ts) for ts in timestamps]
+    )
+    conversation_manager.store.get_message_count = AsyncMock(return_value=12)
+    handler = _window_handler(
+        memory_engine, memory_processor, conversation_manager, **reflection_cfg
+    )
+    handler._memory_reflection._storage_task = AsyncMock()
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_1"
+        await handler.handle_memory_reflection(_make_event(), _make_resp())
+        await handler.shutdown()
+
+    # 切分扫描与总结输入复用同一次范围读取
+    conversation_manager.get_messages_range.assert_awaited_once()
+    call_kwargs = conversation_manager.get_messages_range.await_args.kwargs
+    assert call_kwargs["start_index"] == 0
+    assert call_kwargs["end_index"] == 12
+
+    storage_call = handler._memory_reflection._storage_task.await_args
+    assert storage_call is not None
+    assert storage_call.args[3] == 0  # start_index 不变
+    assert storage_call.args[4] == expected_end
+    assert len(storage_call.args[1]) == expected_end
 
 
 # ==================== WebUI 编辑/重试历史对账测试 ====================

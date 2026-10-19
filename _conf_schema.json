@@ -454,6 +454,23 @@
                     "step": 1
                 }
             },
+            "window_split_by_day": {
+                "description": "按天切分总结窗口",
+                "hint": "开启后跨天对话不再合并进同一条记忆：一次总结只覆盖最老的那一天，较新的部分留待后续触发。",
+                "type": "bool",
+                "default": true
+            },
+            "window_split_gap_minutes": {
+                "description": "空闲间隔切分（分钟）",
+                "hint": "相邻消息间隔超过该分钟数时只总结最老片段；0 = 不按空闲间隔切分。（允许范围：0–1440）",
+                "type": "int",
+                "default": 180,
+                "slider": {
+                    "min": 0,
+                    "max": 1440,
+                    "step": 10
+                }
+            },
             "include_source_time_tags": {
                 "description": "写入来源时间标签",
                 "hint": "根据原始消息时间确定性地写入日期范围，并加入检索摘要；不依赖大模型推断时间。",

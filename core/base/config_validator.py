@@ -134,6 +134,15 @@ class ReflectionEngineConfig(BaseModel):
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
     )
+    window_split_by_day: bool = Field(
+        default=True, description="是否按本地日期切分总结窗口"
+    )
+    window_split_gap_minutes: int = Field(
+        default=180,
+        ge=0,
+        le=1440,
+        description="相邻消息空闲间隔超过该分钟数时切分总结窗口，0 表示禁用",
+    )
     include_source_time_tags: bool = Field(
         default=True, description="是否从原始消息时间写入确定性时间标签"
     )
