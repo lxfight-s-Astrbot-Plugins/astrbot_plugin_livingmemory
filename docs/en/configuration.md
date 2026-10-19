@@ -22,8 +22,11 @@ LivingMemory defaults work for most users. The settings you usually need to touc
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | empty | Generates memory vectors. Empty means AstrBot's default embedding provider |
 | `provider_settings.llm_provider_id` | empty | Summarizes conversations and evaluates memory importance. Empty means AstrBot's default LLM |
+| `provider_settings.llm_stream_mode` | `auto` | How memory processing calls the LLM: `auto` tries non-streaming first and switches to streaming when the provider reports non-stream requests are unsupported; `always` always streams; `never` always uses non-streaming (previous behavior) |
 
 Try to keep the embedding model stable. If you change it and old memories recall poorly, run `/lmem rebuild-index`.
+
+Providers that only accept streaming requests (`stream=true`) are switched to streaming automatically in `auto` mode; set `always` to force streaming. An interrupted stream, timeout, or missing complete response is treated as a failure, so incomplete results are never written to memory.
 
 ## Session management
 

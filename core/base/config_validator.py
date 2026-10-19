@@ -218,6 +218,13 @@ class ProviderConfig(BaseModel):
         default=None, description="Embedding Provider ID"
     )
     llm_provider_id: str | None = Field(default=None, description="LLM Provider ID")
+    llm_stream_mode: str = Field(
+        default="auto",
+        description=(
+            "LLM 调用方式: auto(优先非流式，报错时自动改用流式); "
+            "always(始终流式); never(始终非流式)"
+        ),
+    )
 
 
 class ImportanceDecayConfig(BaseModel):

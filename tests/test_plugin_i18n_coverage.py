@@ -18,6 +18,11 @@ EXPECTED_OPTION_LABELS = {
             "en": "English",
             "ru": "Russian",
         },
+        "provider_settings.llm_stream_mode": {
+            "auto": "Auto (Recommended)",
+            "always": "Always Stream",
+            "never": "Never Stream",
+        },
         "recall_engine.injection_method": {
             "extra_user_content": "Extra User Content",
             "user_message_before": "Before User Message (deprecated)",
@@ -54,6 +59,11 @@ EXPECTED_OPTION_LABELS = {
             "zh": "Китайский",
             "en": "Английский",
             "ru": "Русский",
+        },
+        "provider_settings.llm_stream_mode": {
+            "auto": "Автоматически (рекомендуется)",
+            "always": "Всегда потоково",
+            "never": "Всегда без потока",
         },
         "recall_engine.injection_method": {
             "extra_user_content": "Дополнительный контент пользователя",
@@ -94,6 +104,11 @@ EXPECTED_OPTION_LABELS = {
             "en": "English",
             "ru": "Русский",
         },
+        "provider_settings.llm_stream_mode": {
+            "auto": "自动（推荐）",
+            "always": "始终流式",
+            "never": "始终非流式",
+        },
         "recall_engine.injection_method": {
             "extra_user_content": "追加到用户消息末尾",
             "user_message_before": "用户消息前缀（已废弃）",
@@ -130,6 +145,11 @@ EXPECTED_OPTION_LABELS = {
             "zh": "中国語",
             "en": "English",
             "ru": "Русский",
+        },
+        "provider_settings.llm_stream_mode": {
+            "auto": "自動（推奨）",
+            "always": "常にストリーミング",
+            "never": "常に非ストリーミング",
         },
         "recall_engine.injection_method": {
             "extra_user_content": "ユーザーメッセージ末尾",

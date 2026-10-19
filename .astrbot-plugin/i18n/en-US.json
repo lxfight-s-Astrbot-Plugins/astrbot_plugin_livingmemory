@@ -45,6 +45,15 @@
       "llm_provider_id": {
         "description": "LLM Model ID",
         "hint": "The large language model ID used for summarizing conversations and evaluating memory importance. Leave blank to use AstrBot default. A model with strong reasoning capabilities is recommended."
+      },
+      "llm_stream_mode": {
+        "description": "Use Streaming Calls",
+        "hint": "How memory processing calls the LLM. auto (default): try non-streaming first and switch to streaming automatically when the provider reports that non-stream requests are unsupported; always: always stream (for providers that only accept stream=true); never: always non-streaming (previous behavior).",
+        "labels": [
+          "Auto (Recommended)",
+          "Always Stream",
+          "Never Stream"
+        ]
       }
     },
     "session_manager": {

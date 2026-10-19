@@ -52,6 +52,17 @@
                 "type": "string",
                 "_special": "select_provider",
                 "default": ""
+            },
+            "llm_stream_mode": {
+                "description": "使用流式调用",
+                "hint": "记忆处理调用 LLM 的方式。auto（默认）：优先非流式，遇到“模型不支持非流式请求”错误时自动改用流式；always：始终流式（适用于仅接受 stream=true 的服务）；never：始终非流式（旧行为）。",
+                "type": "string",
+                "options": [
+                    "auto",
+                    "always",
+                    "never"
+                ],
+                "default": "auto"
             }
         }
     },
