@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.memory_scope import GLOBAL_MEMORY_SCOPE
 from astrbot_plugin_livingmemory.core.tools.memory_search_tool import MemorySearchTool
+
+
+SESSION_ID = "test:private:session-1"
 
 
 @pytest.fixture
@@ -130,6 +134,69 @@ async def test_memory_search_tool_uses_user_scope(memory_engine, astr_context):
         k=5,
         session_id="livingmemory:user:test:user-1",
         persona_id=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("filtering_settings", "expected_session_id", "expected_session_filtered"),
+    [
+        # legacy 默认：作用域即当前会话，属于会话级过滤
+        ({"use_session_filtering": True}, SESSION_ID, True),
+        # legacy 关闭会话过滤：作用域为 None，回退会话查询但不算会话过滤
+        ({"use_session_filtering": False}, SESSION_ID, False),
+        ({"memory_scope_mode": "session"}, SESSION_ID, True),
+        ({"memory_scope_mode": "global"}, GLOBAL_MEMORY_SCOPE, False),
+        ({"memory_scope_mode": "user"}, "livingmemory:user:test:user-1", False),
+        # isolated_sessions 始终强制会话级作用域，即使配置为 global
+        (
+            {"memory_scope_mode": "global", "isolated_sessions": SESSION_ID},
+            SESSION_ID,
+            True,
+        ),
+    ],
+    ids=[
+        "legacy-session-filtering",
+        "legacy-no-filtering",
+        "session",
+        "global",
+        "user",
+        "isolated-session-overrides-global",
+    ],
+)
+@pytest.mark.asyncio
+async def test_memory_search_tool_reports_actual_session_filtering(
+    memory_engine,
+    astr_context,
+    filtering_settings,
+    expected_session_id,
+    expected_session_filtered,
+):
+    """session_filtered 只在实际按会话过滤时为 True（global/user/legacy 关闭均不算）。"""
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(
+            {
+                "filtering_settings": {
+                    **filtering_settings,
+                    "use_persona_filtering": False,
+                }
+            }
+        ),
+        memory_engine=memory_engine,
+    )
+    run_context = _make_run_context()
+    event = run_context.context.event
+    event.get_platform_name = Mock(return_value="test")
+    event.get_sender_id = Mock(return_value="user-1")
+
+    result = json.loads(await tool.call(run_context, query="scope report"))
+
+    assert result["applied_filters"] == {
+        "session_filtered": expected_session_filtered,
+        "persona_filtered": False,
+    }
+    assert memory_engine.search_memories.await_args.kwargs["session_id"] == (
+        expected_session_id
     )
 
 
