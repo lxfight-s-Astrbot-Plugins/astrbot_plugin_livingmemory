@@ -221,7 +221,7 @@
       },
       "memory_scope_mode": {
         "description": "メモリスコープモード",
-        "hint": "legacy は旧版の設定を維持します。session は実際のセッションごとに分離します。user は同一プラットフォームのユーザーのメモリを DM とグループ間で共有します。global は全体で共有します。",
+        "hint": "legacy は旧版の設定を維持します。session は実際のセッションごとに分離します。user は同一プラットフォームのユーザーのメモリを DM とグループ間で共有します。global は全体で共有します。モードを切り替えても既存のメモリは移行されません。移行するには /lmem migrate-scope <target> apply を実行してください。",
         "labels": [
           "Legacy（旧版）",
           "セッション単位",

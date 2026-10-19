@@ -118,9 +118,14 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
             )
 
             # 作用域解析失败时回退到原始会话，与写入侧（反思/总结/工具）保持一致
-            recall_session_id = (
-                resolve_memory_scope(self.config_manager, event)
-                or event.unified_msg_origin
+            recall_scope = resolve_memory_scope(self.config_manager, event)
+            recall_session_id = recall_scope or event.unified_msg_origin
+            # session_filtered 只表示本次查询是否真的按会话隔离：global / user
+            # 作用域跨会话共享，legacy 未启用会话过滤（scope 为 None）也不是会话
+            # 过滤；只有解析出的作用域就是当前会话 ID 时才为 True，避免误报
+            # “会话隔离仍然生效”而干扰排查。
+            session_filtered = (
+                recall_scope is not None and recall_scope == event.unified_msg_origin
             )
             recall_persona_id = persona_id if use_persona_filtering else None
 
@@ -166,7 +171,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                 {
                     "query": cleaned_query,
                     "applied_filters": {
-                        "session_filtered": recall_session_id is not None,
+                        "session_filtered": session_filtered,
                         "persona_filtered": use_persona_filtering,
                     },
                     "count": len(serialized_results),

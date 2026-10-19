@@ -221,7 +221,7 @@
       },
       "memory_scope_mode": {
         "description": "Memory Scope Mode",
-        "hint": "Legacy preserves existing settings; Per Session isolates each origin; Per User shares memory across chats for the same platform user; Global shares memory everywhere.",
+        "hint": "Legacy preserves existing settings; Per Session isolates each origin; Per User shares memory across chats for the same platform user; Global shares memory everywhere. Switching the mode does not migrate existing memories: run /lmem migrate-scope <target> apply.",
         "labels": [
           "Legacy",
           "Per Session",

@@ -187,6 +187,60 @@ class TestAgenticSearchTool:
             assert field in item
         assert out["remaining_budget"]["remaining_calls"] == 3
 
+    @pytest.mark.parametrize(
+        ("filtering_settings", "stored_scope", "expected_session_filtered"),
+        [
+            # legacy 默认：作用域即当前会话，属于会话级过滤
+            (
+                {"use_persona_filtering": False, "use_session_filtering": True},
+                "test:private:s1",
+                True,
+            ),
+            # legacy 关闭会话过滤：作用域为 None，回退会话查询但不算会话过滤
+            (
+                {"use_persona_filtering": False, "use_session_filtering": False},
+                "test:private:s1",
+                False,
+            ),
+            (
+                {"use_persona_filtering": False, "memory_scope_mode": "session"},
+                "test:private:s1",
+                True,
+            ),
+            (
+                {"use_persona_filtering": False, "memory_scope_mode": "global"},
+                "livingmemory:global",
+                False,
+            ),
+            (
+                {"use_persona_filtering": False, "memory_scope_mode": "user"},
+                "livingmemory:user:qq:1001",
+                False,
+            ),
+        ],
+        ids=[
+            "legacy-session-filtering",
+            "legacy-no-filtering",
+            "session",
+            "global",
+            "user",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_session_filtered_reports_actual_scope(
+        self, engine, filtering_settings, stored_scope, expected_session_filtered
+    ):
+        """session_filtered 只在实际按会话过滤时为 True（global/user/legacy 关闭均不算）。"""
+        await engine.add_memory(content="作用域上报关键词", session_id=stored_scope)
+        search, _ = _tools(
+            engine, config=_config(filtering_settings=filtering_settings)
+        )
+
+        out = _loads(await search.call(_context(_event()), query="作用域上报关键词"))
+
+        assert out["applied_filters"]["session_filtered"] is expected_session_filtered
+        assert out["count"] == 1
+
     @pytest.mark.asyncio
     async def test_current_speaker_starts_without_keywords(self, engine):
         await engine.add_memory(
