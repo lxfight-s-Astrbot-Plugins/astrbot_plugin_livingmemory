@@ -9,6 +9,7 @@
 
 ### 新增
 
+- **记忆作用域迁移命令 (#285/#287)**：新增 `/lmem migrate-scope <target> [apply] [source]`，把既有记忆（`documents`、`memory_atoms`、`graph_entries`）显式改写到指定作用域，解决切换 `filtering_settings.memory_scope_mode` 后旧记忆失联的问题。默认 dry-run 预览，`apply` 前自动生成数据库备份；`source` 支持 `all`/`*`/`-` 表示全部来源，也支持 `global`/`session`/`user` 关键字与字面作用域。
 - **可选流式 LLM 调用 (#265)**：新增 `provider_settings.llm_stream_mode`（`auto`/`always`/`never`，默认 `auto`）。仅接受 `stream=true` 的模型服务现在可以正常用于记忆处理：`auto` 模式优先非流式，捕获到“不支持非流式请求”错误后自动改用 AstrBot 官方 Provider 流式接口，并在后续调用中记住该 Provider；流式中断、超时或缺少完整响应时按失败处理，不会把不完整结果写入记忆。`never` 保持原有非流式行为。
 
 ### 修复

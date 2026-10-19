@@ -501,6 +501,30 @@ class LivingMemoryPlugin(Star):
             yield message
 
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("migrate-scope")
+    async def migrate_scope(
+        self,
+        event: AstrMessageEvent,
+        target: str = "",
+        action: str = "",
+        source: str = "",
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[Admin] Migrate existing memories to the given memory scope"""
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
+            return
+
+        if not self.command_handler:
+            yield event.plain_result(self._command_handler_not_ready_message())
+            return
+
+        async for message in self.command_handler.handle_migrate_scope(
+            event, target, action, source
+        ):
+            yield message
+
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("webui")
     async def webui(
         self, event: AstrMessageEvent

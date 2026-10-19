@@ -9,6 +9,7 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 | `/lmem forget <id>` | 删除指定记忆 |
 | `/lmem rebuild-index` | 重建文档索引 |
 | `/lmem rebuild-graph` | 重建并压缩图谱索引，迁移到记忆级图向量 |
+| `/lmem migrate-scope <target> [apply] [source]` | 迁移既有记忆（文档、原子、图记忆条目）到指定作用域；默认仅预览，`apply` 才写入；`source` 可选，`all`/`*`/`-` 表示全部来源 |
 | `/lmem webui` | 查看 WebUI 入口信息 |
 | `/lmem summarize [message_count]` | 立即总结当前会话；指定条数时重新总结最近 N 条消息 |
 | `/lmem reset` | 重置当前会话记忆上下文 |

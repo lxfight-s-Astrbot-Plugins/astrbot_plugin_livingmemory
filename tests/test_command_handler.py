@@ -2,8 +2,11 @@
 Tests for CommandHandler.
 """
 
+import inspect
+import json
 from unittest.mock import AsyncMock, Mock
 
+import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.command_handler import CommandHandler
@@ -277,3 +280,232 @@ async def test_handle_rebuild_graph_reports_progress_and_summary(
     assert [
         part for part in messages[1].split() if any(ch.isdigit() for ch in part)
     ] == ["3", "1"]
+
+
+OLD_SCOPE = "test:private:session-old"
+OTHER_SCOPE = "test:private:session-other"
+TARGET_SCOPE = "livingmemory:global"
+
+
+def _parse_like_astrbot(handler_fn, args_text: str) -> dict[str, str]:
+    """按 AstrBot CommandFilter 的规则解析位置参数：丢弃空 token、缺失参数取默认值。
+
+    AstrBot 在 ``astrbot/core/star/filter/command.py`` 中先 ``split(" ")`` 再
+    过滤空字符串，因此这里复刻同样的行为来验证命令参数顺序真的可用。
+    """
+    parameters = list(inspect.signature(handler_fn).parameters.values())[1:]
+    tokens = [token for token in args_text.split(" ") if token]
+    return {
+        parameter.name: tokens[index] if index < len(tokens) else parameter.default
+        for index, parameter in enumerate(parameters)
+    }
+
+
+async def _run_migrate_scope(handler, event, args_text: str) -> list[str]:
+    params = _parse_like_astrbot(handler.handle_migrate_scope, args_text)
+    return [
+        message async for message in handler.handle_migrate_scope(event, **params)
+    ]
+
+
+async def _make_migration_handler(
+    tmp_path, doc_scopes, atom_scopes=None, user_config=None
+):
+    """建最小库（documents + 可选 memory_atoms）并组装带真实连接的 CommandHandler。"""
+    db_path = tmp_path / "lm.db"
+    conn = await aiosqlite.connect(db_path)
+    await conn.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
+    )
+    for index, scope in enumerate(doc_scopes, start=1):
+        await conn.execute(
+            "INSERT INTO documents (id, metadata) VALUES (?, ?)",
+            (index, json.dumps({"session_id": scope}, ensure_ascii=False)),
+        )
+    if atom_scopes is not None:
+        await conn.execute(
+            "CREATE TABLE memory_atoms (id INTEGER PRIMARY KEY, session_id TEXT)"
+        )
+        for index, scope in enumerate(atom_scopes, start=1):
+            await conn.execute(
+                "INSERT INTO memory_atoms (id, session_id) VALUES (?, ?)",
+                (index, scope),
+            )
+    await conn.commit()
+
+    engine = Mock()
+    engine.db_path = str(db_path)
+    engine.db_connection = conn
+    handler = CommandHandler(
+        context=Mock(),
+        config_manager=ConfigManager(user_config or {}),
+        memory_engine=engine,
+        conversation_manager=None,
+        index_validator=None,
+    )
+    return handler, conn, db_path
+
+
+async def _doc_scopes(conn) -> dict[str, int]:
+    cursor = await conn.execute(
+        "SELECT json_extract(metadata, '$.session_id') AS scope, COUNT(*) "
+        "FROM documents GROUP BY scope"
+    )
+    return {str(scope): int(count) for scope, count in await cursor.fetchall()}
+
+
+async def _atom_scopes(conn) -> dict[str, int]:
+    cursor = await conn.execute(
+        "SELECT session_id AS scope, COUNT(*) FROM memory_atoms GROUP BY scope"
+    )
+    return {str(scope): int(count) for scope, count in await cursor.fetchall()}
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_accepts_apply_after_target(tmp_path, mock_event):
+    """B1：`/lmem migrate-scope global apply` 必须是批量写入，而不是把 apply 当 source。"""
+    handler, conn, db_path = await _make_migration_handler(
+        tmp_path, [OLD_SCOPE, OLD_SCOPE], atom_scopes=[OLD_SCOPE]
+    )
+    try:
+        messages = await _run_migrate_scope(handler, mock_event, "global apply")
+        joined = "\n".join(messages)
+        assert "迁移完成" in joined
+        assert "已经位于目标作用域" not in joined
+
+        assert await _doc_scopes(conn) == {TARGET_SCOPE: 2}
+        assert await _atom_scopes(conn) == {TARGET_SCOPE: 1}
+        assert list((db_path.parent / "backups").glob("scope_migration_*.db"))
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_defaults_to_dry_run(tmp_path, mock_event):
+    """B1：不传 apply（或显式 dry-run）时不得写库。"""
+    handler, conn, db_path = await _make_migration_handler(
+        tmp_path, [OLD_SCOPE], atom_scopes=[OLD_SCOPE]
+    )
+    try:
+        for args_text in ("global", "global dry-run"):
+            messages = await _run_migrate_scope(handler, mock_event, args_text)
+            assert "未写入任何数据" in "\n".join(messages)
+            assert await _doc_scopes(conn) == {OLD_SCOPE: 1}
+            assert await _atom_scopes(conn) == {OLD_SCOPE: 1}
+        assert not (db_path.parent / "backups").exists()
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_applies_only_requested_source(tmp_path, mock_event):
+    """B1：`<target> apply <source>` 仅迁移指定来源作用域。"""
+    handler, conn, _ = await _make_migration_handler(
+        tmp_path, [OLD_SCOPE, OTHER_SCOPE], atom_scopes=[OLD_SCOPE, OTHER_SCOPE]
+    )
+    try:
+        messages = await _run_migrate_scope(
+            handler, mock_event, f"global apply {OLD_SCOPE}"
+        )
+        assert "迁移完成" in "\n".join(messages)
+        assert await _doc_scopes(conn) == {TARGET_SCOPE: 1, OTHER_SCOPE: 1}
+        assert await _atom_scopes(conn) == {TARGET_SCOPE: 1, OTHER_SCOPE: 1}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_token", ["all", "*", "-"])
+async def test_handle_migrate_scope_all_source_tokens_mean_bulk(
+    tmp_path, mock_event, source_token
+):
+    handler, conn, _ = await _make_migration_handler(
+        tmp_path, [OLD_SCOPE, OTHER_SCOPE]
+    )
+    try:
+        messages = await _run_migrate_scope(
+            handler, mock_event, f"global apply {source_token}"
+        )
+        assert "迁移完成" in "\n".join(messages)
+        assert await _doc_scopes(conn) == {TARGET_SCOPE: 2}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_rejects_unknown_action_with_usage(
+    tmp_path, mock_event
+):
+    """B1：未知的第二步 token 不能被当成 source，直接回显正确用法且不写库。"""
+    handler, conn, _ = await _make_migration_handler(tmp_path, [OLD_SCOPE])
+    try:
+        messages = await _run_migrate_scope(handler, mock_event, "global explode")
+        assert "用法" in "\n".join(messages)
+        assert await _doc_scopes(conn) == {OLD_SCOPE: 1}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_noop_messages_are_distinct(tmp_path, mock_event):
+    """B1：'全部已在目标作用域' 与 'source 过滤没命中' 必须是两条不同的提示。"""
+    handler, conn, _ = await _make_migration_handler(
+        tmp_path, [TARGET_SCOPE], atom_scopes=[TARGET_SCOPE]
+    )
+    try:
+        all_done = await _run_migrate_scope(handler, mock_event, "global")
+        all_done_text = "\n".join(all_done)
+        assert "已经位于目标作用域" in all_done_text
+        assert "未匹配到" not in all_done_text
+
+        unmatched = await _run_migrate_scope(
+            handler, mock_event, "global apply missing-scope"
+        )
+        unmatched_text = "\n".join(unmatched)
+        assert "未匹配到" in unmatched_text
+        assert "missing-scope" in unmatched_text
+        assert "已经位于目标作用域" not in unmatched_text
+
+        # 两次都没有写库
+        assert await _doc_scopes(conn) == {TARGET_SCOPE: 1}
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_user_target_honours_identity_aliases(
+    tmp_path, mock_event
+):
+    """M4：user 目标必须应用 access_control.identity_aliases，否则数据仍然失联。"""
+    handler, conn, _ = await _make_migration_handler(
+        tmp_path,
+        [OLD_SCOPE],
+        user_config={
+            "access_control": {"identity_aliases": "test:user-1=canonical-user"}
+        },
+    )
+    try:
+        messages = await _run_migrate_scope(handler, mock_event, "user apply")
+        assert "迁移完成" in "\n".join(messages)
+        assert await _doc_scopes(conn) == {
+            "livingmemory:user:test:canonical-user": 1
+        }
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_handle_migrate_scope_notes_missing_optional_tables(
+    tmp_path, mock_event
+):
+    """M1：图记忆关闭（缺 memory_atoms / graph_entries）时命令仍可用并提示跳过。"""
+    handler, conn, _ = await _make_migration_handler(tmp_path, [OLD_SCOPE])
+    try:
+        messages = await _run_migrate_scope(handler, mock_event, "global apply")
+        joined = "\n".join(messages)
+        assert "memory_atoms" in joined
+        assert "graph_entries" in joined
+        assert "迁移完成" in joined
+        assert await _doc_scopes(conn) == {TARGET_SCOPE: 1}
+    finally:
+        await conn.close()

@@ -9,6 +9,7 @@ LivingMemory commands use the `/lmem` prefix.
 | `/lmem forget <id>` | Delete a specific memory |
 | `/lmem rebuild-index` | Rebuild document indexes |
 | `/lmem rebuild-graph` | Rebuild and compact graph indexes into memory-level vectors |
+| `/lmem migrate-scope <target> [apply] [source]` | Migrate existing memories (documents, atoms, graph entries) to a scope; dry-run by default, `apply` writes; optional `source` accepts `all`/`*`/`-` for every source |
 | `/lmem webui` | Show WebUI entry information |
 | `/lmem summarize [message_count]` | Summarize now; with a count, re-summarize the most recent N messages |
 | `/lmem reset` | Reset current session memory context |

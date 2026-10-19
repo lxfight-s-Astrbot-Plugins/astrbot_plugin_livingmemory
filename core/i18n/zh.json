@@ -22,7 +22,8 @@
       "rebuild_graph": ["确认图记忆功能已启用","确认数据库与索引文件可读写","查看日志定位具体失败文档"],
       "summarize": ["确认当前会话至少有 2 条未总结消息","确认 LLM Provider 可正常响应","检查日志中的 summary 处理堆栈"],
       "reset": ["确认会话 ID 有效且会话存储可访问","确认数据库未被占用","查看日志中的 clear_session 调用堆栈"],
-      "cleanup": ["确认当前会话存在可读取的历史记录","确认对话存储可读写","查看日志中的 cleanup 调用堆栈"]
+      "cleanup": ["确认当前会话存在可读取的历史记录","确认对话存储可读写","查看日志中的 cleanup 调用堆栈"],
+      "migrate_scope": ["确认目标作用域书写正确（global/session/user 或字面值）","迁移前会自动生成数据库备份，必要时可用它回滚","图记忆条目已随迁移一并更新；如图谱召回异常，执行 /lmem rebuild-graph 重建"]
     }
   },
   "status": {
@@ -55,6 +56,23 @@
     "partial_notice": "\n注意: 本次重建存在少量失败，失败率 {ratio:.2%}，未超过安全阈值。可稍后再次执行 /lmem rebuild-index 补齐。",
     "result_template": "索引重建完成。\n\n处理结果:\n• 成功: {success} 条\n• 失败: {failed} 条\n• 总计: {total} 条\n• 向量处理模式: {vector_mode}\n• 新索引切换: {switched}\n{partial_notice}\n\n现在可以继续使用召回功能。",
     "failed": "索引重建失败。\n错误详情: {message}\n请查看日志确认失败原因后重试 /lmem rebuild-index。"
+  },
+  "migrate_scope": {
+    "action_name": "作用域迁移",
+    "usage": "用法: /lmem migrate-scope <target> [apply] [source]\n\ntarget 支持:\n• global —— 迁移到全局作用域 livingmemory:global\n• session —— 迁移到当前会话\n• user —— 迁移到当前用户（跨私聊/群聊共享）\n• 其他字符串 —— 按字面作用域使用\n\napply 可选（也接受 dry-run 显式预览）：默认仅预览，传 apply 才会真正写库。\nsource 可选（必须放在 apply 之后），仅迁移该来源作用域的记录；all / * / - 表示全部来源。\n\n示例:\n  /lmem migrate-scope global                # 预览批量迁移\n  /lmem migrate-scope global apply          # 执行批量迁移\n  /lmem migrate-scope global apply <scope>  # 仅迁移指定来源",
+    "empty_scope": "(空作用域)",
+    "scope_line": "• {scope}: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条",
+    "survey": "当前作用域分布（记忆 / 原子 / 图记忆）:\n{scopes}\n\n合计: {total} 条",
+    "nothing_to_do": "没有需要迁移的记录：它们已经位于目标作用域 {target}。",
+    "source_matched_nothing": "来源作用域 {source} 未匹配到需要迁移的记录（目标作用域 {target}）。",
+    "missing_tables": "提示: 当前数据库缺少以下可选表，已跳过: {tables}",
+    "any_source": "全部来源",
+    "impact_line": "• {scope}: {count} 条",
+    "plan": "迁移预览（dry-run）\n\n目标作用域: {target}\n来源限制: {source}\n\n将影响:\n{impact}\n\n共 {total} 条（记忆 {documents} / 原子 {atoms} / 图记忆 {graph_entries}）",
+    "dry_run_hint": "以上仅为预览，未写入任何数据。\n确认无误后执行: /lmem migrate-scope <target> apply [source]",
+    "done": "作用域迁移完成。\n\n目标作用域: {target}\n已更新: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条（共 {total} 条）\n数据库备份: {backup}",
+    "remaining_notice": "注意: 仍有 {remaining} 条记录未落到目标作用域 {target}（可能有并发写入），请重新执行迁移。",
+    "rebuild_hint": "图记忆条目已在同一事务中完成迁移；如图谱召回仍异常，可执行 /lmem rebuild-graph 重建。"
   },
   "rebuild_graph": {
     "action_name": "重建图记忆",
@@ -91,7 +109,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",
