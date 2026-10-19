@@ -12,6 +12,7 @@
 
 import asyncio
 import copy
+import math
 import time
 from collections import OrderedDict
 from typing import Any
@@ -194,7 +195,30 @@ class ConversationManager:
             platform=platform,
             is_bot_message=(role == "assistant"),
             metadata=metadata,
+            timestamp=self._resolve_event_timestamp(event),
         )
+
+    @staticmethod
+    def _resolve_event_timestamp(event: Any) -> float | None:
+        """读取平台消息时间戳；缺失/非法/明显超前时返回 None 表示回退接收时间。
+
+        用户消息与其助手回复共用同一事件时间戳，避免按天切分总结窗口时把同一轮
+        对话切到两个窗口里；Android/iOS 等适配器给出的毫秒时间戳会被超前判断拒绝。
+        """
+        message_obj = getattr(event, "message_obj", None)
+        raw_timestamp = getattr(message_obj, "timestamp", None)
+        if isinstance(raw_timestamp, bool):
+            return None
+        try:
+            timestamp = float(raw_timestamp)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(timestamp) or timestamp <= 0:
+            return None
+        # 明显超前（如毫秒时间戳或平台时钟异常）不可信，回退到接收时间
+        if timestamp > time.time() + 300:
+            return None
+        return timestamp
 
     async def add_message(
         self,
@@ -207,6 +231,7 @@ class ConversationManager:
         platform: str = "unknown",
         is_bot_message: bool = False,
         metadata: dict[str, Any] | None = None,
+        timestamp: float | None = None,
     ) -> Message:
         """
         添加消息到会话
@@ -220,6 +245,7 @@ class ConversationManager:
             group_id: 群组ID(群聊场景)
             platform: 平台标识
             metadata: 额外元数据（如 llm_checkpoint_id）
+            timestamp: 平台消息时间戳（秒）；缺失或非正数时使用当前时间
 
         Returns:
             创建的Message对象
@@ -227,6 +253,16 @@ class ConversationManager:
         # 如果没有sender_id,使用session_id
         if not sender_id:
             sender_id = session_id
+
+        # 平台时间戳优先，非法/缺失时回退到接收时间
+        message_timestamp = time.time()
+        if timestamp is not None:
+            try:
+                provided_timestamp = float(timestamp)
+            except (TypeError, ValueError):
+                provided_timestamp = 0.0
+            if math.isfinite(provided_timestamp) and provided_timestamp > 0:
+                message_timestamp = provided_timestamp
 
         # 创建消息对象
         message = Message(
@@ -238,7 +274,7 @@ class ConversationManager:
             sender_name=sender_name,
             group_id=group_id,
             platform=platform,
-            timestamp=time.time(),
+            timestamp=message_timestamp,
             metadata=dict(metadata or {}),
         )
         if is_bot_message:

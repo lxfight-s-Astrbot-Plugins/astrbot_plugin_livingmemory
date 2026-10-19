@@ -241,6 +241,14 @@
         "description": "Summary Trigger Rounds",
         "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round). Allowed range: 1-100."
       },
+      "window_split_by_day": {
+        "description": "Split Summary Windows by Day",
+        "hint": "When enabled, conversations spanning multiple days are not merged into one memory: a summary covers only the oldest day, and newer parts wait for later triggers."
+      },
+      "window_split_gap_minutes": {
+        "description": "Idle Gap Split (minutes)",
+        "hint": "When the gap between adjacent messages exceeds this many minutes, only the oldest segment is summarized; 0 = do not split by idle gap. Allowed range: 0-1440."
+      },
       "include_source_time_tags": {
         "description": "Include Source Time Tags",
         "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."

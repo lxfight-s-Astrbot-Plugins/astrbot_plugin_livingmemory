@@ -82,6 +82,8 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | 达到多少轮对话后触发总结 |
+| `reflection_engine.window_split_by_day` | `true` | 跨天时只总结最老的一天，避免跨天对话合并进同一条记忆 |
+| `reflection_engine.window_split_gap_minutes` | `180` | 相邻消息空闲间隔超过该分钟数时只总结最老片段；`0` 关闭空闲间隔切分 |
 | `reflection_engine.include_source_time_tags` | `true` | 从原始消息时间写入来源日期标签 |
 | `reflection_engine.source_retention_importance_threshold` | `0.8` | 达到阈值时独立保留原始消息 |
 | `importance_decay.decay_rate` | `0.01` | 每日重要性衰减比例 |
@@ -90,6 +92,8 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `importance_decay.protected_importance_threshold` | `1.0` | 达到阈值的记忆不参与每日衰减 |
 
 如果你希望机器人更快记住短期上下文，可以降低 `summary_trigger_rounds`；如果希望减少 LLM 调用成本，可以提高它。
+
+总结窗口虽然仍按未总结轮次触发，但不会再跨天或跨长空闲合并：存在边界时只总结最老的连续片段（FIFO），较新的内容留到后续触发再总结。消息入库时间优先使用平台消息时间戳，缺失或异常（例如毫秒时间戳、平台时钟明显超前）时回退到接收时间，因此窗口边界与消息实际发生时间一致。
 
 保留的原文只写入 SQLite `memory_sources` 表，不进入向量、BM25、图或原子索引，因此不会增加向量数量。它会增加数据库磁盘占用。Dashboard 详情的重新总结会调用一次 LLM，并替换原记忆、重新生成 Embedding 和全部派生索引。
 

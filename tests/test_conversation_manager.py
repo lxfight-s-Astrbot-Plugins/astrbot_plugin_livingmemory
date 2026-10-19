@@ -2,6 +2,7 @@
 Tests for ConversationManager behaviors.
 """
 
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,6 +45,14 @@ class _DummyEvent:
 
     def get_platform_name(self):
         return "test"
+
+
+class _TimestampedEvent(_DummyEvent):
+    """携带平台消息对象时间戳的事件（模拟 AstrBot 的 message_obj.timestamp）。"""
+
+    def __init__(self, session_id: str, timestamp):
+        super().__init__(session_id, group=False)
+        self.message_obj = SimpleNamespace(timestamp=timestamp)
 
 
 class _DummyTelegramEvent(_DummyEvent):
@@ -221,4 +230,112 @@ async def test_conversation_manager_falls_back_to_sender_id_for_unknown_name(
     assert message.sender_id == "24680"
     assert message.sender_name == "24680"
 
+    await store.close()
+
+
+# ==================== #255 平台消息时间戳入库 ====================
+
+
+@pytest.mark.asyncio
+async def test_add_message_stores_provided_timestamp(tmp_path: Path):
+    """add_message 传入平台时间戳时按原值入库。"""
+    store = ConversationStore(str(tmp_path / "ts.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+
+    message = await manager.add_message(
+        session_id="test:private:ts",
+        role="user",
+        content="hi",
+        timestamp=1_700_000_000.0,
+    )
+
+    assert message.timestamp == 1_700_000_000.0
+    await store.close()
+
+
+@pytest.mark.parametrize(
+    "bad_timestamp",
+    [None, 0, -1, "bad", float("nan")],
+    ids=["none", "zero", "negative", "string", "nan"],
+)
+@pytest.mark.asyncio
+async def test_add_message_falls_back_to_now_for_invalid_timestamp(
+    tmp_path: Path, bad_timestamp
+):
+    """缺失/非正数/非法时间戳回退到当前接收时间。"""
+    store = ConversationStore(str(tmp_path / "ts-fallback.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+
+    before = time.time()
+    message = await manager.add_message(
+        session_id="test:private:ts",
+        role="user",
+        content="hi",
+        timestamp=bad_timestamp,
+    )
+    after = time.time()
+
+    assert before <= message.timestamp <= after
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_add_message_from_event_uses_platform_timestamp(tmp_path: Path):
+    """事件带 message_obj.timestamp 时，同一轮的用户消息与助手回复共用该时间。"""
+    store = ConversationStore(str(tmp_path / "event-ts.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    event = _TimestampedEvent("test:private:ts2", 1_700_000_000.0)
+
+    user_message = await manager.add_message_from_event(
+        event, role="user", content="hi"
+    )
+    assistant_message = await manager.add_message_from_event(
+        event, role="assistant", content="hello"
+    )
+
+    assert user_message.timestamp == 1_700_000_000.0
+    assert assistant_message.timestamp == 1_700_000_000.0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_add_message_from_event_falls_back_without_message_obj(tmp_path: Path):
+    """平台未提供消息对象（老事件/测试替身）时回退接收时间，行为不变。"""
+    store = ConversationStore(str(tmp_path / "event-ts-fallback.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+
+    before = time.time()
+    message = await manager.add_message_from_event(
+        _DummyEvent("test:private:ts3"), role="user", content="hi"
+    )
+    after = time.time()
+
+    assert before <= message.timestamp <= after
+    await store.close()
+
+
+@pytest.mark.parametrize(
+    "bad_timestamp",
+    [None, 0, -1, "bad", float("nan"), 1_700_000_000_000],
+    ids=["none", "zero", "negative", "string", "nan", "milliseconds"],
+)
+@pytest.mark.asyncio
+async def test_add_message_from_event_falls_back_for_implausible_timestamp(
+    tmp_path: Path, bad_timestamp
+):
+    """非法或明显超前（毫秒时间戳/时钟异常）的平台时间戳回退接收时间。"""
+    store = ConversationStore(str(tmp_path / "event-ts-bad.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    event = _TimestampedEvent("test:private:ts4", bad_timestamp)
+
+    before = time.time()
+    message = await manager.add_message_from_event(event, role="user", content="hi")
+    after = time.time()
+
+    assert before <= message.timestamp <= after
     await store.close()

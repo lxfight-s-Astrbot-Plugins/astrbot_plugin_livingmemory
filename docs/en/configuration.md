@@ -82,6 +82,8 @@ Aliases are matched in this order: `platform:user ID`, user ID, then current use
 | Key | Default | Description |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | Number of conversation rounds before summarization |
+| `reflection_engine.window_split_by_day` | `true` | Summarizes only the oldest day when a window crosses midnight, so multi-day chats are not merged into one memory |
+| `reflection_engine.window_split_gap_minutes` | `180` | Summarizes only the oldest segment when the idle gap between messages exceeds this many minutes; `0` disables gap splitting |
 | `reflection_engine.include_source_time_tags` | `true` | Derives source date tags from original message timestamps |
 | `reflection_engine.source_retention_importance_threshold` | `0.8` | Retains original messages separately at or above the threshold |
 | `importance_decay.decay_rate` | `0.01` | Daily importance decay |
@@ -90,6 +92,8 @@ Aliases are matched in this order: `platform:user ID`, user ID, then current use
 | `importance_decay.protected_importance_threshold` | `1.0` | Memories at or above this importance do not decay |
 
 Lower `summary_trigger_rounds` if you want the bot to remember faster. Raise it if you want fewer LLM calls.
+
+Summary windows are still triggered by unsummarized rounds, but they no longer merge across days or long idle gaps: when a boundary exists, only the oldest coherent segment is summarized (FIFO) and newer content waits for a later trigger. Stored message time prefers the platform message timestamp and falls back to the receipt time when it is missing or implausible (for example millisecond timestamps or a clock clearly ahead), so window boundaries follow when messages actually happened.
 
 Retained source is written only to the SQLite `memory_sources` table, not to vector, BM25, graph, or atom indexes, so it does not increase vector count. It does increase database disk usage. Re-summarizing from Dashboard calls the LLM once, replaces the old memory, and regenerates its embedding and all derived indexes.
 
