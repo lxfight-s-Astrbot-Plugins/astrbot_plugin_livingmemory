@@ -3,15 +3,28 @@ PluginInitializer 的 InitializerFaissMixin 拆分模块
 自动从 core/plugin_initializer.py 拆分，保持行为不变
 """
 
-from .base.exceptions import InitializationError
-from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB  # noqa: F401 (global in _load_faiss_vec_db_class)
-from astrbot.api import logger
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from importlib import metadata
+from typing import Any
+
+from astrbot.api import logger
+
+from .base.exceptions import InitializationError
+
+# 延迟绑定：此变量在 _load_faiss_vec_db_class() 首次执行前必须保持为 None。
+#
+# 若在模块顶层导入真实的 FaissVecDB，下方守卫
+#     if FaissVecDB is not None: return FaissVecDB
+# 会在首次调用时立即短路，导致 faiss.read_index / faiss.write_index 的
+# 「非 ASCII 路径 → ASCII 临时文件」桥接 monkey-patch 永远无法安装。
+# 后果：Windows 非 ASCII 用户目录下 faiss.write_index 直接失败
+# （RuntimeError: could not open ... : No such file or directory），
+# 索引静默无法落盘（回归报告 #284；原始修复 #184）。
+FaissVecDB: Any = None
 
 
 class InitializerFaissMixin:
