@@ -22,8 +22,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | 空 | 用于向量化记忆。留空使用 AstrBot 默认 Embedding Provider |
 | `provider_settings.llm_provider_id` | 空 | 用于总结对话和评估记忆重要性。留空使用 AstrBot 默认 LLM |
+| `provider_settings.llm_stream_mode` | `auto` | 记忆处理调用 LLM 的方式：`auto` 优先非流式、遇“不支持非流式”错误自动转流式；`always` 始终流式；`never` 始终非流式（旧行为） |
 
 建议 Embedding 模型保持稳定，不要频繁更换。更换 Embedding 后，如发现旧记忆召回异常，可执行 `/lmem rebuild-index`。
+
+只接受流式请求（`stream=true`）的模型服务在 `auto` 模式下会自动改用流式调用，无需手动配置；需要强制始终流式时设为 `always`。流式中断、超时或未收到完整响应会按失败处理，不会把不完整结果写入记忆。
 
 ## 会话管理
 

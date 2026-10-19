@@ -284,6 +284,9 @@ class InitializerFinalizeMixin:
                     "include_source_time_tags": self.config_manager.get(
                         "reflection_engine.include_source_time_tags", True
                     ),
+                    "llm_stream_mode": self.config_manager.get(
+                        "provider_settings.llm_stream_mode", "auto"
+                    ),
                 },
             )
             logger.info("MemoryProcessor 已初始化")
