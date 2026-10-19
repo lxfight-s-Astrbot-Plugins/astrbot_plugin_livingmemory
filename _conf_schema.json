@@ -513,6 +513,34 @@
                 "type": "bool",
                 "default": false
             },
+            "enable_forget_tool": {
+                "description": "启用主动遗忘工具（管理员）",
+                "hint": "开启后注册 forget_long_term_memory，仅管理员可调用；只做可逆归档（软删除），不会物理删除，管理员可从 WebUI 记忆页把状态改回 active 恢复。默认关闭。",
+                "type": "bool",
+                "default": false
+            },
+            "forget_tool_max_memories": {
+                "description": "遗忘工具单次最大条数",
+                "hint": "一次工具调用最多归档的记忆条数，超出将被整批拒绝。（允许范围：1–10）",
+                "type": "int",
+                "default": 3,
+                "slider": {
+                    "min": 1,
+                    "max": 10,
+                    "step": 1
+                }
+            },
+            "forget_tool_cooldown_seconds": {
+                "description": "遗忘工具冷却时间（秒）",
+                "hint": "同一会话两次成功归档之间的最小间隔，冷却期内调用会被拒绝；0 = 不限制。（允许范围：0–3600）",
+                "type": "int",
+                "default": 60,
+                "slider": {
+                    "min": 0,
+                    "max": 3600,
+                    "step": 10
+                }
+            },
             "agentic_recall_max_calls": {
                 "description": "自主回忆最大工具调用次数",
                 "hint": "单次请求内记忆搜索/深读工具共享的最大调用次数，建议 3-6。（允许范围：1–20）",

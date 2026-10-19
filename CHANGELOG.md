@@ -9,6 +9,7 @@
 
 ### 新增
 
+- **管理员专用 LLM 遗忘工具 (#279)**：新增 `forget_long_term_memory` 工具（配置 `agent_tools.enable_forget_tool`，默认关闭）。按 issue 决策，模型**不做物理删除**，只把记忆归档（`metadata.status="archived"`，从向量/BM25/图谱/原子索引中移除，documents 记录保留），管理员可在 Dashboard 记忆页按 `archived` 状态筛选后改回 `active` 恢复。安全闸门：仅管理员可调用、作用域校验与检索可见性一致且整批 all-or-nothing、单次条数上限（`forget_tool_max_memories`，默认 3）、同一会话冷却（`forget_tool_cooldown_seconds`，默认 60 秒，0 关闭）。归档时写入审计字段（`archived_by="llm_tool"`、`archive_reason`、`archive_session_id`）。
 - **记忆作用域迁移命令 (#285/#287)**：新增 `/lmem migrate-scope <target> [apply] [source]`，把既有记忆（`documents`、`memory_atoms`、`graph_entries`）显式改写到指定作用域，解决切换 `filtering_settings.memory_scope_mode` 后旧记忆失联的问题。默认 dry-run 预览，`apply` 前自动生成数据库备份；`source` 支持 `all`/`*`/`-` 表示全部来源，也支持 `global`/`session`/`user` 关键字与字面作用域。
 - **可选流式 LLM 调用 (#265)**：新增 `provider_settings.llm_stream_mode`（`auto`/`always`/`never`，默认 `auto`）。仅接受 `stream=true` 的模型服务现在可以正常用于记忆处理：`auto` 模式优先非流式，捕获到“不支持非流式请求”错误后自动改用 AstrBot 官方 Provider 流式接口，并在后续调用中记住该 Provider；流式中断、超时或缺少完整响应时按失败处理，不会把不完整结果写入记忆。`never` 保持原有非流式行为。
 

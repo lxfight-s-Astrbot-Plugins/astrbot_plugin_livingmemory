@@ -5,6 +5,7 @@ from unittest.mock import Mock
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.tools import (
     AgenticMemorySearchTool,
+    MemoryForgetTool,
     MemoryMemorizeTool,
     MemoryReadTool,
     MemorySearchTool,
@@ -241,6 +242,35 @@ def test_memorize_tool_independent_of_beta():
         "memorize_long_term_memory",
     }
     assert isinstance(tools["memorize_long_term_memory"], MemoryMemorizeTool)
+
+
+def test_forget_tool_not_registered_by_default():
+    """#279：遗忘工具默认关闭，未配置时不得注册。"""
+    plugin = _make_plugin({"enable_recall_tool": True})
+    plugin._register_agent_tools_if_needed()
+
+    tools = plugin.context.add_llm_tools.call_args.args
+    assert [tool.name for tool in tools] == ["recall_long_term_memory"]
+
+
+def test_forget_tool_registered_when_enabled():
+    """#279：开启 enable_forget_tool 后独立注册，不依赖写入工具或 Beta。"""
+    plugin = _make_plugin(
+        {
+            "enable_recall_tool": True,
+            "enable_agentic_recall_beta": False,
+            "enable_memorize_tool": False,
+            "enable_forget_tool": True,
+        }
+    )
+    plugin._register_agent_tools_if_needed()
+
+    tools = {tool.name: tool for tool in plugin.context.add_llm_tools.call_args.args}
+    assert set(tools) == {
+        "recall_long_term_memory",
+        "forget_long_term_memory",
+    }
+    assert isinstance(tools["forget_long_term_memory"], MemoryForgetTool)
 
 
 def test_beta_missing_config_defaults_to_baseline():

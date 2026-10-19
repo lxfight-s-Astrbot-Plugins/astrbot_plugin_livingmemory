@@ -250,10 +250,28 @@ class MemoryEngineBatchMixin:
             logger.error("[清理] 清理旧记忆失败", exc_info=True)
             return 0
 
-    async def archive_memories(self, memory_ids: list[int]) -> int:
-        """Remove memories from retrieval indexes while retaining their documents."""
+    async def archive_memories(
+        self, memory_ids: list[int], *, audit: dict[str, Any] | None = None
+    ) -> int:
+        """Remove memories from retrieval indexes while retaining their documents.
+
+        Args:
+            memory_ids: 要归档（软删除）的记忆 ID 列表。
+            audit: 可选审计字段，合并进每条被归档文档的 metadata（#279）；
+                不允许覆盖 ``status`` / ``archived_at``。
+
+        Returns:
+            int: 实际归档的记忆条数。
+        """
         if not memory_ids or self.db_connection is None:
             return 0
+
+        # 审计字段由调用方提供，但不能覆盖归档状态字段
+        audit_metadata = {
+            key: value
+            for key, value in (audit or {}).items()
+            if key not in {"status", "archived_at"}
+        }
 
         unique_ids = list(dict.fromkeys(int(memory_id) for memory_id in memory_ids))
         documents = await self.faiss_db.document_storage.get_documents(
@@ -269,6 +287,7 @@ class MemoryEngineBatchMixin:
             metadata = safe_json_dict(document.get("metadata"))
             if str(metadata.get("status") or "active") == "archived":
                 continue
+            metadata.update(audit_metadata)
             metadata["status"] = "archived"
             metadata["archived_at"] = archived_at
             active_documents.append(document)
