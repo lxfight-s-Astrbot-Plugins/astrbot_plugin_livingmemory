@@ -103,8 +103,13 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | --- | --- | --- |
 | `agent_tools.enable_recall_tool` | `true` | 注册 `recall_long_term_memory`，允许 Agent 主动检索长期记忆 |
 | `agent_tools.enable_memorize_tool` | `false` | 注册 `memorize_long_term_memory`，允许 Agent 主动写入长期记忆 |
+| `agent_tools.enable_forget_tool` | `false` | 注册 `forget_long_term_memory`；仅管理员可调用，只做可逆归档（软删除），可由管理员从 WebUI 恢复 |
+| `agent_tools.forget_tool_max_memories` | `3` | 遗忘工具单次最多归档的记忆条数（1–10），超出整批拒绝 |
+| `agent_tools.forget_tool_cooldown_seconds` | `60` | 同一会话两次成功归档的最小间隔（0–3600），`0` 表示不限制 |
 
 主动写入工具更强，也更需要模型自律。建议先只开启主动回忆，确认效果稳定后再启用主动写入。
+
+主动遗忘工具默认关闭，开启后也只对管理员生效：模型只能把记忆归档（从检索中移除，documents 记录保留），不会物理删除；管理员可在 Dashboard 记忆页用 `archived` 状态筛选后改回 `active` 恢复。单次调用条数受限，并有按会话的冷却时间。
 
 ## 图记忆与原子化
 

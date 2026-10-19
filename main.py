@@ -29,6 +29,7 @@ from .core.passive_group_capture import set_active_plugin
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import (
     AgenticMemorySearchTool,
+    MemoryForgetTool,
     MemoryMemorizeTool,
     MemoryReadTool,
     MemorySearchTool,
@@ -276,6 +277,14 @@ class LivingMemoryPlugin(Star):
                     config_manager=self.config_manager,
                     memory_engine=self.initializer.memory_engine,
                     memory_processor=self.initializer.memory_processor,
+                )
+            )
+        if self.config_manager.get("agent_tools.enable_forget_tool", False):
+            tools.append(
+                MemoryForgetTool(
+                    context=self.context,
+                    config_manager=self.config_manager,
+                    memory_engine=self.initializer.memory_engine,
                 )
             )
 

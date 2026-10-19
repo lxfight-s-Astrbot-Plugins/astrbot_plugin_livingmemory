@@ -103,8 +103,13 @@ Retained source is written only to the SQLite `memory_sources` table, not to vec
 | --- | --- | --- |
 | `agent_tools.enable_recall_tool` | `true` | Registers `recall_long_term_memory` for active recall |
 | `agent_tools.enable_memorize_tool` | `false` | Registers `memorize_long_term_memory` for active writes |
+| `agent_tools.enable_forget_tool` | `false` | Registers `forget_long_term_memory`; admin-only, archives (soft-deletes) memories reversibly, restorable by an admin from the WebUI |
+| `agent_tools.forget_tool_max_memories` | `3` | Maximum memories a single forget call may archive (1-10); larger requests are rejected entirely |
+| `agent_tools.forget_tool_cooldown_seconds` | `60` | Minimum interval between successful archives in one session (0-3600); `0` disables the limit |
 
 The write tool is powerful and depends on model discipline. Start with active recall, then enable active writes after observing stable behavior.
+
+The forget tool is off by default and only applies to admins when enabled: the model can only archive memories (removed from retrieval, documents retained) and never physically deletes them. An admin can filter by `archived` on the Dashboard memory page and set the status back to `active` to restore. Per-call count and per-session cooldown are enforced.
 
 ## Graph memory and atomization
 

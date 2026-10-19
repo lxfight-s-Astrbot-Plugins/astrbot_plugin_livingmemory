@@ -5,7 +5,7 @@ End-to-end integration tests with real plugin components and real SQLite/FAISS s
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiosqlite
 import pytest
@@ -24,6 +24,9 @@ from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExt
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
     GraphVectorRetriever,
+)
+from astrbot_plugin_livingmemory.core.tools.memory_forget_tool import (
+    MemoryForgetTool,
 )
 from astrbot_plugin_livingmemory.storage.conversation_store import ConversationStore
 from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
@@ -378,6 +381,101 @@ async def test_memory_archive_retains_document_and_restore_rebuilds_real_indexes
         assert vector_db.embedding_storage.index.ntotal == 1
         results = await engine.search_memories("release", k=5)
         assert [result.doc_id for result in results] == [memory_id]
+    finally:
+        await engine.close()
+        await vector_db.close()
+
+
+@pytest.mark.asyncio
+async def test_forget_tool_archives_with_audit_and_restore_round_trip(tmp_path: Path):
+    """#279：管理员遗忘工具只归档（软删除），检索立即排除且可恢复。"""
+    db_path = tmp_path / "forget_tool.db"
+    vector_db = FaissVecDB(
+        doc_store_path=str(db_path),
+        index_store_path=str(tmp_path / "forget_tool.index"),
+        embedding_provider=_DeterministicEmbeddingProvider(dim=24),
+    )
+    await vector_db.initialize()
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=vector_db,
+        config={"graph_memory_enabled": False, "recent_memory_count": 0},
+    )
+    await engine.initialize()
+    session_id = "test:private:forget-tool"
+    memory_id = await engine.add_memory(
+        "forget tool audit verification",
+        session_id,
+        "persona-forget",
+        0.5,
+        {"key_facts": ["forget tool audit verification"]},
+    )
+    override_id = await engine.add_memory(
+        "unrelated override guard memory",
+        session_id,
+        "persona-forget",
+        0.5,
+        {"key_facts": ["unrelated override guard memory"]},
+    )
+
+    event = SimpleNamespace(unified_msg_origin=session_id, is_admin=lambda: True)
+    run_context = SimpleNamespace(context=SimpleNamespace(event=event))
+    tool = MemoryForgetTool(
+        context=Mock(),
+        config_manager=ConfigManager(
+            {
+                "filtering_settings": {"use_persona_filtering": False},
+                "agent_tools": {"forget_tool_cooldown_seconds": 0},
+            }
+        ),
+        memory_engine=engine,
+    )
+
+    def _metadata(document: dict) -> dict:
+        metadata = document["metadata"]
+        return json.loads(metadata) if isinstance(metadata, str) else metadata
+
+    try:
+        result = json.loads(
+            await tool.call(run_context, memory_ids=[memory_id], reason="user asked")
+        )
+        assert result["forgotten"] is True
+        assert result["memory_ids"] == [memory_id]
+        assert result["reversible"] is True
+
+        archived = await engine.get_memory(memory_id)
+        assert archived is not None
+        archived_metadata = _metadata(archived)
+        assert archived_metadata["status"] == "archived"
+        assert archived_metadata["archived_by"] == "llm_tool"
+        assert archived_metadata["archive_reason"] == "user asked"
+        assert archived_metadata["archive_session_id"] == session_id
+        assert archived_metadata["archived_at"] > 0
+
+        # 检索侧冒烟：归档后该记忆不再出现在检索结果中
+        # （向量路线无相似度阈值，故只断言 id 缺席，而不是结果为空）
+        archived_results = await engine.search_memories("forget tool audit", k=5)
+        assert memory_id not in [result.doc_id for result in archived_results]
+
+        # 审计字段不得覆盖 status/archived_at
+        assert (
+            await engine.archive_memories(
+                [override_id],
+                audit={"status": "active", "archived_at": 0, "archived_by": "llm_tool"},
+            )
+            == 1
+        )
+        override_metadata = _metadata(await engine.get_memory(override_id))
+        assert override_metadata["status"] == "archived"
+        assert override_metadata["archived_at"] > 0
+        assert override_metadata["archived_by"] == "llm_tool"
+
+        # 可逆：Dashboard 恢复路径让记忆回到 active 并可再次检索
+        assert await engine.restore_memory(memory_id) is True
+        restored_metadata = _metadata(await engine.get_memory(memory_id))
+        assert restored_metadata["status"] == "active"
+        restored_results = await engine.search_memories("forget tool audit", k=5)
+        assert memory_id in [result.doc_id for result in restored_results]
     finally:
         await engine.close()
         await vector_db.close()

@@ -167,6 +167,18 @@ class AgentToolsConfig(BaseModel):
     enable_memorize_tool: bool = Field(
         default=False, description="是否启用 Agent 主动记忆写入工具"
     )
+    enable_forget_tool: bool = Field(
+        default=False, description="是否启用 Agent 主动遗忘工具（仅管理员，可逆归档）"
+    )
+    forget_tool_max_memories: int = Field(
+        default=3, ge=1, le=10, description="遗忘工具单次最多归档的记忆条数"
+    )
+    forget_tool_cooldown_seconds: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        description="遗忘工具同一会话的冷却秒数，0 表示不限制",
+    )
     agentic_recall_max_calls: int = Field(
         default=4, ge=1, le=20, description="自主回忆单请求最大记忆工具调用次数"
     )

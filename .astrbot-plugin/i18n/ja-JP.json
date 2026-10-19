@@ -273,6 +273,18 @@
         "description": "能動的なメモリ書き込みツールを有効化",
         "hint": "有効にすると memorize_long_term_memory を登録し、Agent が長期記憶を能動的に書き込めるようにします。"
       },
+      "enable_forget_tool": {
+        "description": "能動的な忘却ツールを有効化（管理者）",
+        "hint": "有効にすると forget_long_term_memory を登録します。管理者のみ呼び出せ、メモリをアーカイブ（論理削除）するだけで物理削除は行いません。管理者は WebUI のメモリページで status を active に戻して復元できます。既定では無効です。"
+      },
+      "forget_tool_max_memories": {
+        "description": "忘却ツールの1回あたり最大件数",
+        "hint": "1回のツール呼び出しでアーカイブできる記憶の最大件数。超えるとリクエスト全体が拒否されます。（許容範囲：1–10）"
+      },
+      "forget_tool_cooldown_seconds": {
+        "description": "忘却ツールのクールダウン（秒）",
+        "hint": "同じセッションで成功したアーカイブ間の最小間隔。クールダウン中の呼び出しは拒否されます。0 = 制限なし。（許容範囲：0–3600）"
+      },
       "agentic_recall_max_calls": {
         "description": "エージェント型想起の最大ツール呼び出し回数",
         "hint": "1リクエスト内でメモリ検索／深読みツールが共有する最大呼び出し回数。3-6 が推奨。（許可範囲：1–20）"

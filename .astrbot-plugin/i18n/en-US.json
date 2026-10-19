@@ -273,6 +273,18 @@
         "description": "Enable Active Memory Write Tool",
         "hint": "When enabled, registers memorize_long_term_memory so the Agent can actively write long-term memories."
       },
+      "enable_forget_tool": {
+        "description": "Enable Active Forget Tool (Admin)",
+        "hint": "When enabled, registers forget_long_term_memory. Admin-only; it only archives (soft-deletes) memories, never physically deletes them, and an admin can restore them from the WebUI memory page (set status back to active). Off by default."
+      },
+      "forget_tool_max_memories": {
+        "description": "Forget tool max memories per call",
+        "hint": "Maximum number of memories a single tool call may archive; a larger request is rejected entirely. (Allowed: 1-10)"
+      },
+      "forget_tool_cooldown_seconds": {
+        "description": "Forget tool cooldown (seconds)",
+        "hint": "Minimum interval between two successful archives in the same session; calls during the cooldown are rejected. 0 = disabled. (Allowed: 0-3600)"
+      },
       "agentic_recall_max_calls": {
         "description": "Max agentic recall tool calls",
         "hint": "Shared per-request call budget for the memory search and deep-read tools. Suggested 3-6. (Allowed: 1-20)"
