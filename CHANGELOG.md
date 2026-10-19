@@ -14,6 +14,7 @@
 
 ### 修复
 
+- **FAISS 写路径不再只依赖 monkey-patch (#290)**：新增 `core/utils/faiss_path_bridge.py` 对称 ASCII 兜底（`needs_bridge` / `safe_temp_dir` / `safe_temp_file` / `read_index_safe` / `write_index_safe` / `bridge_installed`）。异步落盘的 `_write_index_atomic` 与索引重建的读写改走显式兜底：非 ASCII 路径下 FAISS 的临时文件只创建在纯 ASCII 目录，再 `os.replace` 原子落回目标（跨卷退回复制 + 删除），因此即使全局 monkey-patch 缺失也不会静默写盘失败。桥接补丁函数带 `__lmem_ascii_bridge__` 标记；`FaissVecDB` 被提前加载导致补丁缺失且处于 Windows 非 ASCII 目录时会一次性告警，并新增补丁安装回归测试与桥接读写测试。
 - **总结窗口不再跨天/跨长空闲合并 (#255)**：总结仍按未总结轮次触发，但窗口会按本地日期变化（`reflection_engine.window_split_by_day`，默认开启）或空闲间隔（`reflection_engine.window_split_gap_minutes`，默认 180 分钟，0 表示禁用）切分，一次只总结最老的连续片段，较新片段留待后续触发，避免一整段跨天对话被合并进同一条记忆、时间与内容互相混淆。消息入库时间改用平台消息时间戳（缺失或明显异常时回退到接收时间），使窗口边界贴近消息实际发生时间。
 - **记忆整合 JSON 解析 (#278)**：先解析原始响应；JSON 修复保留结构空白，只在字符串内转义裸控制字符，避免合法多行 JSON、字符串内括号与逗号被破坏。
 - **总结提示词前缀缓存 (#277)**：默认 system prompt 保持固定，私聊/群聊模板将当前时间和待总结对话移到固定规则、格式和示例之后。相对时间优先按各条消息的发送时间解释。自定义模板仍支持原变量；使用旧自定义模板的用户可在提示词管理页载入默认内容并保存，或自行将动态变量移到末尾。实际缓存命中率取决于 Provider。

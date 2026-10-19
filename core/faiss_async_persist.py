@@ -12,9 +12,9 @@
    写盘期间新的增删要排队，但排队发生在后台协程里，不阻塞事件循环；
 2. 写盘在单线程 executor 中执行 ``faiss.write_index``：流式写盘，不额外占用
    与索引等量的内存；先写同目录临时文件再 ``os.replace`` 原子覆盖，同卷
-   rename 原子，进程中途被杀不会留下写了一半的索引文件。含非 ASCII 字符的
-   Windows 路径由插件已有的 ``faiss.write_index`` monkey-patch 负责桥接
-   （见 core/plugin_initializer_faiss.py）；
+   rename 原子，进程中途被杀不会留下写了一半的索引文件。Windows 非 ASCII
+   路径改经 ``write_index_safe`` 的纯 ASCII 临时文件中转，不再只依赖
+   ``faiss.write_index`` 的全局 monkey-patch（见 core/plugin_initializer_faiss.py，#290）；
 3. 防抖合并：``save_index`` 只标记脏并排一个延迟落盘任务，任务醒来时若已有
    更新的落盘请求（序号守卫）就直接跳过，于是窗口内的多次变更只写盘一次。
 
@@ -37,6 +37,8 @@ from typing import Any
 
 from astrbot.api import logger
 
+from .utils.faiss_path_bridge import needs_bridge, write_index_safe
+
 _PERSISTER_ATTR = "_async_index_persister"
 # 会被变更锁包裹的索引写方法（save_index 单独整体替换）
 _MUTATION_METHODS = ("insert", "insert_batch", "delete")
@@ -47,9 +49,15 @@ DEFAULT_DEBOUNCE_SECONDS = 3.0
 def _write_index_atomic(index: Any, path: str) -> None:
     """把索引原子写入 path（在 executor 线程中执行）。
 
-    同目录临时文件 + os.replace：保证 rename 同卷原子，进程中途被杀
-    也不会留下写了一半的索引文件。
+    纯 ASCII 路径：同目录临时文件 + ``os.replace``，保证 rename 同卷原子，
+    进程中途被杀也不会留下写了一半的索引文件。
+    非 ASCII 路径：交给 ``write_index_safe`` 经纯 ASCII 临时文件桥接，
+    FAISS 临时文件不会创建在非 ASCII 目录，也不再依赖全局 monkey-patch（#290）。
     """
+    if needs_bridge(path):
+        write_index_safe(index, path)
+        return
+
     import faiss
 
     dirname = os.path.dirname(path) or "."

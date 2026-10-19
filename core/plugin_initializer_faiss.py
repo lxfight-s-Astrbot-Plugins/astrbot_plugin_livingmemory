@@ -7,13 +7,27 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from importlib import metadata
 from typing import Any
 
 from astrbot.api import logger
 
 from .base.exceptions import InitializationError
+from .utils.faiss_path_bridge import (
+    bridge_installed,
+    needs_bridge,
+    read_index_safe,
+    safe_temp_dir,
+    safe_temp_file,
+)
+
+# 兼容旧调用点与闭包的私有别名（实现已迁移到 core/utils/faiss_path_bridge.py）
+_needs_bridge = needs_bridge
+_safe_temp_dir = safe_temp_dir
+_make_temp_file = safe_temp_file
+
+# 「FaissVecDB 被提前加载导致桥接补丁缺失」的告警只打一次（#290）
+_bridge_warning_logged = False
 
 # 延迟绑定：此变量在 _load_faiss_vec_db_class() 首次执行前必须保持为 None。
 #
@@ -103,6 +117,7 @@ class InitializerFaissMixin:
     def _load_faiss_vec_db_class(self):
         global FaissVecDB
         if FaissVecDB is not None:
+            _warn_if_ascii_bridge_missing()
             return FaissVecDB
 
         self._check_faiss_runtime()
@@ -156,6 +171,10 @@ class InitializerFaissMixin:
 
             _faiss.read_index = _patched_read_index
             _faiss.write_index = _patched_write_index
+
+            # 桥接标记：bridge_installed() 与回归测试据此判断补丁是否装好（#290）
+            _patched_read_index.__lmem_ascii_bridge__ = True
+            _patched_write_index.__lmem_ascii_bridge__ = True
 
             from astrbot.core.db.vec_db.faiss_impl.vec_db import (
                 FaissVecDB as LoadedFaissVecDB,
@@ -251,26 +270,8 @@ class InitializerFaissMixin:
 
     @staticmethod
     def _faiss_read_index_safe(index_path: str):
-        """通过 ASCII 临时路径桥接 FAISS read_index。
-
-        monkey-patch 已覆盖全局 faiss.read_index，此方法作为显式后备。
-        """
-        if not _needs_bridge(index_path):
-            import faiss
-
-            return faiss.read_index(index_path)
-        tmp = _make_temp_file("_faiss_read")
-        try:
-            shutil.copy2(index_path, tmp)
-            import faiss
-
-            return faiss.read_index(tmp)
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+        """通过 ASCII 临时路径桥接 FAISS read_index（显式后备，不依赖 monkey-patch）。"""
+        return read_index_safe(index_path)
 
 
 _FAISS_GENERIC_FALLBACK_MARKERS = (
@@ -288,34 +289,38 @@ _FAISS_GENERIC_FALLBACK_MARKERS = (
 
 
 # 顶层辅助函数（自 plugin_initializer.py 迁移）
-def _needs_bridge(path: str) -> bool:
-    """判断是否需要 ASCII 临时文件桥接。"""
-    path = os.fspath(path)
-    return os.name == "nt" and not path.isascii()
+def _bridge_env_is_risky() -> bool:
+    """Windows 且用户目录/临时目录含非 ASCII 字符时，缺失桥接补丁值得告警。"""
+    if os.name != "nt":
+        return False
+    candidates = (
+        os.environ.get("USERPROFILE") or os.path.expanduser("~"),
+        os.environ.get("TEMP") or os.environ.get("TMP") or "",
+    )
+    return any(candidate and not candidate.isascii() for candidate in candidates)
 
-def _safe_temp_dir() -> str:
-    """返回保证纯 ASCII 且可写的临时目录。"""
-    if os.name == "nt":
-        root = os.environ.get("SystemRoot", r"C:\Windows")
-        temp_dir = os.path.join(root, "Temp")
-        if (
-            temp_dir.isascii()
-            and os.path.isdir(temp_dir)
-            and os.access(temp_dir, os.W_OK)
-        ):
-            return temp_dir
-        tmp = tempfile.gettempdir()
-        if tmp.isascii():
-            return tmp
-        raise OSError("_safe_temp_dir: 无法找到可写的纯 ASCII 临时目录")
-    return tempfile.gettempdir()
 
-def _make_temp_file(prefix: str) -> str:
-    """创建 Faiss 桥接临时文件，返回纯 ASCII 路径。"""
-    safe_dir = _safe_temp_dir()
-    fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=".faiss", dir=safe_dir)
-    os.close(fd)
-    return path
+def _warn_if_ascii_bridge_missing() -> None:
+    """已加载过 ``FaissVecDB``（提前短路）时，一次性检查桥接补丁是否缺失（#290）。
+
+    补丁只在 ``_load_faiss_vec_db_class`` 首次执行时安装。若其他代码先加载了
+    FaissVecDB 或本模块被重新导入，读路径的全局兜底会缺失；写路径仍有
+    ``write_index_safe`` 显式兜底，但不应静默，因此这里告警一次。异常安全且开销极低。
+    """
+    global _bridge_warning_logged
+    if _bridge_warning_logged:
+        return
+    try:
+        if not _bridge_env_is_risky() or bridge_installed():
+            return
+    except Exception:
+        return
+    _bridge_warning_logged = True
+    logger.warning(
+        "FAISS 非 ASCII 路径桥接补丁未安装（FaissVecDB 已被提前加载）："
+        "faiss.read_index 缺少全局兜底；写路径将使用显式 ASCII 兜底（#290）。"
+    )
+
 
 def _sanitize_path(path: str) -> str:
     """脱敏路径：非 ASCII 部分替换为 [***]，避免日志泄露中文用户名。"""

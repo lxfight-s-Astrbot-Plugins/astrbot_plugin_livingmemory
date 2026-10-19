@@ -16,6 +16,31 @@ from astrbot_plugin_livingmemory.core.faiss_async_persist import (
     get_async_persister,
     install_async_persist,
 )
+from astrbot_plugin_livingmemory.core.utils import faiss_path_bridge
+
+
+class _AsciiOnlyFaissIO:
+    """模拟 Windows FAISS：非 ASCII 路径 I/O 直接失败（#290 复现条件）。"""
+
+    def __init__(self, monkeypatch):
+        self._real_read = faiss.read_index
+        self._real_write = faiss.write_index
+        self.write_paths: list[str] = []
+        monkeypatch.setattr(faiss, "read_index", self._read)
+        monkeypatch.setattr(faiss, "write_index", self._write)
+
+    def _read(self, path, *args, **kwargs):
+        path_str = os.fspath(path)
+        if not path_str.isascii():
+            raise RuntimeError(f"could not open {path_str} for reading")
+        return self._real_read(path_str, *args, **kwargs)
+
+    def _write(self, index, path, *args, **kwargs):
+        path_str = os.fspath(path)
+        self.write_paths.append(path_str)
+        if not path_str.isascii():
+            raise RuntimeError(f"could not open {path_str} for writing")
+        return self._real_write(index, path_str, *args, **kwargs)
 
 
 class _DummyEmbeddingStorage:
@@ -255,6 +280,26 @@ def test_install_skips_storage_without_path(tmp_path):
         index = None
 
     assert install_async_persist(_MemoryOnlyStorage(), 1.0) is None
+
+
+def test_write_index_atomic_bridges_non_ascii_path_without_monkey_patch(
+    tmp_path, monkeypatch
+):
+    """#290：非 ASCII 路径落盘走显式 ASCII 兜底，不依赖全局 monkey-patch。"""
+    storage = _make_storage(tmp_path)
+    _add_vectors(storage, 0, 5)
+    target = str(tmp_path / "中文目录" / "index.faiss")
+    fake = _AsciiOnlyFaissIO(monkeypatch)
+    # 跨平台强制桥接分支：真实 needs_bridge 仅在 Windows + 非 ASCII 时为 True
+    monkeypatch.setattr(faiss_async_persist, "needs_bridge", lambda _path: True)
+    monkeypatch.setattr(faiss_path_bridge, "needs_bridge", lambda _path: True)
+
+    faiss_async_persist._write_index_atomic(storage.index, target)
+
+    assert Path(target).exists()
+    assert fake.write_paths and all(path.isascii() for path in fake.write_paths)
+    loaded = faiss_path_bridge.read_index_safe(target)
+    assert loaded.ntotal == storage.index.ntotal
 
 
 @pytest.mark.asyncio

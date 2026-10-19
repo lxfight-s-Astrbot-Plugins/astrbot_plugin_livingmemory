@@ -151,6 +151,32 @@ def test_load_faiss_vec_db_class_uses_patched_class(monkeypatch, initializer):
     assert initializer._load_faiss_vec_db_class() is FakeFaissVecDB
 
 
+def test_load_faiss_vec_db_class_installs_ascii_bridge_markers(
+    monkeypatch, initializer
+):
+    """#290 回归：真实加载路径必须给 faiss.read_index/write_index 打桥接标记。"""
+    import faiss
+
+    from astrbot_plugin_livingmemory.core.utils.faiss_path_bridge import (
+        bridge_installed,
+    )
+
+    # 先注册原函数：加载路径会替换它们，monkeypatch 负责测试结束后恢复
+    monkeypatch.setattr(faiss, "read_index", faiss.read_index)
+    monkeypatch.setattr(faiss, "write_index", faiss.write_index)
+    monkeypatch.setattr(faiss_mod, "FaissVecDB", None)
+    monkeypatch.setattr(
+        faiss_mod.InitializerFaissMixin, "_check_faiss_runtime", lambda self: None
+    )
+
+    loaded = initializer._load_faiss_vec_db_class()
+
+    assert loaded is faiss_mod.FaissVecDB
+    assert getattr(faiss.read_index, "__lmem_ascii_bridge__", False) is True
+    assert getattr(faiss.write_index, "__lmem_ascii_bridge__", False) is True
+    assert bridge_installed() is True
+
+
 @pytest.mark.asyncio
 async def test_startup_index_rebuild_runs_in_background(initializer):
     rebuild_started = asyncio.Event()
