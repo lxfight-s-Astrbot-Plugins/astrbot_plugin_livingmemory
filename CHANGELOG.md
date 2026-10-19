@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **可选流式 LLM 调用 (#265)**：新增 `provider_settings.llm_stream_mode`（`auto`/`always`/`never`，默认 `auto`）。仅接受 `stream=true` 的模型服务现在可以正常用于记忆处理：`auto` 模式优先非流式，捕获到“不支持非流式请求”错误后自动改用 AstrBot 官方 Provider 流式接口，并在后续调用中记住该 Provider；流式中断、超时或缺少完整响应时按失败处理，不会把不完整结果写入记忆。`never` 保持原有非流式行为。
+
 ### 修复
 
 - **记忆整合 JSON 解析 (#278)**：先解析原始响应；JSON 修复保留结构空白，只在字符串内转义裸控制字符，避免合法多行 JSON、字符串内括号与逗号被破坏。

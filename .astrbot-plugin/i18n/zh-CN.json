@@ -45,6 +45,15 @@
       "llm_provider_id": {
         "description": "LLM 模型 ID",
         "hint": "用于总结对话、评估记忆重要性的大语言模型 ID。留空使用 AstrBot 默认。推荐使用推理能力较强的模型。"
+      },
+      "llm_stream_mode": {
+        "description": "使用流式调用",
+        "hint": "记忆处理调用 LLM 的方式。auto（默认）：优先非流式，遇到“模型不支持非流式请求”错误时自动改用流式；always：始终流式（适用于仅接受 stream=true 的服务）；never：始终非流式（旧行为）。",
+        "labels": [
+          "自动（推荐）",
+          "始终流式",
+          "始终非流式"
+        ]
       }
     },
     "session_manager": {

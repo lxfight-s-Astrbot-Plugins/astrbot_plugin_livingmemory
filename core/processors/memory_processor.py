@@ -43,6 +43,8 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         self.context = context
         self._llm_provider = llm_provider
         self.config = config or {}
+        # 记录已确认只接受流式请求的 Provider ID，auto 模式后续直接走流式
+        self._stream_only_providers: set[str] = set()
 
         # 加载提示词模板
         self._load_prompts()
@@ -285,6 +287,10 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         """
         带指数退避的 LLM 调用
 
+        按配置 `llm_stream_mode` 选择调用方式（issue #265）：
+        `never` 始终非流式（旧行为），`always` 始终流式，`auto` 优先非流式，
+        遇到"不支持非流式请求"错误时自动改用流式并记住该 Provider。
+
         Args:
             prompt: 提示词
             system_prompt: 系统提示词
@@ -292,17 +298,64 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
 
         Returns:
             LLM 响应文本
+
+        Raises:
+            RuntimeError: Provider 不可用，或流式调用未返回完整结果
         """
+        # 未知取值（含配置缺失）安全回退为 auto
+        stream_mode = self.config.get("llm_stream_mode", "auto")
+        if stream_mode not in ("auto", "always", "never"):
+            stream_mode = "auto"
+
         last_error = None
         for attempt in range(max_retries):
             try:
                 provider = self._get_current_llm_provider()
                 if not provider:
                     raise RuntimeError("LLM Provider 不可用")
-                response = await provider.text_chat(
-                    prompt=prompt, system_prompt=system_prompt
+
+                # 用 Provider ID 记住只接受流式的 Provider
+                provider_config = getattr(provider, "provider_config", None)
+                provider_key = (
+                    str(provider_config.get("id", "default"))
+                    if isinstance(provider_config, dict)
+                    else str(id(provider))
                 )
-                return response.completion_text
+                use_stream = stream_mode == "always" or (
+                    stream_mode == "auto"
+                    and provider_key in self._stream_only_providers
+                )
+                if not use_stream:
+                    try:
+                        response = await provider.text_chat(
+                            prompt=prompt, system_prompt=system_prompt
+                        )
+                        return response.completion_text
+                    except Exception as e:
+                        # 仅当错误明确表示"不支持非流式"时才降级到流式
+                        message = str(e).lower()
+                        if stream_mode != "auto" or (
+                            "non-stream" not in message and "non_stream" not in message
+                        ):
+                            raise
+                        self._stream_only_providers.add(provider_key)
+                        logger.warning(
+                            "[MemoryProcessor] Provider 不支持非流式请求，"
+                            f"本次自动改用流式调用: {e}"
+                        )
+
+                # 流式接口逐块返回 is_chunk=True 的增量，最后返回一次
+                # is_chunk=False 的完整响应；只有完整响应才可作为结果。
+                # 中断、超时或缺少完整响应时按失败处理，避免写入不完整记忆。
+                completion_text = None
+                async for chunk in provider.text_chat_stream(
+                    prompt=prompt, system_prompt=system_prompt
+                ):
+                    if not getattr(chunk, "is_chunk", True) and chunk.completion_text:
+                        completion_text = chunk.completion_text
+                if not completion_text:
+                    raise RuntimeError("流式调用未返回完整响应，已按失败处理")
+                return completion_text
             except Exception as e:
                 last_error = e
                 if attempt == max_retries - 1:
