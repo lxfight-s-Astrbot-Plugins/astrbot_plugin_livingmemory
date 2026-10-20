@@ -69,7 +69,7 @@ Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus
 | Aging risk | Low-importance relationships that have not been accessed for a long time |
 
 ::: tip
-The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). Click the **Full Graph** button to load every node and relation.
+The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). Click the **Full Graph** button to load every node and relation. The full graph still obeys server-side caps; when truncated, the legend reports **Nodes visible / total** instead of contradicting the counters above.
 :::
 
 In 2.7.0-beta.1, zoomed reading, hover and node selection pause ambient movement and stabilize label priority and collision bounds. Settled reading stops idle drawing; overview motion resumes when zoomed out with no hover or selection. Lower-priority labels may be omitted when space is limited; select a node to read its full details.

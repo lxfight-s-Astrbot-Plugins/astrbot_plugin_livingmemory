@@ -469,12 +469,14 @@
     var keys = Object.keys(groups);
     if (keys.length < 2) return;
 
-    var palette = ["#78a94b", "#2a9e96", "#df6d62", "#c58c2a", "#74868a", "#6684b8"];
+    /* 社区边界只表达"这些节点聚在一起"：中性描边避免与节点类型色撞车，
+       C/xx 编号没有图例解释，连同计数一起去掉。 */
+    var color = themeColor("--border-normal", "#adc3b9");
     var ctx = this.ctx;
     var cacheEntries = idle ? [] : null;
     ctx.save();
     ctx.setLineDash([5, 8]);
-    keys.forEach(function(key, index) {
+    keys.forEach(function(key) {
       var points = groups[key];
       if (points.length < 2) return;
       var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -486,26 +488,15 @@
       var cy = (minY + maxY) / 2;
       var rx = Math.max(36, (maxX - minX) / 2 + 28);
       var ry = Math.max(28, (maxY - minY) / 2 + 24);
-      var color = palette[index % palette.length];
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(color, dark ? 0.04 : 0.045);
-      ctx.strokeStyle = hexToRgba(color, dark ? 0.24 : 0.25);
+      ctx.fillStyle = hexToRgba(color, 0.05);
+      ctx.strokeStyle = hexToRgba(color, dark ? 0.5 : 0.55);
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = hexToRgba(color, dark ? 0.72 : 0.9);
-      ctx.font = "600 9px 'SFMono-Regular', Consolas, monospace";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      ctx.fillText("C/" + String(index + 1).padStart(2, "0") + " · " + points.length, cx - rx + 12, cy - ry + 10);
-      ctx.setLineDash([5, 8]);
       if (cacheEntries) {
-        cacheEntries.push({
-          cx: cx, cy: cy, rx: rx, ry: ry, color: color,
-          count: points.length, index: index + 1, dark: dark,
-        });
+        cacheEntries.push({ cx: cx, cy: cy, rx: rx, ry: ry, color: color });
       }
     });
     ctx.restore();
@@ -524,18 +515,11 @@
       var e = this._communityCache[i];
       ctx.beginPath();
       ctx.ellipse(e.cx, e.cy, e.rx, e.ry, 0, 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(e.color, dark ? 0.04 : 0.045);
-      ctx.strokeStyle = hexToRgba(e.color, dark ? 0.24 : 0.25);
+      ctx.fillStyle = hexToRgba(e.color, 0.05);
+      ctx.strokeStyle = hexToRgba(e.color, dark ? 0.5 : 0.55);
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = hexToRgba(e.color, dark ? 0.72 : 0.9);
-      ctx.font = "600 9px 'SFMono-Regular', Consolas, monospace";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      ctx.fillText("C/" + String(e.index).padStart(2, "0") + " · " + e.count, e.cx - e.rx + 12, e.cy - e.ry + 10);
-      ctx.setLineDash([5, 8]);
     }
     ctx.restore();
   };
@@ -711,7 +695,7 @@
     var labelHeight = fontSize + 4;
     var metaFs = Math.round(clamp(CFG.NODE_META_SIZE * scale, 8, 12));
     var metaY = y + fontSize / 2 + 3;
-    var meta = dn.memoryCount + "M / " + dn.degree + " links";
+    var meta = window.t("graph.nodeMeta", dn.memoryCount, dn.degree);
     var hasMeta = dn.isHovered || dn.isSelected;
     var boxWidth = labelWidth;
     if (hasMeta) {

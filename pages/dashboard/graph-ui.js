@@ -138,7 +138,6 @@
         },
       });
       state.isGraphReady = true;
-      setCanvasMessage(window.t("graph.canvasDefault"), false);
     } else {
       setCanvasMessage(window.t("graph2d.moduleFail"), false);
     }
@@ -147,9 +146,6 @@
       initLabels();
       setOverviewButtonLabel();
       if (state.payload) renderLegend(state.payload);
-      if (!state.payload && dom.canvasState && dom.canvasState.textContent) {
-        setCanvasMessage(window.t("graph.canvasDefault"), false);
-      }
     });
 
     /* app.js starts loading after the host Bridge reports ready. */
@@ -289,7 +285,7 @@
     state.graphIndex = buildGraphIndex(payload.snapshot || {});
 
     if (!payload.enabled) {
-      setCanvasMessage(window.t("graph.disabledCanvas"), false);
+      setCanvasMessage(window.t("graph.disabledMsg"), false);
       renderLegend(payload);
       return;
     }
@@ -467,8 +463,9 @@
     if (!dom.legend) return;
     var summary = payload.summary || {};
     var nodeTypes = summary.node_type_breakdown || {};
-    var relTypes = summary.relation_breakdown || {};
 
+    /* 图例只解释画布上真实存在的编码：节点颜色。关系 chip 既没有色点，
+       也与画布上的边色无关，还用的是未本地化的枚举名。 */
     var chips = Object.entries(nodeTypes).sort(function(a, b) { return b[1] - a[1]; })
       .map(function(e) {
         return '<span class="legend-chip"><span class="dot" style="background:' +
@@ -476,12 +473,14 @@
           typeLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
       });
 
-    var rchips = Object.entries(relTypes).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 4)
-      .map(function(e) {
-        return '<span class="legend-chip">' + relationLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
-      });
+    /* 服务端对全量图有硬上限；被截断时明说，否则与左上角总数互相矛盾。 */
+    var visibleNodes = Number(summary.visible_node_count || 0);
+    var totalNodes = Number(summary.graph_node_count || 0);
+    if (totalNodes > visibleNodes && visibleNodes > 0) {
+      chips.push('<span class="legend-chip">' + window.t("graph.visibleNodes", visibleNodes, totalNodes) + '</span>');
+    }
 
-    dom.legend.innerHTML = chips.concat(rchips).join("") ||
+    dom.legend.innerHTML = chips.join("") ||
       '<span class="legend-chip">' + window.t("graph.legendEmpty") + '</span>';
   }
 
@@ -553,7 +552,6 @@
      Labels
      ================================================================ */
   function typeLabel(t) { return NODE_TYPE_LABELS[t] || t || window.t("graph.nodeUnknown"); }
-  function relationLabel(t) { return String(t || "related").replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); }); }
 
   document.addEventListener("DOMContentLoaded", init);
 })();

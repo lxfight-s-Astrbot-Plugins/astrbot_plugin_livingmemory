@@ -1048,13 +1048,16 @@ body {
 }
 
 
-.peek-node-badge.topic { background: rgba(121,80,242,0.12); color: var(--node-topic); }
+.peek-node-badge.topic { background: var(--bg-hover); color: var(--node-topic); }
 
-.peek-node-badge.person { background: rgba(32,201,151,0.12); color: var(--node-person); }
+.peek-node-badge.person { background: var(--bg-hover); color: var(--node-person); }
 
-.peek-node-badge.fact { background: rgba(252,196,25,0.15); color: #946500; }
+.peek-node-badge.fact { background: var(--bg-hover); color: var(--node-fact); }
 
-.peek-node-badge.summary { background: rgba(240,101,149,0.12); color: var(--node-summary); }
+.peek-node-badge.summary { background: var(--bg-hover); color: var(--node-summary); }
+
+.peek-node-badge.other,
+.peek-node-badge.unknown { background: var(--bg-hover); color: var(--node-other); }
 
 
 /* Peek key facts */

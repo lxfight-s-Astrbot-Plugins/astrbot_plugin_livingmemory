@@ -432,6 +432,12 @@
     var self = this;
     /* 记住本次布局结果（受限/全量切换时直接复用，免重新布局）。 */
     this._rememberLayout();
+    /* Worker 路径的社区编号只在 layout.communities 上，主线程节点对象没有；
+       不回填的话社区椭圆只会在 Worker 不可用的内联路径下出现。 */
+    var communities = this._layout.communities || {};
+    this._nodes.forEach(function(node) {
+      if (communities[node.id] != null) node.community = communities[node.id];
+    });
     this.renderer.prepareGraph(this._nodes, this._edges, this._layout);
     this.fitViewport({ centerId: centerId });
     this._animProgress = (immediate || this._instantLayout) ? 1 : 0;
