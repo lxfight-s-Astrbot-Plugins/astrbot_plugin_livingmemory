@@ -72,7 +72,8 @@
           <header class="page-header">
             <div class="page-heading"><span class="page-index">01</span><span class="page-title" data-i18n="nav.graph">Knowledge Graph</span></div>
             <div class="page-actions">
-              <input type="text" id="graph-session-filter" data-i18n-aria="graph.sessionPh" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
+              <input type="text" id="graph-session-filter" list="graph-session-options" data-i18n-aria="graph.sessionPh" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
+              <datalist id="graph-session-options"></datalist>
               <button class="btn btn-secondary btn-sm" id="graph-overview-btn" data-i18n-aria="graph.overviewBtn">
                 <i data-lucide="layout-dashboard" aria-hidden="true"></i>
                 <span data-i18n="graph.overviewBtn">Overview</span>
@@ -98,13 +99,6 @@
                 <button class="btn btn-primary btn-sm" id="graph-search-btn">
                   <i data-lucide="search" aria-hidden="true"></i>
                   <span data-i18n="graph.searchBtn">Search</span>
-                </button>
-              </div>
-              <div class="graph-operation">
-                <input type="text" id="graph-memory-id" data-i18n-aria="graph.memoryIdPh" class="input input-sm" data-i18n-placeholder="graph.memoryIdPh" placeholder="Memory ID" style="width:120px" />
-                <button class="btn btn-secondary btn-sm" id="graph-focus-btn">
-                  <i data-lucide="focus" aria-hidden="true"></i>
-                  <span data-i18n="graph.focusBtn">Focus</span>
                 </button>
               </div>
             </div>

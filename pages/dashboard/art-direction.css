@@ -1039,8 +1039,7 @@ input[type="range"] {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  #graph-query-input,
-  #graph-memory-id {
+  #graph-query-input {
     grid-column: 1 / -1;
     width: 100% !important;
   }

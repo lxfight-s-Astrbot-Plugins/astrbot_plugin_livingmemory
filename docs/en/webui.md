@@ -57,7 +57,7 @@ Prompt overrides live in the plugin data directory and do not modify repository 
 
 Memory and prompt editors ask how to handle unsaved changes before closing, cancelling or switching pages. **Keep editing** retains the draft; **Discard changes** exits. **Load default content** only fills the prompt editor until Save is clicked. The editor cannot switch to a different prompt while saving.
 
-Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus the per-route scores of the retrieval routes that actually matched (document keyword, document vector, graph keyword, graph vector), so you can tell which path recalled a memory. The result header echoes the `k` and session filter that produced it. A new request clears previous results and displays failures explicitly, so old cards cannot be mistaken for the new query's output. Graph search and memory-ID inputs sit beside their corresponding actions, and session scope remains available on mobile.
+Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus the per-route scores of the retrieval routes that actually matched (document keyword, document vector, graph keyword, graph vector), so you can tell which path recalled a memory. The result header echoes the `k` and session filter that produced it. A new request clears previous results and displays failures explicitly, so old cards cannot be mistaken for the new query's output. The graph toolbar pairs the search box with its action; the session scope input offers suggestions from the current session statistics and applies on Enter or by pressing **Full Graph** again. Both work on mobile.
 
 ## What the graph view is good for
 
@@ -73,6 +73,8 @@ The graph page shows a constrained subgraph of recent memories by default (node/
 :::
 
 In 2.7.0-beta.1, zoomed reading, hover and node selection pause ambient movement and stabilize label priority and collision bounds. Settled reading stops idle drawing; overview motion resumes when zoomed out with no hover or selection. Lower-priority labels may be omitted when space is limited; select a node to read its full details.
+
+Selecting a node lists the memories it connects to, and any of them opens its memory detail directly. Node details on the graph page are not modal, so you can select several nodes in a row to compare them. The reverse path exists too: the **Knowledge Graph Context** section of a memory detail offers **Locate in graph**, which switches to the graph page and focuses that memory's subgraph without typing an ID.
 
 ::: tip
 Dashboard operations reuse the plugin runtime MemoryEngine and GraphStore, so they do not bypass backend data safety logic.

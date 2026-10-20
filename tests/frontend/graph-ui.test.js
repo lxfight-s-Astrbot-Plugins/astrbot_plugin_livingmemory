@@ -39,6 +39,7 @@ class FakeElement {
 
 function loadGraphUi(withGraph2D) {
   const calls = [];
+  const posts = [];
   const elements = {};
   const docListeners = {};
   const g2dCalls = [];
@@ -47,6 +48,13 @@ function loadGraphUi(withGraph2D) {
   global.window = {
     t: (key) => key,
     AstrBotPluginPage: {
+      async apiPost(path, body) {
+        posts.push({ path, body: body || {} });
+        return {
+          status: "ok",
+          data: { enabled: true, mode: "focus", summary: {}, snapshot: { nodes: [], edges: [] } },
+        };
+      },
       async apiGet(path, params) {
         calls.push({ path, params: params || {} });
         return {
@@ -88,7 +96,7 @@ function loadGraphUi(withGraph2D) {
 
   /* 手动触发 DOMContentLoaded，让 graph-ui init() 挂载事件监听。 */
   if (lastHandler) lastHandler();
-  return { calls, elements, g2dCalls };
+  return { calls, posts, elements, g2dCalls };
 }
 
 async function flushMicrotasks() {
@@ -162,4 +170,17 @@ test("empty snapshot shows empty message instead of layout message", async () =>
   /* 空图布局完成也不应清掉空提示 */
   g2dCalls[0].options.onLayoutDone();
   assert.equal(stateEl.textContent, "graph.canvasEmpty");
+});
+
+test("focusing a memory from another page switches pages and queries by id", async () => {
+  const { posts } = loadGraphUi();
+  const switched = [];
+  window.lmSwitchPage = async name => { switched.push(name); };
+
+  await window.lmFocusMemoryOnGraph("77");
+
+  assert.deepEqual(switched, ["graph"], "应先切到图谱页再定位");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].path, "page/graph/query");
+  assert.equal(posts[0].body.memory_id, 77, "记忆 ID 由调用方传入，不需要手输");
 });
