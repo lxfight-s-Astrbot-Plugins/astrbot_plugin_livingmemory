@@ -35,7 +35,7 @@ Document memories and graph memories are searched through two routes:
 | Document route | `BM25Retriever` | `VectorRetriever` |
 | Graph route | `GraphKeywordRetriever` | `GraphVectorRetriever` |
 
-Each route uses `RRFFusion` followed by importance and time weighting. Document and graph results are combined using normalized route weights. BM25 applies scope and status filters before limiting candidates. Vector retrieval expands candidates adaptively up to a limit of 8192.
+Each route fuses by normalized scores by default: BM25 and vector results are min-max normalized per query and combined with `fusion_bm25_weight` (`fusion_mode=score`; set it to `rrf` for the legacy rank fusion), and each route retrieves `k * recall_candidate_multiplier` candidates before fusion instead of re-ranking only `k`. Document and graph results are combined using normalized route weights. BM25 applies scope and status filters before limiting candidates. Vector retrieval expands candidates adaptively up to a limit of 8192.
 
 Routes have independent timeouts and failure handling. A dual-route request shares its query embedding when both stores use the same provider, and graph-only results load their source documents in a batch. With asynchronous persistence enabled, FAISS searches run in a worker thread and exclude index mutations.
 

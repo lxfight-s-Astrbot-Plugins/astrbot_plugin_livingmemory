@@ -55,6 +55,9 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.rerank_enabled` | `false` | Reranks fused candidates by query relevance with a Rerank model |
 | `recall_engine.rerank_provider_id` | `""` | ID of a Rerank-type provider in AstrBot; leave empty to skip |
 | `recall_engine.rerank_candidates` | `20` | Fused candidates sent to the Rerank model (2-100); top_k kept after reranking |
+| `recall_engine.fusion_mode` | `score` | Fusion strategy: `score` fuses normalized scores, `rrf` keeps the legacy rank fusion |
+| `recall_engine.fusion_bm25_weight` | `0.5` | BM25 route weight for `score` fusion (0-1); the vector route gets `1 - value` |
+| `recall_engine.recall_candidate_multiplier` | `3` | Per-route candidate count as a multiple of `k` before fusion (1-10) |
 | `recall_engine.injection_method` | `extra_user_content` | Memory injection mode (the only supported add-only temporary-part injection) |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |

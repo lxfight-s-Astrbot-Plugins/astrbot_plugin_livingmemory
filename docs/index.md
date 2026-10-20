@@ -22,7 +22,7 @@ features:
   - title: 主动回忆与写入
     details: 为 Agent 注册 recall_long_term_memory 与 memorize_long_term_memory 工具。
   - title: 双路四模式检索
-    details: 文档路和图谱路同时使用关键词与向量检索，再用 RRF 融合排序。
+    details: 文档路和图谱路同时使用关键词与向量检索，再按归一化分数加权融合排序。
   - title: 时间感知生命周期
     details: 记忆原子拥有 TTL、衰减、访问强化和自动清理机制。
   - title: 四种风格的管理界面

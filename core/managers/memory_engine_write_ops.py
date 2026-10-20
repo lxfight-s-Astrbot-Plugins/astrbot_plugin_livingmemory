@@ -179,6 +179,9 @@ class MemoryEngineWriteOpsMixin:
             str(self.config.get("memory_type_filter", "all")),
             bool(self.config.get("rerank_enabled", False)),
             int(self.config.get("rerank_candidates", 20)),
+            str(self.config.get("fusion_mode", "score")),
+            round(float(self.config.get("fusion_bm25_weight", 0.5)), 4),
+            int(self.config.get("recall_candidate_multiplier", 3)),
         )
 
     def _filter_by_retrieval_policy(

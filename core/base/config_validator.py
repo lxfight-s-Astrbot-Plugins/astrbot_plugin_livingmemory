@@ -120,6 +120,16 @@ class RecallEngineConfig(BaseModel):
     search_cache_max_size: int = Field(
         default=256, ge=0, le=10000, description="检索缓存最大条目数"
     )
+    fusion_mode: str = Field(
+        default="score",
+        description="结果融合策略：score=分数归一化加权融合，rrf=排名级 RRF",
+    )
+    fusion_bm25_weight: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="分数融合时 BM25 路的权重"
+    )
+    recall_candidate_multiplier: int = Field(
+        default=3, ge=1, le=10, description="每路召回候选数相对 k 的倍数"
+    )
 
 
 class FusionStrategyConfig(BaseModel):

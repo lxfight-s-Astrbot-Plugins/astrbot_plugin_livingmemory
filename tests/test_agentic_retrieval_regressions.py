@@ -353,7 +353,8 @@ async def test_old_strong_match_is_not_truncated_before_beta_sort(engine):
     dual.graph_retriever.search = AsyncMock(return_value=[])
     engine.atom_retriever = None
     legacy = await dual.search("agreement", k=3, session_id=SCOPE)
-    assert ids[0] not in [item.doc_id for item in legacy]
+    # 分数级融合下旧的强匹配不再被时效项挤出候选
+    assert ids[0] in [item.doc_id for item in legacy]
     beta = await engine.search_memories_agentic(
         query="agreement", k=1, session_id=SCOPE
     )
