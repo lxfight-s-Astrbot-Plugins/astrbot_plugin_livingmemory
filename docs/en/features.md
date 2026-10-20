@@ -50,6 +50,19 @@ Ranking combines:
 | Recent-memory reserve | Dedicated slots keep recent in-scope memories from being displaced by similarity ranking alone |
 | Recent context | Recall can include recent conversation within a configured age limit to reduce topic drift |
 
+### Opt-in agentic recall (beta)
+
+`agent_tools.enable_agentic_recall_beta` (off by default; requires `agent_tools.enable_recall_tool`) extends active recall into a multi-turn loop within one request:
+
+| Capability | Behavior |
+| --- | --- |
+| People-centric search | `target="current_speaker"` searches the current speaker's experiences; `start_time`/`end_time` filter by event time; `exclude_ids` and `search_offset` support cursored paging |
+| Evidence reading | `read_memory_evidence` returns a memory's active facts and, when the whole source is verifiably visible to the session, its retained text; facts and source are cursor-addressable so a truncated read resumes exactly |
+| Shared budget | Tool calls, cumulative tool time and per-call output share one per-request budget; when it is spent the model answers from the evidence it already gathered |
+| Add-only rules | The recall rule prompt is injected as a temporary part, never into conversation history or the plugin's message store |
+
+With the switch off, tool registration, retrieval and prompts are identical to the default behavior.
+
 ## Who can access which memories?
 
 The same boundaries apply to both memory writes and recall:

@@ -110,10 +110,16 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `agent_tools.enable_forget_tool` | `false` | 注册 `forget_long_term_memory`；仅管理员可调用，只做可逆归档（软删除），可由管理员从 WebUI 恢复 |
 | `agent_tools.forget_tool_max_memories` | `3` | 遗忘工具单次最多归档的记忆条数（1–10），超出整批拒绝 |
 | `agent_tools.forget_tool_cooldown_seconds` | `60` | 同一会话两次成功归档的最小间隔（0–3600），`0` 表示不限制 |
+| `agent_tools.enable_agentic_recall_beta` | `false` | 启用自主多轮回忆（Beta），需同时开启 `enable_recall_tool` |
+| `agent_tools.agentic_recall_max_calls` | `4` | 单次请求内记忆搜索/深读工具共享的最大调用次数（1–20） |
+| `agent_tools.agentic_recall_time_budget_seconds` | `20` | 单次请求内记忆工具累计可工作秒数（1–300） |
+| `agent_tools.agentic_recall_max_result_chars` | `12000` | Beta 记忆工具单次返回的最大字符数（500–100000），超出部分可按游标续读 |
 
 主动写入工具更强，也更需要模型自律。建议先只开启主动回忆，确认效果稳定后再启用主动写入。
 
 主动遗忘工具默认关闭，开启后也只对管理员生效：模型只能把记忆归档（从检索中移除，documents 记录保留），不会物理删除；管理员可在 Dashboard 记忆页用 `archived` 状态筛选后改回 `active` 恢复。单次调用条数受限，并有按会话的冷却时间。
+
+自主回忆为 Beta 功能，默认关闭。开启后 `recall_long_term_memory` 支持按当前发言人检索、事件时间范围过滤、排除已看候选与游标分页，并注册 `read_memory_evidence`，按记忆 ID 读取有效事实与（可验证时）保留原文。工具调用次数、累计耗时与单次返回长度共享单次请求预算；回忆规则以临时片段追加注入。开关与三项预算始终显示在设置页，保存并成功重载插件后对新请求生效。
 
 ## 图记忆与原子化
 

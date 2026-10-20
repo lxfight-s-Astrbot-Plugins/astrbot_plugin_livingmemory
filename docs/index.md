@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.7.0-beta.1 测试版
+      text: 2.7.0-beta.3 测试版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -33,9 +33,9 @@ features:
 
 <img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
 
-## 2.7.0-beta.1 正在测试
+## 2.7.0-beta.3 正在测试
 
-本次汇总 2.6.1 之后的全部合并改动，包含召回与索引恢复修复、四种主题、图谱标签稳定性和管理流程优化。[版本与升级](/releases)提供完整 PR 与作者名单、测试版下载、安装和回退步骤。稳定版仍为 2.6.1。
+本次测试版为管理面板补充记忆来源与可解释的召回测试，召回改为分数级加权融合并补充中文字符二元组，同时提供默认关闭的自主回忆 Beta。[版本与升级](/releases)提供 PR 列表、下载与升级步骤。稳定版仍为 2.6.1。
 
 ## 这份文档适合谁？
 

@@ -2,47 +2,70 @@
 
 ## 2.7.0-beta.3 · October 20, 2026
 
-This prerelease rebuilds the dashboard from "you can see it" to "you can judge it", and lifts recall quality at the same time. No new dependencies and no change to default runtime behaviour; stay on 2.6.1 for the stable channel.
+Pre-release of the 2.7 series. This build covers two areas: the dashboard now reports where memories come from and why a recall result surfaced, and the recall pipeline fuses text routes by normalized score, searches wider candidate pools and indexes CJK character bigrams in BM25. An opt-in agentic recall beta is also available. There are no new runtime dependencies and no mandatory migration steps; the stable channel remains 2.6.1.
 
 [Download 2.7.0-beta.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.3)
 
 ### What changed
 
 **Dashboard**
-- Every memory now names its writer (Agent-written, imported, re-summarized, or auto) and flags summaries whose quality looks low, so what the bot recorded on its own is finally distinguishable.
-- The recall test page explains itself: each result lists which retrieval routes matched it (document keyword, document vector, graph keyword, graph vector), and the header echoes the `k` and session filter used.
-- Graph and memory list are now connected both ways: a node lists its related memories and opens them, and a memory offers **Locate in graph** instead of asking for a memory ID. Node details on the graph page are no longer modal, so several nodes can be compared in a row.
-- Failures on the system and prompt pages stay on the page with a retry instead of vanishing with a two-second toast, and the standing explanatory copy was removed in favour of control state and feedback.
+
+- Every memory is labelled with how it was written — agent write, import, re-summarization or automatic summarization — and summaries whose quality is unusually low are flagged. The detail panel adds the source, the agent's `memorize_reason` and, for edited content, the ID of the memory it replaced.
+- The recall test page lists the retrieval routes that matched each result (document keyword, document vector, graph keyword, graph vector) with their individual scores, and echoes the `k` and session filter used for the request.
+- Graph and memory list are linked in both directions: a node lists its associated memories and opens them directly, and memory details offer **Locate in graph**. Node details are non-modal, so several nodes can be compared in sequence.
+- Request failures on the system and prompt pages stay on the page with a retry action instead of disappearing with a transient toast, and the standing explanatory copy was removed in favour of control state and feedback.
 
 **Recall quality**
-- Document-route fusion moved from rank-based to normalized-score weighting, each route now contributes `3k` candidates before fusion, and documents found by both routes at close ranks receive a consensus bonus.
-- BM25 indexes and queries CJK character bigrams in addition to jieba tokens, so short queries and proper nouns (shop, person, model names) no longer miss because the two sides were segmented differently.
-- Measured: Chinese synthetic set (149 topic clusters / 1591 near-duplicate memories / 1211 tiered queries) MRR `0.86 → 0.95`, Hit@1 `0.79 → 0.93`; English LoCoMo (1536 evidence QA) MRR `0.66 → 0.73`. Method and results in #305 / #306 / #307.
+
+- Document-route fusion moved from rank-based equal weighting to per-query normalized scores (`fusion_mode=score`, `fusion_bm25_weight=0.5`). Each route now contributes `k × 3` candidates before fusion, and documents returned by both routes at close ranks receive a consensus bonus (`fusion_agreement_bonus=0.25`).
+- BM25 indexes and queries character bigrams of contiguous CJK runs in addition to jieba tokens, so short queries and proper nouns (people, shops, model numbers) no longer miss because index-side and query-side segmentation differ. English and numeric tokens are unchanged.
+- Measured with the shipped defaults, end-to-end through `MemoryEngine.search_memories()` at `k = 10`: Chinese benchmark (1,211 queries) MRR `0.86 → 0.95`, Hit@1 `0.79 → 0.93`; English LoCoMo (1,536 evidence-grounded questions) MRR `0.66 → 0.73`, Hit@1 `0.53 → 0.62`. The Chinese set is synthetic; LoCoMo stores raw session transcripts, so its absolute scores understate production recall.
+
+**Agentic recall (opt-in beta)**
+
+- Enabling `agent_tools.enable_agentic_recall_beta` (requires `agent_tools.enable_recall_tool`) lets the model run multi-turn recall within one request: `recall_long_term_memory` gains people-centric search, event-time ranges, exclusion of candidates already seen and cursored pagination, and the new `read_memory_evidence` tool reads a memory's active facts and its retained source text (when the whole source is visible to the session) by memory ID, resuming from a cursor after truncation.
+- One per-request budget caps tool calls (`agentic_recall_max_calls`, default 4), cumulative tool time (`agentic_recall_time_budget_seconds`, default 20) and per-call output (`agentic_recall_max_result_chars`, default 12,000). When the budget is spent the model answers from the evidence it already collected.
+- The recall rule prompt is injected add-only as a temporary part, so it never enters conversation history or the plugin's message store. With the switch off, tool registration, retrieval and prompts are identical to 2.7.0-beta.2.
+
+**Also included**
+
+- Admin-only forget tool (`agent_tools.enable_forget_tool`, off by default): archives memories instead of deleting them; an administrator can restore them from the dashboard. Per-call count and per-session cooldown are enforced.
+- `/lmem migrate-scope <target> [apply] [source]`: explicit memory scope migration, dry-run by default, with an automatic database backup before `apply`.
+- `provider_settings.llm_stream_mode` (`auto`/`always`/`never`): makes providers that only accept streaming requests usable for memory processing.
+- Summary windows split by local day and idle gap; message times use the platform timestamp. The conversation store reconciles with WebUI edit/regenerate and retry rollbacks.
+- FAISS writes fall back to an ASCII-only temporary directory on non-ASCII paths; multi-line JSON parsing and summarization prompt prefix caching are fixed.
+- Dashboard rendering, touch input and edit-race fixes; `vue` 3.5.44 and `source-map-js` 1.2.2 security updates; zh-CN and ja-JP plugin localization.
 
 ### Upgrade notes
 
-- Existing configuration needs no changes; new parameters have defaults and fall back automatically.
-- **Run `/lmem rebuild-index` once if you want existing memories to benefit from the bigram tokens**; new writes pick them up automatically. Skipping it is safe, older memories just keep the previous index.
-- Dashboard preferences (style, light/dark, language) stay in the browser and survive the upgrade.
+- Existing configuration needs no changes; new parameters have defaults.
+- Recall defaults changed: `fusion_mode=score`, `fusion_agreement_bonus=0.25`, `recall_candidate_multiplier=3`. Set `fusion_mode: rrf` to keep the previous rank fusion.
+- Run `/lmem rebuild-index` once if existing memories should benefit from bigram tokens; new writes pick them up automatically and recall stays available during the rebuild.
+- Dashboard preferences (theme, colour mode, language) are stored in the browser and survive the upgrade.
 
 ### Known limitations
 
-- In **Full Graph** mode the node panel does not list related memories yet (that snapshot does not return entries; limited overview and query modes do).
-- The Chinese evaluation set is model-generated and is meant for comparing retrieval designs, not for estimating live traffic distribution.
+- In **Full Graph** mode the node panel does not list related memories (that snapshot does not return entry data; limited overview and query modes are unaffected).
+- The Chinese evaluation set is model-generated and is intended for comparing retrieval designs, not for estimating live traffic distribution.
+- Agentic recall is a beta: its tool-use adoption and end-to-end behaviour with real models are still being validated, and the switch is off by default.
 
-### Pull requests in this release
+### Highlighted pull requests
 
 | PR | Change | Author |
 | --- | --- | --- |
+| [#274](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/274) | Opt-in agentic recall beta: multi-turn recall, evidence reading and shared per-request budget | [@Sisyphbaous-DT-Project](https://github.com/Sisyphbaous-DT-Project) |
+| [#281](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/281) | Fix dashboard rendering, touch input, layout and edit races | [@lxfight](https://github.com/lxfight) |
 | [#299](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/299) | Show retrieval route scores in the recall test page | [@lxfight](https://github.com/lxfight) |
 | [#300](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/300) | Surface memory origin and why it was remembered | [@lxfight](https://github.com/lxfight) |
 | [#301](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/301) | Link the graph and the memory list in both directions | [@lxfight](https://github.com/lxfight) |
 | [#302](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/302) | Make graph encodings self-consistent and stable | [@lxfight](https://github.com/lxfight) |
-| [#303](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/303) | Unify request feedback and fix system/prompt semantics | [@lxfight](https://github.com/lxfight) |
-| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | Remove dead code, overridden styles and decoration | [@lxfight](https://github.com/lxfight) |
-| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | Fuse by normalized scores with wider candidates | [@lxfight](https://github.com/lxfight) |
-| [#306](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/306) | Reward cross-route agreement | [@lxfight](https://github.com/lxfight) |
+| [#303](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/303) | Unify request feedback and correct system/prompt page semantics | [@lxfight](https://github.com/lxfight) |
+| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | Remove dead i18n keys, overridden styles and decoration | [@lxfight](https://github.com/lxfight) |
+| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | Fuse BM25 and vector results by normalized scores with wider candidates | [@lxfight](https://github.com/lxfight) |
+| [#306](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/306) | Reward cross-route agreement in fused ranking | [@lxfight](https://github.com/lxfight) |
 | [#307](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/307) | Index CJK character bigrams in BM25 | [@lxfight](https://github.com/lxfight) |
+
+The complete list, including fixes and dependency updates not highlighted here, is in `CHANGELOG.md`.
 
 ### Install and upgrade
 

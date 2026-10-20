@@ -110,10 +110,16 @@ Retained source is written only to the SQLite `memory_sources` table, not to vec
 | `agent_tools.enable_forget_tool` | `false` | Registers `forget_long_term_memory`; admin-only, archives (soft-deletes) memories reversibly, restorable by an admin from the WebUI |
 | `agent_tools.forget_tool_max_memories` | `3` | Maximum memories a single forget call may archive (1-10); larger requests are rejected entirely |
 | `agent_tools.forget_tool_cooldown_seconds` | `60` | Minimum interval between successful archives in one session (0-3600); `0` disables the limit |
+| `agent_tools.enable_agentic_recall_beta` | `false` | Enables multi-turn agentic recall (beta); requires `enable_recall_tool` |
+| `agent_tools.agentic_recall_max_calls` | `4` | Shared recall/evidence tool calls allowed per request (1-20) |
+| `agent_tools.agentic_recall_time_budget_seconds` | `20` | Cumulative memory-tool time per request in seconds (1-300) |
+| `agent_tools.agentic_recall_max_result_chars` | `12000` | Maximum characters returned by one beta memory-tool call (500-100000); longer output continues via cursors |
 
 The write tool is powerful and depends on model discipline. Start with active recall, then enable active writes after observing stable behavior.
 
 The forget tool is off by default and only applies to admins when enabled: the model can only archive memories (removed from retrieval, documents retained) and never physically deletes them. An admin can filter by `archived` on the Dashboard memory page and set the status back to `active` to restore. Per-call count and per-session cooldown are enforced.
+
+Agentic recall is a beta and off by default. When enabled, `recall_long_term_memory` gains people-centric search, event-time ranges, exclusion of seen candidates and cursored paging, and `read_memory_evidence` is registered to read a memory's active facts and, when the whole source is verifiably visible, its retained text. Tool calls, cumulative tool time and per-call output share one per-request budget. The rule prompt is injected add-only as a temporary part. The switch and the three budget fields are always shown on the settings page; they take effect for new requests after saving and reloading the plugin.
 
 ## Graph memory and atomization
 

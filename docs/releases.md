@@ -2,54 +2,77 @@
 
 ## 2.7.0-beta.3 · 2026-10-20
 
-本次预发布把管理面板从"能看"重做成"能判断"，同时把召回质量抬了一档。没有引入新依赖，默认运行方式不变；稳定使用可继续选择 2.6.1。
+本次预发布覆盖两个方向：管理面板从“展示数据”转为“支持判断”，召回链路的融合方式与索引质量同步提升；另有默认关闭的自主回忆 Beta 可选。本版不引入新的运行时依赖，也没有必须执行的迁移步骤，现有配置可直接沿用；稳定通道仍为 2.6.1。
 
 [下载 2.7.0-beta.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.3)
 
-### 这次更新了什么
+### 本次更新
 
 **管理面板**
-- 每条记忆标注写入方（Agent 主动写入 / 导入 / 重新总结 / 自动总结），摘要质量偏低会单独标出——AI 自己记了什么，现在能一眼分清。
-- 召回测试不再只给一个总分：结果卡说明这条记忆是被哪条检索路线召回的（文档关键词、文档向量、图关键词、图向量），结果头回显本次请求的 `k` 与会话过滤。
-- 图谱与记忆列表双向打通：点节点能看到关联记忆并直接打开；记忆详情新增「在图谱中定位」，不必再手输记忆 ID。图谱页选中节点不再被遮罩挡住，可以连续对比。
-- 系统页与提示词页的失败不再只是一闪而过的 toast，会留在页面上并可重试；页面里常驻的解释性长文案一并删掉，规则交给控件状态与反馈表达。
+
+- 记忆列表标注每条记忆的写入方式（Agent 主动写入、导入、重新总结、自动总结），摘要质量偏低时单独标记；详情面板补充来源、`memorize_reason`，内容被编辑时显示原记忆 ID。
+- 召回测试页按检索路线列出分项得分（文档关键词、文档向量、图关键词、图向量），并在结果头回显本次请求的 `k` 与会话过滤。
+- 图谱与记忆列表双向打通：选中节点可列出关联记忆并直接打开，记忆详情提供「在图谱中定位」；节点详情改为非模态，可连续对比多个节点。
+- 系统页与提示词页的请求失败改为页面内常驻提示并提供重试，取代一闪而过的 toast；常驻解释性文案已删除，改由控件状态与反馈表达。
 
 **召回质量**
-- 文档路融合从"按名次"改为"按归一化分数加权"，融合前每路候选由 `k` 扩大到 `3k`，跨路线一致的结果额外加权。
-- BM25 索引在 jieba 分词之外补充中文连续段字符二元组，短查询与店名、人名、型号等专有名词不再因切词差异漏召回。
-- 实测：中文自建集（149 个主题簇 / 1591 条同簇近邻记忆 / 1211 条分层查询）MRR `0.86 → 0.95`、Hit@1 `0.79 → 0.93`；英文 LoCoMo（1536 条带证据问答）MRR `0.66 → 0.73`。方法与结论见 #305 / #306 / #307。
+
+- 文档路融合由按名次等权改为按查询内归一化分数加权（`fusion_mode=score`，`fusion_bm25_weight=0.5`）。融合前每路候选由 `k` 扩大到 `3k`，两路均命中且名次接近的结果叠加一致性奖励（`fusion_agreement_bonus=0.25`）。
+- BM25 在 jieba 词元之外索引并查询中文连续段字符二元组，短查询与店名、人名、型号等专有名词不再因索引侧与查询侧切词不一致而漏召回；英文与数字词元行为不变。
+- 使用出厂默认参数、经真实检索链路（`MemoryEngine.search_memories()`，`k=10`）实测：中文评测集（1,211 问）MRR `0.86 → 0.95`、Hit@1 `0.79 → 0.93`；英文 LoCoMo（1,536 条带证据问答）MRR `0.66 → 0.73`、Hit@1 `0.53 → 0.62`。中文集为合成数据；LoCoMo 的记忆为原始会话文本，其绝对分数低于生产场景。
+
+**自主回忆（可选 Beta）**
+
+- 开启 `agent_tools.enable_agentic_recall_beta`（需同时开启 `agent_tools.enable_recall_tool`）后，模型可在单次请求内多轮检索：`recall_long_term_memory` 支持按当前发言人查经历、按事件时间范围过滤、排除已看候选与游标分页；新增 `read_memory_evidence`，按记忆 ID 读取有效事实与（整段原文对当前会话可见时）保留原文，事实与原文均以游标返回，截断后可精确续读。
+- 单次请求共享三项预算：工具调用次数（`agentic_recall_max_calls`，默认 4）、累计工具耗时（`agentic_recall_time_budget_seconds`，默认 20 秒）与单次返回长度（`agentic_recall_max_result_chars`，默认 12000 字符）。预算耗尽后，模型基于已取得的证据作答。
+- 回忆规则提示词以临时片段追加注入，不进入对话历史与插件消息库。关闭该开关时，工具注册、检索与提示词行为与 2.7.0-beta.2 一致。
+
+**同时收录**
+
+- 管理员专用遗忘工具（`agent_tools.enable_forget_tool`，默认关闭）：只做可逆归档，可从 Dashboard 恢复；单次条数与同会话冷却受限。
+- `/lmem migrate-scope <target> [apply] [source]`：显式迁移既有记忆作用域，默认仅预览，`apply` 前自动备份数据库。
+- `provider_settings.llm_stream_mode`（`auto`/`always`/`never`）：仅接受流式接口的 Provider 现在可用于记忆处理。
+- 总结窗口按本地日期与长空闲切分，消息时间改用平台时间戳；会话库与 WebUI 编辑/重试回滚对账。
+- FAISS 在非 ASCII 路径下改用纯 ASCII 临时目录写盘；修复多行 JSON 解析与总结提示词前缀缓存。
+- 管理面板渲染、触摸、布局与编辑竞态修复；`vue` 3.5.44 与 `source-map-js` 1.2.2 安全更新；补充 zh-CN / ja-JP 插件本地化。
 
 ### 升级说明
 
-- 老配置无需改动：新增参数都有默认值，运行时自动回退。
-- **建议对旧记忆执行一次 `/lmem rebuild-index`**：字符二元组只对重建后的索引生效，新写入的记忆会自动带上。不执行不影响使用，只是老记忆享受不到这项提升。
-- 面板偏好（主题 / 明暗 / 语言）保存在浏览器本地，升级不受影响。
+- 现有配置无需修改，新增参数均有默认值。
+- 召回默认值有变化：`fusion_mode=score`、`fusion_agreement_bonus=0.25`、`recall_candidate_multiplier=3`；如需保持旧行为，设置 `fusion_mode: rrf`。
+- 如需让既有记忆获得字符二元组召回收益，执行一次 `/lmem rebuild-index`；新写入的记忆自动生效，重建期间召回保持可用。
+- 面板偏好（主题、明暗、语言）保存在浏览器本地，升级不受影响。
 
 ### 已知限制
 
-- 「全量图谱」模式下节点详情暂不列出关联记忆（该模式的快照没有返回 entry 数据；受限概览与检索模式下正常）。
-- 召回评测使用的中文集由模型生成，用于横向比较检索方案，不代表线上真实分布。
+- 「全量图谱」模式下节点详情暂不列出关联记忆（该模式的快照不返回 entry 数据；受限概览与检索模式不受影响）。
+- 中文评测集由模型生成，用于横向比较检索方案，不代表线上真实数据分布。
+- 自主回忆为 Beta：真实模型下的工具调用采纳与端到端表现仍在验证中，开关默认关闭。
 
 ### 本次重点 PR
 
 | PR | 改动 | 作者 |
 | --- | --- | --- |
-| [#299](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/299) | 召回测试页展示检索路线分项 | [@lxfight](https://github.com/lxfight) |
+| [#274](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/274) | 可选自主多轮回忆 Beta：多轮检索、证据深读与单次请求预算 | [@Sisyphbaous-DT-Project](https://github.com/Sisyphbaous-DT-Project) |
+| [#281](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/281) | 修复管理面板渲染、触摸、布局与编辑竞态 | [@lxfight](https://github.com/lxfight) |
+| [#299](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/299) | 召回测试页展示检索路线分项得分 | [@lxfight](https://github.com/lxfight) |
 | [#300](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/300) | 记忆来源与写入动机可见 | [@lxfight](https://github.com/lxfight) |
 | [#301](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/301) | 图谱与记忆双向联动 | [@lxfight](https://github.com/lxfight) |
 | [#302](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/302) | 图谱视觉编码自洽与稳定性 | [@lxfight](https://github.com/lxfight) |
 | [#303](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/303) | 反馈与状态收敛，修正系统页与提示词页语义 | [@lxfight](https://github.com/lxfight) |
-| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | 清理死代码、被覆盖样式与装饰性文案 | [@lxfight](https://github.com/lxfight) |
-| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | 召回改为分数级加权融合，候选加宽 | [@lxfight](https://github.com/lxfight) |
+| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | 清理死 i18n 键、被覆盖样式与装饰性文案 | [@lxfight](https://github.com/lxfight) |
+| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | 召回改为分数级加权融合并加宽候选 | [@lxfight](https://github.com/lxfight) |
 | [#306](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/306) | 跨路线一致性奖励 | [@lxfight](https://github.com/lxfight) |
 | [#307](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/307) | 中文 BM25 字符二元组 | [@lxfight](https://github.com/lxfight) |
+
+完整变更记录（含此处未列出的修复与依赖更新）见 `CHANGELOG.md`。
 
 ### 安装与升级
 
 1. 停止 AstrBot，保留现有插件代码、插件数据目录及配置的备份。
-2. 从上方测试版发布页下载 **Source code (zip)**，解压后将代码放到 `data/plugins/astrbot_plugin_livingmemory`；保留原有插件数据与配置，不要覆盖为空目录。
+2. 从上方发布页下载 **Source code (zip)**，解压后将代码放到 `data/plugins/astrbot_plugin_livingmemory`；保留原有插件数据与配置，不要覆盖为空目录。
 3. 启动或重载 AstrBot，在插件列表确认版本为 `2.7.0-beta.3`，再进入 `插件 → LivingMemory → Pages → dashboard`。
-4. 如需让既有记忆获得字符二元组召回收益，发送 `/lmem rebuild-index`（可与正常使用并行，期间索引保持可用）。
+4. 如需让既有记忆获得字符二元组召回收益，发送 `/lmem rebuild-index`（分批执行，期间召回保持可用）。
 
 通过 Git 管理插件代码时，可在干净的插件工作目录中切换到指定标签后启动 AstrBot：
 
