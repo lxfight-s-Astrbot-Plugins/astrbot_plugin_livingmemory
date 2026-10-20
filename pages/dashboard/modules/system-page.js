@@ -24,10 +24,28 @@ export class SystemPage {
     try {
       const data = await this.api.get("stats");
       this.state._systemCache = { data, timestamp: Date.now() };
+      this.state._systemError = "";
+      this.updateFeedback();
       this.render(data);
+      /* 子面板与统计互不依赖：失败不影响其余内容，也不必在每次重绘时重复请求 */
+      await Promise.all([this.fetchAndRenderBackups(), this.fetchConsolidation()]);
     } catch (e) {
-      this.showToast(e.message || window.t("system.fetchFailed"), true);
+      this.state._systemError = e.message || window.t("system.fetchFailed");
+      this.updateFeedback();
     }
+  }
+
+  /**
+   * 渲染页面级请求反馈
+   */
+  updateFeedback() {
+    const feedback = document.getElementById("system-feedback");
+    const message = document.getElementById("system-feedback-message");
+    const retry = document.getElementById("system-retry");
+    const error = this.state._systemError || "";
+    if (feedback) feedback.hidden = !error;
+    if (message) message.textContent = error;
+    if (retry) retry.hidden = !error;
   }
 
   /**
@@ -44,14 +62,8 @@ export class SystemPage {
     // 更新 Atom 类型图表 - 后端返回 atom_breakdown
     this.renderAtomChart(data.atom_breakdown || {});
 
-    // 更新活跃会话列表 - 后端返回 recent_sessions
+    // 更新会话列表 - 后端返回 recent_sessions
     this.renderSessionList(data.recent_sessions || []);
-
-    // 更新备份列表 - 需要单独获取
-    this.fetchAndRenderBackups();
-
-    // 更新记忆整合状态 - 需要单独获取
-    this.fetchConsolidation();
   }
 
   /**
@@ -81,6 +93,10 @@ export class SystemPage {
     // 后端返回的是 {"0-1": 10, "1-2": 20, ...} 格式
     const bins = ["0-1", "1-2", "2-3", "3-4", "4-5", "5-6", "6-7", "7-8", "8-9", "9-10"];
     const values = bins.map(bin => distribution[bin] || 0);
+    if (!values.some(value => value > 0)) {
+      chartEl.innerHTML = '<div class="bar-chart-empty">' + window.t("common.noData") + '</div>';
+      return;
+    }
     const maxValue = Math.max(...values, 1);
 
     let html = '';
@@ -109,7 +125,8 @@ export class SystemPage {
 
     // 后端返回 atom_breakdown
     const atomBreakdown = types || {};
-    const entries = Object.entries(atomBreakdown);
+    /* SQL 不保证顺序，按数量降序读起来才有主次 */
+    const entries = Object.entries(atomBreakdown).sort((a, b) => b[1] - a[1]);
 
     if (entries.length === 0) {
       chartEl.innerHTML = '<div class="bar-chart-empty">' + window.t("system.noAtoms") + '</div>';
@@ -122,7 +139,7 @@ export class SystemPage {
     entries.forEach(([type, count]) => {
       const percentage = ((count / maxValue) * 100).toFixed(0);
       html += '<div class="bar-row">';
-      html += '<span class="bar-row-label" style="width:80px">' + atomLabel(type) + '</span>';
+      html += '<span class="bar-row-label">' + atomLabel(type) + '</span>';
       html += '<div class="bar-row-track">';
       html += '<div class="bar-row-fill" style="width:' + percentage + '%"></div>';
       html += '</div>';
@@ -142,24 +159,20 @@ export class SystemPage {
     if (!listEl) return;
 
     if (!sessions || sessions.length === 0) {
-      listEl.innerHTML = '<div class="session-empty">' + window.t("system.noSessions") + '</div>';
+      listEl.innerHTML = '<div class="table-empty">' + window.t("system.noSessions") + '</div>';
       return;
     }
 
     let html = '';
     sessions.forEach(session => {
       const sessionId = session.session_id || "--";
-      const messageCount = session.message_count || 0;
-      const lastActive = session.last_active || "--";
+      const memoryCount = session.message_count || 0;
 
       html += '<div class="session-item">';
       html += '<div class="session-item-header">';
       html += '<span class="session-item-id">' + esc(String(sessionId)) + '</span>';
-      html += '<span class="session-item-count">' + messageCount + ' ' + window.t("system.messages") + '</span>';
+      html += '<span class="session-item-count">' + memoryCount + ' ' + window.t("system.memories") + '</span>';
       html += '</div>';
-      if (lastActive !== "--") {
-        html += '<div class="session-item-meta">' + window.t("system.lastActive") + ': ' + esc(lastActive) + '</div>';
-      }
       html += '</div>';
     });
 
@@ -175,25 +188,30 @@ export class SystemPage {
     if (!listEl) return;
 
     if (!backups || backups.length === 0) {
-      listEl.innerHTML = '<div class="backup-empty">' + window.t("system.noBackups") + '</div>';
+      listEl.innerHTML = '<div class="table-empty">' + window.t("system.noBackups") + '</div>';
       return;
     }
 
     let html = '';
-    backups.forEach(backup => {
-      // 后端返回字段：name, directory, backup_timestamp, file_count, files_copied
-      const name = backup.name || backup.directory || "Unknown";
-      const timestamp = backup.backup_timestamp || "--";
-      const fileCount = backup.file_count || backup.files_copied || 0;
+    /* 后端按目录名字典序返回（v2.9 会排在 v2.10 前面），按 unix 时间重排；
+       file_count 含目录内全部文件（多一个 backup_info.json），取 files_copied 更贴近可恢复内容。 */
+    [...backups]
+      .sort((a, b) => (b.backup_unix_time || 0) - (a.backup_unix_time || 0))
+      .forEach(backup => {
+        const name = backup.name || backup.directory || "Unknown";
+        const timestamp = backup.backup_unix_time
+          ? new Date(backup.backup_unix_time * 1000).toLocaleString()
+          : (backup.backup_timestamp || "--");
+        const fileCount = backup.files_copied || 0;
 
-      html += '<div class="backup-item">';
-      html += '<div class="backup-item-name">' + esc(name) + '</div>';
-      html += '<div class="backup-item-meta">';
-      html += '<span>' + esc(timestamp) + '</span>';
-      html += '<span>' + fileCount + ' ' + window.t("system.files") + '</span>';
-      html += '</div>';
-      html += '</div>';
-    });
+        html += '<div class="backup-item">';
+        html += '<div class="backup-item-name">' + esc(name) + '</div>';
+        html += '<div class="backup-item-meta">';
+        html += '<span>' + esc(timestamp) + '</span>';
+        html += '<span>' + fileCount + ' ' + window.t("system.files") + '</span>';
+        html += '</div>';
+        html += '</div>';
+      });
 
     listEl.innerHTML = html;
   }
@@ -220,6 +238,7 @@ export class SystemPage {
   async fetchConsolidation() {
     try {
       const data = await this.api.get("consolidation/status");
+      this.state._consolidationEnabled = Boolean(data.config && data.config.enabled);
       this.renderConsolidation(data);
     } catch (e) {
       const metaEl = document.getElementById("consolidation-meta");
@@ -258,6 +277,10 @@ export class SystemPage {
     if (consolidatedEl) consolidatedEl.textContent = data.consolidated_count || 0;
     const archivedEl = document.getElementById("cons-archived");
     if (archivedEl) archivedEl.textContent = data.archived_count || 0;
+
+    /* 未启用时点击只会返回 skipped，控件状态应直接说明这一点 */
+    const runBtn = document.getElementById("cons-run-btn");
+    if (runBtn) runBtn.disabled = !config.enabled;
   }
 
   /**
@@ -270,30 +293,29 @@ export class SystemPage {
     if (resultEl) resultEl.textContent = window.t("system.consRunning");
     try {
       const result = await this.api.post("consolidation/run", {}, { retries: 0 });
-      if (result.skipped) {
-        this.showToast(window.t("system.consSkipped"), false);
+      if (result.error) {
+        if (resultEl) resultEl.textContent = result.error;
+      } else if (result.skipped) {
         if (resultEl) resultEl.textContent = window.t("system.consSkipped");
-      } else if (result.error) {
-        this.showToast(result.error, true);
-        if (resultEl) resultEl.textContent = "";
+      } else if (!result.candidates) {
+        if (resultEl) resultEl.textContent = window.t("system.consNoCandidates");
       } else {
-        const msg = window.t(
-          "system.consResult",
-          result.groups || 0,
-          result.merged || 0,
-          result.archived || 0,
-          result.deleted || 0,
-          result.failed || 0
-        );
-        this.showToast(msg, (result.failed || 0) > 0);
-        if (resultEl) resultEl.textContent = msg;
+        if (resultEl) {
+          resultEl.textContent = window.t(
+            "system.consResult",
+            result.groups || 0,
+            result.merged || 0,
+            result.archived || 0,
+            result.deleted || 0,
+            result.failed || 0
+          );
+        }
       }
       await this.fetchConsolidation();
     } catch (e) {
-      this.showToast(e.message || window.t("misc.requestFailed"), true);
-      if (resultEl) resultEl.textContent = "";
+      if (resultEl) resultEl.textContent = e.message || window.t("misc.requestFailed");
     } finally {
-      if (button) button.disabled = false;
+      if (button) button.disabled = !this.state._consolidationEnabled;
     }
   }
 
@@ -303,16 +325,8 @@ export class SystemPage {
   initEventListeners() {
     const runBtn = document.getElementById("cons-run-btn");
     if (runBtn) runBtn.addEventListener("click", () => this.runConsolidation());
+    const retry = document.getElementById("system-retry");
+    if (retry) retry.addEventListener("click", () => this.fetch());
   }
 
-  /**
-   * 显示 Toast 提示
-   * @param {string} message - 提示消息
-   * @param {boolean} isError - 是否为错误
-   */
-  showToast(message, isError = false) {
-    if (window.lmShowToast) {
-      window.lmShowToast(message, isError);
-    }
-  }
 }

@@ -284,6 +284,7 @@ import {
     memoryPage.initEventListeners();
     recallPage.initEventListeners();
     systemPage.initEventListeners();
+    document.getElementById("prompt-retry")?.addEventListener("click", () => promptPage.fetch());
 
     document.getElementById("peek-close").addEventListener("click", () => peekPanel.requestClose());
     document.getElementById("peek-overlay").addEventListener("click", () => peekPanel.requestClose());

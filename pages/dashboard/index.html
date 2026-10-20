@@ -225,7 +225,7 @@
                 </label>
                 <div class="pagination-controls">
                   <button class="btn btn-sm btn-ghost" id="mem-prev" disabled><i data-lucide="arrow-left" aria-hidden="true"></i><span data-i18n="pagination.prev">Previous</span></button>
-                  <span class="pagination-info" id="mem-pagination-info" data-i18n="common.page">Page 1/1 · 0 total</span>
+                  <span class="pagination-info" id="mem-pagination-info"></span>
                   <button class="btn btn-sm btn-ghost" id="mem-next" disabled><span data-i18n="pagination.next">Next</span><i data-lucide="arrow-right" aria-hidden="true"></i></button>
                 </div>
               </div>
@@ -273,6 +273,10 @@
             <div class="page-heading"><span class="page-index">04</span><span class="page-title" data-i18n="nav.system">System Overview</span></div>
           </header>
           <div class="page-body">
+            <div id="system-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
+              <span id="system-feedback-message"></span>
+              <button id="system-retry" class="btn btn-sm btn-secondary" type="button" data-i18n="common.retry" hidden>Retry</button>
+            </div>
             <div class="stat-cards" id="system-stat-cards">
               <div class="stat-card"><div class="stat-card-value" id="ss-total">--</div><div class="stat-card-label" data-i18n="stats.total">Total Memories</div></div>
               <div class="stat-card"><div class="stat-card-value" id="ss-active">--</div><div class="stat-card-label" data-i18n="stats.active">Active</div></div>
@@ -291,10 +295,6 @@
                 <div class="bar-chart" id="atom-chart"></div>
               </div>
             </div>
-            <div class="system-panel mb-6" style="margin-top:0">
-              <div class="system-panel-title" data-i18n="system.activeSessions">Active Sessions</div>
-              <div class="session-list" id="session-list"></div>
-            </div>
             <div class="system-panel mb-6">
               <div class="system-panel-title" data-i18n="system.consolidationTitle">Memory Consolidation</div>
               <div class="consolidation-meta" id="consolidation-meta"></div>
@@ -307,6 +307,10 @@
                 <span data-i18n="system.consolidationRun">Run Now</span>
               </button>
               <span class="text-tertiary" id="cons-run-result" style="margin-left:10px;font-size:12px"></span>
+            </div>
+            <div class="system-panel mb-6" style="margin-top:0">
+              <div class="system-panel-title" data-i18n="system.sessionsTitle">Sessions</div>
+              <div class="session-list" id="session-list"></div>
             </div>
             <div class="system-panel">
               <div class="system-panel-title" data-i18n="system.versionBackups">Version Backups</div>
@@ -321,14 +325,17 @@
             <div class="page-heading"><span class="page-index">05</span><span class="page-title" data-i18n="nav.prompts">Prompt Management</span></div>
           </header>
           <div class="page-body">
+            <div id="prompt-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
+              <span id="prompt-feedback-message"></span>
+              <button id="prompt-retry" class="btn btn-sm btn-secondary" type="button" data-i18n="common.retry" hidden>Retry</button>
+            </div>
             <div id="prompt-content"></div>
             <div class="prompt-editor hidden" id="prompt-editor">
               <div class="prompt-editor-header">
-                <span class="prompt-editor-subtitle" data-i18n="prompt.editTitle">Edit Prompt</span>
                 <span class="prompt-editor-title" id="prompt-editor-title"></span>
                 <span class="prompt-editor-status" id="prompt-editor-status"></span>
               </div>
-              <div class="prompt-editor-vars-row">
+              <div class="prompt-editor-vars-row" id="prompt-editor-vars-row">
                 <span class="prompt-editor-vars-label" data-i18n="prompt.variables">Variables</span>
                 <span id="prompt-editor-vars"></span>
               </div>
@@ -336,7 +343,7 @@
               <p id="prompt-editor-feedback" class="workflow-hint" role="status" hidden></p>
               <div class="prompt-editor-actions">
                 <button class="btn btn-secondary" id="prompt-cancel-btn"><i data-lucide="x" aria-hidden="true"></i><span data-i18n="common.cancel">Cancel</span></button>
-                <button class="btn btn-secondary btn-sm" id="prompt-reset-btn"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="prompt.reset">Load default content</span></button>
+                <button class="btn btn-secondary" id="prompt-reset-btn"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="prompt.reset">Load default content</span></button>
                 <button class="btn btn-primary" id="prompt-save-btn"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
               </div>
             </div>
@@ -422,7 +429,7 @@
     </aside>
 
     <!-- Toast -->
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="./graph-shared.js"></script>
     <script src="./graph-layout-core.js"></script>

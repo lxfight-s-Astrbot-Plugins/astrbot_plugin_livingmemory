@@ -99,7 +99,6 @@ export class MemoryPage {
     } catch (e) {
       if (fetchGeneration !== this._fetchGeneration) return;
       this.state.memory.error = e.message || window.t("misc.fetchMemoriesFail");
-      this.showToast(e.message || window.t("misc.fetchMemoriesFail"), true);
     } finally {
       if (fetchGeneration === this._fetchGeneration) {
         this.state.memory.loading = false;
@@ -125,7 +124,8 @@ export class MemoryPage {
     if (scroll) {
       scroll.setAttribute("aria-busy", String(Boolean(loading)));
       // Keep the last successful view visible, but disable actions on stale data.
-      scroll.inert = Boolean(loading || error || this._bulkBusy || this._transferBusy);
+      // 加载中仍然可以滚动：按钮的 disabled 已经表达了"数据可能过期"。
+      scroll.inert = Boolean(error || this._bulkBusy || this._transferBusy);
     }
     this.updateSelectionControls();
     this.updatePagination();
