@@ -1252,6 +1252,7 @@ body {
 
 .recall-form-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
   align-items: flex-end;
   margin-top: var(--space-4);
@@ -1342,13 +1343,18 @@ body {
   gap: var(--space-1);
   padding: 2px 10px;
   border-radius: var(--radius-full);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
-.result-score-badge.high   { background: var(--success-light); color: var(--success); }
-.result-score-badge.medium { background: var(--warning-light); color: var(--warning); }
-.result-score-badge.low    { background: var(--bg-hover); color: var(--text-secondary); }
+.result-score-badge b,
+.recall-result-score b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 
 .result-content,
 .recall-result-content {
@@ -1378,6 +1384,30 @@ body {
   gap: var(--space-4);
   flex-wrap: wrap;
   font-size: 12px;
+}
+
+.recall-result-routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.recall-route-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 2px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.recall-route-chip b {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ----- System Page --------------------------------------------- */
