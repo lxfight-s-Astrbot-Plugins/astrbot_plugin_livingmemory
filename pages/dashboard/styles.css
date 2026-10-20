@@ -1410,6 +1410,48 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 记忆来源标签：列表行与详情共用，让写入方一眼可辨 */
+.origin-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  margin-right: 6px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 16px;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.origin-tag.is-low {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.type-tag.is-warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+/* 原始消息默认折叠，展开前不占用阅读空间 */
+.peek-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: var(--space-2) 0;
+}
+
+.peek-details > summary:hover {
+  color: var(--text-primary);
+}
+
+.peek-details > .edit-history-list {
+  margin-top: var(--space-2);
+}
+
 /* ----- System Page --------------------------------------------- */
 .system-grid {
   display: grid;

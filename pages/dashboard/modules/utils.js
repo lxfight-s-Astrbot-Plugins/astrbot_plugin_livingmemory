@@ -82,6 +82,22 @@ export function typeLabel(type) {
 }
 
 /**
+ * 获取记忆来源的显示文本
+ *
+ * 自动总结写入的记忆不带 memory_origin 标记，按缺省来源处理。
+ * @param {string} origin - memory_origin 元数据值
+ * @returns {string} 显示文本
+ */
+export function originLabel(origin) {
+  const labels = {
+    agent_memorize_tool: window.t("origin.agent"),
+    memory_import: window.t("origin.import"),
+    source_resummarization: window.t("origin.resummarize"),
+  };
+  return labels[origin] || window.t("origin.auto");
+}
+
+/**
  * 渲染图节点类型徽章
  * @param {string} type - 节点类型
  * @returns {string} HTML 字符串

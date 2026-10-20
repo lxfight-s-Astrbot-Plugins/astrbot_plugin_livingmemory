@@ -40,7 +40,8 @@ The memory page follows **filter → select → act**. Keyword and session input
 Import and export live in a separate collapsible area with an explicit export scope: selected rows when a selection exists, otherwise **all memories regardless of list filters**. Import progresses through reading, preview, confirmation and writing, with visible feedback at each step; empty previews never proceed to a write. Related controls and page switching remain locked during bulk operations and transfers to prevent duplicate submissions or changing the operation's scope.
 
 - Editing a summary, topic, or key fact rebuilds that memory's embedding, BM25, graph, atom, and related derived data. Status-only or importance-only edits do not unconditionally rebuild every index.
-- Memories above the source-retention threshold show source messages in the detail panel. When at least two source messages are available, the Dashboard can call the LLM to replace the memory with a new summary.
+- Each memory labels its writer below the summary: Agent-written, imported, or re-summarized; unmarked memories come from auto-summarization. Summaries judged low quality are marked separately. The detail panel shows the same origin, the reason an agent recorded the memory, and the previous ID after a content edit changes it.
+- Memories above the source-retention threshold show source messages in the detail panel, collapsed by default and marked where the assistant spoke. When at least two source messages are available, the Dashboard can call the LLM to replace the memory with a new summary.
 - Changing status to `archived` removes a memory from normal recall indexes while retaining its source document. Changing it back to `active` regenerates its embedding and derived indexes.
 - Selection checkboxes support batch deletion from the current list. Export includes only selected memories when a selection exists.
 
