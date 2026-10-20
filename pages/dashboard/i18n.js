@@ -454,15 +454,13 @@
     /* ---- System ---- */
     "system.importanceDistribution":{ zh: "重要性分布", en: "Importance Distribution", ru: "Распределение важности" },
     "system.atomTypes":   { zh: "原子类型", en: "Atom Types", ru: "Типы атомов" },
-    "system.activeSessions":{ zh: "活跃会话", en: "Active Sessions", ru: "Активные сессии" },
+    "system.sessionsTitle":{ zh: "会话（按记忆条数）", en: "Sessions (by memory count)", ru: "Сессии (по числу памятей)" },
     "system.versionBackups":{ zh: "版本备份", en: "Version Backups", ru: "Резервные копии" },
-    "system.noActiveSessions":{ zh: "暂无活跃会话", en: "No active sessions", ru: "Нет активных сессий" },
     "system.noSessions":  { zh: "暂无会话", en: "No sessions", ru: "Нет сессий" },
     "system.noBackups":   { zh: "暂无备份", en: "No backups", ru: "Нет резервных копий" },
     "system.noAtoms":     { zh: "暂无原子数据", en: "No atom data", ru: "Нет данных атомов" },
     "system.files":       { zh: "个文件", en: "files", ru: "файлов" },
-    "system.messages":    { zh: "条消息", en: "messages", ru: "сообщений" },
-    "system.lastActive":  { zh: "最后活跃", en: "Last active", ru: "Посл. активность" },
+    "system.memories":    { zh: "条记忆", en: "memories", ru: "памятей" },
     "system.fetchFailed": { zh: "获取系统数据失败", en: "Failed to fetch system data", ru: "Не удалось получить данные системы" },
     "system.atomFactual": { zh: "事实", en: "Factual", ru: "Фактическая" },
     "system.atomEpisodic":{ zh: "事件", en: "Episodic", ru: "Эпизодическая" },
@@ -485,6 +483,7 @@
     "system.consRunning": { zh: "整合中...", en: "Consolidating...", ru: "Консолидация..." },
     "system.consSkipped": { zh: "已跳过（未启用或冷却中）", en: "Skipped (disabled or cooling down)", ru: "Пропущено (отключено или охлаждение)" },
     "system.consResult":  { zh: "整合完成：{0} 组、合并 {1} 条、归档 {2}、删除 {3}、失败 {4}", en: "Done: {0} groups, {1} merged, {2} archived, {3} deleted, {4} failed", ru: "Готово: групп {0}, объединено {1}, архив {2}, удалено {3}, ошибок {4}" },
+    "system.consNoCandidates":{ zh: "没有可整合的候选", en: "No candidates to consolidate", ru: "Нет кандидатов для объединения" },
 
     /* ---- Atom labels ---- */
     "atom.entity":        { zh: "实体", en: "Entity", ru: "Сущность" },
@@ -558,7 +557,6 @@
     "prompt.customized":    { zh: "已自定义", en: "Customized", ru: "Изменён" },
     "prompt.variables":     { zh: "可用变量", en: "Variables", ru: "Переменные" },
     "prompt.edit":          { zh: "编辑", en: "Edit", ru: "Редактировать" },
-    "prompt.editTitle":     { zh: "编辑提示词", en: "Edit Prompt", ru: "Редактировать промпт" },
     "prompt.customizedStatus": { zh: "（已自定义）", en: "(Customized)", ru: "(Изменён)" },
     "prompt.defaultStatus": { zh: "（使用默认）", en: "(Default)", ru: "(По умолчанию)" },
     "prompt.saved":         { zh: "提示词已保存", en: "Prompt saved", ru: "Промпт сохранён" },
@@ -570,8 +568,6 @@
     "prompt.resetFailed":   { zh: "恢复默认失败", en: "Failed to reset prompt", ru: "Не удалось сбросить промпт" },
     "prompt.defaultFilled": { zh: "已填充默认内容，请点击保存以确认", en: "Default content loaded. Click Save to confirm.", ru: "Содержимое по умолчанию загружено. Нажмите Сохранить." },
     "prompt.defaultFilledStatus": { zh: "（待保存：默认内容）", en: "(Pending: default content)", ru: "(Ожидает: по умолчанию)" },
-    "prompt.warningTitle": { zh: "注意", en: "Important", ru: "Внимание" },
-    "prompt.warningText": { zh: "以下提示词控制着 LLM 的记忆总结和注入行为。标注 JSON 的模板必须保留 JSON 输出格式要求，否则记忆功能将失效。修改前请确保理解每个模板的作用。", en: "These prompts control LLM memory summarization and injection. Templates marked JSON MUST preserve JSON output format requirements, otherwise memory functionality will break.", ru: "Эти промпты управляют поведением LLM. Шаблоны с пометкой JSON ДОЛЖНЫ сохранять требования к формату JSON." },
     "prompt.jsonRequired": { zh: "此模板必须要求 LLM 输出 JSON 格式，修改可能导致记忆功能失效", en: "This template MUST require JSON output from the LLM. Modifying may break memory.", ru: "Этот шаблон ДОЛЖЕН требовать вывод JSON от LLM." },
   };
 

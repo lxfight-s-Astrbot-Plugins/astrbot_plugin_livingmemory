@@ -38,10 +38,26 @@ export class PromptPage {
       const data = await this.api.get("prompts");
       this.prompts = data.prompts || [];
       this.categories = data.categories || [];
+      this.state._promptError = "";
+      this.updateFeedback();
       this.render();
     } catch (e) {
-      this.showToast(e.message || window.t("prompt.fetchFailed"), true);
+      this.state._promptError = e.message || window.t("prompt.fetchFailed");
+      this.updateFeedback();
     }
+  }
+
+  /**
+   * 渲染页面级请求反馈
+   */
+  updateFeedback() {
+    const feedback = document.getElementById("prompt-feedback");
+    const message = document.getElementById("prompt-feedback-message");
+    const retry = document.getElementById("prompt-retry");
+    const error = this.state._promptError || "";
+    if (feedback) feedback.hidden = !error;
+    if (message) message.textContent = error;
+    if (retry) retry.hidden = !error;
   }
 
   /**
@@ -66,16 +82,6 @@ export class PromptPage {
     });
 
     let html = "";
-
-    // 顶部警告
-    html +=
-      '<div class="prompt-warning">' +
-      '<div class="prompt-warning-title">' +
-      esc(window.t("prompt.warningTitle")) +
-      "</div>" +
-      '<div class="prompt-warning-text">' +
-      esc(window.t("prompt.warningText")) +
-      "</div></div>";
 
     for (const [catId, prompts] of Object.entries(grouped)) {
       const catInfo = this.categories.find((c) => c.id === catId) || {};
@@ -201,14 +207,12 @@ export class PromptPage {
         this._pickLang(prompt.name, prompt.name_en) || prompt.id;
       document.getElementById("prompt-editor-textarea").value =
         this.editContent;
-      document.getElementById("prompt-editor-vars").innerHTML = (
-        detail.variables || []
-      )
-        .map(
-          (v) =>
-            '<code class="prompt-var-tag">' + esc(v) + "</code>"
-        )
+      const variables = detail.variables || [];
+      document.getElementById("prompt-editor-vars").innerHTML = variables
+        .map((v) => '<code class="prompt-var-tag">' + esc(v) + "</code>")
         .join(" ");
+      const varsRow = document.getElementById("prompt-editor-vars-row");
+      if (varsRow) varsRow.hidden = variables.length === 0;
       document.getElementById("prompt-editor-status").textContent = detail
         .is_custom
         ? " " + window.t("prompt.customizedStatus")
@@ -230,6 +234,8 @@ export class PromptPage {
       cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
 
       newSaveBtn.addEventListener("click", () => this.savePrompt());
+      /* 未自定义时"载入默认内容"与当前内容一致，是空操作 */
+      newResetBtn.hidden = !detail.is_custom;
       newResetBtn.addEventListener("click", () => this.resetPrompt());
       newCancelBtn.addEventListener("click", () => this.closeEditor());
 

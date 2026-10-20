@@ -843,22 +843,6 @@ input[type="range"] {
 
 /* Prompt management */
 
-.prompt-warning {
-  position: relative;
-  padding: 18px 20px 18px 28px;
-  color: var(--text-primary);
-  background: var(--warning-light);
-  border: 0;
-  border-left: 6px solid var(--gold);
-  border-radius: 0;
-}
-
-.prompt-warning-title {
-  color: var(--text-primary);
-  font-size: 15px;
-  text-transform: uppercase;
-}
-
 .prompt-category {
   margin-bottom: 34px;
 }
@@ -926,10 +910,6 @@ input[type="range"] {
   border: 1px solid var(--border-normal);
   border-radius: 2px;
   box-shadow: 8px 8px 0 var(--border-light);
-}
-
-.prompt-editor-subtitle {
-  letter-spacing: 0;
 }
 
 /* Panels and feedback */
@@ -1146,10 +1126,6 @@ input[type="range"] {
     flex: 0 1 auto;
   }
 
-  .page-actions .input {
-    display: none;
-  }
-
   .page-body {
     padding: 18px 16px 30px;
   }
@@ -1310,7 +1286,7 @@ input[type="range"] {
   padding: 12px 16px;
   min-height: 48px;
   color: var(--text-secondary);
-  background: var(--bg-secondary);
+  background: var(--bg-tint);
   border-bottom: 1px solid var(--border-normal);
   overflow-wrap: anywhere;
 }

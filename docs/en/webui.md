@@ -17,7 +17,7 @@ AstrBot `4.24.2` or later is recommended. Older versions can still run the plugi
 | Memory management | Inspect and filter memories; edit summaries, topics, key facts, status, and importance; batch-delete; import and export |
 | Recall debugging | Enter a query and inspect results, final scores, and the retrieval routes that matched |
 | Graph view | Browse entities, relationships, and memory connections |
-| System status | Review active, archived, and deleted counts plus graph, atom, importance, and session statistics |
+| System status | Review active, archived, and deleted counts plus graph, atom, importance, and session statistics (sessions ordered by memory count); the consolidation panel carries the run action, and backups are newest first |
 | Prompt management | Browse prompts by category, edit overrides, identify customized templates, and restore or load defaults |
 
 ## Appearance
@@ -51,7 +51,7 @@ Deletion is permanent. Archive memories that may need to be restored later. Rest
 
 ## Prompt management
 
-The prompt page shows each template's purpose, variables, and default or customized state. The editor can save an override, load default content for further editing, or remove an override and restore the built-in default. Templates marked as JSON must remain valid JSON or saving is rejected.
+The prompt page shows each template's purpose, variables, and default or customized state; templates that must emit JSON carry a JSON badge next to the name, with the constraint on hover. The editor can save an override, load default content for further editing, or remove an override and restore the built-in default; **Load default content** only appears for templates that are already customized. Templates marked as JSON must remain valid JSON or saving is rejected.
 
 Prompt overrides live in the plugin data directory and do not modify repository templates, so they remain in place across plugin upgrades.
 
