@@ -281,9 +281,8 @@
     "graph.personaLabel": { zh: "人格过滤", en: "Persona Filter", ru: "Фильтр персоны" },
     "graph.personaPh":    { zh: "可选：限定 persona_id", en: "Optional: limit to persona_id", ru: "Опц.: ограничить persona_id" },
     "graph.memoryIdLabel":{ zh: "记忆 ID", en: "Memory ID", ru: "ID памяти" },
-    "graph.memoryIdPh":   { zh: "输入记忆 ID 定位局部子图", en: "Enter memory ID to locate subgraph", ru: "Введите ID памяти для поиска подграфа" },
     "graph.searchBtn":    { zh: "检索图谱", en: "Search Graph", ru: "Искать в графе" },
-    "graph.focusBtn":     { zh: "定位记忆", en: "Focus Memory", ru: "Фокус памяти" },
+    "graph.focusOnGraph": { zh: "在图谱中定位", en: "Locate in graph", ru: "Показать на графе" },
     "graph.overviewBtn":  { zh: "全量图谱", en: "Full Graph", ru: "Весь граф" },
     "graph.limitedBtn":   { zh: "受限概览", en: "Limited View", ru: "Ограниченный обзор" },
 
@@ -361,8 +360,6 @@
 
     /* ---- Graph Errors (actions) ---- */
     "graph.queryFail":    { zh: "图谱检索失败", en: "Graph retrieval failed", ru: "Ошибка поиска в графе" },
-    "graph.focusEmpty":   { zh: "请输入要定位的记忆 ID。", en: "Please enter a memory ID to focus.", ru: "Введите ID памяти для фокуса." },
-    "graph.focusNotInt":  { zh: "记忆 ID 必须是整数。", en: "Memory ID must be an integer.", ru: "ID памяти должен быть целым числом." },
     "graph.focusFail":    { zh: "定位记忆失败", en: "Memory focus failed", ru: "Ошибка фокуса памяти" },
     "graph.statsFailed":  { zh: "获取图谱统计失败", en: "Failed to fetch graph stats", ru: "Не удалось получить статистику графа" },
 

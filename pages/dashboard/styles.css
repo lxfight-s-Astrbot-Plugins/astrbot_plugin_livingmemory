@@ -969,6 +969,50 @@ body {
   margin-bottom: var(--space-3);
 }
 
+/* 区块标题 + 右侧动作（如「在图谱中定位」） */
+.peek-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.peek-section-title-row .peek-section-title {
+  margin-bottom: 0;
+}
+
+/* 图节点关联记忆：图 → 记忆的入口 */
+.peek-related-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.peek-related-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.peek-related-item:hover {
+  border-color: var(--border-normal);
+  background: var(--bg-hover);
+}
+
 .peek-meta-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1140,18 +1184,13 @@ body {
 
 /* Mini graph in detail */
 .memory-detail-mini-graph {
+  display: block;
   width: 100%;
   height: 160px;
   background: var(--bg-hover);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
-  cursor: pointer;
-  transition: opacity var(--transition-fast);
-}
-
-.memory-detail-mini-graph:hover {
-  opacity: 0.85;
 }
 
 /* Status & Type edit selects */

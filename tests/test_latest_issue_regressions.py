@@ -107,7 +107,6 @@ def test_graph_toolbar_has_intermediate_desktop_breakpoints() -> None:
     assert "@media (min-width: 769px) and (max-width: 1600px)" in css
     assert "grid-column: 1 / -1" in css
     assert "#graph-query-input" in css
-    assert "#graph-memory-id" in css
 
 
 def test_summary_prompts_keep_persona_voice_and_single_summary_output() -> None:

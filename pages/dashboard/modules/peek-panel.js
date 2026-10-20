@@ -37,8 +37,9 @@ export class PeekPanel {
   /**
    * 打开侧边面板
    * @param {boolean} isWide - 是否使用宽模式
+   * @param {boolean} withOverlay - 是否加遮罩。图谱页连续对比节点时为 false
    */
-  open(isWide = false) {
+  open(isWide = false, withOverlay = true) {
     const panel = document.getElementById("peek-panel");
     panel.removeAttribute("inert");
     panel.setAttribute("aria-hidden", "false");
@@ -48,7 +49,9 @@ export class PeekPanel {
     } else {
       panel.classList.remove("wide");
     }
-    document.getElementById("peek-overlay").classList.add("visible");
+    if (withOverlay) {
+      document.getElementById("peek-overlay").classList.add("visible");
+    }
   }
 
   /**
@@ -267,9 +270,12 @@ export class PeekPanel {
       html += '</div></details>';
     }
 
-    // 图谱上下文小视图
+    // 图谱上下文小视图 + 明确的定位动作
     if (graphCtx && graphCtx.nodes && graphCtx.nodes.length) {
-      html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.graphContext") + '</div>';
+      html += '<div class="peek-section"><div class="peek-section-title-row">';
+      html += '<span class="peek-section-title">' + window.t("detail.graphContext") + '</span>';
+      html += '<button type="button" class="btn btn-sm btn-secondary" id="peek-focus-graph-btn">' + window.t("graph.focusOnGraph") + '</button>';
+      html += '</div>';
       html += '<canvas id="peek-mini-graph" class="memory-detail-mini-graph" width="440" height="160" data-memory-id="' + id + '"></canvas></div>';
     }
 
@@ -331,6 +337,14 @@ export class PeekPanel {
     if (editBtn) editBtn.addEventListener("click", () => this.renderEditView(detail));
     if (resummarizeBtn) resummarizeBtn.addEventListener("click", () => this.resummarizeMemory(id));
     if (delBtn) delBtn.addEventListener("click", () => this.deleteSingleMemory(parseInt(id)));
+
+    const focusGraphBtn = document.getElementById("peek-focus-graph-btn");
+    if (focusGraphBtn) {
+      focusGraphBtn.addEventListener("click", () => {
+        this.close();
+        if (window.lmFocusMemoryOnGraph) window.lmFocusMemoryOnGraph(id);
+      });
+    }
 
     // 加载图谱小视图
     const miniCanvas = document.getElementById("peek-mini-graph");
@@ -599,16 +613,33 @@ export class PeekPanel {
     document.getElementById("peek-badge").innerHTML = nodeBadge(nodeData.type);
     document.getElementById("peek-title").textContent = nodeData.label || window.t("graph.unnamedNode");
 
+    const relatedMemories = Array.isArray(nodeData.memories) ? nodeData.memories : [];
+
     let html = '<div class="peek-section">';
     html += '<div class="peek-meta-grid">';
-    html += '<div class="peek-meta-item"><span class="peek-meta-label">' + window.t("detail.nodeMemories") + '</span><span class="peek-meta-value">' + (nodeData.memory_count || 0) + '</span></div>';
     html += '<div class="peek-meta-item"><span class="peek-meta-label">' + window.t("detail.nodeDegree") + '</span><span class="peek-meta-value">' + (nodeData.degree || 0) + '</span></div>';
     html += '<div class="peek-meta-item"><span class="peek-meta-label">' + window.t("detail.nodeEntries") + '</span><span class="peek-meta-value">' + (nodeData.entry_count || 0) + '</span></div>';
     html += '<div class="peek-meta-item"><span class="peek-meta-label">' + window.t("detail.nodeWeight") + '</span><span class="peek-meta-value">' + Number(nodeData.weight || 0).toFixed(2) + '</span></div>';
     html += '</div></div>';
 
+    // 图 → 记忆的唯一入口：此前节点详情只有数字，点不到任何一条记忆
+    if (relatedMemories.length) {
+      html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.nodeMemories") + '</div><div class="peek-related-list">';
+      relatedMemories.forEach(memory => {
+        const summary = memory.summary || memory.content || ("#" + memory.memory_id);
+        html += '<button type="button" class="peek-related-item" data-memory-id="' + esc(String(memory.memory_id)) + '">' + esc(String(summary)) + '</button>';
+      });
+      html += '</div></div>';
+    }
+
     document.getElementById("peek-body").innerHTML = html;
-    this.open(false);
+    document.querySelectorAll("#peek-body .peek-related-item").forEach(button => {
+      button.addEventListener("click", () => {
+        const memory = relatedMemories.find(item => String(item.memory_id) === button.dataset.memoryId);
+        if (memory) this.renderMemory(memory);
+      });
+    });
+    this.open(false, false);
   }
 
   /**

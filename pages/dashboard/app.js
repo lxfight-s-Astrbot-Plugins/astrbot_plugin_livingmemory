@@ -244,8 +244,15 @@ import {
       document.getElementById("gs-edges").textContent = data.graph_edges || 0;
 
       const sessions = data.sessions || {};
-      const sessionCount = typeof sessions === "object" ? Object.keys(sessions).length : 0;
-      document.getElementById("gs-sessions").textContent = sessionCount;
+      const sessionIds = typeof sessions === "object" ? Object.keys(sessions) : [];
+      document.getElementById("gs-sessions").textContent = sessionIds.length;
+
+      const sessionOptions = document.getElementById("graph-session-options");
+      if (sessionOptions) {
+        sessionOptions.innerHTML = sessionIds
+          .map(id => '<option value="' + esc(String(id)) + '"></option>')
+          .join("");
+      }
     } catch (e) {
       showToast(e.message || window.t("misc.statsFail"), true);
     }
@@ -313,6 +320,7 @@ import {
     }
     return api.request(path, options || {});
   };
+  window.lmSwitchPage = (name) => switchPage(name);
   window.lmOpenPeekNode = (nodeData) => peekPanel.renderNode(nodeData);
   window.lmOpenPeekMemory = (memory) => peekPanel.renderMemory(memory);
   window.lmClosePeek = () => peekPanel.requestClose();

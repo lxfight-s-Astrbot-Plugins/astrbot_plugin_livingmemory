@@ -95,9 +95,7 @@
     initLabels();
     dom.queryInput = document.getElementById("graph-query-input");
     dom.sessionInput = document.getElementById("graph-session-filter");
-    dom.memoryInput = document.getElementById("graph-memory-id");
     dom.searchButton = document.getElementById("graph-search-btn");
-    dom.focusButton = document.getElementById("graph-focus-btn");
     dom.overviewButton = document.getElementById("graph-overview-btn");
     dom.legend = document.getElementById("graph-legend");
     dom.canvas = document.getElementById("graph-canvas");
@@ -106,7 +104,6 @@
     if (!dom.canvas) return;
 
     dom.searchButton.addEventListener("click", runQuery);
-    dom.focusButton.addEventListener("click", focusMemory);
     /* 「全量图谱」按钮可来回切换：受限概览 ↔ 全量图（#248）。 */
     dom.overviewButton.addEventListener("click", function() {
       fetchOverview(state.overviewMode !== "full");
@@ -116,8 +113,12 @@
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }
     });
-    dom.memoryInput.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") { e.preventDefault(); focusMemory(); }
+    /* 会话过滤此前改完不提交也没有 Enter，输入等于无效 */
+    dom.sessionInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        fetchOverview(state.overviewMode === "full");
+      }
     });
 
     /* Init Graph2D */
@@ -242,18 +243,19 @@
     }
   }
 
-  async function focusMemory() {
-    if (state.isLoading) return;
-    var text = dom.memoryInput.value.trim();
-    if (!text) { setCanvasMessage(window.t("graph.focusEmpty"), false); return; }
-    var memoryId = Number.parseInt(text, 10);
-    if (Number.isNaN(memoryId)) { setCanvasMessage(window.t("graph.focusNotInt"), false); return; }
+  /**
+   * 按记忆 ID 定位子图。ID 由调用方从上下文传入，用户不需要知道也不需要手输。
+   * @param {number|string} memoryId - 记忆 ID
+   */
+  async function focusMemoryById(memoryId) {
+    var id = numericId(memoryId);
+    if (id === null || state.isLoading) return;
 
     setLoading(true);
-    setCanvasMessage(window.t("graph.loadingFocus", memoryId), true);
+    setCanvasMessage(window.t("graph.loadingFocus", id), true);
     try {
       var filters = getFilters();
-      var body = addExpandedLimits({ memory_id: memoryId });
+      var body = addExpandedLimits({ memory_id: id });
       addOptionalFilter(body, "session_id", filters.session_id);
       var payload = await requestGraph("/graph/query", {
         method: "POST",
@@ -267,13 +269,18 @@
     }
   }
 
+  /* 记忆详情 → 图谱定位 */
+  window.lmFocusMemoryOnGraph = async function(memoryId) {
+    if (window.lmSwitchPage) await window.lmSwitchPage("graph");
+    return focusMemoryById(memoryId);
+  };
+
   /* ================================================================
      Render Pipeline
      ================================================================ */
   function setLoading(loading) {
     state.isLoading = loading;
     if (dom.searchButton) dom.searchButton.disabled = loading;
-    if (dom.focusButton) dom.focusButton.disabled = loading;
     if (dom.overviewButton) dom.overviewButton.disabled = loading;
   }
 
@@ -411,9 +418,19 @@
       window.Graph2D.selectNode(nodeId);
     }
 
-    /* Show in peek panel */
+    /* 一并传出该节点的关联记忆，图 → 记忆不再是死路 */
     var node = state.graphIndex.nodeMap.get(nodeId);
-    if (window.lmOpenPeekNode && node) window.lmOpenPeekNode(node);
+    if (window.lmOpenPeekNode && node) {
+      var related = [];
+      var memoryIds = state.graphIndex.nodeToMemories.get(nodeId);
+      if (memoryIds) {
+        memoryIds.forEach(function(memoryId) {
+          var memory = state.graphIndex.memoryMap.get(memoryId);
+          if (memory) related.push(memory);
+        });
+      }
+      window.lmOpenPeekNode(Object.assign({}, node, { memories: related }));
+    }
   }
 
   function selectMemory(memoryId) {
