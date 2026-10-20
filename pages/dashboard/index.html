@@ -264,11 +264,12 @@
             </div>
             <p class="workflow-hint" data-i18n="flow.recallShortcut">Ctrl / Cmd + Enter to run recall.</p>
             <div class="recall-results-header hidden" id="recall-stats">
-              <span id="recall-count-text">0 results</span>
+              <span id="recall-count-text"></span>
               <span class="text-tertiary" id="recall-time-text"></span>
+              <span class="text-tertiary" id="recall-context-text"></span>
             </div>
             <div id="recall-feedback" class="request-feedback" role="status" aria-live="polite" hidden></div>
-            <div id="recall-results" aria-busy="false"></div>
+            <div id="recall-results" aria-busy="false"><div class="table-empty" data-i18n="recall.empty">No results · Enter a query and run recall</div></div>
           </div>
         </section>
 

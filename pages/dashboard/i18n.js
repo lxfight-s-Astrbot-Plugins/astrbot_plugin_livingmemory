@@ -80,7 +80,7 @@
     "flow.discard": {"zh": "放弃修改", "en": "Discard changes", "ru": "Отменить изменения"},
     "flow.waitForSave": {"zh": "正在处理，请完成后再离开。", "en": "An operation is in progress. Please wait before leaving.", "ru": "Операция выполняется. Дождитесь завершения перед выходом."},
     "flow.working": {"zh": "正在处理，请稍候…", "en": "Working, please wait…", "ru": "Выполняется, подождите…"},
-    "flow.recallShortcut": {"zh": "输入查询并设置范围，再执行召回。快捷键：Ctrl / Cmd + Enter。", "en": "Enter a query and set its scope, then run recall. Shortcut: Ctrl / Cmd + Enter.", "ru": "Введите запрос и задайте область, затем запустите поиск. Ctrl / Cmd + Enter."},
+    "flow.recallShortcut": {"zh": "快捷键：Ctrl / Cmd + Enter", "en": "Shortcut: Ctrl / Cmd + Enter", "ru": "Быстрый вызов: Ctrl / Cmd + Enter"},
 
     /* ---- Navigation ---- */
     "nav.memory":         { zh: "记忆管理", en: "Memory", ru: "Память" },
@@ -409,7 +409,7 @@
     "recall.title":       { zh: "记忆召回功能测试", en: "Memory Recall Test", ru: "Тест поиска памяти" },
     "recall.subtitle":    { zh: "输入查询语句，测试混合检索引擎的召回能力", en: "Enter a query to test the hybrid retrieval engine", ru: "Введите запрос для теста гибридного поиска" },
     "recall.queryLabel":  { zh: "查询内容", en: "Query", ru: "Запрос" },
-    "recall.queryPh":     { zh: "输入你的查询语句，系统将使用混合检索（BM25+向量相似度）进行召回", en: "Enter your query. The system uses hybrid retrieval (BM25 + vector similarity).", ru: "Введите запрос. Система использует гибридный поиск (BM25 + векторы)." },
+    "recall.queryPh":     { zh: "输入查询语句测试召回效果", en: "Enter a query to test recall", ru: "Введите запрос для проверки поиска" },
     "recall.countLabel":  { zh: "返回数量", en: "Result Count", ru: "Кол-во результатов" },
     "recall.kLabel":      { zh: "结果数 (k)", en: "Results (k)", ru: "Результаты (k)" },
     "recall.countPh":     { zh: "返回的记忆数量", en: "Number of memories to return", ru: "Количество возвращаемых памятей" },
@@ -425,7 +425,6 @@
     "recall.noResults":   { zh: "未找到匹配的记忆", en: "No matching memories found", ru: "Совпадений не найдено" },
     "recall.enterQuery":  { zh: "请输入查询内容", en: "Please enter a query", ru: "Введите запрос" },
     "recall.queryRequired":{ zh: "请输入查询内容", en: "Please enter a query", ru: "Введите запрос" },
-    "recall.searching":   { zh: "执行中...", en: "Running...", ru: "Поиск..." },
     "recall.successToast":{ zh: "成功召回 {0} 条记忆", en: "Recalled {0} memories", ru: "Найдено {0} памятей" },
     "recall.fail":        { zh: "召回失败", en: "Recall failed", ru: "Ошибка поиска" },
     "recall.testFailed":  { zh: "召回测试失败", en: "Recall test failed", ru: "Ошибка теста поиска" },
@@ -433,7 +432,7 @@
 
     /* ---- Recall Results Metadata ---- */
     "recall.resultId":    { zh: "记忆 ID:", en: "Memory ID:", ru: "ID памяти:" },
-    "recall.resultScore": { zh: "相似度得分:", en: "Similarity Score:", ru: "Оценка схожести:" },
+    "recall.resultScore": { zh: "综合得分:", en: "Final score:", ru: "Итоговая оценка:" },
     "recall.resultSession":{ zh: "会话 UUID:", en: "Session UUID:", ru: "UUID сессии:" },
     "recall.resultImportance":{ zh: "重要性:", en: "Importance:", ru: "Важность:" },
     "recall.resultType":  { zh: "类型:", en: "Type:", ru: "Тип:" },

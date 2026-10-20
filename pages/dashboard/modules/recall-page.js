@@ -3,7 +3,7 @@
  * 负责测试记忆召回功能
  */
 
-import { esc, statusPill, normalizeImportance } from "./utils.js";
+import { esc, statusPill, typeLabel, normalizeImportance } from "./utils.js";
 
 export class RecallPage {
   constructor(state, apiClient, peekPanel) {
@@ -90,7 +90,6 @@ export class RecallPage {
       this.renderResults(data, elapsed);
       if (feedback) feedback.hidden = true;
     } catch (e) {
-      this.showToast(e.message || window.t("recall.fail"), true);
       if (feedback) {
         feedback.textContent = e.message || window.t("recall.fail");
         feedback.classList.add("is-error");
@@ -118,16 +117,21 @@ export class RecallPage {
     const statsEl = document.getElementById("recall-stats");
     const countText = document.getElementById("recall-count-text");
     const timeText = document.getElementById("recall-time-text");
+    const contextText = document.getElementById("recall-context-text");
 
     if (statsEl) statsEl.classList.remove("hidden");
-    if (countText) {
-      countText.textContent = count === 0
-        ? window.t("recall.noMatch")
-        : window.t("recall.resultsCount", count);
-    }
+    if (countText) countText.textContent = window.t("recall.resultsCount", count);
     if (timeText) {
       const time = data.elapsed_time_ms ?? elapsed;
       timeText.textContent = window.t("recall.timeElapsed", (time / 1000).toFixed(2));
+    }
+    // 回显卡片的检索范围：输入框可能已被改写，结果归属只能由响应确认
+    if (contextText) {
+      const scope = ["k=" + (data.k ?? "-")];
+      if (data.session_id_filter) {
+        scope.push(window.t("detail.sessionId") + " " + data.session_id_filter);
+      }
+      contextText.textContent = scope.join(" · ");
     }
 
     const resultsEl = document.getElementById("recall-results");
@@ -144,29 +148,44 @@ export class RecallPage {
       // 后端返回 memory_id 和 content
       const memoryId = mem.memory_id || mem.id;
       const content = mem.content || mem.text || mem.summary || "";
-      // 后端返回 similarity_score，不是 score
+      // similarity_score 是各检索路线融合后的最终得分，不是单一向量相似度
       const score = mem.similarity_score != null ? Number(mem.similarity_score).toFixed(3) :
                     (mem.score != null ? Number(mem.score).toFixed(3) : "--");
       const importance = normalizeImportance(mem.metadata?.importance ?? 0.5).toFixed(1);
       const type = mem.metadata?.memory_type || "GENERAL";
       const status = mem.metadata?.status || "active";
 
-      const scoreNum = Number(score);
-      const scoreCls = scoreNum >= 0.75 ? "high" : scoreNum >= 0.45 ? "medium" : "low";
+      // 分项得分回答"为什么召回它"：只渲染实际命中的检索路线，无分项时不占位
+      const breakdown = mem.score_breakdown || {};
+      const routes = [];
+      [
+        ["graph.scoreDocKW", "document_keyword_score"],
+        ["graph.scoreDocVec", "document_vector_score"],
+        ["graph.scoreGraphKW", "graph_keyword_score"],
+        ["graph.scoreGraphVec", "graph_vector_score"],
+      ].forEach(([labelKey, field]) => {
+        const value = Number(breakdown[field] || 0);
+        if (value > 0) {
+          routes.push('<span class="recall-route-chip"><span>' + esc(window.t(labelKey)) + '</span><b>' + value.toFixed(3) + '</b></span>');
+        }
+      });
 
       html += '<div class="result-card recall-result-item" role="button" tabindex="0" aria-label="' + esc(window.t("table.openMemory", memoryId)) + '" data-memory-id="' + memoryId + '">';
       html += '<div class="result-card-header recall-result-header">';
       html += '<span class="result-rank recall-result-rank">#' + (idx + 1) + '</span>';
-      html += '<span class="cell-mono recall-result-id">ID: ' + memoryId + '</span>';
-      html += '<span class="result-score-badge ' + scoreCls + ' recall-result-score">Score: ' + score + '</span>';
+      html += '<span class="cell-mono recall-result-id">' + esc(window.t("recall.resultId")) + ' ' + esc(String(memoryId)) + '</span>';
+      html += '<span class="result-score-badge recall-result-score">' + esc(window.t("recall.resultScore")) + ' <b>' + score + '</b></span>';
       html += statusPill(status);
-      html += '<span class="type-tag">' + esc(type) + '</span>';
+      html += '<span class="type-tag">' + esc(typeLabel(type)) + '</span>';
       html += '</div>';
       html += '<div class="result-content recall-result-content">' + esc(content) + '</div>';
+      if (routes.length) {
+        html += '<div class="recall-result-routes">' + routes.join("") + '</div>';
+      }
       html += '<div class="recall-result-meta text-secondary">';
-      html += '<span>' + window.t("detail.importance") + ': ' + importance + '/10</span>';
+      html += '<span>' + window.t("detail.importance") + ' ' + importance + '/10</span>';
       if (mem.metadata?.session_id) {
-        html += '<span>Session: ' + esc(String(mem.metadata.session_id)) + '</span>';
+        html += '<span>' + esc(window.t("detail.sessionId")) + ' ' + esc(String(mem.metadata.session_id)) + '</span>';
       }
       html += '</div>';
       html += '</div>';

@@ -15,7 +15,7 @@ AstrBot `4.24.2` or later is recommended. Older versions can still run the plugi
 | Area | Purpose |
 | --- | --- |
 | Memory management | Inspect and filter memories; edit summaries, topics, key facts, status, and importance; batch-delete; import and export |
-| Recall debugging | Enter a query and inspect returned memories and ranking |
+| Recall debugging | Enter a query and inspect results, final scores, and the retrieval routes that matched |
 | Graph view | Browse entities, relationships, and memory connections |
 | System status | Review active, archived, and deleted counts plus graph, atom, importance, and session statistics |
 | Prompt management | Browse prompts by category, edit overrides, identify customized templates, and restore or load defaults |
@@ -56,7 +56,7 @@ Prompt overrides live in the plugin data directory and do not modify repository 
 
 Memory and prompt editors ask how to handle unsaved changes before closing, cancelling or switching pages. **Keep editing** retains the draft; **Discard changes** exits. **Load default content** only fills the prompt editor until Save is clicked. The editor cannot switch to a different prompt while saving.
 
-Recall supports Ctrl / Cmd + Enter. A new request clears previous results and displays failures explicitly, so old cards cannot be mistaken for the new query's output. Graph search and memory-ID inputs sit beside their corresponding actions, and session scope remains available on mobile.
+Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus the per-route scores of the retrieval routes that actually matched (document keyword, document vector, graph keyword, graph vector), so you can tell which path recalled a memory. The result header echoes the `k` and session filter that produced it. A new request clears previous results and displays failures explicitly, so old cards cannot be mistaken for the new query's output. Graph search and memory-ID inputs sit beside their corresponding actions, and session scope remains available on mobile.
 
 ## What the graph view is good for
 
