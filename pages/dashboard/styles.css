@@ -3,47 +3,11 @@
    Notion-inspired, minimalist, modern
    ================================================================ */
 
-/* ----- Design Tokens (Light) ----------------------------------- */
+/* ----- Design Tokens ------------------------------------------- */
+/* 这里只保留本文件独有的尺度 token。调色板由 art-direction.css 掌控：它在
+   styles.css 之后加载并以同名变量覆盖，此前两处各存一份颜色、永远只有后者
+   生效，改色时容易改到不生效的那一份。 */
 :root {
-  /* Surface */
-  --bg-app: #f8f9fa;
-  --bg-sidebar: #f1f3f5;
-  --bg-card: #ffffff;
-  --bg-hover: #f1f3f5;
-  --bg-active: #e9ecef;
-  --bg-input: #f1f3f5;
-  --bg-overlay: rgba(248, 249, 250, 0.85);
-
-  /* Border */
-  --border-light: #e9ecef;
-  --border-normal: #dee2e6;
-  --border-focus: #adb5bd;
-
-  /* Text */
-  --text-primary: #212529;
-  --text-secondary: #6c757d;
-  --text-tertiary: #adb5bd;
-  --text-inverse: #ffffff;
-
-  /* Accent */
-  --accent: #4c6ef5;
-  --accent-light: #edf2ff;
-  --accent-hover: #3b5bdb;
-  --success: #2b8a3e;
-  --success-light: #ebfbee;
-  --warning: #e67700;
-  --warning-light: #fff4e6;
-  --danger: #c92a2a;
-  --danger-light: #fff5f5;
-  --danger-hover: #e03131;
-
-  /* Graph Node Colors */
-  --node-topic: #7c6fca;
-  --node-person: #2f9e8b;
-  --node-fact: #c99a16;
-  --node-summary: #c8648d;
-  --node-other: #8b949e;
-
   /* Spacing */
   --space-1: 4px;
   --space-2: 8px;
@@ -69,46 +33,12 @@
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
 
   /* Transition */
-  --transition-fast: 120ms ease;
-  --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;
-  --transition-panel: 250ms cubic-bezier(0.16, 1, 0.3, 1);
-
-  /* Layout */
-  --sidebar-width: 220px;
-  --header-height: 48px;
 }
 
 /* ----- Design Tokens (Dark) ------------------------------------ */
+/* 深色下只有阴影需要覆盖：颜色由 art-direction.css 的深色块负责。 */
 [data-theme="dark"] {
-  --bg-app: #1a1b1e;
-  --bg-sidebar: #141517;
-  --bg-card: #25262b;
-  --bg-hover: #2c2e33;
-  --bg-active: #373a40;
-  --bg-input: #25262b;
-  --bg-overlay: rgba(26, 27, 30, 0.85);
-
-  --border-light: #2c2e33;
-  --border-normal: #373a40;
-  --border-focus: #5c5f66;
-
-  --text-primary: #e9ecef;
-  --text-secondary: #909296;
-  --text-tertiary: #5c5f66;
-  --text-inverse: #1a1b1e;
-
-  --accent: #748ffc;
-  --accent-light: #1c2333;
-  --accent-hover: #91a7ff;
-  --success: #40c057;
-  --success-light: #0b2817;
-  --warning: #f59f00;
-  --warning-light: #2b1a00;
-  --danger: #ff6b6b;
-  --danger-light: #1f0d0d;
-  --danger-hover: #ff8787;
-
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.15);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
