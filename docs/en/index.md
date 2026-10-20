@@ -22,7 +22,7 @@ features:
   - title: Agent recall and write tools
     details: Registers recall_long_term_memory and memorize_long_term_memory for agent/tool-loop scenarios.
   - title: Dual-route retrieval
-    details: Document and graph routes each support keyword and vector retrieval, then merge rankings with RRF.
+    details: Document and graph routes each support keyword and vector retrieval, then fuse by normalized scores.
   - title: Time-aware lifecycle
     details: Memory atoms have TTL, decay, access reinforcement, and cleanup behavior.
   - title: Four dashboard styles

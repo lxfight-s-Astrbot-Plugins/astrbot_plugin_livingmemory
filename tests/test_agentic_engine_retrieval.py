@@ -833,7 +833,8 @@ class TestBetaRelevanceOrdering:
         engine.hybrid_retriever.bm25_retriever.search = AsyncMock(return_value=rows)
         engine.hybrid_retriever.vector_retriever.search = AsyncMock(return_value=rows)
         legacy = await engine.search_memories(query="记忆", k=2, session_id="test:s1")
-        assert [r.doc_id for r in legacy] == [2, 1]
+        # 分数级融合后，两路都排第一的旧记忆不再被时效项挤到后面
+        assert [r.doc_id for r in legacy] == [1, 2]
 
         # Beta：按纯相关性排序，旧的强相关记忆回到首位
         beta = await engine.search_memories_agentic(

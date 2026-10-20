@@ -142,6 +142,15 @@ class InitializerFinalizeMixin:
                 "rerank_candidates": self.config_manager.get(
                     "recall_engine.rerank_candidates", 20
                 ),
+                "fusion_mode": self.config_manager.get(
+                    "recall_engine.fusion_mode", "score"
+                ),
+                "fusion_bm25_weight": self.config_manager.get(
+                    "recall_engine.fusion_bm25_weight", 0.5
+                ),
+                "recall_candidate_multiplier": self.config_manager.get(
+                    "recall_engine.recall_candidate_multiplier", 3
+                ),
                 "cleanup_days_threshold": self.config_manager.get(
                     "forgetting_agent.cleanup_days_threshold", 30
                 ),

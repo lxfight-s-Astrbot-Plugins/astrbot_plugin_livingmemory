@@ -432,15 +432,13 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
     old_result = next(r for r in results if r.doc_id == 1)
     new_result = next(r for r in results if r.doc_id == 2)
 
-    # 高重要性旧记忆的分数不应被时间衰减清零（旧乘法公式下约为 rrf*0.9*0.165 ≈ 0.15，新公式应远高于此）
+    # 高重要性旧记忆不会被时间衰减压到接近零，且应排在前面
     assert old_result.final_score > 0.5, "旧但重要的记忆分数不应趋近于零"
-    # 两条记忆都应获得合理分数（新公式下各维度互补，不会出现清零）
-    assert new_result.final_score > 0.3, "新记忆分数也应合理"
-    # 旧记忆分数差距不应过大（加权求和保证了高重要性记忆的竞争力）
-    score_gap = new_result.final_score - old_result.final_score
-    assert score_gap < 0.2, (
-        f"旧重要记忆与新记忆分差不应超过0.2，实际差距: {score_gap:.4f}"
-    )
+    assert results[0].doc_id == 1, "两路都排第一的相关记忆应排在最新但无关的记忆之前"
+    # 新记忆的分数下限由重要性/时效项给出，不会被完全清零
+    assert new_result.final_score > 0.25, "新记忆分数也应合理"
+    assert all(0.0 <= r.final_score <= 1.0 for r in results), "融合分数应落在 [0,1]"
+
 
 
 @pytest.mark.asyncio
@@ -1322,7 +1320,8 @@ class _FakeRerankProvider:
 
 
 def _make_rerank_retriever(provider, config=None) -> HybridRetriever:
-    merged = {"rerank_enabled": True, "rerank_candidates": 4}
+    # 这些用例校验的是 rerank 失败/关闭时"保持基础排序"，把基础融合显式固定为 RRF
+    merged = {"rerank_enabled": True, "rerank_candidates": 4, "fusion_mode": "rrf"}
     merged.update(config or {})
     return HybridRetriever(
         bm25_retriever=cast(BM25Retriever, _RerankDocBM25()),
@@ -1388,7 +1387,7 @@ async def test_hybrid_rerank_resolver_returns_none_skips():
         bm25_retriever=cast(BM25Retriever, _RerankDocBM25()),
         vector_retriever=cast(VectorRetriever, _RerankDocVector()),
         rrf_fusion=RRFFusion(k=60),
-        config={"rerank_enabled": True, "rerank_candidates": 4},
+        config={"rerank_enabled": True, "rerank_candidates": 4, "fusion_mode": "rrf"},
         rerank_provider_resolver=lambda: None,
     )
     results = await retriever.search("query", k=2)

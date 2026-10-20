@@ -55,6 +55,9 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.rerank_enabled` | `false` | 启用 Rerank 模型对融合候选按查询相关性重排序 |
 | `recall_engine.rerank_provider_id` | `""` | AstrBot 中 Rerank 类型提供商的 ID，留空则跳过 |
 | `recall_engine.rerank_candidates` | `20` | 送入 Rerank 的融合候选数量（2–100），重排序后保留 top_k |
+| `recall_engine.fusion_mode` | `score` | 结果融合策略：`score` 按归一化分数加权融合，`rrf` 为旧的排名级融合 |
+| `recall_engine.fusion_bm25_weight` | `0.5` | `score` 融合时 BM25 路权重（0–1），向量路为 `1 - 该值` |
+| `recall_engine.recall_candidate_multiplier` | `3` | 融合前每路召回的候选数相对 `k` 的倍数（1–10） |
 | `recall_engine.injection_method` | `extra_user_content` | 记忆注入方式（唯一支持 add-only 临时片段注入） |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
 | `recall_engine.search_cache_enabled` | `true` | 是否启用短期检索缓存 |
