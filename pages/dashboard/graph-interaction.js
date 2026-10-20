@@ -141,6 +141,7 @@
     if (this._panning) {
       vr.ox = this._panStart.ox + (pos.x - this._panStart.mx) / vr.scale;
       vr.oy = this._panStart.oy + (pos.y - this._panStart.my) / vr.scale;
+      this.canvas.style.cursor = "grabbing";
       this._requestRender();
       return;
     }
@@ -199,8 +200,8 @@
     e.preventDefault();
     this._flushMove();
     var vr = this.renderer.viewport;
-    var delta = e.deltaY > 0 ? -CFG.ZOOM_STEP * 60 : CFG.ZOOM_STEP * 60;
-    var newScale = clamp(vr.scale + delta, CFG.ZOOM_MIN, CFG.ZOOM_MAX);
+    var factor = e.deltaY > 0 ? 0.9 : 1.1;
+    var newScale = clamp(vr.scale * factor, CFG.ZOOM_MIN, CFG.ZOOM_MAX);
     var pos = getPos(e, this.canvas);
     var before = this.renderer.screenToWorld(pos.x, pos.y);
     vr.scale = newScale;

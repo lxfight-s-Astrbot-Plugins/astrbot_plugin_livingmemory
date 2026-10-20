@@ -46,7 +46,7 @@ function loadGraphUi(withGraph2D) {
   let lastHandler = null;
 
   global.window = {
-    t: (key) => key,
+    t: (key, ...args) => [key, ...args].join(" "),
     AstrBotPluginPage: {
       async apiPost(path, body) {
         posts.push({ path, body: body || {} });
@@ -170,6 +170,32 @@ test("empty snapshot shows empty message instead of layout message", async () =>
   /* 空图布局完成也不应清掉空提示 */
   g2dCalls[0].options.onLayoutDone();
   assert.equal(stateEl.textContent, "graph.canvasEmpty");
+});
+
+test("legend explains node colours and reports a truncated graph", async () => {
+  const { elements } = loadGraphUi(true);
+  window.AstrBotPluginPage.apiGet = async () => ({
+    status: "ok",
+    data: {
+      enabled: true,
+      mode: "overview",
+      summary: {
+        node_type_breakdown: { person: 3 },
+        relation_breakdown: { co_occurs_with: 5 },
+        visible_node_count: 5000,
+        graph_node_count: 9000,
+      },
+      snapshot: { nodes: [{ id: 1, type: "person", label: "Alice", weight: 1 }], edges: [] },
+    },
+  });
+
+  window.ensureGraphScene();
+  await flushMicrotasks();
+
+  const html = elements["graph-legend"].innerHTML;
+  assert.match(html, /graph\.nodePerson/, "图例解释节点颜色");
+  assert.match(html, /graph\.visibleNodes 5000 9000/, "被截断时给出可见/总数");
+  assert.doesNotMatch(html, /co_occurs_with/, "关系 chip 已移除：它无法对应画布颜色");
 });
 
 test("focusing a memory from another page switches pages and queries by id", async () => {

@@ -338,7 +338,6 @@
     "graph.disabledMemories":{ zh: "暂无可展示的图记忆", en: "No graph memories to display", ru: "Нет граф-памятей для показа" },
     "graph.disabledRetrieval":{ zh: "点击\"全量图谱\"加载全部关系，或直接输入检索词。", en: "Click Full Graph to load every relation, or enter a search term.", ru: "Нажмите Весь граф для загрузки всех связей или введите запрос." },
     "graph.disabledInspector":{ zh: "请选择节点或记忆查看详细信息。", en: "Select a node or memory to view details.", ru: "Выберите узел или память для просмотра." },
-    "graph.disabledCanvas":{ zh: "当前实例尚未启用图记忆。", en: "Graph memory is not yet enabled.", ru: "Граф памяти ещё не включён." },
 
     /* ---- Graph Error ---- */
     "graph.errorBadge":   { zh: "图谱加载失败", en: "Graph Load Failed", ru: "Ошибка загрузки графа" },
@@ -346,7 +345,6 @@
     "graph.errorFetch":   { zh: "无法加载图谱概览", en: "Cannot load graph overview", ru: "Не удалось загрузить обзор графа" },
 
     /* ---- Graph Canvas Messages ---- */
-    "graph.canvasDefault":{ zh: "默认展示最近记忆的受限图谱概览。点击\"全量图谱\"查看全部关系，或直接输入检索词。", en: "Showing a constrained overview of recent memories by default. Click \"Full Graph\" for every relation, or enter a search term.", ru: "По умолчанию показан ограниченный обзор графа по последним воспоминаниям. Нажмите «Весь граф» для всех связей или введите запрос." },
     "graph.canvasNo3D":   { zh: "3D 图谱组件未加载，请刷新页面并检查静态资源。", en: "3D graph component not loaded. Refresh and check static assets.", ru: "3D компонент графа не загружен. Обновите страницу." },
     "graph.canvasEmpty":  { zh: "当前范围内暂无可视化图数据。", en: "No visible graph data in the current range.", ru: "Нет видимых данных графа в текущем диапазоне." },
     "graph.canvasNoScene":{ zh: "当前页面未能加载 3D 图谱组件，请刷新页面后重试。", en: "Failed to load 3D graph component. Refresh and retry.", ru: "Не удалось загрузить 3D компонент. Обновите страницу." },
@@ -365,6 +363,8 @@
 
     /* ---- Graph Legend ---- */
     "graph.legendEmpty":  { zh: "暂无图谱连接", en: "No graph connections", ru: "Нет соединений в графе" },
+    "graph.visibleNodes": { zh: "节点 {0} / {1}", en: "Nodes {0} / {1}", ru: "Узлы {0} / {1}" },
+    "graph.nodeMeta":     { zh: "{0} 条记忆 · {1} 条连接", en: "{0} memories · {1} links", ru: "{0} памятей · {1} связей" },
 
     /* ---- Graph Panels Content ---- */
     "graph.noTopNodes":   { zh: "暂无核心节点", en: "No top nodes", ru: "Нет ключевых узлов" },

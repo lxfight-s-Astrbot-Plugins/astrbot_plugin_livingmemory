@@ -37,11 +37,12 @@
   --danger: #c93b32;
   --danger-light: #ffe5e2;
   --danger-hover: #a72a23;
-  --node-topic: #6f9f42;
-  --node-person: #238f89;
-  --node-fact: #bd8320;
-  --node-summary: #dc6258;
-  --node-other: #728286;
+  /* 必须与 graph-shared.js 的 TYPE_COLORS 一致：画布、图例色点与详情徽章同一套值 */
+  --node-topic: #78a94b;
+  --node-person: #2a9e96;
+  --node-fact: #c58c2a;
+  --node-summary: #df6d62;
+  --node-other: #74868a;
   --font-xs: 11px;
   --font-sm: 12px;
   --font-lg: 17px;

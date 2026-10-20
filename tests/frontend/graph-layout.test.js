@@ -62,6 +62,8 @@ function loadGraph() {
   const rafQueue = [];
   global.window = {
     devicePixelRatio: 1,
+    /* 渲染器现在通过 window.t 输出 hover 元信息，与页面其它文案一致 */
+    t: (key, ...args) => [key, ...args].join(" "),
     matchMedia: () => ({ matches: true }),
     ResizeObserver: class {
       observe() {}
@@ -288,7 +290,8 @@ test("label priority is independent of input order and hovered labels reserve me
   ];
   const map = Object.fromEntries(nodes.map(n => [n.id, n]));
   let labels = [];
-  renderer.ctx.fillText = label => { if (!label.includes("links")) labels.push(label); };
+  /* hover 元信息现在走 i18n（graph.nodeMeta），按 key 过滤以保留原意图 */
+  renderer.ctx.fillText = label => { if (!label.startsWith("graph.nodeMeta")) labels.push(label); };
   renderer.ctx.measureText = () => ({ width: 80 });
   renderer.render(nodes, [], map, null, 2, null, 1);
   assert.deepEqual(labels, ["Important"], "The hovered metadata also excludes nearby ordinary labels");
@@ -591,6 +594,23 @@ test("worker layout completes via fake worker round trip", async () => {
   assert.equal(g._nodes.length, 300);
   assert.equal(g.animator._layout._done, true);
   assert.equal(Object.keys(g.animator._layout.positions).length, 300);
+});
+
+test("worker layout backfills community ids so cluster boundaries can render", async () => {
+  const rafQueue = loadGraph();
+  installFakeWorker();
+  const g = global.window.Graph2D;
+  g.init(makeContainer(), {});
+
+  g.loadData(makePayload(300, 299));
+  await settle(rafQueue);
+
+  const layout = g.animator._layout;
+  assert.equal(layout.isWorker, true, "前置：本用例走 Worker 布局");
+  assert.ok(Object.keys(layout.communities || {}).length > 0, "前置：布局结果带社区编号");
+
+  const missing = g.animator._nodes.filter(node => node.community == null);
+  assert.equal(missing.length, 0, "Worker 路径下每个节点都必须带上社区编号");
 });
 
 test("worker layout falls back to inline when Worker unavailable", async () => {
