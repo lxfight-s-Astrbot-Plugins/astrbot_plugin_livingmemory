@@ -217,12 +217,6 @@ summary:focus-visible {
   font-weight: 400;
 }
 
-.sidebar-coordinate {
-  margin: 0 4px 22px;
-  color: var(--text-tertiary);
-  font: 600 9px/1.2 "SFMono-Regular", Consolas, monospace;
-}
-
 .sidebar-nav {
   gap: 5px;
 }
@@ -241,18 +235,6 @@ summary:focus-visible {
   text-transform: uppercase;
   transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
 }
-
-.nav-item::after {
-  margin-left: auto;
-  color: var(--text-tertiary);
-  font: 500 9px/1 "SFMono-Regular", Consolas, monospace;
-}
-
-.sidebar-nav .nav-item:nth-child(1)::after { content: "01"; }
-.sidebar-nav .nav-item:nth-child(2)::after { content: "02"; }
-.sidebar-nav .nav-item:nth-child(3)::after { content: "03"; }
-.sidebar-nav .nav-item:nth-child(4)::after { content: "04"; }
-.sidebar-nav .nav-item:nth-child(5)::after { content: "05"; }
 
 .nav-item:hover {
   color: var(--accent);
@@ -512,11 +494,6 @@ input[type="range"] {
   font: 500 9px/1 "SFMono-Regular", Consolas, monospace;
 }
 
-.stat-pill:nth-child(1)::before { content: "A1"; }
-.stat-pill:nth-child(2)::before { content: "A2"; }
-.stat-pill:nth-child(3)::before { content: "A3"; }
-.stat-pill:nth-child(4)::before { content: "A4"; }
-
 .stat-pill-value {
   color: var(--text-primary);
   font-size: 38px;
@@ -568,16 +545,6 @@ input[type="range"] {
   right: 40px;
   width: 1px;
   height: 42px;
-}
-
-.graph-canvas-coordinate {
-  position: absolute;
-  z-index: 4;
-  right: 18px;
-  bottom: 14px;
-  color: var(--text-tertiary);
-  font: 600 9px/1 "SFMono-Regular", Consolas, monospace;
-  pointer-events: none;
 }
 
 .graph-canvas-state {
@@ -1063,10 +1030,8 @@ input[type="range"] {
 
   .sidebar::after,
   .sidebar-brand,
-  .sidebar-coordinate,
   .sidebar-divider,
-  .nav-item span,
-  .nav-item::after {
+  .nav-item span {
     display: none;
   }
 

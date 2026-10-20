@@ -11,8 +11,6 @@ import {
   SystemPage,
   PromptPage,
   esc,
-  statusPill,
-  nodeBadge,
 } from "./modules/index.js";
 
 (() => {
@@ -314,22 +312,12 @@ import {
      ================================================================ */
   window.lmState = state;
   window.lmShowToast = showToast;
-  window.lmApiRequest = (path, options) => {
-    // 兼容旧 API，转发到 ApiClient
-    if (options && options.method === "POST") {
-      return api.request(path, options);
-    }
-    return api.request(path, options || {});
-  };
   window.lmSwitchPage = (name) => switchPage(name);
   window.lmOpenPeekNode = (nodeData) => peekPanel.renderNode(nodeData);
   window.lmOpenPeekMemory = (memory) => peekPanel.renderMemory(memory);
   window.lmClosePeek = () => peekPanel.requestClose();
   window.lmFetchGraphStats = fetchGraphStats;
   window.lmRefreshMemories = () => memoryPage.fetch();
-  window.lmEsc = esc;
-  window.lmStatusPill = statusPill;
-  window.lmNodeBadge = nodeBadge;
   window.lmHydrateIcons = hydrateIcons;
 
   // 图谱小视图绘制函数（如果需要）
