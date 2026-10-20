@@ -164,6 +164,7 @@ class RRFFusion:
         vector_results: list[VectorResult],
         top_k: int,
         bm25_weight: float = 0.5,
+        agreement_bonus: float = 0.0,
     ) -> list[FusedResult]:
         """按归一化分数融合两路结果（分数级融合）。
 
@@ -176,6 +177,7 @@ class RRFFusion:
             vector_results: 向量结果（按相似度降序）
             top_k: 返回条数
             bm25_weight: BM25 路权重，范围 [0, 1]
+            agreement_bonus: 两路都命中且名次接近时的最大加成，0 表示关闭
 
         Returns:
             List[FusedResult]: 按融合分数降序的结果
@@ -213,6 +215,7 @@ class RRFFusion:
 
         fused_scores: dict[int, float] = {}
         best_rank: dict[int, int] = {}
+        span = max(len(bm25_results), len(vector_results), 1)
         for doc_id in set(bm25_norm) | set(vector_norm):
             weighted_sum = 0.0
             weight_total = 0.0
@@ -222,7 +225,12 @@ class RRFFusion:
             if doc_id in vector_norm:
                 weighted_sum += (1.0 - weight) * vector_norm[doc_id]
                 weight_total += 1.0 - weight
-            fused_scores[doc_id] = weighted_sum / weight_total if weight_total else 0.0
+            score = weighted_sum / weight_total if weight_total else 0.0
+            if agreement_bonus > 0 and doc_id in bm25_rank and doc_id in vector_rank:
+                # 两路都召回且名次越接近越可信：奖励跨路线共识，抑制单路噪声冒头
+                rank_gap = abs(bm25_rank[doc_id] - vector_rank[doc_id])
+                score += agreement_bonus * (1.0 - rank_gap / span)
+            fused_scores[doc_id] = score
             best_rank[doc_id] = min(
                 bm25_rank.get(doc_id, len(bm25_results) + 1),
                 vector_rank.get(doc_id, len(vector_results) + 1),
