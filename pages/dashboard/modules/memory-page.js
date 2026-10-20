@@ -3,7 +3,7 @@
  * 负责记忆列表展示、虚拟滚动、筛选和排序
  */
 
-import { normalizeImportance, esc, statusPill, typeLabel } from "./utils.js";
+import { normalizeImportance, esc, statusPill, typeLabel, originLabel } from "./utils.js";
 
 export class MemoryPage {
   constructor(state, apiClient, peekPanel) {
@@ -84,9 +84,8 @@ export class MemoryPage {
           : (item.metadata && item.metadata.create_time)
             ? new Date(item.metadata.create_time * 1000).toLocaleString()
             : item.updated_at || "--",
-        last_access: (item.metadata && item.metadata.last_access_time)
-          ? new Date(item.metadata.last_access_time * 1000).toLocaleString()
-          : "--",
+        origin: (item.metadata && item.metadata.memory_origin) || "",
+        summary_quality: (item.metadata && item.metadata.summary_quality) || "",
         consolidated_count: (item.metadata && Array.isArray(item.metadata.consolidated_from))
           ? item.metadata.consolidated_from.length
           : 0,
@@ -224,7 +223,9 @@ export class MemoryPage {
       const consBadge = item.consolidated_count > 0
         ? '<span class="type-tag cons-badge" title="' + esc(window.t("table.consolidatedTitle")) + '">' + window.t("table.consolidated", item.consolidated_count) + '</span> '
         : "";
-      html += '<td class="cell-summary"><div class="memory-summary-line">' + consBadge + '<button class="memory-open memory-summary-text" type="button" aria-label="' + esc(window.t("table.openMemory", item.memory_id)) + '">' + esc(item.summary || "") + '</button></div><div class="memory-summary-meta">' + esc(window.t("table.updated", item.updated_at || "--")) + '</div></td>';
+      const lowQuality = item.summary_quality === "low";
+      const originTag = '<span class="origin-tag' + (lowQuality ? " is-low" : "") + '"' + (lowQuality ? ' title="' + esc(window.t("detail.qualityLow")) + '"' : "") + '>' + esc(originLabel(item.origin)) + '</span>';
+      html += '<td class="cell-summary"><div class="memory-summary-line">' + consBadge + '<button class="memory-open memory-summary-text" type="button" aria-label="' + esc(window.t("table.openMemory", item.memory_id)) + '">' + esc(item.summary || "") + '</button></div><div class="memory-summary-meta">' + originTag + '<span>' + esc(window.t("table.updated", item.updated_at || "--")) + '</span></div></td>';
       html += '<td class="cell-type"><span class="type-tag">' + esc(typeLabel(item.memory_type)) + '</span></td>';
       html += '<td class="cell-importance"><div class="importance-bar"><div class="importance-bar-track">';
       html += '<div class="importance-bar-fill ' + impCls + '" style="width:' + (impNum * 10) + '%"></div></div>';
@@ -366,8 +367,9 @@ export class MemoryPage {
       );
       const deleted = Number(result.deleted_count || 0);
       if (deleted !== ids.length) {
+        const failedIds = Array.isArray(result.failed_ids) ? result.failed_ids : [];
         const failed = ids.length - deleted;
-        this.showToast(window.t("delete.partialFailed", deleted, failed, "--"), true);
+        this.showToast(window.t("delete.partialFailed", deleted, failed, failedIds.join(", ") || "--"), true);
       } else {
         this.showToast(window.t("delete.success", deleted));
       }
