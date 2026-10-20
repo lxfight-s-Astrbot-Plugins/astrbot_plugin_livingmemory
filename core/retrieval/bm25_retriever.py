@@ -4,6 +4,7 @@ BM25检索器 - 基于SQLite FTS5的稀疏检索
 """
 
 import json
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,29 @@ import aiosqlite
 from astrbot.api import logger
 
 from ..processors.text_processor import TextProcessor
+
+
+_CJK_RUN = re.compile(r"[一-鿿]+")
+
+
+def with_cjk_bigrams(tokens: list[str], text: str) -> list[str]:
+    """在分词结果后追加中文连续段的字符二元组。
+
+    短查询与专有名词（店名/人名/型号）经常被 jieba 切得与索引侧不一致，
+    字符二元组能补上这种细粒度匹配；英文与数字段不加，避免引入噪声。
+
+    Args:
+        tokens: jieba 分词结果
+        text: 原始文本
+
+    Returns:
+        追加二元组后的词元列表（去重保序）
+    """
+    merged = list(tokens)
+    for match in _CJK_RUN.finditer(str(text or "")):
+        run = match.group(0)
+        merged.extend(run[i : i + 2] for i in range(len(run) - 1))
+    return list(dict.fromkeys(merged))
 
 
 @dataclass
@@ -132,7 +156,7 @@ class BM25Retriever:
         tokens = await self.text_processor.tokenize_async(
             content, remove_stopwords=True
         )
-        processed_content = " ".join(tokens)
+        processed_content = " ".join(with_cjk_bigrams(tokens, content))
 
         async with self._connect() as db:
             # 插入到FTS表
@@ -166,6 +190,7 @@ class BM25Retriever:
 
         # 预处理查询（异步卸载 jieba 分词到线程池）
         tokens = await self.text_processor.tokenize_async(query, remove_stopwords=True)
+        tokens = with_cjk_bigrams(tokens, query)
         if not tokens:
             return []
 

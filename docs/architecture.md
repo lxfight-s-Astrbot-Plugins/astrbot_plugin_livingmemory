@@ -32,7 +32,7 @@ LivingMemory 的运行时由事件钩子、记忆处理、检索融合、存储�
 
 | 路线 | 关键词模式 | 向量模式 |
 | --- | --- | --- |
-| 文档路 | `BM25Retriever` | `VectorRetriever` |
+| 文档路 | `BM25Retriever`（jieba 词元 + 中文连续段字符二元组） | `VectorRetriever` |
 | 图谱路 | `GraphKeywordRetriever` | `GraphVectorRetriever` |
 
 每条路线内部默认做分数级融合：先把 BM25 与向量结果在本查询内归一化再加权求和（`fusion_mode=score`，`fusion_bm25_weight` 控制两路配比），若配置为 `rrf` 则退回排名级融合；融合前每路按 `recall_candidate_multiplier` 扩大候选池，避免只在 `k` 个候选里重排。融合后叠加重要性和时间衰减；文档路与图谱路之间使用归一化加权融合。BM25 在候选截断之前过滤会话、人格和状态。向量候选不足时逐步扩取，最多检查 8192 个候选。

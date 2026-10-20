@@ -58,6 +58,7 @@ For very busy group chats, lower `context_window_size` or disable full group cap
 | `recall_engine.fusion_mode` | `score` | Fusion strategy: `score` fuses normalized scores, `rrf` keeps the legacy rank fusion |
 | `recall_engine.fusion_bm25_weight` | `0.5` | BM25 route weight for `score` fusion (0-1); the vector route gets `1 - value` |
 | `recall_engine.recall_candidate_multiplier` | `3` | Per-route candidate count as a multiple of `k` before fusion (1-10) |
+| `recall_engine.fusion_agreement_bonus` | `0.25` | Bonus when both routes return a document at similar ranks (0 disables); the Chinese grid preferred 0.4-0.6 but English data is steadier at 0.25 |
 | `recall_engine.injection_method` | `extra_user_content` | Memory injection mode (the only supported add-only temporary-part injection) |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
