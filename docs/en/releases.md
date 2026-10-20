@@ -1,5 +1,63 @@
 # Releases and Upgrades
 
+## 2.7.0-beta.3 · October 20, 2026
+
+This prerelease rebuilds the dashboard from "you can see it" to "you can judge it", and lifts recall quality at the same time. No new dependencies and no change to default runtime behaviour; stay on 2.6.1 for the stable channel.
+
+[Download 2.7.0-beta.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.3)
+
+### What changed
+
+**Dashboard**
+- Every memory now names its writer (Agent-written, imported, re-summarized, or auto) and flags summaries whose quality looks low, so what the bot recorded on its own is finally distinguishable.
+- The recall test page explains itself: each result lists which retrieval routes matched it (document keyword, document vector, graph keyword, graph vector), and the header echoes the `k` and session filter used.
+- Graph and memory list are now connected both ways: a node lists its related memories and opens them, and a memory offers **Locate in graph** instead of asking for a memory ID. Node details on the graph page are no longer modal, so several nodes can be compared in a row.
+- Failures on the system and prompt pages stay on the page with a retry instead of vanishing with a two-second toast, and the standing explanatory copy was removed in favour of control state and feedback.
+
+**Recall quality**
+- Document-route fusion moved from rank-based to normalized-score weighting, each route now contributes `3k` candidates before fusion, and documents found by both routes at close ranks receive a consensus bonus.
+- BM25 indexes and queries CJK character bigrams in addition to jieba tokens, so short queries and proper nouns (shop, person, model names) no longer miss because the two sides were segmented differently.
+- Measured: Chinese synthetic set (149 topic clusters / 1591 near-duplicate memories / 1211 tiered queries) MRR `0.86 → 0.95`, Hit@1 `0.79 → 0.93`; English LoCoMo (1536 evidence QA) MRR `0.66 → 0.73`. Method and results in #305 / #306 / #307.
+
+### Upgrade notes
+
+- Existing configuration needs no changes; new parameters have defaults and fall back automatically.
+- **Run `/lmem rebuild-index` once if you want existing memories to benefit from the bigram tokens**; new writes pick them up automatically. Skipping it is safe, older memories just keep the previous index.
+- Dashboard preferences (style, light/dark, language) stay in the browser and survive the upgrade.
+
+### Known limitations
+
+- In **Full Graph** mode the node panel does not list related memories yet (that snapshot does not return entries; limited overview and query modes do).
+- The Chinese evaluation set is model-generated and is meant for comparing retrieval designs, not for estimating live traffic distribution.
+
+### Pull requests in this release
+
+| PR | Change | Author |
+| --- | --- | --- |
+| [#299](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/299) | Show retrieval route scores in the recall test page | [@lxfight](https://github.com/lxfight) |
+| [#300](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/300) | Surface memory origin and why it was remembered | [@lxfight](https://github.com/lxfight) |
+| [#301](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/301) | Link the graph and the memory list in both directions | [@lxfight](https://github.com/lxfight) |
+| [#302](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/302) | Make graph encodings self-consistent and stable | [@lxfight](https://github.com/lxfight) |
+| [#303](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/303) | Unify request feedback and fix system/prompt semantics | [@lxfight](https://github.com/lxfight) |
+| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | Remove dead code, overridden styles and decoration | [@lxfight](https://github.com/lxfight) |
+| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | Fuse by normalized scores with wider candidates | [@lxfight](https://github.com/lxfight) |
+| [#306](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/306) | Reward cross-route agreement | [@lxfight](https://github.com/lxfight) |
+| [#307](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/307) | Index CJK character bigrams in BM25 | [@lxfight](https://github.com/lxfight) |
+
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of the plugin code, its data directory and configuration.
+2. Download **Source code (zip)** from the release above, unpack it into `data/plugins/astrbot_plugin_livingmemory`, and keep the existing data and configuration instead of replacing them with empty folders.
+3. Start or reload AstrBot, confirm the version reads `2.7.0-beta.3` in the plugin list, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. To let existing memories benefit from the bigram tokens, send `/lmem rebuild-index` (it runs in batches while recall stays available).
+
+With Git-managed plugin code, switch the clean plugin worktree to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0-beta.3
+```
+
 ## 2.7.0-beta.2 · September 16, 2026
 
 This prerelease covers the refactors and behavioral standardization since `2.7.0-beta.1`. Stay on 2.6.1 for the stable channel.

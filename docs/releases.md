@@ -1,5 +1,63 @@
 # 版本与升级
 
+## 2.7.0-beta.3 · 2026-10-20
+
+本次预发布把管理面板从"能看"重做成"能判断"，同时把召回质量抬了一档。没有引入新依赖，默认运行方式不变；稳定使用可继续选择 2.6.1。
+
+[下载 2.7.0-beta.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.3)
+
+### 这次更新了什么
+
+**管理面板**
+- 每条记忆标注写入方（Agent 主动写入 / 导入 / 重新总结 / 自动总结），摘要质量偏低会单独标出——AI 自己记了什么，现在能一眼分清。
+- 召回测试不再只给一个总分：结果卡说明这条记忆是被哪条检索路线召回的（文档关键词、文档向量、图关键词、图向量），结果头回显本次请求的 `k` 与会话过滤。
+- 图谱与记忆列表双向打通：点节点能看到关联记忆并直接打开；记忆详情新增「在图谱中定位」，不必再手输记忆 ID。图谱页选中节点不再被遮罩挡住，可以连续对比。
+- 系统页与提示词页的失败不再只是一闪而过的 toast，会留在页面上并可重试；页面里常驻的解释性长文案一并删掉，规则交给控件状态与反馈表达。
+
+**召回质量**
+- 文档路融合从"按名次"改为"按归一化分数加权"，融合前每路候选由 `k` 扩大到 `3k`，跨路线一致的结果额外加权。
+- BM25 索引在 jieba 分词之外补充中文连续段字符二元组，短查询与店名、人名、型号等专有名词不再因切词差异漏召回。
+- 实测：中文自建集（149 个主题簇 / 1591 条同簇近邻记忆 / 1211 条分层查询）MRR `0.86 → 0.95`、Hit@1 `0.79 → 0.93`；英文 LoCoMo（1536 条带证据问答）MRR `0.66 → 0.73`。方法与结论见 #305 / #306 / #307。
+
+### 升级说明
+
+- 老配置无需改动：新增参数都有默认值，运行时自动回退。
+- **建议对旧记忆执行一次 `/lmem rebuild-index`**：字符二元组只对重建后的索引生效，新写入的记忆会自动带上。不执行不影响使用，只是老记忆享受不到这项提升。
+- 面板偏好（主题 / 明暗 / 语言）保存在浏览器本地，升级不受影响。
+
+### 已知限制
+
+- 「全量图谱」模式下节点详情暂不列出关联记忆（该模式的快照没有返回 entry 数据；受限概览与检索模式下正常）。
+- 召回评测使用的中文集由模型生成，用于横向比较检索方案，不代表线上真实分布。
+
+### 本次重点 PR
+
+| PR | 改动 | 作者 |
+| --- | --- | --- |
+| [#299](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/299) | 召回测试页展示检索路线分项 | [@lxfight](https://github.com/lxfight) |
+| [#300](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/300) | 记忆来源与写入动机可见 | [@lxfight](https://github.com/lxfight) |
+| [#301](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/301) | 图谱与记忆双向联动 | [@lxfight](https://github.com/lxfight) |
+| [#302](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/302) | 图谱视觉编码自洽与稳定性 | [@lxfight](https://github.com/lxfight) |
+| [#303](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/303) | 反馈与状态收敛，修正系统页与提示词页语义 | [@lxfight](https://github.com/lxfight) |
+| [#304](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/304) | 清理死代码、被覆盖样式与装饰性文案 | [@lxfight](https://github.com/lxfight) |
+| [#305](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/305) | 召回改为分数级加权融合，候选加宽 | [@lxfight](https://github.com/lxfight) |
+| [#306](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/306) | 跨路线一致性奖励 | [@lxfight](https://github.com/lxfight) |
+| [#307](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/307) | 中文 BM25 字符二元组 | [@lxfight](https://github.com/lxfight) |
+
+### 安装与升级
+
+1. 停止 AstrBot，保留现有插件代码、插件数据目录及配置的备份。
+2. 从上方测试版发布页下载 **Source code (zip)**，解压后将代码放到 `data/plugins/astrbot_plugin_livingmemory`；保留原有插件数据与配置，不要覆盖为空目录。
+3. 启动或重载 AstrBot，在插件列表确认版本为 `2.7.0-beta.3`，再进入 `插件 → LivingMemory → Pages → dashboard`。
+4. 如需让既有记忆获得字符二元组召回收益，发送 `/lmem rebuild-index`（可与正常使用并行，期间索引保持可用）。
+
+通过 Git 管理插件代码时，可在干净的插件工作目录中切换到指定标签后启动 AstrBot：
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0-beta.3
+```
+
 ## 2.7.0-beta.2 · 2026-09-16
 
 本次为预发布测试版，覆盖 `2.7.0-beta.1` 之后的重构与行为规范收敛。稳定使用可继续选择 2.6.1。

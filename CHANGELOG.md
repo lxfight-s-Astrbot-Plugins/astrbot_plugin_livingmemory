@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [2.7.0-beta.3] - 2026-10-20
+
 ### 新增
 
 - **管理员专用 LLM 遗忘工具 (#279)**：新增 `forget_long_term_memory` 工具（配置 `agent_tools.enable_forget_tool`，默认关闭）。按 issue 决策，模型**不做物理删除**，只把记忆归档（`metadata.status="archived"`，从向量/BM25/图谱/原子索引中移除，documents 记录保留），管理员可在 Dashboard 记忆页按 `archived` 状态筛选后改回 `active` 恢复。安全闸门：仅管理员可调用、作用域校验与检索可见性一致且整批 all-or-nothing、单次条数上限（`forget_tool_max_memories`，默认 3）、同一会话冷却（`forget_tool_cooldown_seconds`，默认 60 秒，0 关闭）。归档时写入审计字段（`archived_by="llm_tool"`、`archive_reason`、`archive_session_id`）。
