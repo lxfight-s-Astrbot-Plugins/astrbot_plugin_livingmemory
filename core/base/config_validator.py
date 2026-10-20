@@ -130,6 +130,9 @@ class RecallEngineConfig(BaseModel):
     recall_candidate_multiplier: int = Field(
         default=3, ge=1, le=10, description="每路召回候选数相对 k 的倍数"
     )
+    fusion_agreement_bonus: float = Field(
+        default=0.25, ge=0.0, le=1.0, description="两路共识奖励强度（0 关闭）"
+    )
 
 
 class FusionStrategyConfig(BaseModel):

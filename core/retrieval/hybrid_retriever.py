@@ -109,6 +109,10 @@ class HybridRetriever:
         self.candidate_multiplier = max(
             1, min(10, int(self.config.get("recall_candidate_multiplier", 3) or 1))
         )
+        # 两路共识奖励：中文改写查询上明显提升首位命中
+        self.fusion_agreement_bonus = min(
+            1.0, max(0.0, float(self.config.get("fusion_agreement_bonus", 0.25)))
+        )
 
     async def _search_route(
         self, route_name: str, search_coro
@@ -275,6 +279,7 @@ class HybridRetriever:
                 rrf_vector_results,
                 top_k=fuse_top_k,
                 bm25_weight=self.fusion_bm25_weight,
+                agreement_bonus=self.fusion_agreement_bonus,
             )
 
         if not fused_results:
