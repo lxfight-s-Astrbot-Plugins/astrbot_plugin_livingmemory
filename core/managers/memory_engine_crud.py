@@ -31,6 +31,9 @@ class MemoryEngineCrudMixin:
     不在此赋默认值——宿主是共享状态的唯一属主。
     """
 
+    # 访问统计合并窗口：窗口内的多次召回合并为一次 UPDATE
+    _ACCESS_UPDATE_DEBOUNCE_SECONDS = 3.0
+
     # 宿主共享状态契约
     db_connection: aiosqlite.Connection | None
     config: dict[str, Any]
@@ -42,6 +45,9 @@ class MemoryEngineCrudMixin:
     hybrid_retriever: Any | None
     dual_route_retriever: Any | None
     graph_memory_manager: Any | None
+    _access_update_pending: set[int]
+    _access_atom_update_pending: set[int]
+    _access_flush_task: asyncio.Task | None
 
     async def add_memory(
         self,
@@ -443,15 +449,13 @@ class MemoryEngineCrudMixin:
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
             cached_results = await self._apply_atom_policy(cached_results)
-            self._create_tracked_task(
-                self._update_access_times_internal(
-                    [result.doc_id for result in cached_results],
-                    [
-                        atom_id
-                        for result in cached_results
-                        for atom_id in result.metadata.get("retrieved_atom_ids", [])
-                    ],
-                )
+            await self._update_access_times_internal(
+                [result.doc_id for result in cached_results],
+                [
+                    atom_id
+                    for result in cached_results
+                    for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                ],
             )
             return cached_results
 
@@ -528,42 +532,49 @@ class MemoryEngineCrudMixin:
 
         results = await self._apply_atom_policy(results)
         results = self._filter_by_retrieval_policy(results)
+        resolved_ids = {result.doc_id for result in results}
         results = await self._merge_recent_memories(
             results,
             k,
             session_id,
             persona_id,
         )
-        results = await self._apply_atom_policy(results)
+        # 只对合并进来的新候选做原子策略解析，避免重复查询已解析的文档
+        results = await self._apply_atom_policy(results, skip_doc_ids=resolved_ids)
 
-        # 异步更新访问时间(不阻塞返回)
+        # 访问统计合并到窗口内异步写，不阻塞返回
         if results:
-            self._create_tracked_task(
-                self._update_access_times_internal(
-                    [r.doc_id for r in results],
-                    [
-                        atom_id
-                        for result in results
-                        for atom_id in result.metadata.get("retrieved_atom_ids", [])
-                    ],
-                )
+            await self._update_access_times_internal(
+                [r.doc_id for r in results],
+                [
+                    atom_id
+                    for result in results
+                    for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                ],
             )
 
         self._set_cached_search_results(cache_key, results)
         return results
 
-    async def _apply_atom_policy(self, results):
+    async def _apply_atom_policy(self, results, skip_doc_ids: set[int] | None = None):
         """Resolve atom-backed recall content from current lifecycle state.
 
         Args:
             results: Document candidates, including cached or recent results.
+            skip_doc_ids: Document ids already resolved in this recall; they are
+                appended unchanged so the second merge pass does not re-query atoms.
 
         Returns:
             Candidates containing only live facts; fully expired parents are omitted.
         """
         if not results or not self.atom_enabled or self.atom_store is None:
             return results
-        ids = list(dict.fromkeys(result.doc_id for result in results))
+        skip = skip_doc_ids or set()
+        ids = list(
+            dict.fromkeys(
+                result.doc_id for result in results if result.doc_id not in skip
+            )
+        )
         grouped = {}
         for start in range(0, len(ids), 500):
             batch = ids[start : start + 500]
@@ -577,6 +588,9 @@ class MemoryEngineCrudMixin:
         now = time.time()
         filtered = []
         for result in results:
+            if result.doc_id in skip:
+                filtered.append(result)
+                continue
             atoms = grouped.get(result.doc_id)
             if atoms is None and not result.metadata.get("atom_types"):
                 filtered.append(result)
@@ -1335,32 +1349,61 @@ class MemoryEngineCrudMixin:
         return await self._update_access_time_internal(memory_id)
 
     async def _update_access_time_internal(self, memory_id: int) -> bool:
-        """Atomically bump a single memory's access time and count."""
-        return await self._update_access_times_internal([memory_id])
+        """立即写入单条记忆的访问时间与次数（供显式更新入口使用）。"""
+        return await self._write_access_updates([int(memory_id)], [])
 
     async def _update_access_times_internal(
         self, doc_ids: list[int], atom_ids=None
     ) -> bool:
-        """Atomically bump access time and count for multiple memories in one UPDATE.
+        """合并同一时间窗口内的召回访问统计写。
+
+        访问时间/次数只用于衰减排序，短时间内合并写不会改变语义；真正落库由
+        `_flush_access_updates` 用单条原子 SQL 完成，避免每次召回都改写 k 行 metadata。
 
         Args:
-            doc_ids: Document ids to update.
+            doc_ids: Document ids to bump.
+            atom_ids: Optional atom ids to bump.
 
         Returns:
-            bool: True if at least one row was updated.
+            bool: True if the ids were queued.
         """
+        if self.db_connection is None:
+            return False
+        self._access_update_pending.update(int(doc_id) for doc_id in doc_ids)
+        if atom_ids:
+            self._access_atom_update_pending.update(int(atom_id) for atom_id in atom_ids)
+        if not self._access_update_pending:
+            return False
+        if self._access_flush_task is None or self._access_flush_task.done():
+            self._access_flush_task = self._create_tracked_task(
+                self._deferred_flush_access_updates()
+            )
+        return True
+
+    async def _deferred_flush_access_updates(self) -> None:
+        await asyncio.sleep(self._ACCESS_UPDATE_DEBOUNCE_SECONDS)
+        await self._flush_access_updates()
+
+    async def _flush_access_updates(self) -> None:
+        """把挂起的访问统计写入数据库（失败时保留挂起项，下次重试）。"""
+        doc_ids = sorted(self._access_update_pending)
+        atom_ids = sorted(self._access_atom_update_pending)
+        if not doc_ids and not atom_ids:
+            return
+        written = await self._write_access_updates(doc_ids, atom_ids)
+        if written:
+            self._access_update_pending.difference_update(doc_ids)
+            self._access_atom_update_pending.difference_update(atom_ids)
+
+    async def _write_access_updates(self, doc_ids: list[int], atom_ids: list[int]) -> bool:
+        """单条原子 SQL 批量递增访问时间与次数。"""
         unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
-        if not unique_ids:
+        if not unique_ids or self.db_connection is None:
             return False
 
         current_time = time.time()
-
         try:
-            if self.db_connection is None:
-                return False
-
-            # 单条原子 SQL，避免并发召回任务对同一记忆产生丢失更新，
-            # 同时将多条结果合并为一次 commit 以降低写放大。
+            # 单条原子 SQL，避免并发召回任务对同一记忆产生丢失更新
             placeholders = ",".join("?" * len(unique_ids))
             cursor = await self.db_connection.execute(
                 f"""
@@ -1384,7 +1427,7 @@ class MemoryEngineCrudMixin:
                 (current_time, current_time, *unique_ids),
             )
             if atom_ids and self.atom_store is not None:
-                unique_atoms = list(dict.fromkeys(atom_ids))
+                unique_atoms = list(dict.fromkeys(int(atom_id) for atom_id in atom_ids))
                 await self.db_connection.execute(
                     f"UPDATE memory_atoms SET last_accessed_at = ? "
                     f"WHERE id IN ({','.join('?' for _ in unique_atoms)}) "
@@ -1392,9 +1435,7 @@ class MemoryEngineCrudMixin:
                     (current_time, *unique_atoms, current_time),
                 )
             await self.db_connection.commit()
-
             return cursor.rowcount > 0
-
         except asyncio.CancelledError:
             raise
         except Exception as e:

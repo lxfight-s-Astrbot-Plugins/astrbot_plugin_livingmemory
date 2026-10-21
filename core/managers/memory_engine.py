@@ -158,6 +158,10 @@ class MemoryEngine(
             self.config.get("write_op_repair_enabled", True)
         )
         self._write_op_max_retries = int(self.config.get("write_op_max_retries", 3))
+        # 访问统计合并写：同一时间窗口内多次召回只落一次库
+        self._access_update_pending: set[int] = set()
+        self._access_atom_update_pending: set[int] = set()
+        self._access_flush_task: asyncio.Task | None = None
         self.index_maintenance_status: dict[str, Any] = {
             "state": "idle",
             "current": 0,
@@ -207,7 +211,7 @@ class MemoryEngine(
         )
 
         if self.graph_enabled and self.graph_vector_db is not None:
-            self.graph_store = GraphStore(self.db_path)
+            self.graph_store = GraphStore(self.db_path, cache_reads=True)
             await self.graph_store.initialize()
 
             self.atom_store = AtomStore(self.db_path)
@@ -263,7 +267,13 @@ class MemoryEngine(
             await asyncio.gather(*self._pending_tasks, return_exceptions=True)
             self._pending_tasks.clear()
         if self.db_connection:
+            try:
+                await self._flush_access_updates()
+            except (asyncio.CancelledError, Exception):
+                logger.warning("关闭前写入访问统计失败", exc_info=True)
             await self.db_connection.close()
+        if self.graph_store is not None:
+            await self.graph_store.close()
         if self.graph_vector_db is not None:
             await self.graph_vector_db.close()
 

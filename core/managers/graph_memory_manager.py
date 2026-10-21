@@ -354,6 +354,7 @@ class GraphMemoryManager:
                         self._rebuild_active = False
             raise
         finally:
+            await shadow_store.close()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 

@@ -78,6 +78,8 @@ GRAPH_SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_graph_nodes_canonical ON graph_nodes(canonical_value)",
     "CREATE INDEX IF NOT EXISTS idx_graph_edges_memory_id ON graph_edges(source_memory_id)",
     "CREATE INDEX IF NOT EXISTS idx_graph_entries_memory_id ON graph_entries(source_memory_id)",
+    # 邻居扩展按 target_node_id 反查，缺少该索引时每次召回退化为全表扫描
+    "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_node_id, status)",
 )
 
 # Resumable write-operation log (introduced in schema v8).
