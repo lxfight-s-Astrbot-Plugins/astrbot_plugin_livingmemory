@@ -155,8 +155,74 @@ class TestRunConsolidation:
         assert result["failed"] == 1
         assert result["merged"] == 0
 
+    @pytest.mark.asyncio
+    async def test_archive_failure_rolls_back_new_memory(self):
+        """旧记忆归档失败时必须回滚已写入的合并记忆，避免重试重复生成。"""
+        config = _make_cfg()
+        engine = Mock()
+        processor = Mock()
+        mgr = _make_manager(config, engine=engine, processor=processor)
+
+        group = [
+            {"id": 1, "content": "a", "metadata": {"session_id": "s1"}},
+            {"id": 2, "content": "b", "metadata": {"session_id": "s1"}},
+        ]
+        mgr._query_candidates = AsyncMock(return_value=group)
+        mgr._build_groups = AsyncMock(return_value=[group])
+        processor.merge_memories = AsyncMock(
+            return_value={
+                "summary": "merged",
+                "key_facts": [],
+                "topics": [],
+                "importance": 0.4,
+            }
+        )
+        engine.add_memory = AsyncMock(return_value=300)
+        engine.archive_memories = AsyncMock(side_effect=RuntimeError("archive boom"))
+        engine.delete_memory = AsyncMock(return_value=True)
+
+        result = await mgr.run_consolidation(force=True)
+
+        assert result["failed"] == 1
+        engine.delete_memory.assert_awaited_once_with(300)
+
 
 class TestGroupSemantic:
+    @pytest.mark.asyncio
+    async def test_semantic_groups_are_split_by_session_scope(self):
+        """跨会话语义聚类不能合并成无作用域记忆：按会话拆分后小组被过滤。"""
+        config = _make_cfg(granularity="semantic", min_memories_per_group=2)
+        engine = Mock()
+        engine.find_similar_pairs = AsyncMock(return_value=[(1, 2, 0.9)])
+        mgr = _make_manager(config, engine=engine)
+
+        candidates = [
+            {"id": 1, "content": "a", "metadata": {"session_id": "s1"}},
+            {"id": 2, "content": "b", "metadata": {"session_id": "s2"}},
+        ]
+
+        groups = await mgr._build_groups(candidates, mgr.config)
+
+        assert groups == []
+
+    @pytest.mark.asyncio
+    async def test_semantic_groups_keep_same_session_pairs(self):
+        config = _make_cfg(granularity="semantic", min_memories_per_group=2)
+        engine = Mock()
+        engine.find_similar_pairs = AsyncMock(return_value=[(1, 2, 0.9)])
+        mgr = _make_manager(config, engine=engine)
+
+        candidates = [
+            {"id": 1, "content": "a", "metadata": {"session_id": "s1"}},
+            {"id": 2, "content": "b", "metadata": {"session_id": "s1"}},
+            {"id": 3, "content": "c", "metadata": {"session_id": "s2"}},
+        ]
+
+        groups = await mgr._build_groups(candidates, mgr.config)
+
+        assert len(groups) == 1
+        assert {mem["id"] for mem in groups[0]} == {1, 2}
+
     @pytest.mark.asyncio
     async def test_union_by_similarity(self):
         config = _make_cfg(granularity="semantic")
