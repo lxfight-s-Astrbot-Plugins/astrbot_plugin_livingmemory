@@ -10,12 +10,18 @@ from ..utils.json_utils import safe_json_dict
 
 class MemoryEngineEvidenceMixin:
     async def _agentic_has_atom_table(self) -> bool:
+        # 原子表在引擎初始化时创建，结果可按实例缓存；避免每次召回都查 sqlite_master。
+        cached = getattr(self, "_atom_table_checked", None)
+        if cached is not None:
+            return cached
         if self.db_connection is None:
             raise RuntimeError("memory database is not ready")
         async with self.db_connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_atoms'"
         ) as cursor:
-            return await cursor.fetchone() is not None
+            present = await cursor.fetchone() is not None
+        self._atom_table_checked = present
+        return present
 
     async def _agentic_atom_rows(self, memory_ids: list[int]) -> dict[int, list]:
         """按候选批量取状态；只有确认不存在表时才按普通旧文档处理。"""
