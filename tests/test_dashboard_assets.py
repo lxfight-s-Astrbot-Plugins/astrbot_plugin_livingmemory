@@ -9,6 +9,20 @@ ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pages" / "dashboard"
 
 
+def test_dashboard_supports_japanese_locale() -> None:
+    index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+    source = (DASHBOARD / "i18n.js").read_text(encoding="utf-8")
+
+    assert 'data-lang="ja"' in index
+    assert '"zh", "en", "ru", "ja"' in source
+
+    msg_block = source.split("const MSG = {", 1)[1].split("const MSG_JA", 1)[0]
+    ja_block = source.split("const MSG_JA = {", 1)[1].split("  };", 1)[0]
+    msg_keys = set(re.findall(r'"([A-Za-z0-9_.]+)":\s*\{', msg_block))
+    ja_keys = set(re.findall(r'"([A-Za-z0-9_.]+)":\s*"', ja_block))
+    assert ja_keys == msg_keys, "MSG_JA 必须覆盖全部 dashboard 文案"
+
+
 def test_dashboard_loads_built_assets_instead_of_uncompressed_sources() -> None:
     index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 
