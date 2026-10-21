@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Try 2.7.0-beta.3
+      text: Try 2.7.0-beta.4
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -33,9 +33,9 @@ features:
 
 <img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
 
-## 2.7.0-beta.3 is in testing
+## 2.7.0-beta.4 is in testing
 
-This beta adds memory provenance and explainable recall tests to the dashboard, score-weighted recall fusion with CJK character bigrams, and an opt-in agentic recall beta. [Releases and Upgrades](/en/releases) lists PRs, downloads and upgrade steps. The stable version remains 2.6.1.
+This maintenance pre-release covers PRs 308–332: recall and write hot-path performance, data-consistency hardening, responsibility cleanup, and a lighter dashboard with Japanese support. No new runtime dependencies and no mandatory migration; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps. The stable version remains 2.6.1.
 
 ## Who is this for?
 
