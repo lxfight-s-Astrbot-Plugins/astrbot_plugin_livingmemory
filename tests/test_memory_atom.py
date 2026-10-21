@@ -227,6 +227,37 @@ async def test_atom_store_insert_many_commits_in_batches(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_atom_store_initialize_backfills_missing_fts_rows(tmp_path: Path) -> None:
+    """存量原子缺少 FTS 行时，初始化应回填，避免原子检索永久缺结果。"""
+    db_path = str(tmp_path / "test_atoms_fts_backfill.db")
+    store = AtomStore(db_path)
+    await store.initialize()
+    await store.insert_many(
+        [
+            MemoryAtom(parent_memory_id=1, content="张三喜欢喝咖啡"),
+            MemoryAtom(parent_memory_id=1, content="李四喜欢吃火锅"),
+        ]
+    )
+    # 模拟旧版本只写了源表：清空 FTS
+    async with store._connect() as db:
+        await db.execute("DELETE FROM memory_atoms_fts")
+        await db.commit()
+
+    reopened = AtomStore(db_path)
+    await reopened.initialize()
+
+    async with reopened._connect() as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms_fts")
+        fts_count = (await cursor.fetchone())[0]
+        cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms")
+        atom_count = (await cursor.fetchone())[0]
+    assert fts_count == atom_count == 2
+
+    results = await reopened.search_fts("火锅", limit=5)
+    assert any("火锅" in r.content for r in results)
+
+
+@pytest.mark.asyncio
 async def test_atom_store_fts_search(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test_atoms_fts.db")
     store = AtomStore(db_path)
