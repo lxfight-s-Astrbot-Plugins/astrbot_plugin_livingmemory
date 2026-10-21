@@ -46,17 +46,23 @@ function minifyCss(text) {
   );
 }
 
+function readSource(name) {
+  // Normalize checkout line endings so the bundle is byte-identical on
+  // Windows (core.autocrlf) and Linux, and matches the committed artifact.
+  return readFileSync(join(DASHBOARD, name), "utf8").replace(/\r\n/g, "\n");
+}
+
 function joinScripts(header, sources) {
   const parts = [`/* ${header} (generated; edit the source files and rebuild) */`];
   for (const name of sources) {
-    const text = readFileSync(join(DASHBOARD, name), "utf8");
+    const text = readSource(name);
     parts.push(`\n/* ---- ${name} ---- */\n${text.trimEnd()}\n;`);
   }
   return parts.join("\n") + "\n";
 }
 
 const artifacts = new Map([
-  ["styles.min.css", minifyCss(CSS_SOURCES.map((name) => readFileSync(join(DASHBOARD, name), "utf8")).join("\n"))],
+  ["styles.min.css", minifyCss(CSS_SOURCES.map(readSource).join("\n"))],
   ["base.min.js", joinScripts("LivingMemory dashboard base bundle", BASE_SOURCES)],
   ["graph.min.js", joinScripts("LivingMemory dashboard graph bundle", GRAPH_SOURCES)],
 ]);
@@ -68,7 +74,7 @@ for (const [name, content] of artifacts) {
   const path = join(OUTPUT, name);
   let current = "";
   try {
-    current = readFileSync(path, "utf8");
+    current = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
   } catch {
     current = "";
   }
