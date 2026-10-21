@@ -31,7 +31,17 @@ features:
     details: 支持版本备份、迁移前备份、索引回滚和事务删除。
 ---
 
-<img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
+```mermaid
+flowchart LR
+    MSG["对话消息"] --> HOOK["EventHandler 钩子"]
+    HOOK -->|"请求前"| RECALL["双路召回"]
+    HOOK -->|"回复后"| REFLECT["反思与总结"]
+    RECALL --> ENGINE["MemoryEngine"]
+    REFLECT --> ENGINE
+    ENGINE --> SQLITE[("SQLite 记忆库")]
+    ENGINE --> FAISS[("FAISS 向量索引")]
+    ENGINE --> API["Dashboard 与 Agent 工具"]
+```
 
 ## 2.7.0-beta.4 正在测试
 

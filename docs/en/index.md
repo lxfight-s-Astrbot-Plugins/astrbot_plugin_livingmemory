@@ -31,7 +31,17 @@ features:
     details: Version backups, pre-migration backups, index rollback, and transactional deletion reduce upgrade risk.
 ---
 
-<img class="diagram" src="/images/architecture-flow.svg" alt="LivingMemory runtime architecture">
+```mermaid
+flowchart LR
+    MSG["Conversation message"] --> HOOK["EventHandler hooks"]
+    HOOK -->|"Before request"| RECALL["Dual-route recall"]
+    HOOK -->|"After reply"| REFLECT["Reflection and summarization"]
+    RECALL --> ENGINE["MemoryEngine"]
+    REFLECT --> ENGINE
+    ENGINE --> SQLITE[("SQLite memory store")]
+    ENGINE --> FAISS[("FAISS vector index")]
+    ENGINE --> API["Dashboard and agent tools"]
+```
 
 ## 2.7.0-beta.4 is in testing
 
