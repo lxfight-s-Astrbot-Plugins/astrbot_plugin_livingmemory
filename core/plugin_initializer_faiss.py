@@ -3,6 +3,7 @@ PluginInitializer 的 InitializerFaissMixin 拆分模块
 自动从 core/plugin_initializer.py 拆分，保持行为不变
 """
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -220,8 +221,11 @@ class InitializerFaissMixin:
             ) from exc
 
         # 读取索引文件 — 仅在 FAISS I/O 失败时进入坏索引处理
+        # 整索引读取是同步阻塞 I/O，放线程池避免阻塞事件循环
         try:
-            old_index = self._faiss_read_index_safe(index_path)
+            old_index = await asyncio.to_thread(
+                self._faiss_read_index_safe, index_path
+            )
         except InitializationError:
             raise
         except Exception as e:
