@@ -381,21 +381,54 @@ class InitializerFinalizeMixin:
 
             logger.info("检测到旧版本数据库，开始自动迁移。")
 
-            if self.config_manager.get("migration_settings.create_backup", True):
-                backup_path = await self.db_migration.create_backup()
-                if backup_path:
-                    logger.info(f"数据库备份已创建: {backup_path}")
+            require_backup = bool(
+                self.config_manager.get("migration_settings.create_backup", True)
+            )
+            backup_path = await self.db_migration.create_backup()
+            if backup_path:
+                logger.info(f"迁移前备份已创建: {backup_path}")
+            elif require_backup:
+                raise InitializationError(
+                    "迁移前备份失败，已中止迁移（数据库未修改）；"
+                    "请检查磁盘空间与文件权限"
+                )
+            else:
+                logger.warning("迁移前备份失败，按配置继续迁移。")
 
             result = await self.db_migration.migrate(progress_callback=None)
 
             if result.get("success"):
                 logger.info(f"数据库迁移结果: {result.get('message')}")
                 logger.info(f"   耗时: {result.get('duration', 0):.2f}秒")
-            else:
-                logger.error(f"数据库迁移失败: {result.get('message')}")
+                return
 
+            restored = False
+            if backup_path:
+                restored = await self._restore_db_backup(backup_path)
+            raise InitializationError(
+                "数据库迁移失败"
+                + ("，已从迁移前备份恢复" if restored else "")
+                + f": {result.get('message')}"
+            )
+
+        except InitializationError:
+            raise
         except Exception as e:
             logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
+
+    async def _restore_db_backup(self, backup_path: str) -> bool:
+        """用迁移前备份覆盖当前数据库（SQLite backup API，兼容已打开的连接）。"""
+        try:
+            import aiosqlite
+
+            async with aiosqlite.connect(backup_path) as source:
+                async with aiosqlite.connect(self.db_migration.db_path) as dest:
+                    await source.backup(dest)
+            logger.warning(f"已从迁移前备份恢复数据库: {backup_path}")
+            return True
+        except Exception as e:
+            logger.error(f"从迁移前备份恢复数据库失败: {e}", exc_info=True)
+            return False
 
     async def _auto_rebuild_index_if_needed(self):
         """Schedule index checking without blocking core plugin readiness."""
