@@ -110,6 +110,22 @@ This prerelease covers the refactors and behavioral standardization since `2.7.0
 | [#272](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/272) | Declare mixin host contracts as class annotations | [@lxfight](https://github.com/lxfight) |
 | [#273](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/273) | Standardize memory injection as add-only; version 2.7.0-beta.2 | [@lxfight](https://github.com/lxfight) |
 
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of your existing plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the [2.7.0-beta.2 release](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.2). Extract the plugin into `data/plugins/astrbot_plugin_livingmemory`, without nesting another versioned directory inside it. Preserve existing plugin data and configuration.
+3. Start or reload AstrBot, confirm `2.7.0-beta.2` in the plugin list, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. Legacy injection settings fall back automatically; run `/lmem cleanup` if you need to purge text-form injection residue left in stored history.
+
+For an existing Git installation, switch a clean plugin checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0-beta.2
+```
+
+GitHub marks this version **Pre-release**; use the specific tag. `releases/latest` still points to the stable release.
+
 ## 2.7.0-beta.1 · September 7, 2026
 
 This prerelease includes all merged changes since stable **2.6.1**. Stay on 2.6.1 for the stable channel, or install the exact beta tag to try the new dashboard and recall fixes.

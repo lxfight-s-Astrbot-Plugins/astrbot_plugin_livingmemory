@@ -17,7 +17,7 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | 生成记忆向量，用于语义检索 | 留空可使用 AstrBot 默认 Embedding |
 | `provider_settings.llm_provider_id` | 总结对话、评估记忆 | 留空可使用默认 LLM，建议选择推理能力稳定的模型 |
-| `bot_language` | 命令与状态回复语言 | `zh`、`en`、`ru` |
+| `bot_language` | 命令与状态回复语言 | `zh`、`en`、`ru`、`ja` |
 
 ## 推荐配置
 

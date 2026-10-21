@@ -16,7 +16,7 @@ LivingMemory is built from event hooks, memory processing, retrieval fusion, sto
 
 | Module | Responsibility |
 | --- | --- |
-| `main.py` | Registers the plugin, initializes runtime components, registers agent tools and Pages API |
+| `main.py` | Plugin entry point (metadata comes from `metadata.yaml`), initializes runtime components, registers agent tools and Pages API |
 | `core/plugin_initializer.py` | Non-blocking initialization, provider waiting, database migration, index loading |
 | `core/event_handler.py` | Group capture, memory recall, memory reflection |
 | `core/managers/memory_engine.py` | Unified write, search, delete, and index maintenance |

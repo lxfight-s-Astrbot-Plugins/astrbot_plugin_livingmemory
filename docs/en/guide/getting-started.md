@@ -17,7 +17,7 @@ The current beta is **2.7.0-beta.3** and the stable version is **2.6.1**. See [R
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | Generates vectors for semantic retrieval | Leave empty to use AstrBot's default embedding provider |
 | `provider_settings.llm_provider_id` | Summarizes conversations and evaluates memory | Leave empty to use the default LLM; a stable reasoning model is recommended |
-| `bot_language` | Language for command and status replies | `zh`, `en`, or `ru` |
+| `bot_language` | Language for command and status replies | `zh`, `en`, `ru`, or `ja` |
 
 ## Recommended settings
 
