@@ -52,14 +52,6 @@ class MemoryEngineBatchMixin:
         for i in range(0, len(memory_ids), sql_batch_size):
             batch = memory_ids[i : i + sql_batch_size]
             placeholders = ",".join("?" * len(batch))
-            op_id = await self._start_write_op(
-                "batch_delete",
-                {
-                    "memory_ids": batch,
-                    "batch_offset": i,
-                    "batch_size": len(batch),
-                },
-            )
             batch_deleted = 0
 
             try:
@@ -68,12 +60,9 @@ class MemoryEngineBatchMixin:
                     f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
                     batch,
                 )
-                await self._advance_write_op(
-                    op_id,
-                    "bm25_deleted",
-                    payload_patch={"memory_ids": batch},
-                )
-
+                # 先提交，释放写事务；向量库使用独立连接删除 documents，不能与
+                # 本连接未提交的写事务并发（否则 SQLite 报 database is locked）。
+                await self.db_connection.commit()
                 # 2. Look up UUIDs and delete from FAISS vector DB
                 cursor = await self.db_connection.execute(
                     f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
@@ -90,12 +79,6 @@ class MemoryEngineBatchMixin:
                             "批量向量删除不完整: "
                             f"expected={found_ids}, deleted={deleted_vector_ids}"
                         )
-                await self._advance_write_op(
-                    op_id,
-                    "faiss_deleted",
-                    payload_patch={"memory_ids": batch, "found_ids": found_ids},
-                )
-
                 # 3. Batch delete from documents table
                 cursor = await self.db_connection.execute(
                     f"DELETE FROM documents WHERE id IN ({placeholders})",
@@ -109,48 +92,17 @@ class MemoryEngineBatchMixin:
                 # FaissVecDB 与本引擎共享 documents 表；向量删除可能已移除
                 # 对应行，因此以删除前查到的记录数作为准确结果。
                 batch_deleted = len(found_ids)
-                await self._advance_write_op(
-                    op_id,
-                    "documents_deleted",
-                    payload_patch={
-                        "memory_ids": batch,
-                        "found_ids": found_ids,
-                        "deleted_count": batch_deleted,
-                    },
-                )
-
                 # 4. Batch delete graph artifacts and atoms
                 await self._delete_graph_and_atoms_for_batch(batch)
-                await self._advance_write_op(
-                    op_id,
-                    "graph_atoms_deleted",
-                    payload_patch={"memory_ids": batch, "deleted_count": batch_deleted},
-                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                await self._advance_write_op(
-                    op_id,
-                    "batch_delete_failed",
-                    status="needs_repair",
-                    error=str(e),
-                    payload_patch={
-                        "memory_ids": batch,
-                        "deleted_count": batch_deleted,
-                    },
-                )
                 logger.error(
                     f"[批量删除] 批次删除失败 (offset={i}, size={len(batch)})",
                     exc_info=True,
                 )
                 raise
 
-            await self._advance_write_op(
-                op_id,
-                "completed",
-                status="completed",
-                payload_patch={"memory_ids": batch, "deleted_count": batch_deleted},
-            )
             total_deleted += batch_deleted
 
         if total_deleted:

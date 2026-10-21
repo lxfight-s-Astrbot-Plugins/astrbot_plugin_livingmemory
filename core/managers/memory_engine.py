@@ -154,10 +154,6 @@ class MemoryEngine(
         self._search_cache: OrderedDict[
             tuple[Any, ...], tuple[float, list[HybridResult]]
         ] = OrderedDict()
-        self._write_op_repair_enabled = bool(
-            self.config.get("write_op_repair_enabled", True)
-        )
-        self._write_op_max_retries = int(self.config.get("write_op_max_retries", 3))
         # 访问统计合并写：同一时间窗口内多次召回只落一次库
         self._access_update_pending: set[int] = set()
         self._access_atom_update_pending: set[int] = set()
@@ -253,8 +249,6 @@ class MemoryEngine(
                 memory_batch_loader=self.faiss_db.document_storage.get_documents,
             )
 
-        if self._write_op_repair_enabled:
-            await self._repair_incomplete_write_ops()
 
     async def close(self):
         """关闭数据库连接和清理资源"""
@@ -412,8 +406,7 @@ class MemoryEngine(
             )
         """)
 
-            await self._create_write_ops_table()
-
+    
             # 创建版本管理表
             await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS db_version (
