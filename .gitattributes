@@ -6,6 +6,3 @@
 # phantom diff 并污染 blame（参考 #212、#289）。如需统一行尾，请单独开 PR。
 * text=auto
 
-# 该测试文件历史上是 CRLF 主导（并混有少量 LF）：保持现状，避免一次性整文件
-# 重写行尾。`-text` 关闭自动换行转换，只对该文件生效。
-tests/test_event_handler.py -text
