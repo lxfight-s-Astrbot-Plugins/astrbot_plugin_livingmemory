@@ -128,7 +128,7 @@ class ConversationStoreMessagesMixin:
                        group_id, platform, timestamp, metadata
                 FROM messages
                 WHERE session_id = ? AND sender_id = ?
-                ORDER BY timestamp DESC
+                ORDER BY timestamp DESC, id DESC
                 LIMIT ?
             """
             params = (session_id, sender_id, limit)
@@ -139,7 +139,7 @@ class ConversationStoreMessagesMixin:
                        group_id, platform, timestamp, metadata
                 FROM messages
                 WHERE session_id = ?
-                ORDER BY timestamp DESC
+                ORDER BY timestamp DESC, id DESC
                 LIMIT ?
             """
             params = (session_id, limit)
@@ -794,7 +794,7 @@ class ConversationStoreMessagesMixin:
                    group_id, platform, timestamp, metadata
             FROM messages
             WHERE session_id = ? AND content LIKE ?
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, id DESC
             LIMIT ?
         """,
             (session_id, f"%{keyword}%", limit),
@@ -845,7 +845,7 @@ class ConversationStoreMessagesMixin:
                    group_id, platform, timestamp, metadata
             FROM messages
             WHERE session_id = ?
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
             LIMIT ? OFFSET ?
         """
 
