@@ -139,6 +139,26 @@
         "description": "Rerank Candidate Count",
         "hint": "Number of fused candidate memories sent to the Rerank model; only top_k are kept after reranking. Larger values improve ranking accuracy but increase per-recall Rerank API cost. Recommended 10-30. (Range: 2-100)"
       },
+      "fusion_mode": {
+        "description": "Fusion Mode",
+        "hint": "How BM25 and vector results are fused: score weights normalized scores (default); rrf uses reciprocal rank fusion.",
+        "labels": [
+          "Normalized Score",
+          "Reciprocal Rank Fusion (RRF)"
+        ]
+      },
+      "fusion_bm25_weight": {
+        "description": "Fusion BM25 Weight",
+        "hint": "Weight of the BM25 route in score fusion; the vector route uses one minus this value. Range 0-1."
+      },
+      "fusion_agreement_bonus": {
+        "description": "Cross-Route Agreement Bonus",
+        "hint": "Score bonus added when the same memory is hit by both the BM25 and vector routes. Range 0-1."
+      },
+      "recall_candidate_multiplier": {
+        "description": "Recall Candidate Multiplier",
+        "hint": "Each route returns top_k times this many candidates before fusion. Larger values widen recall but cost more time. Range 1-10."
+      },
       "injection_method": {
         "description": "Memory Injection Position",
         "hint": "Where to inject memories into LLM requests. extra_user_content is the only supported mode: memories are appended to the current user message as a mark_as_temp temporary part that AstrBot filters out when saving history, so injection never touches conversation history or the prefix cache. user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt are all deprecated (they rewrite the user message or write messages into conversation history) and automatically fall back to extra_user_content.",

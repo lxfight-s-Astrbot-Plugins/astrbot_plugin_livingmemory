@@ -255,6 +255,49 @@
                     "step": 1
                 }
             },
+            "fusion_mode": {
+                "description": "融合模式",
+                "hint": "双路检索结果的融合方式：score 按归一化分数加权融合（默认）；rrf 使用倒数排名融合。",
+                "type": "string",
+                "default": "score",
+                "options": [
+                    "score",
+                    "rrf"
+                ]
+            },
+            "fusion_bm25_weight": {
+                "description": "融合 BM25 权重",
+                "hint": "score 融合模式下 BM25 路分数的权重，向量路权重为 1 - 该值。范围 0–1。",
+                "type": "float",
+                "default": 0.5,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05
+                }
+            },
+            "fusion_agreement_bonus": {
+                "description": "双路一致性奖励",
+                "hint": "同一条记忆同时被 BM25 与向量两条路命中时追加的分数奖励，范围 0–1。",
+                "type": "float",
+                "default": 0.25,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05
+                }
+            },
+            "recall_candidate_multiplier": {
+                "description": "召回候选扩窗倍数",
+                "hint": "融合前每路召回的候选数为 top_k × 该倍数，值越大召回越宽但耗时越高。范围 1–10。",
+                "type": "int",
+                "default": 3,
+                "slider": {
+                    "min": 1,
+                    "max": 10,
+                    "step": 1
+                }
+            },
             "injection_method": {
                 "description": "记忆注入位置",
                 "hint": "记忆注入到 LLM 请求的位置。extra_user_content(唯一支持)：以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、完全不写入对话历史。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️均已废弃（会改写用户消息或向对话历史写入消息），选择后自动回退至 extra_user_content。",

@@ -462,16 +462,6 @@ class TextProcessor:
         tokens = self.tokenize(text, remove_stopwords=True)
         return " ".join(tokens)
 
-    @property
-    def stopwords_count(self) -> int:
-        """获取停用词数量"""
-        return len(self.stopwords)
-
-    @property
-    def custom_words_count(self) -> int:
-        """获取自定义词汇数量"""
-        return len(self.custom_words)
-
 
 # 便捷函数
 def create_text_processor(

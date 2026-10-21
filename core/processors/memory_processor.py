@@ -648,6 +648,3 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
     def _message_content_to_text(cls, content: Any) -> str:
         return Message.content_to_text(content)
 
-    @classmethod
-    def _message_part_to_text(cls, part: Any) -> tuple[str, bool]:
-        return Message._content_part_to_text(part)

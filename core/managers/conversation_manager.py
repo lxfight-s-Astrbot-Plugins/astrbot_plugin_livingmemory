@@ -526,33 +526,6 @@ class ConversationManager:
 
         return messages
 
-    async def create_or_get_session(
-        self, session_id: str, platform: str = "unknown"
-    ) -> Session:
-        """
-        创建或获取会话
-
-        Args:
-            session_id: 会话ID
-            platform: 平台标识
-
-        Returns:
-            Session对象
-        """
-        # 尝试获取现有会话
-        session = await self.store.get_session(session_id)
-
-        if session:
-            # 更新活跃时间
-            await self.store.update_session_activity(session_id)
-            return session
-
-        # 创建新会话
-        session = await self.store.create_session(session_id, platform)
-        logger.info(f"[ConversationManager] 创建新会话: {session_id}")
-
-        return session
-
     async def get_session_info(self, session_id: str) -> Session | None:
         """
         获取会话信息
@@ -984,15 +957,6 @@ class ConversationManager:
             if session_id in self._cache:
                 del self._cache[session_id]
 
-    def _evict_cache(self):
-        """
-        LRU缓存驱逐(超过max_cache_size时)
-
-        这个方法在_update_cache中已经处理,这里保留作为显式接口
-        """
-        while len(self._cache) > self.max_cache_size:
-            self._cache.popitem(last=False)
-
     async def get_messages_range(
         self, session_id: str, start_index: int = 0, end_index: int | None = None
     ) -> list[Message]:
@@ -1144,17 +1108,6 @@ class ConversationManager:
             return default
 
         return session.metadata.get(key, default)
-
-    async def reset_session_metadata(self, session_id: str) -> None:
-        """
-        重置指定会话的所有元数据，特别是 'last_summarized_index'。
-        这会使下一次记忆总结从头开始，不会包含旧的上下文。
-
-        重置与修订号推进在同一临界区内完成，避免"旧游标写回"复活已清空的进度。
-        """
-        async with self._session_lock(session_id):
-            await self._reset_session_metadata_locked(session_id)
-            await self._bump_session_revision_locked(session_id)
 
     async def _reset_session_metadata_locked(self, session_id: str) -> None:
         """清空会话元数据（调用方必须已持有该会话的 ``_session_lock``）。"""

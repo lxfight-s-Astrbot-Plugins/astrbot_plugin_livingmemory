@@ -31,6 +31,10 @@ EXPECTED_OPTION_LABELS = {
             "fake_tool_call_deepseek_v4": "Fake Tool Call (DeepSeek V4, deprecated)",
             "system_prompt": "System Prompt (deprecated)",
         },
+        "recall_engine.fusion_mode": {
+            "score": "Normalized Score",
+            "rrf": "Reciprocal Rank Fusion (RRF)",
+        },
         "recall_engine.memory_type_filter": {
             "all": "All Memories",
             "event_only": "Events and Facts",
@@ -75,6 +79,10 @@ EXPECTED_OPTION_LABELS = {
             ),
             "system_prompt": "Системная инструкция (устарело)",
         },
+        "recall_engine.fusion_mode": {
+            "score": "Нормализованная оценка",
+            "rrf": "Обратное ранговое объединение (RRF)",
+        },
         "recall_engine.memory_type_filter": {
             "all": "Все воспоминания",
             "event_only": "События и факты",
@@ -117,6 +125,10 @@ EXPECTED_OPTION_LABELS = {
             "fake_tool_call_deepseek_v4": "伪造工具调用（DeepSeek V4，已废弃）",
             "system_prompt": "系统提示词（已废弃）",
         },
+        "recall_engine.fusion_mode": {
+            "score": "归一化分数",
+            "rrf": "倒数排名融合（RRF）",
+        },
         "recall_engine.memory_type_filter": {
             "all": "全部记忆",
             "event_only": "事件与事实",
@@ -158,6 +170,10 @@ EXPECTED_OPTION_LABELS = {
             "fake_tool_call": "偽ツール呼び出し（非推奨）",
             "fake_tool_call_deepseek_v4": "偽ツール呼び出し（DeepSeek V4・非推奨）",
             "system_prompt": "システムプロンプト（非推奨）",
+        },
+        "recall_engine.fusion_mode": {
+            "score": "正規化スコア",
+            "rrf": "逆順位融合（RRF）",
         },
         "recall_engine.memory_type_filter": {
             "all": "すべての記憶",

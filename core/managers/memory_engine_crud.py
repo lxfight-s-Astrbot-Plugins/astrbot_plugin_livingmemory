@@ -1227,19 +1227,6 @@ class MemoryEngineCrudMixin:
             active_memory_batches()
         )
 
-    async def update_importance(self, memory_id: int, new_importance: float) -> bool:
-        """
-        更新记忆重要性
-
-        Args:
-            memory_id: 记忆ID
-            new_importance: 新重要性值(0-1)
-
-        Returns:
-            bool: 是否更新成功
-        """
-        return await self.update_memory(memory_id, {"importance": new_importance})
-
     async def apply_daily_decay(self, decay_rate: float, days: int = 1) -> int:
         """
         批量应用重要性衰减
@@ -1356,18 +1343,6 @@ class MemoryEngineCrudMixin:
         except Exception as e:
             logger.error(f"[衰减] 批量衰减失败: {e}", exc_info=True)
             return -1
-
-    async def update_access_time(self, memory_id: int) -> bool:
-        """
-        更新最后访问时间
-
-        Args:
-            memory_id: 记忆ID
-
-        Returns:
-            bool: 是否更新成功
-        """
-        return await self._update_access_time_internal(memory_id)
 
     async def _update_access_time_internal(self, memory_id: int) -> bool:
         """立即写入单条记忆的访问时间与次数（供显式更新入口使用）。"""
