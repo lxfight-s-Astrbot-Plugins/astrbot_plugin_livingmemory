@@ -23,7 +23,7 @@ import pytest
 
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 
-from tests.test_event_handler import _make_real_handler, _seed_turns
+from tests.event_handler_support import _make_real_handler, _seed_turns
 
 SID_PREFIX = "test:private:"
 
