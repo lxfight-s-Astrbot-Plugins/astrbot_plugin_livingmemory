@@ -1,8 +1,45 @@
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pages" / "dashboard"
+
+
+def test_dashboard_loads_built_assets_instead_of_uncompressed_sources() -> None:
+    index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+    assert 'href="./assets/styles.min.css"' in index
+    assert 'src="./assets/base.min.js"' in index
+    assert 'src="./assets/graph.min.js"' in index
+    for legacy in (
+        "./appearance.js",
+        "./styles.css",
+        "./i18n.js",
+        "./graph-shared.js",
+        "./graph-ui.js",
+    ):
+        assert legacy not in index
+
+    for name in ("styles.min.css", "base.min.js", "graph.min.js"):
+        assert (DASHBOARD / "assets" / name).stat().st_size > 1_000
+
+
+def test_dashboard_build_outputs_are_current() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在 PATH，跳过 dashboard 构建产物校验")
+    result = subprocess.run(
+        [node, "scripts/build_dashboard.mjs", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_dashboard_vendors_and_loads_lucide_subset() -> None:

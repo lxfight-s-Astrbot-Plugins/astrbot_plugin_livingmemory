@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test:frontend": "node --test \"tests/frontend/**/*.test.js\"",
+    "build:dashboard": "node scripts/build_dashboard.mjs",
+    "check:dashboard": "node scripts/build_dashboard.mjs --check",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
