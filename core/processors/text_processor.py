@@ -6,10 +6,23 @@
 import re
 import string
 import warnings
-from collections import Counter
+from collections import Counter, OrderedDict
 from pathlib import Path
 
 from ..models.default_stopwords import DEFAULT_STOPWORDS as FALLBACK_STOPWORDS
+
+# 标点翻译表是常量，避免每次清洗文本时重新构建
+_EN_PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+_CN_PUNCT_TABLE = str.maketrans(
+    "",
+    "",
+    (
+        "！？｡。＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～"
+        "｟｠｢｣､、〃《》「」『』【】〔〕〖〗〘〙〚〛〜〝〞〟〰〾〿–—"
+        '‛""„‟…‧﹏'
+        "·・•●○◎◇◆□■△▲▽▼⊙⊕⊗⊘⊙⊚⊛⊝⊞⊟⊠⊡⊢⊣"
+    ),
+)
 
 try:
     import jieba
@@ -56,6 +69,14 @@ class TextProcessor:
         # 使用默认停用词(StopwordsManager 将在需要时异步加载)
         self.stopwords = set(self.DEFAULT_STOPWORDS)
 
+        # 查询分词缓存：同一次召回里 BM25 路与图关键词路会对同一 query 各分词一次，
+        # 重复请求也会复用；停用词/自定义词变化时整体失效。
+        self._token_cache: OrderedDict[tuple[str, bool], tuple[str, ...]] = OrderedDict()
+        self._token_cache_limit = 128
+
+    def _invalidate_token_cache(self) -> None:
+        self._token_cache.clear()
+
     async def async_init(self) -> None:
         """
         异步初始化，加载停用词文件
@@ -69,6 +90,7 @@ class TextProcessor:
             stopwords = await manager.load_stopwords()
             if stopwords:
                 self.stopwords.update(stopwords)
+                self._invalidate_token_cache()
 
     def tokenize(self, text: str, remove_stopwords: bool = True) -> list[str]:
         """
@@ -149,10 +171,25 @@ class TextProcessor:
     async def tokenize_async(
         self, text: str, remove_stopwords: bool = True
     ) -> list[str]:
-        """异步分词：将 CPU 密集型 jieba 分词卸载到线程池，避免阻塞事件循环。"""
+        """异步分词：将 CPU 密集型 jieba 分词卸载到线程池，避免阻塞事件循环。
+
+        查询分词结果按 (text, remove_stopwords) 做 LRU 缓存：同一次召回里
+        BM25 路与图关键词路使用同一 query，第二次直接命中，省一次线程池任务。
+        """
         import asyncio
 
-        return await asyncio.to_thread(self.tokenize, text, remove_stopwords)
+        key = (text, remove_stopwords)
+        cached = self._token_cache.get(key)
+        if cached is not None:
+            self._token_cache.move_to_end(key)
+            return list(cached)
+
+        tokens = await asyncio.to_thread(self.tokenize, text, remove_stopwords)
+        self._token_cache[key] = tuple(tokens)
+        self._token_cache.move_to_end(key)
+        if len(self._token_cache) > self._token_cache_limit:
+            self._token_cache.popitem(last=False)
+        return tokens
 
     async def load_stopwords(self, stopwords_path: str) -> set[str]:
         """
@@ -186,6 +223,7 @@ class TextProcessor:
                         stopwords.add(word)
 
             self.stopwords.update(stopwords)
+            self._invalidate_token_cache()
             return stopwords
 
         except Exception as e:
@@ -227,6 +265,7 @@ class TextProcessor:
                 f"已跳过 {len(failed_words)} 个无法添加到 jieba 的自定义词",
                 UserWarning,
             )
+        self._invalidate_token_cache()
 
     def add_stopwords(self, words: list[str]):
         """
@@ -236,6 +275,7 @@ class TextProcessor:
             words: 停用词列表
         """
         self.stopwords.update(words)
+        self._invalidate_token_cache()
 
     def remove_stopwords_from_list(self, words: list[str]):
         """
@@ -246,6 +286,7 @@ class TextProcessor:
         """
         for word in words:
             self.stopwords.discard(word)
+        self._invalidate_token_cache()
 
     def get_word_freq(self, texts: list[str]) -> dict[str, int]:
         """
@@ -302,16 +343,10 @@ class TextProcessor:
         text = re.sub(r"#\w+", "", text)
 
         # 3. 移除英文标点
-        text = text.translate(str.maketrans("", "", string.punctuation))
+        text = text.translate(_EN_PUNCT_TABLE)
 
         # 4. 移除中文标点
-        chinese_punctuation = (
-            "！？｡。＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～"
-            "｟｠｢｣､、〃《》「」『』【】〔〕〖〗〘〙〚〛〜〝〞〟〰〾〿–—"
-            '‛""„‟…‧﹏'
-            "·・•●○◎◇◆□■△▲▽▼⊙⊕⊗⊘⊙⊚⊛⊝⊞⊟⊠⊡⊢⊣"
-        )
-        text = text.translate(str.maketrans("", "", chinese_punctuation))
+        text = text.translate(_CN_PUNCT_TABLE)
 
         # 5. 移除多余空格,保留单个空格
         text = " ".join(text.split())
