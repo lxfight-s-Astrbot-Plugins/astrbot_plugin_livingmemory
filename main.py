@@ -366,6 +366,34 @@ class LivingMemoryPlugin(Star):
         """命令处理器未就绪时的提示"""
         return t("command.not_ready")
 
+    async def _run_command(
+        self, event: AstrMessageEvent, handler_name: str, *args, **kwargs
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """统一命令入口：就绪检查 + 委托 command_handler。
+
+        命令函数自身的参数签名保持不变（AstrBot 依赖签名解析命令参数），
+        这里只收敛重复的门禁与迭代样板。
+
+        Args:
+            event: 命令事件。
+            handler_name: CommandHandler 上的处理方法名。
+            *args: 传给处理方法的额外位置参数。
+            **kwargs: 传给处理方法的额外关键字参数。
+
+        Yields:
+            处理方法产生的消息结果；未就绪时产生提示消息。
+        """
+        ready, message = await self._ensure_plugin_ready()
+        if not ready:
+            yield event.plain_result(message)
+            return
+        if not self.command_handler:
+            yield event.plain_result(self._command_handler_not_ready_message())
+            return
+        handler = getattr(self.command_handler, handler_name)
+        async for item in handler(event, *args, **kwargs):
+            yield item
+
     # ==================== 事件钩子 ====================
 
     @filter.custom_filter(PassiveGroupCaptureFilter, False)
@@ -434,15 +462,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Show memory system status"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-        async for message in self.command_handler.handle_status(event):
+        async for message in self._run_command(event, "handle_status"):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -451,16 +471,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Search memories"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_search(event, query, k):
+        async for message in self._run_command(event, "handle_search", query, k):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -469,16 +480,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Delete specified memory"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_forget(event, doc_id):
+        async for message in self._run_command(event, "handle_forget", doc_id):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -487,16 +489,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Manually rebuild index"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_rebuild_index(event):
+        async for message in self._run_command(event, "handle_rebuild_index"):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -505,16 +498,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Manually rebuild graph memory index"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_rebuild_graph(event):
+        async for message in self._run_command(event, "handle_rebuild_graph"):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -527,18 +511,7 @@ class LivingMemoryPlugin(Star):
         source: str = "",
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Migrate existing memories to the given memory scope"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_migrate_scope(
-            event, target, action, source
-        ):
+        async for message in self._run_command(event, "handle_migrate_scope", target, action, source):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -547,16 +520,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Show WebUI access information"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_webui(event):
+        async for message in self._run_command(event, "handle_webui"):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -565,18 +529,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, message_count: int | None = None
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Immediately trigger memory summarization for current session"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_summarize(
-            event, message_count
-        ):
+        async for message in self._run_command(event, "handle_summarize", message_count):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -585,16 +538,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Reset long-term memory context for current session"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_reset(event):
+        async for message in self._run_command(event, "handle_reset"):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -607,21 +551,10 @@ class LivingMemoryPlugin(Star):
         Args:
             mode: Execution mode, "preview" (default) for rehearsal, "exec" for actual cleanup
         """
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
         # 判断是否为执行模式
         dry_run = mode.lower() != "exec"
 
-        async for message in self.command_handler.handle_cleanup(
-            event, dry_run=dry_run
-        ):
+        async for message in self._run_command(event, "handle_cleanup", dry_run=dry_run):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -630,16 +563,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Show help information"""
-        ready, message = await self._ensure_plugin_ready()
-        if not ready:
-            yield event.plain_result(message)
-            return
-
-        if not self.command_handler:
-            yield event.plain_result(self._command_handler_not_ready_message())
-            return
-
-        async for message in self.command_handler.handle_help(event):
+        async for message in self._run_command(event, "handle_help"):
             yield message
 
     # ==================== 生命周期管理 ====================
