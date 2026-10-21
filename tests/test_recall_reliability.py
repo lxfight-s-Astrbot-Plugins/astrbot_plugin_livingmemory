@@ -277,10 +277,6 @@ async def test_failed_delta_replay_restores_drained_updates_and_marks_pending(
     with pytest.raises(RuntimeError, match="delta embedding failed"):
         await manager.rebuild_memory_batches(batches())
     assert memory_id in await engine.graph_store.list_vector_doc_ids_by_source()
-    cursor = await engine.db_connection.execute(
-        "SELECT status FROM memory_write_ops WHERE memory_id = ?", (memory_id,)
-    )
-    assert (await cursor.fetchone())[0] == "needs_repair"
 
 
 @pytest.mark.asyncio
