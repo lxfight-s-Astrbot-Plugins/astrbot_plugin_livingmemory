@@ -111,10 +111,12 @@ export function nodeBadge(type) {
  * 渲染元数据项（label: value）
  * @param {string} label - 标签
  * @param {string} value - 值
+ * @param {boolean} [valueIsHtml=false] - value 是否已是可信 HTML（调用方必须自行转义）
  * @returns {string} HTML 字符串
  */
-export function metaItem(label, value) {
-  return '<div class="memory-detail-meta-item"><span class="memory-detail-meta-label">' + esc(label) + '</span><span class="memory-detail-meta-value">' + value + '</span></div>';
+export function metaItem(label, value, valueIsHtml = false) {
+  const rendered = valueIsHtml ? value : esc(value);
+  return '<div class="memory-detail-meta-item"><span class="memory-detail-meta-label">' + esc(label) + '</span><span class="memory-detail-meta-value">' + rendered + '</span></div>';
 }
 
 /**

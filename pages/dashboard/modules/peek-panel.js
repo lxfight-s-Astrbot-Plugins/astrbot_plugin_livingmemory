@@ -282,14 +282,14 @@ export class PeekPanel {
     // 元数据网格
     html += '<div class="peek-section"><div class="peek-section-title">' + window.t("detail.metadata") + '</div>';
     html += '<div class="memory-detail-meta-grid">';
-    html += metaItem(window.t("detail.source"), '<span class="origin-tag' + (quality === "low" ? " is-low" : "") + '">' + esc(originLabel(origin)) + '</span>');
+    html += metaItem(window.t("detail.source"), '<span class="origin-tag' + (quality === "low" ? " is-low" : "") + '">' + esc(originLabel(origin)) + '</span>', true);
     if (previousId) {
-      html += metaItem(window.t("detail.previousId"), esc(String(previousId)));
+      html += metaItem(window.t("detail.previousId"), esc(String(previousId)), true);
     }
-    html += metaItem(window.t("detail.sessionId"), '<span style="font-size:11px;font-family:monospace">' + esc(String(sessionId)) + '</span>');
-    html += metaItem(window.t("detail.personaId"), '<span style="font-size:11px;font-family:monospace">' + esc(String(personaId)) + '</span>');
-    html += metaItem(window.t("detail.created"), esc(created));
-    html += metaItem(window.t("detail.updated"), esc(updated));
+    html += metaItem(window.t("detail.sessionId"), '<span style="font-size:11px;font-family:monospace">' + esc(String(sessionId)) + '</span>', true);
+    html += metaItem(window.t("detail.personaId"), '<span style="font-size:11px;font-family:monospace">' + esc(String(personaId)) + '</span>', true);
+    html += metaItem(window.t("detail.created"), esc(created), true);
+    html += metaItem(window.t("detail.updated"), esc(updated), true);
     html += '</div></div>';
 
     // 来源记忆（整合产生）
