@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 const repo = 'https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory'
 
-export default defineConfig({
+export default withMermaid(
+  defineConfig({
   title: 'LivingMemory',
   description: 'Intelligent long-term memory plugin for AstrBot',
   base: process.env.DOCS_BASE || '/astrbot_plugin_livingmemory/',
@@ -82,7 +84,8 @@ export default defineConfig({
       provider: 'local'
     }
   }
-})
+  })
+)
 
 function navZh() {
   return [
