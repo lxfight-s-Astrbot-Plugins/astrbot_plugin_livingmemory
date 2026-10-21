@@ -1,0 +1,159 @@
+{
+  "common": {
+    "yes": "はい",
+    "no": "いいえ",
+    "none": "なし",
+    "never": "一度もない",
+    "unknown_error": "不明なエラー"
+  },
+  "error": {
+    "format": {
+      "action_failed": "{action}に失敗しました。",
+      "details": "エラー詳細: {error}",
+      "suggestions": "確認事項:",
+      "suggestion_item": "{index}. {suggestion}"
+    },
+    "component_not_ready": "{command} の実行に失敗しました：{component}が初期化されていません。\nまず /lmem status でプラグインの状態を確認してください。異常がある場合は起動ログを確認してください。",
+    "suggestions": {
+      "status": [
+        "データベースファイルの読み書き権限を確認",
+        "記憶エンジンの初期化完了を確認",
+        "ログの例外スタックから該当モジュールを特定"
+      ],
+      "search": [
+        "キーワードが空でなく適切な長さであることを確認",
+        "データベースとインデックスファイルの存在と読み書き権限を確認",
+        "ログに検索コンポーネントの初期化失敗がないか確認"
+      ],
+      "forget": [
+        "記憶 ID が存在し、現在アクセス可能なデータに属することを確認",
+        "データベースが他のプロセスに長時間占有されていないことを確認",
+        "ログの削除呼び出しスタックを確認"
+      ],
+      "rebuild_index": [
+        "Embedding Provider が利用可能であることを確認",
+        "データベースファイルとインデックスファイルの読み書き権限を確認",
+        "ログから失敗したドキュメントを特定してから再試行"
+      ],
+      "rebuild_graph": [
+        "グラフ記憶機能が有効であることを確認",
+        "データベースとインデックスファイルの読み書き権限を確認",
+        "ログで具体的に失敗したドキュメントを確認"
+      ],
+      "summarize": [
+        "現在のセッションに未要約メッセージが 2 件以上あることを確認",
+        "LLM Provider が正常に応答できることを確認",
+        "ログの summary 処理スタックを確認"
+      ],
+      "reset": [
+        "セッション ID が有効でセッションストレージにアクセスできることを確認",
+        "データベースが占有されていないことを確認",
+        "ログの clear_session 呼び出しスタックを確認"
+      ],
+      "cleanup": [
+        "現在のセッションに読み取り可能な履歴があることを確認",
+        "会話ストレージの読み書き権限を確認",
+        "ログの cleanup 呼び出しスタックを確認"
+      ],
+      "migrate_scope": [
+        "移行先スコープの記述が正しいことを確認（global/session/user またはリテラル）",
+        "移行前にデータベースのバックアップが自動作成されます。必要ならそれでロールバックできます",
+        "グラフ記憶の項目も移行済みです。グラフ検索が異常な場合は /lmem rebuild-graph で再構築してください"
+      ]
+    }
+  },
+  "status": {
+    "action_name": "ステータス取得",
+    "report": "LivingMemory ステータスレポート\n\n総記憶数: {total}\nセッション数: {session_count}\n最終更新: {last_update}\nデータベースサイズ: {db_size:.2f} MB\n\n使用可能な操作:\n- /lmem search <キーワード>",
+    "index_maintenance": "\n\nインデックス保守: {state} ({current}/{total})\n{message}"
+  },
+  "search": {
+    "action_name": "検索",
+    "query_empty": "検索キーワードを入力してください。例: /lmem search プロジェクト進捗 5",
+    "no_results": "'{query}' に関連する記憶が見つかりませんでした。より短いキーワードを試すか、返却数 k を増やしてください。",
+    "header": "{count} 件の関連記憶:\n\n",
+    "item": {
+      "score": "{index}. [スコア:{score:.2f}] {content}\n",
+      "id": "   ID: {id}\n\n",
+      "breakdown": "   一致: 文書キーワード={doc_kw:.2f}, 文書ベクトル={doc_vec:.2f}, グラフキーワード={graph_kw:.2f}, グラフベクトル={graph_vec:.2f}\n\n"
+    }
+  },
+  "forget": {
+    "action_name": "記憶削除",
+    "id_invalid": "記憶 ID は非負の整数である必要があります。例: /lmem forget 123",
+    "success": "記憶 #{id} を削除しました。",
+    "not_found": "削除に失敗しました：記憶 #{id} は存在しません。\nまず /lmem search または WebUI で記憶 ID を確認してください。"
+  },
+  "rebuild_index": {
+    "action_name": "インデックス再構築",
+    "checking": "インデックスの状態を確認しています...",
+    "ok": "インデックスの状態は正常です: {reason}",
+    "status_template": "現在のインデックス状態:\n• Documents テーブル: {doc_count} 件\n• BM25 インデックス: {bm25_count} 件\n• ベクトルインデックス: {vec_count} 件\n• 問題: {reason}\n\nインデックス再構築を開始します...",
+    "partial_notice": "\n注意: 今回の再構築で一部失敗がありました。失敗率 {ratio:.2%} は安全しきい値を超えていません。後ほど /lmem rebuild-index を再実行して補完できます。",
+    "result_template": "インデックス再構築が完了しました。\n\n処理結果:\n• 成功: {success} 件\n• 失敗: {failed} 件\n• 合計: {total} 件\n• ベクトル処理モード: {vector_mode}\n• 新インデックス切り替え: {switched}\n{partial_notice}\n\n検索機能を引き続き利用できます。",
+    "failed": "インデックス再構築に失敗しました。\nエラー詳細: {message}\nログで失敗理由を確認してから /lmem rebuild-index を再試行してください。"
+  },
+  "migrate_scope": {
+    "action_name": "スコープ移行",
+    "usage": "使い方: /lmem migrate-scope <target> [apply] [source]\n\ntarget:\n• global —— グローバルスコープ livingmemory:global へ移行\n• session —— 現在のセッションへ移行\n• user —— 現在のユーザーへ移行（プライベート/グループで共有）\n• その他の文字列 —— リテラルスコープとして使用\n\napply は任意（dry-run による明示的なプレビューも可）：既定はプレビューのみで、apply を指定した場合のみ書き込みます。\nsource は任意（apply の後に指定）。その移行元スコープの記録だけを移行します。all / * / - はすべての移行元を意味します。\n\n例:\n  /lmem migrate-scope global                # 一括移行をプレビュー\n  /lmem migrate-scope global apply          # 一括移行を実行\n  /lmem migrate-scope global apply <scope>  # 指定した移行元のみ移行",
+    "empty_scope": "(空のスコープ)",
+    "scope_line": "• {scope}: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件",
+    "survey": "現在のスコープ分布（記憶 / 原子 / グラフ記憶）:\n{scopes}\n\n合計: {total} 件",
+    "nothing_to_do": "移行が必要な記録はありません：すでに移行先スコープ {target} にあります。",
+    "source_matched_nothing": "移行元スコープ {source} に移行対象の記録は見つかりませんでした（移行先スコープ {target}）。",
+    "missing_tables": "注意: 現在のデータベースに次の任意テーブルがないためスキップしました: {tables}",
+    "any_source": "すべての移行元",
+    "impact_line": "• {scope}: {count} 件",
+    "plan": "移行プレビュー（dry-run）\n\n移行先スコープ: {target}\n移行元の制限: {source}\n\n影響範囲:\n{impact}\n\n合計 {total} 件（記憶 {documents} / 原子 {atoms} / グラフ記憶 {graph_entries}）",
+    "dry_run_hint": "上記はプレビューのみで、データは書き込まれていません。\n問題なければ次を実行してください: /lmem migrate-scope <target> apply [source]",
+    "done": "スコープ移行が完了しました。\n\n移行先スコープ: {target}\n更新済み: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件（合計 {total} 件）\nデータベースバックアップ: {backup}",
+    "remaining_notice": "注意: まだ {remaining} 件の記録が移行先スコープ {target} に到達していません（同時書き込みの可能性）。移行を再実行してください。",
+    "rebuild_hint": "グラフ記憶の項目は同じトランザクションで移行済みです。グラフ検索がまだ異常な場合は /lmem rebuild-graph で再構築できます。"
+  },
+  "rebuild_graph": {
+    "action_name": "グラフ記憶再構築",
+    "starting": "グラフ記憶インデックスの再構築を開始します。しばらく時間がかかる場合があります...",
+    "success": "グラフ記憶の再構築が完了しました。\n\n• 再構築: {rebuilt} 件\n• スキップ: {skipped} 件"
+  },
+  "webui": {
+    "guide": "LivingMemory 管理画面\n\nAstrBot 公式 WebUI からアクセスしてください:\n• AstrBot ダッシュボードを開く\n• プラグイン -> LivingMemory -> Pages -> dashboard へ進む\n\nヒント:\n• プラグイン画面は AstrBot のログイン状態を共有するため、追加ログインは不要です\n• AstrBot >= 4.24.2 が必要です\n\n画面でできること:\n• 記憶の編集と管理\n• 可視化統計分析\n• グラフ閲覧と検索デバッグ\n• データ移行とインデックス保守"
+  },
+  "summarize": {
+    "action_name": "記憶要約",
+    "access_denied": "現在のユーザーまたはセッションは長期記憶の許可リストに含まれていません。",
+    "invalid_count": "要約するメッセージ件数は 2 以上の整数である必要があります。",
+    "no_new": "要約が必要な新しい会話はありません。\n現在のメッセージ総数: {total}\n要約済みメッセージ番号: {index}",
+    "starting": "手動で記憶の要約を開始します...\nメッセージ範囲: [{start}:{end}]、計 {count} 件",
+    "fetch_failed": "メッセージの取得に失敗しました：要約可能なメッセージがありません。\n現在のセッションに履歴メッセージがあることを確認して再試行してください。",
+    "success": "記憶の要約が完了しました。\n重要度: {importance:.2f}\nトピック: {topics}\n要約進捗を {count} 件目のメッセージまで更新しました"
+  },
+  "reset": {
+    "action_name": "記憶コンテキストのリセット",
+    "success": "現在のセッションの長期記憶コンテキストをリセットしました。\n\n次回の記憶要約はこれ以降の会話のみを対象とし、以前の会話内容は含まれません。"
+  },
+  "cleanup": {
+    "action_name": "履歴メッセージの整理",
+    "mode_preview": "プレビューモード: ",
+    "mode_exec": "",
+    "starting": "{mode_text}AstrBot の履歴メッセージから記憶注入フラグメントの整理を開始します...",
+    "context_unavailable": "整理に失敗しました：AstrBot Context にアクセスできません。\nプラグインが完全な AstrBot コンテキストで動作していることを確認して再試行してください。",
+    "no_history": "現在のセッションには会話履歴がないため、整理は不要です。",
+    "empty_history": "現在の会話履歴は空のため、整理は不要です。",
+    "parse_failed": "会話履歴の解析に失敗しました：データが有効な JSON ではありません。\n外部ツールによってセッションストレージの内容が変更されていないか確認してください。",
+    "result_template": "{mode_text}整理が完了しました。\n\n統計情報:\n• 走査メッセージ: {scanned} 件\n• 一致した記憶フラグメント: {matched} 件\n• 整理内容: {cleaned} 件\n• 削除メッセージ: {deleted} 件\n\n{notice}",
+    "notice_preview": "これはプレビューモードで、データは変更されていません。実際に整理するには /lmem cleanup exec を実行してください。",
+    "notice_exec": "AstrBot の会話履歴を更新し、記憶注入フラグメントを整理しました。"
+  },
+  "help": {
+    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+  },
+  "init": {
+    "ready": "プラグインの準備ができました。使用可能なコマンドは /lmem help で確認できます。",
+    "failed": "プラグインの初期化に失敗しました。\nエラー詳細: {error}\n\n確認してください:\n1. Embedding Provider が正しく設定され、呼び出し可能か\n2. LLM Provider が利用可能か\n3. プラグインデータディレクトリの読み書き権限があるか\n4. 起動ログの例外スタック情報",
+    "in_progress": "プラグインはバックグラウンドで初期化中です。\n現在までに Provider の確認を {attempts} 回試行しました\n\n長時間完了しない場合:\n1. Embedding Provider と LLM Provider の設定\n2. 他のプラグインが初期化を妨げていないか\n3. ログに Provider 関連のエラーが出ていないか\nを確認してください"
+  },
+  "command": {
+    "not_ready": "コマンドハンドラの準備ができていないため、現在のコマンドは実行できません。\nまず /lmem status でプラグインの状態を確認してください。失敗が続く場合は初期化ログを確認してください。",
+    "core_not_ready": "プラグインのコアコンポーネントが初期化されていません。\nまず /lmem status で初期化状態を確認してください。それでも失敗する場合は起動ログの例外スタックを確認してください。"
+  }
+}
