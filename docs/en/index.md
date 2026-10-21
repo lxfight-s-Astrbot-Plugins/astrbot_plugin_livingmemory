@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Try 2.7.0-beta.4
+      text: Get 2.7.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.7.0-beta.4 is in testing
+## 2.7.0 is released
 
-This maintenance pre-release covers PRs 308–332: recall and write hot-path performance, data-consistency hardening, responsibility cleanup, and a lighter dashboard with Japanese support. No new runtime dependencies and no mandatory migration; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps. The stable version remains 2.6.1.
+2.7.0 is the stable release that consolidates betas 1–4: the rebuilt dashboard, better recall quality, standardized injection, stronger lifecycle guarantees, hot-path performance work and Japanese support. As a non-prerelease it participates in AstrBot's update prompts normally; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps.
 
 ## Who is this for?
 

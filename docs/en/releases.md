@@ -1,5 +1,54 @@
 # Releases and Upgrades
 
+## 2.7.0 · October 21, 2026
+
+2.7.0 is the stable release that consolidates everything from `2.7.0-beta.1` through `beta.4`. The rebuilt dashboard, recall-quality work, standardized injection, lifecycle guarantees, hot-path performance and Japanese support all reach the stable channel; as a non-prerelease it participates in AstrBot's plugin update prompts normally. No new runtime dependencies and no mandatory migration steps; existing configuration keeps working.
+
+[Download 2.7.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0)
+
+### What's included
+
+- **Dashboard:** memory provenance and write reason, per-route recall scores, graph and memory list linked both ways, retryable failure states, and four visual styles.
+- **Recall quality:** score-weighted fusion, wider candidate pools, cross-route agreement bonus, CJK character bigrams in BM25, and atom-lifecycle filtering.
+- **Consistency:** injection is add-only temporary parts; WebUI edit/retry rollback is reconciled, summary cursors and revisions commit atomically, and failed writes are compensated.
+- **Lifecycle:** summary windows split by day or idle gap, type-specific atom TTLs and decay, consolidation rollback, restorable archives, and pre-migration backups.
+- **Performance and indexing:** the recall hot path no longer blocks on FAISS persistence, the write-operation journal is gone (one memory write drops from up to eight transactions to two), dashboard assets are bundled and trimmed, and index maintenance runs in the background with shadow generations.
+- **Engineering and localization:** CI pins a verified host revision, test dependencies are locked, version and documentation guards exist, and Japanese is supported across replies, the config page and the dashboard.
+
+### Verification
+
+- Backend `pytest`: 1,132 passed; frontend: 107 passed; CI runs against the pinned host revision.
+- Chinese and English docs pass the parity guard; dashboard bundles match their sources.
+
+### Upgrade notes
+
+1. No configuration changes are required; new settings have defaults.
+2. The first startup after upgrading fills in index and version information automatically; running `/lmem rebuild-index` once is recommended so older memories benefit from the retrieval improvements.
+3. Recall defaults changed: `fusion_mode=score`, `fusion_bm25_weight=0.5`, `recall_candidate_multiplier=3`, `fusion_agreement_bonus=0.25`; set `fusion_mode=rrf` to keep the previous rank fusion.
+4. The plugin requires AstrBot 4.24.2 or later; `@register` is removed and metadata comes from `metadata.yaml`.
+5. Dashboard preferences (theme, colour mode, language) are stored in the browser and survive the upgrade.
+
+### Release timeline
+
+| Release | Focus |
+| --- | --- |
+| 2.7.0-beta.1 | Dashboard visual rebuild, stable graph reading, editing and import workflows |
+| 2.7.0-beta.2 | Standardized add-only injection and removal of history rewriting |
+| 2.7.0-beta.3 | Visible recall provenance, score fusion and CJK bigrams, agentic recall beta |
+| 2.7.0-beta.4 | Hot-path performance, consistency hardening, architecture cleanup, Japanese and lighter assets |
+
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of your existing plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the release page, extract it into `data/plugins/astrbot_plugin_livingmemory`, and keep existing data and configuration.
+3. Start or reload AstrBot, confirm the plugin version reads `2.7.0`, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. For an existing Git installation, switch a clean checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0
+```
+
 ## 2.7.0-beta.4 · October 21, 2026
 
 Maintenance pre-release for the 2.7 series covering PRs 308–332 (25 merged pull requests): recall and write hot-path performance, data-consistency hardening, responsibility cleanup across the codebase, and a lighter dashboard with Japanese support. No new runtime dependencies and no mandatory migration steps; existing configuration keeps working and the stable channel remains 2.6.1.
