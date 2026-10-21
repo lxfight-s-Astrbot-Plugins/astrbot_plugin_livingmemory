@@ -5,6 +5,7 @@
 
 import asyncio
 import math
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +51,20 @@ def cancel_session_storage_task(
     task.cancel()
     logger.info(f"[{session_id}] 会话历史已回滚，取消进行中的记忆总结任务")
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class _ReflectionPlan:
+    """一次反思总结的不可变计划，供后台存储任务消费。"""
+
+    session_id: str
+    history_messages: list[Any]
+    persona_id: Any
+    start_index: int
+    end_index: int
+    retry_count: int
+    memory_scope: str
+    expected_revision: int | None
 
 
 if TYPE_CHECKING:
@@ -161,24 +176,41 @@ class MemoryReflection:
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
-        """Check if reflection and memory storage is needed after LLM response"""
+        """Check if reflection and memory storage is needed after LLM response."""
         logger.debug(
             f"[DEBUG-Reflection] 进入 handle_memory_reflection，resp.role={resp.role}"
         )
+        try:
+            prepared = await self._reflection_precheck(event, resp)
+            if prepared is None:
+                return
+            session_id, response_text = prepared
+            plan = await self._reflection_plan(event, session_id, response_text)
+            if plan is None:
+                return
+            await self._schedule_reflection(plan)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"处理记忆反思时发生错误: {e}", exc_info=True)
 
+    async def _reflection_precheck(
+        self, event: AstrMessageEvent, resp: LLMResponse
+    ) -> tuple[str, str] | None:
+        """过滤不需要反思的响应；返回 (session_id, response_text) 表示可以继续。"""
         if not is_event_memory_allowed(self.config_manager, event):
             logger.debug("当前事件不在记忆白名单中，跳过记忆反思")
-            return
+            return None
 
         if resp.role != "assistant":
-            return
+            return None
 
         # 过滤 tool 循环中间轮次（有工具调用时跳过，等待最终总结轮）
         if resp.tools_call_name:
             logger.debug(
                 f"[DEBUG-Reflection] 检测到工具调用响应（tools={resp.tools_call_name}），跳过记录"
             )
-            return
+            return None
 
         # 过滤 tool 循环最终总结：若本次响应是 tool 调用完成后的总结，
         # 其 tools_call_extra_content 会携带工具调用上下文，说明这是 tool loop 产生的内容
@@ -186,320 +218,311 @@ class MemoryReflection:
             logger.debug(
                 "[DEBUG-Reflection] 检测到 tool loop 总结响应（tools_call_extra_content 非空），跳过记录"
             )
-            return
+            return None
+
+        session_id = event.unified_msg_origin
+        logger.debug(f"[DEBUG-Reflection] 获取到 unified_msg_origin: {session_id}")
+        if not session_id:
+            logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
+            return None
+
+        if is_suspicious_session_id(session_id):
+            logger.warning(
+                f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
+            )
+
+        # 检查响应内容是否有效（过滤空回复和错误）
+        response_text = resp.completion_text
+        if not response_text or not response_text.strip():
+            logger.debug(f"[{session_id}] 模型返回空回复，跳过记录")
+            return None
+
+        error_indicators = [
+            "api error",
+            "request failed",
+            "rate limit",
+            "timeout",
+            "connection error",
+            "服务暂时不可用",
+            "请求失败",
+            "接口错误",
+        ]
+        response_lower = response_text.lower()
+        if any(indicator in response_lower for indicator in error_indicators):
+            logger.debug(
+                f"[{session_id}] 检测到错误响应，跳过记录: {response_text[:50]}..."
+            )
+            return None
+
+        if await self._is_superseded_response(event, session_id):
+            return None
+        return session_id, response_text
+
+    async def _is_superseded_response(
+        self, event: AstrMessageEvent, session_id: str
+    ) -> bool:
+        """WebUI 编辑/重试防护：本回复属于已被取代或重复的轮次时返回 True。
+
+        库尾为 assistant 且 checkpoint 不同的情况（如纯图片轮次的回复紧跟在前
+        一轮回复之后）不属于被取代轮次；真正迟到的孤立回复由 on_llm_request
+        对账在下次请求时清理。
+        """
+        checkpoint_id = None
+        get_extra = getattr(event, "get_extra", None)
+        if callable(get_extra):
+            try:
+                checkpoint_id = get_extra("llm_checkpoint_id")
+            except Exception:
+                checkpoint_id = None
+        if not (isinstance(checkpoint_id, str) and checkpoint_id):
+            return False
 
         try:
-            session_id = event.unified_msg_origin
-            logger.debug(f"[DEBUG-Reflection] 获取到 unified_msg_origin: {session_id}")
+            last_message = await self.conversation_manager.get_last_message(session_id)
+        except Exception as exc:
+            logger.debug(f"[{session_id}] 读取最后一条消息失败，跳过守卫: {exc}")
+            return False
+        if last_message is None:
+            return False
 
-            if not session_id:
-                logger.warning("[DEBUG-Reflection] session_id 为空，跳过反思")
-                return
+        last_metadata = last_message.metadata or {}
+        last_checkpoint = last_metadata.get("llm_checkpoint_id")
+        if not (isinstance(last_checkpoint, str) and last_checkpoint):
+            return False
 
-            # 检测异常session_id
-            if is_suspicious_session_id(session_id):
-                logger.warning(
-                    f"[{session_id}] 检测到异常的session_id，这可能导致记忆总结异常。"
-                )
-
-            # 检查响应内容是否有效（过滤空回复和错误）
-            response_text = resp.completion_text
-            if not response_text or not response_text.strip():
-                logger.debug(f"[{session_id}] 模型返回空回复，跳过记录")
-                return
-
-            # 检查是否为错误响应
-            error_indicators = [
-                "api error",
-                "request failed",
-                "rate limit",
-                "timeout",
-                "connection error",
-                "服务暂时不可用",
-                "请求失败",
-                "接口错误",
-            ]
-            response_lower = response_text.lower()
-            if any(indicator in response_lower for indicator in error_indicators):
-                logger.debug(
-                    f"[{session_id}] 检测到错误响应，跳过记录: {response_text[:50]}..."
-                )
-                return
-
-            # WebUI 编辑/重试防护：若本回复属于已被取代的轮次
-            # （checkpoint 与最近一条用户消息不一致，例如重试瞬间旧回复
-            # 迟到落库），跳过存储，避免脏写污染会话库。
-            # 注意：库尾为 assistant 且 checkpoint 不同的情况（如纯图片轮次
-            # 的回复紧跟在前一轮回复之后）不属于被取代轮次，仍正常入库——
-            # 真正迟到的孤立回复将由 on_llm_request 对账在下次请求时清理。
-            checkpoint_id = None
-            get_extra = getattr(event, "get_extra", None)
-            if callable(get_extra):
-                try:
-                    checkpoint_id = get_extra("llm_checkpoint_id")
-                except Exception:
-                    checkpoint_id = None
-            if isinstance(checkpoint_id, str) and checkpoint_id:
-                try:
-                    last_message = await self.conversation_manager.get_last_message(
-                        session_id
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        f"[{session_id}] 读取最后一条消息失败，跳过守卫: {exc}"
-                    )
-                    last_message = None
-                if last_message is not None:
-                    last_metadata = last_message.metadata or {}
-                    last_checkpoint = last_metadata.get("llm_checkpoint_id")
-                    if isinstance(last_checkpoint, str) and last_checkpoint:
-                        if (
-                            last_message.role == "user"
-                            and last_checkpoint != checkpoint_id
-                        ):
-                            # 被取代的回复会被丢弃而不入库：用 warning 暴露
-                            # checkpoint 漂移（旧->新），避免平台时间戳异常时
-                            # 助手消息被静默丢掉（#289）
-                            logger.warning(
-                                f"[{session_id}] 检测到被取代的回复"
-                                f"（checkpoint {last_checkpoint} -> {checkpoint_id}），"
-                                "跳过存储"
-                            )
-                            return
-                        if (
-                            last_message.role == "assistant"
-                            and last_checkpoint == checkpoint_id
-                        ):
-                            logger.debug(
-                                f"[{session_id}] 检测到重复回复"
-                                f"（checkpoint {checkpoint_id}），跳过存储"
-                            )
-                            return
-
-            # 添加助手响应
-            await self.conversation_manager.add_message_from_event(
-                event=event,
-                role="assistant",
-                content=response_text,
+        if last_message.role == "user" and last_checkpoint != checkpoint_id:
+            # 被取代的回复会被丢弃而不入库：用 warning 暴露 checkpoint 漂移
+            #（旧->新），避免平台时间戳异常时助手消息被静默丢掉（#289）
+            logger.warning(
+                f"[{session_id}] 检测到被取代的回复"
+                f"（checkpoint {last_checkpoint} -> {checkpoint_id}），跳过存储"
             )
-            logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
+            return True
+        if last_message.role == "assistant" and last_checkpoint == checkpoint_id:
+            logger.debug(
+                f"[{session_id}] 检测到重复回复（checkpoint {checkpoint_id}），跳过存储"
+            )
+            return True
+        return False
 
-            # 私聊：助手消息写入后也执行消息数量上限控制
-            is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
-            if not is_group:
-                await self.message_utils.enforce_message_limit(session_id)
+    async def _reflection_plan(
+        self, event: AstrMessageEvent, session_id: str, response_text: str
+    ) -> _ReflectionPlan | None:
+        """写入助手消息、判断触发条件并计算本次总结窗口。"""
+        await self.conversation_manager.add_message_from_event(
+            event=event,
+            role="assistant",
+            content=response_text,
+        )
+        logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
 
-            # 获取会话信息
-            session_info = await self.conversation_manager.get_session_info(session_id)
-            if not session_info:
-                logger.warning(
-                    f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思"
-                )
-                return
+        # 私聊：助手消息写入后也执行消息数量上限控制
+        is_group = event.get_message_type() == MessageType.GROUP_MESSAGE
+        if not is_group:
+            await self.message_utils.enforce_message_limit(session_id)
 
-            # 获取实际消息数量（用于数据一致性检查）
-            actual_message_count = (
-                await self.conversation_manager.store.get_message_count(session_id)
+        session_info = await self.conversation_manager.get_session_info(session_id)
+        if not session_info:
+            logger.warning(
+                f"[DEBUG-Reflection] [{session_id}] session_info 为 None，跳过反思"
+            )
+            return None
+
+        # 获取实际消息数量（用于数据一致性检查）
+        actual_message_count = (
+            await self.conversation_manager.store.get_message_count(session_id)
+        )
+
+        # 在读取总结范围之前捕获会话修订号：范围计算与后台任务启动之间
+        # 若发生 WebUI 编辑/重试回滚，任务必须整体失效（否则会用回滚前的
+        # 消息范围写入已撤销内容）
+        expected_revision = await self._read_session_revision(session_id)
+
+        if session_info.message_count != actual_message_count:
+            logger.warning(
+                f"[DEBUG-Reflection] [{session_id}] 数据不一致! "
+                f"sessions表记录={session_info.message_count}, "
+                f"实际消息数={actual_message_count}"
             )
 
-            # 在读取总结范围之前捕获会话修订号：范围计算与后台任务启动之间
-            # 若发生 WebUI 编辑/重试回滚，任务必须整体失效（否则会用回滚前的
-            # 消息范围写入已撤销内容）
-            expected_revision = await self._read_session_revision(session_id)
+        total_messages = actual_message_count
+        trigger_rounds = self.config_manager.get(
+            "reflection_engine.summary_trigger_rounds", 10
+        )
+        last_summarized_index = await self.conversation_manager.get_session_metadata(
+            session_id, "last_summarized_index", 0
+        )
 
-            # 数据一致性检查
-            if session_info.message_count != actual_message_count:
-                logger.warning(
-                    f"[DEBUG-Reflection] [{session_id}] 数据不一致! "
-                    f"sessions表记录={session_info.message_count}, "
-                    f"实际消息数={actual_message_count}"
-                )
-
-            # 使用实际消息数量
-            total_messages = actual_message_count
-
-            # 检查是否满足总结条件
-            trigger_rounds = self.config_manager.get(
-                "reflection_engine.summary_trigger_rounds", 10
+        # 消息被删除后游标可能超出实际消息数；调整为当前总数，而非归零
+        # （避免重复处理已总结的内容）
+        if last_summarized_index > total_messages:
+            logger.warning(
+                f"[DEBUG-Reflection] [{session_id}] last_summarized_index({last_summarized_index}) "
+                f"> 实际消息数({total_messages})，调整为当前消息总数"
+            )
+            last_summarized_index = total_messages
+            await self.conversation_manager.update_session_metadata(
+                session_id, "last_summarized_index", total_messages
             )
 
-            # 获取上次总结的位置
-            last_summarized_index = (
-                await self.conversation_manager.get_session_metadata(
-                    session_id, "last_summarized_index", 0
-                )
-            )
+        unsummarized_rounds = (total_messages - last_summarized_index) // 2
+        pending_summary = await self.conversation_manager.get_session_metadata(
+            session_id, "pending_summary", None
+        )
+        logger.info(
+            f"[DEBUG-Reflection] [{session_id}] 总消息数: {total_messages}, "
+            f"上次总结位置: {last_summarized_index}, "
+            f"未总结轮数: {unsummarized_rounds}, "
+            f"触发阈值: {trigger_rounds}轮, "
+            f"待处理失败总结: {pending_summary is not None}"
+        )
+        if unsummarized_rounds < trigger_rounds:
+            return None
 
-            # 检查 last_summarized_index 是否超出实际消息数量
-            # 这种情况通常发生在消息被删除后
-            if last_summarized_index > total_messages:
+        logger.info(
+            f"[{session_id}] 未总结轮数达到 {unsummarized_rounds} 轮，启动记忆反思任务"
+        )
+        self._schedule_consolidation()
+        return await self._build_reflection_window(
+            event,
+            session_id,
+            total_messages,
+            last_summarized_index,
+            pending_summary,
+            expected_revision,
+        )
+
+    async def _build_reflection_window(
+        self,
+        event: AstrMessageEvent,
+        session_id: str,
+        total_messages: int,
+        last_summarized_index: int,
+        pending_summary: dict | None,
+        expected_revision: int | None,
+    ) -> _ReflectionPlan | None:
+        """处理待重试范围、窗口切分并取回总结输入消息。"""
+        start_index = last_summarized_index
+        end_index = total_messages
+        retry_count = 0
+
+        if pending_summary:
+            pending_start = pending_summary.get("start_index", start_index)
+            retry_count = pending_summary.get("retry_count", 0)
+            if retry_count >= 3:
                 logger.warning(
-                    f"[DEBUG-Reflection] [{session_id}] last_summarized_index({last_summarized_index}) "
-                    f"> 实际消息数({total_messages})，调整为当前消息总数"
+                    f"[{session_id}] 待处理总结已连续失败 {retry_count} 次，放弃该范围 "
+                    f"[{pending_start}:{pending_summary.get('end_index', end_index)}]"
                 )
-                # 调整为当前消息总数，而非归零（避免重复处理已总结的内容）
-                last_summarized_index = total_messages
                 await self.conversation_manager.update_session_metadata(
-                    session_id, "last_summarized_index", total_messages
+                    session_id, "pending_summary", None
                 )
-
-            # 计算未总结的消息数量
-            unsummarized_messages = total_messages - last_summarized_index
-            unsummarized_rounds = unsummarized_messages // 2
-
-            # 检查是否有待处理的失败总结
-            pending_summary = await self.conversation_manager.get_session_metadata(
-                session_id, "pending_summary", None
-            )
-
+                await self.conversation_manager.update_session_metadata(
+                    session_id, "last_summarized_index", end_index
+                )
+                return None
+            start_index = pending_start
             logger.info(
-                f"[DEBUG-Reflection] [{session_id}] 总消息数: {total_messages}, "
-                f"上次总结位置: {last_summarized_index}, "
-                f"未总结轮数: {unsummarized_rounds}, "
-                f"触发阈值: {trigger_rounds}轮, "
-                f"待处理失败总结: {pending_summary is not None}"
+                f"[{session_id}] 合并待处理失败总结，新范围 [{start_index}:{end_index}], "
+                f"重试次数: {retry_count + 1}/3"
             )
 
-            # 当未总结的轮数达到触发阈值时进行总结
-            if unsummarized_rounds >= trigger_rounds:
+        if end_index - start_index < 2:
+            logger.debug(f"[{session_id}] 消息数不足一轮对话，跳过总结")
+            return None
+
+        # 窗口切分配置：跨天或空闲间隔超过阈值时只总结最老片段（FIFO），
+        # 避免一整段跨天/跨长空闲的对话被合并进同一条记忆。
+        split_by_day = bool(
+            self.config_manager.get("reflection_engine.window_split_by_day", True)
+        )
+        try:
+            gap_minutes = int(
+                self.config_manager.get(
+                    "reflection_engine.window_split_gap_minutes", 180
+                )
+            )
+        except (TypeError, ValueError):
+            gap_minutes = 180
+
+        candidate_messages = await self.conversation_manager.get_messages_range(
+            session_id=session_id,
+            start_index=start_index,
+            end_index=end_index,
+        )
+        split = self._find_window_split_boundary(
+            candidate_messages,
+            split_by_day=split_by_day,
+            gap_minutes=gap_minutes,
+        )
+        if split is not None:
+            split_offset, split_reason = split
+            end_index = start_index + split_offset
+            reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
+            logger.info(
+                f"[{session_id}] 总结窗口按{reason_text}在消息 {end_index} 处切分："
+                f"仅总结最老片段 [{start_index}:{end_index}]，"
+                f"较新片段 [{end_index}:{total_messages}] 留待后续触发"
+            )
+
+        messages_to_summarize = end_index - start_index
+        rounds_to_summarize = messages_to_summarize // 2
+        logger.info(
+            f"[{session_id}] 滑动窗口总结: "
+            f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
+            f"本次总结 {rounds_to_summarize} 轮"
+        )
+        history_messages = candidate_messages[:messages_to_summarize]
+        logger.info(f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结")
+
+        persona_id = await get_persona_id(self.context, event)
+        return _ReflectionPlan(
+            session_id=session_id,
+            history_messages=history_messages,
+            persona_id=persona_id,
+            start_index=start_index,
+            end_index=end_index,
+            retry_count=retry_count,
+            memory_scope=(
+                resolve_memory_scope(self.config_manager, event) or session_id
+            ),
+            expected_revision=expected_revision,
+        )
+
+    async def _schedule_reflection(self, plan: _ReflectionPlan) -> None:
+        """创建并跟踪后台总结任务；同一会话已有任务在跑时跳过。"""
+        if self._shutting_down:
+            return
+        async with self._storage_state_lock:
+            if plan.session_id in self._storage_sessions_inflight:
                 logger.info(
-                    f"[{session_id}] 未总结轮数达到 {unsummarized_rounds} 轮，启动记忆反思任务"
+                    f"[{plan.session_id}] 已有记忆反思任务在执行，跳过本次触发"
                 )
+                return
+            self._storage_sessions_inflight.add(plan.session_id)
 
-                self._schedule_consolidation()
-
-                # 计算总结范围（考虑待处理的失败总结）
-                start_index = last_summarized_index
-                end_index = total_messages
-                retry_count = 0
-
-                # 如果有待处理的失败总结，合并范围
-                if pending_summary:
-                    pending_start = pending_summary.get("start_index", start_index)
-                    retry_count = pending_summary.get("retry_count", 0)
-
-                    # 检查是否已达到最大重试次数
-                    if retry_count >= 3:
-                        logger.warning(
-                            f"[{session_id}] 待处理总结已连续失败 {retry_count} 次，放弃该范围 "
-                            f"[{pending_start}:{pending_summary.get('end_index', end_index)}]"
-                        )
-                        # 清除待处理记录，更新 last_summarized_index 到当前位置
-                        await self.conversation_manager.update_session_metadata(
-                            session_id, "pending_summary", None
-                        )
-                        await self.conversation_manager.update_session_metadata(
-                            session_id, "last_summarized_index", end_index
-                        )
-                        return
-
-                    # 合并范围：使用待处理的起始位置
-                    start_index = pending_start
-                    logger.info(
-                        f"[{session_id}] 合并待处理失败总结，新范围 [{start_index}:{end_index}], "
-                        f"重试次数: {retry_count + 1}/3"
-                    )
-
-                if end_index - start_index < 2:
-                    logger.debug(f"[{session_id}] 消息数不足一轮对话，跳过总结")
-                    return
-
-                # 窗口切分配置：跨天或空闲间隔超过阈值时只总结最老片段（FIFO），
-                # 避免一整段跨天/跨长空闲的对话被合并进同一条记忆。
-                split_by_day = bool(
-                    self.config_manager.get(
-                        "reflection_engine.window_split_by_day", True
-                    )
+        try:
+            task = asyncio.create_task(
+                self._storage_task(
+                    plan.session_id,
+                    plan.history_messages,
+                    plan.persona_id,
+                    plan.start_index,
+                    plan.end_index,
+                    plan.retry_count,
+                    memory_scope=plan.memory_scope,
+                    expected_revision=plan.expected_revision,
                 )
-                try:
-                    gap_minutes = int(
-                        self.config_manager.get(
-                            "reflection_engine.window_split_gap_minutes", 180
-                        )
-                    )
-                except (TypeError, ValueError):
-                    gap_minutes = 180
-
-                # 候选范围只取一次：切分扫描与总结输入复用同一批消息
-                candidate_messages = (
-                    await self.conversation_manager.get_messages_range(
-                        session_id=session_id,
-                        start_index=start_index,
-                        end_index=end_index,
-                    )
-                )
-                split = self._find_window_split_boundary(
-                    candidate_messages,
-                    split_by_day=split_by_day,
-                    gap_minutes=gap_minutes,
-                )
-                if split is not None:
-                    split_offset, split_reason = split
-                    end_index = start_index + split_offset
-                    reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
-                    logger.info(
-                        f"[{session_id}] 总结窗口按{reason_text}在消息 {end_index} 处切分："
-                        f"仅总结最老片段 [{start_index}:{end_index}]，"
-                        f"较新片段 [{end_index}:{total_messages}] 留待后续触发"
-                    )
-
-                messages_to_summarize = end_index - start_index
-                rounds_to_summarize = messages_to_summarize // 2
-
-                logger.info(
-                    f"[{session_id}] 滑动窗口总结: "
-                    f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
-                    f"本次总结 {rounds_to_summarize} 轮"
-                )
-
-                history_messages = candidate_messages[:messages_to_summarize]
-
-                logger.info(
-                    f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结"
-                )
-
-                persona_id = await get_persona_id(self.context, event)
-
-                # 创建后台任务进行存储（跟踪任务）
-                if not self._shutting_down:
-                    async with self._storage_state_lock:
-                        if session_id in self._storage_sessions_inflight:
-                            logger.info(
-                                f"[{session_id}] 已有记忆反思任务在执行，跳过本次触发"
-                            )
-                            return
-                        self._storage_sessions_inflight.add(session_id)
-
-                    try:
-                        task = asyncio.create_task(
-                            self._storage_task(
-                                session_id,
-                                history_messages,
-                                persona_id,
-                                start_index,
-                                end_index,
-                                retry_count,
-                                memory_scope=(
-                                    resolve_memory_scope(self.config_manager, event)
-                                    or session_id
-                                ),
-                                expected_revision=expected_revision,
-                            )
-                        )
-                    except Exception:
-                        self._storage_sessions_inflight.discard(session_id)
-                        raise
-
-                    self._storage_tasks.add(task)
-                    self._storage_session_tasks[session_id] = task
-                    task.add_done_callback(
-                        lambda t, sid=session_id: self._on_storage_task_done(t, sid)
-                    )
-
-        except asyncio.CancelledError:
+            )
+        except Exception:
+            self._storage_sessions_inflight.discard(plan.session_id)
             raise
-        except Exception as e:
-            logger.error(f"处理记忆反思时发生错误: {e}", exc_info=True)
+
+        self._storage_tasks.add(task)
+        self._storage_session_tasks[plan.session_id] = task
+        task.add_done_callback(
+            lambda t, sid=plan.session_id: self._on_storage_task_done(t, sid)
+        )
 
     async def _read_session_revision(self, session_id: str) -> int | None:
         """读取会话修订号；不可用（老版本/Mock）时返回 None，退化为不校验。"""
