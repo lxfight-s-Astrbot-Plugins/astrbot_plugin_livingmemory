@@ -11,6 +11,8 @@ from typing import Any, cast
 import aiosqlite
 
 from astrbot.api import logger
+
+from ...storage.schema import MIGRATION_STATUS_SCHEMA_STATEMENTS
 from .index_validator_rebuild import IndexValidatorRebuildMixin
 
 @dataclass
@@ -110,15 +112,8 @@ class IndexValidator(IndexValidatorRebuildMixin):
         """Adopt legacy indexes once, then detect semantic provider changes."""
         current = self.get_provider_fingerprint()
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS migration_status (
-                    key TEXT PRIMARY KEY,
-                    value TEXT,
-                    updated_at TEXT
-                )
-                """
-            )
+            for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                await db.execute(statement)
             cursor = await db.execute(
                 "SELECT value FROM migration_status WHERE key = ?",
                 ("document_vector_provider_fingerprint",),
