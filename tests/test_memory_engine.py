@@ -338,55 +338,6 @@ async def test_memory_source_write_failure_rolls_back_indexed_memory(tmp_path: P
     await engine.close()
 
 
-@pytest.mark.asyncio
-async def test_repair_add_clears_unavailable_source_metadata(tmp_path: Path):
-    engine = MemoryEngine(
-        db_path=str(tmp_path / "memory_source_repair.db"),
-        faiss_db=_FakeFaissDB(),
-        config={"fallback_enabled": True},
-    )
-    await engine.initialize()
-    memory_id = await engine.add_memory(content="summary", session_id="s1")
-    engine.faiss_db.docs[memory_id]["metadata"].update(
-        {"has_source": True, "source_message_count": 2}
-    )
-
-    async def _update_metadata(doc_id: int, metadata: dict) -> bool:
-        engine.faiss_db.docs[doc_id]["metadata"].update(metadata)
-        return True
-
-    engine.hybrid_retriever.update_metadata = AsyncMock(side_effect=_update_metadata)
-    op_id = await engine._start_write_op(
-        "add", {"session_id": "s1"}, memory_id=memory_id
-    )
-
-    assert await engine._repair_add_write_op(op_id, memory_id, {}) is True
-    repaired = await engine.get_memory(memory_id)
-    assert repaired["metadata"]["has_source"] is False
-    assert repaired["metadata"]["source_message_count"] == 0
-    await engine.close()
-
-
-@pytest.mark.asyncio
-async def test_repair_delete_removes_retained_source(tmp_path: Path):
-    engine = MemoryEngine(
-        db_path=str(tmp_path / "memory_source_delete_repair.db"),
-        faiss_db=_FakeFaissDB(),
-        config={"fallback_enabled": True},
-    )
-    await engine.initialize()
-    memory_id = await engine.add_memory(
-        content="summary",
-        session_id="s1",
-        source_messages=[{"role": "user", "content": "source"}],
-    )
-    op_id = await engine._start_write_op(
-        "delete", {"memory_id": memory_id}, memory_id=memory_id
-    )
-
-    assert await engine._repair_delete_write_op(op_id, memory_id) is True
-    assert await engine.get_memory_source(memory_id) == []
-    await engine.close()
 
 
 @pytest.mark.asyncio
@@ -753,41 +704,6 @@ async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_writ
     await engine.close()
 
 
-@pytest.mark.asyncio
-async def test_memory_engine_write_ops_record_completed_add(tmp_path: Path):
-    db_path = tmp_path / "write_ops.db"
-    engine = MemoryEngine(
-        db_path=str(db_path),
-        faiss_db=_FakeFaissDB(),
-        config={"fallback_enabled": True},
-    )
-    await engine.initialize()
-
-    mid = await engine.add_memory(
-        content="写操作日志测试",
-        session_id="s1",
-        persona_id="p1",
-        importance=0.7,
-        metadata={},
-    )
-    assert mid > 0
-
-    cursor = await engine.db_connection.execute(
-        """
-        SELECT op_type, memory_id, status, step
-        FROM memory_write_ops
-        ORDER BY id DESC
-        LIMIT 1
-        """
-    )
-    row = await cursor.fetchone()
-    assert row["op_type"] == "add"
-    assert row["memory_id"] == mid
-    assert row["status"] == "completed"
-    assert row["step"] == "completed"
-
-    await engine.close()
-
 
 @pytest.mark.asyncio
 async def test_memory_engine_atom_fallback_skips_previously_inserted_atoms(
@@ -818,84 +734,8 @@ async def test_memory_engine_atom_fallback_skips_previously_inserted_atoms(
     assert memory_id > 0
     engine.atom_store.insert.assert_awaited_once_with(pending_atom)
 
-    cursor = await engine.db_connection.execute(
-        """
-        SELECT status, step
-        FROM memory_write_ops
-        ORDER BY id DESC
-        LIMIT 1
-        """
-    )
-    row = await cursor.fetchone()
-    assert row["status"] == "completed"
-    assert row["step"] == "completed"
-
     await engine.close()
 
-
-@pytest.mark.asyncio
-async def test_memory_engine_repair_inserts_failed_atoms_when_parent_has_atoms(
-    tmp_path: Path,
-):
-    db_path = tmp_path / "atom_partial_repair.db"
-    engine = MemoryEngine(
-        db_path=str(db_path),
-        faiss_db=_FakeFaissDB(),
-        config={"graph_memory_enabled": True, "graph_memory_atom_enabled": True},
-    )
-    await engine.initialize()
-    engine.atom_store = AtomStore(str(db_path))
-    await engine.atom_store.initialize()
-
-    memory_id = await engine.hybrid_retriever.add_memory(
-        "partial repair source",
-        {
-            "session_id": "s1",
-            "persona_id": "p1",
-            "importance": 0.7,
-            "create_time": time.time(),
-            "last_access_time": time.time(),
-        },
-    )
-    existing_atom = MemoryAtom(
-        parent_memory_id=memory_id,
-        content="already stored",
-        session_id="s1",
-        persona_id="p1",
-    )
-    await engine.atom_store.insert(existing_atom)
-
-    failed_atom = MemoryAtom(
-        parent_memory_id=memory_id,
-        content="repair me",
-        session_id="s1",
-        persona_id="p1",
-    )
-    op_id = await engine._start_write_op(
-        "add",
-        {
-            "session_id": "s1",
-            "persona_id": "p1",
-            "failed_atoms": [engine._serialize_atom_for_repair(failed_atom)],
-        },
-        memory_id=memory_id,
-    )
-
-    repaired = await engine._repair_add_write_op(
-        op_id,
-        memory_id,
-        {
-            "session_id": "s1",
-            "persona_id": "p1",
-            "failed_atoms": [engine._serialize_atom_for_repair(failed_atom)],
-        },
-    )
-
-    assert repaired is True
-    stored = await engine.atom_store.get_by_parent(memory_id)
-    assert {atom.content for atom in stored} == {"already stored", "repair me"}
-
-    await engine.close()
 
 
 @pytest.mark.asyncio
@@ -1473,19 +1313,6 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
     row = await cursor.fetchone()
     assert row[0] == 0
 
-    cursor = await engine.db_connection.execute(
-        """
-        SELECT op_type, status, step
-        FROM memory_write_ops
-        WHERE op_type = 'batch_delete'
-        ORDER BY id DESC
-        LIMIT 1
-        """
-    )
-    op_row = await cursor.fetchone()
-    assert op_row["status"] == "completed"
-    assert op_row["step"] == "completed"
-
     await engine.close()
 
 
@@ -1538,40 +1365,6 @@ async def test_batch_delete_memories_nonexistent_ids_are_noop(tmp_path: Path):
 
     await engine.close()
 
-
-@pytest.mark.asyncio
-async def test_repair_batch_delete_removes_graph_and_atoms(tmp_path: Path):
-    db_path = tmp_path / "batch_del_repair.db"
-    engine = MemoryEngine(db_path=str(db_path), faiss_db=_FakeFaissDB(), config={})
-    await engine.initialize()
-
-    engine.graph_memory_manager = Mock()
-    engine.graph_memory_manager.batch_delete_memories = AsyncMock()
-    engine.atom_store = Mock()
-    engine.atom_store.batch_delete_by_parent = AsyncMock()
-
-    op_id = await engine._start_write_op(
-        "batch_delete",
-        {"memory_ids": [1, "bad", 2]},
-    )
-    repaired = await engine._repair_batch_delete_write_op(
-        op_id,
-        {"memory_ids": [1, "bad", 2]},
-    )
-
-    assert repaired is True
-    engine.graph_memory_manager.batch_delete_memories.assert_awaited_once_with([1, 2])
-    engine.atom_store.batch_delete_by_parent.assert_awaited_once_with([1, 2])
-
-    cursor = await engine.db_connection.execute(
-        "SELECT status, step FROM memory_write_ops WHERE id = ?",
-        (op_id,),
-    )
-    row = await cursor.fetchone()
-    assert row["status"] == "completed"
-    assert row["step"] == "completed"
-
-    await engine.close()
 
 
 @pytest.mark.asyncio
@@ -1906,73 +1699,6 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
 
     await engine.close()
 
-
-@pytest.mark.asyncio
-async def test_batch_delete_faiss_failure_is_marked_for_repair(tmp_path: Path):
-    """FAISS 删除失败时保留主记录，并将操作标记为可恢复。"""
-    db_path = tmp_path / "batch_del_faissfail.db"
-    faiss = _FakeFaissDB()
-    engine = MemoryEngine(db_path=str(db_path), faiss_db=faiss, config={})
-    await engine.initialize()
-
-    ids = []
-    for i in range(3):
-        mid = faiss._next_id
-        faiss._next_id += 1
-        faiss.docs[mid] = {
-            "id": mid,
-            "doc_id": f"uuid-{mid}",
-            "text": f"test {i}",
-            "metadata": {"importance": 0.5, "session_id": "s1"},
-        }
-        ids.append(mid)
-
-    if engine.db_connection is not None:
-        for mid in ids:
-            doc = faiss.docs[mid]
-            await engine.db_connection.execute(
-                "INSERT INTO documents (id, doc_id, text, metadata, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-                (
-                    doc["id"],
-                    doc["doc_id"],
-                    doc["text"],
-                    json.dumps(doc["metadata"], ensure_ascii=False),
-                ),
-            )
-            await engine.db_connection.execute(
-                "INSERT INTO livingmemory_memories_fts(doc_id, content) VALUES (?, ?)",
-                (mid, doc["text"]),
-            )
-        await engine.db_connection.commit()
-
-    async def failing_delete(uuid_doc_id):
-        raise Exception("FAISS unavailable")
-
-    faiss.delete = failing_delete
-
-    with pytest.raises(RuntimeError, match="批量向量删除未找到文档"):
-        await engine.batch_delete_memories(ids)
-
-    if engine.db_connection is not None:
-        cursor = await engine.db_connection.execute(
-            "SELECT COUNT(*) FROM documents WHERE id IN (?, ?, ?)", tuple(ids)
-        )
-        row = await cursor.fetchone()
-        assert row[0] == 3
-
-        cursor = await engine.db_connection.execute(
-            """
-            SELECT status, step FROM memory_write_ops
-            WHERE op_type = 'batch_delete'
-            ORDER BY id DESC LIMIT 1
-            """
-        )
-        op_row = await cursor.fetchone()
-        assert op_row["status"] == "needs_repair"
-        assert op_row["step"] == "batch_delete_failed"
-
-    await engine.close()
 
 
 @pytest.mark.asyncio

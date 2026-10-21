@@ -76,20 +76,6 @@ class MemoryEngineCrudMixin:
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
 
-        op_id = await self._start_write_op(
-            "add",
-            {
-                "content_preview": content[:500],
-                "session_id": session_id,
-                "persona_id": persona_id,
-                "importance": importance,
-                "metadata": metadata or {},
-                "atoms": [
-                    self._serialize_atom_for_repair(atom) for atom in (atoms or [])
-                ],
-            },
-        )
-
         # 准备完整元数据 - 保存完整的 unified_msg_origin，不提取UUID
         # 只在查询/过滤时才提取UUID进行匹配，存储时保留完整信息
         current_time = time.time()
@@ -132,27 +118,10 @@ class MemoryEngineCrudMixin:
         # 通过混合检索器添加(会同时添加到BM25和向量索引)
         if self.hybrid_retriever is None:
             raise RuntimeError("混合检索器未初始化")
-        try:
-            doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
-            await self._advance_write_op(
-                op_id,
-                "document_indexed",
-                memory_id=doc_id,
-                payload_patch={"memory_id": doc_id},
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            await self._advance_write_op(
-                op_id,
-                "document_failed",
-                status="failed",
-                error=str(e),
-            )
-            raise
+        doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
 
-        # 写入记忆原子
-        atom_write_failed = False
+        # 写入记忆原子：批量失败时逐条重试；仍失败的原子只记录日志，
+        # 由启动时的索引校验/重建对账，不再维护 write-op journal。
         if atoms and self.atom_store is not None and self.atom_enabled:
             prepared_atoms = []
             for atom in atoms:
@@ -162,16 +131,13 @@ class MemoryEngineCrudMixin:
                 prepared_atoms.append(atom)
             try:
                 await self.atom_store.insert_many(prepared_atoms)
-                await self._advance_write_op(
-                    op_id,
-                    "atoms_indexed",
-                    memory_id=doc_id,
-                )
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.error("[MemoryEngine] 批量写入记忆原子失败", exc_info=True)
-                failed_atoms: list[dict[str, Any]] = []
+                logger.error(
+                    "[MemoryEngine] 批量写入记忆原子失败，改为逐条重试",
+                    exc_info=True,
+                )
                 for atom in prepared_atoms:
                     if getattr(atom, "atom_id", 0):
                         continue
@@ -180,31 +146,11 @@ class MemoryEngineCrudMixin:
                     except asyncio.CancelledError:
                         raise
                     except Exception:
-                        failed_atoms.append(self._serialize_atom_for_repair(atom))
                         logger.error(
                             f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
                             exc_info=True,
                         )
-                if failed_atoms:
-                    await self._advance_write_op(
-                        op_id,
-                        "atoms_partial",
-                        status="needs_repair",
-                        memory_id=doc_id,
-                        error="atom insert failed",
-                        payload_patch={"failed_atoms": failed_atoms},
-                    )
-                    atom_write_failed = True
-                else:
-                    await self._advance_write_op(
-                        op_id,
-                        "atoms_indexed",
-                        memory_id=doc_id,
-                    )
-        else:
-            await self._advance_write_op(op_id, "atoms_skipped", memory_id=doc_id)
 
-        needs_repair = atom_write_failed
         if self.graph_memory_manager is not None:
             try:
                 indexed = await self.graph_memory_manager.index_memory(
@@ -214,73 +160,29 @@ class MemoryEngineCrudMixin:
                     raise RuntimeError(
                         "Graph indexing deferred until rebuild completes"
                     )
-                await self._advance_write_op(
-                    op_id,
-                    "graph_indexed",
-                    status="needs_repair" if needs_repair else "pending",
-                    memory_id=doc_id,
-                )
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
-                await self._advance_write_op(
-                    op_id,
-                    "graph_failed",
-                    status="needs_repair",
-                    memory_id=doc_id,
-                    error=str(e),
-                )
-                needs_repair = True
+            except Exception:
                 logger.error(
-                    f"[MemoryEngine] 图记忆索引失败，已标记待修复 (memory_id={doc_id})",
+                    f"[MemoryEngine] 图记忆索引失败 (memory_id={doc_id})",
                     exc_info=True,
                 )
-        else:
-            await self._advance_write_op(
-                op_id,
-                "graph_skipped",
-                status="needs_repair" if needs_repair else "pending",
-                memory_id=doc_id,
-            )
 
         if source_messages:
             try:
                 await self.save_memory_source(doc_id, source_messages)
             except asyncio.CancelledError:
                 await asyncio.shield(self.delete_memory(doc_id))
-                await asyncio.shield(
-                    self._advance_write_op(
-                        op_id,
-                        "source_failed",
-                        status="failed",
-                        memory_id=doc_id,
-                        error="source write cancelled",
-                    )
-                )
                 raise
-            except Exception as exc:
-                await self._advance_write_op(
-                    op_id,
-                    "source_failed",
-                    status="failed",
-                    memory_id=doc_id,
-                    error=str(exc),
-                )
+            except Exception:
                 if not await self.delete_memory(doc_id):
                     logger.error(
                         f"[MemoryEngine] 原文写入失败且记忆回滚失败 (memory_id={doc_id})"
                     )
                 raise
-        if not needs_repair:
-            await self._advance_write_op(
-                op_id,
-                "completed",
-                status="completed",
-                memory_id=doc_id,
-            )
+
         self._invalidate_search_cache()
         return doc_id
-
     async def save_memory_source(
         self, memory_id: int, source_messages: list[dict[str, Any]]
     ) -> None:
@@ -1090,40 +992,20 @@ class MemoryEngineCrudMixin:
             bool: 是否删除成功
         """
 
-        op_id = await self._start_write_op(
-            "delete",
-            {"memory_id": memory_id},
-            memory_id=memory_id,
-        )
-
         # hybrid_retriever.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
         if self.hybrid_retriever is None:
             logger.error("混合检索器未初始化")
-            await self._advance_write_op(
-                op_id,
-                "document_delete_failed",
-                status="failed",
-                error="hybrid retriever not initialized",
-            )
             return False
         success = await self.hybrid_retriever.delete_memory(memory_id)
         if not success:
-            await self._advance_write_op(
-                op_id,
-                "document_delete_failed",
-                status="failed",
-                error="document/vector delete failed",
-            )
             return False
 
-        await self._advance_write_op(op_id, "document_deleted", memory_id=memory_id)
         if self.db_connection is not None:
             await self.db_connection.execute(
                 "DELETE FROM memory_sources WHERE memory_id = ?", (memory_id,)
             )
             await self.db_connection.commit()
 
-        needs_repair = False
         try:
             if self.graph_memory_manager is not None:
                 deleted = await self.graph_memory_manager.delete_memory(memory_id)
@@ -1131,50 +1013,25 @@ class MemoryEngineCrudMixin:
                     raise RuntimeError(
                         "Graph deletion deferred until rebuild completes"
                     )
-            await self._advance_write_op(op_id, "graph_deleted", memory_id=memory_id)
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            await self._advance_write_op(
-                op_id,
-                "graph_delete_failed",
-                status="needs_repair",
-                memory_id=memory_id,
-                error=str(e),
-            )
-            needs_repair = True
+        except Exception:
             logger.error(
-                f"[MemoryEngine] 图记忆删除失败，已标记待修复 (memory_id={memory_id})",
+                f"[MemoryEngine] 图记忆删除失败 (memory_id={memory_id})",
                 exc_info=True,
             )
 
         try:
             if self.atom_store is not None:
                 await self.atom_store.delete_by_parent(memory_id)
-            await self._advance_write_op(op_id, "atoms_deleted", memory_id=memory_id)
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            await self._advance_write_op(
-                op_id,
-                "atom_delete_failed",
-                status="needs_repair",
-                memory_id=memory_id,
-                error=str(e),
-            )
-            needs_repair = True
+        except Exception:
             logger.error(
-                f"[MemoryEngine] 记忆原子删除失败，已标记待修复 (memory_id={memory_id})",
+                f"[MemoryEngine] 记忆原子删除失败 (memory_id={memory_id})",
                 exc_info=True,
             )
 
-        if not needs_repair:
-            await self._advance_write_op(
-                op_id,
-                "completed",
-                status="completed",
-                memory_id=memory_id,
-            )
         self._invalidate_search_cache()
         return success
 
