@@ -96,6 +96,21 @@ async def test_ensure_plugin_ready_returns_component_error_when_incomplete(
 
 
 @pytest.mark.asyncio
+async def test_ensure_plugin_ready_does_not_wait_when_wait_false(monkeypatch, tmp_path):
+    """LLM 请求钩子只检查当前状态，不在初始化期间轮询等待。"""
+    plugin = await _build_plugin(monkeypatch, tmp_path)
+    plugin.initializer.ensure_initialized = AsyncMock(return_value=True)
+
+    ready, message = await plugin._ensure_plugin_ready(wait=False)
+
+    assert ready is False
+    assert "后台初始化中" in message
+    plugin.initializer.ensure_initialized.assert_not_awaited()
+
+    await plugin.terminate()
+
+
+@pytest.mark.asyncio
 async def test_status_command_returns_not_ready_message_without_handler(
     monkeypatch, tmp_path
 ):
