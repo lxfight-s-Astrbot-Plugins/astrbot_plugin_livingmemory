@@ -325,9 +325,17 @@ class LivingMemoryPlugin(Star):
         except Exception as e:
             logger.error(f"被动群聊消息捕获失败: {e}", exc_info=True)
 
-    async def _ensure_plugin_ready(self) -> tuple[bool, str]:
-        """确保插件已完成初始化并且运行期组件可用"""
-        if not await self.initializer.ensure_initialized():
+    async def _ensure_plugin_ready(self, *, wait: bool = True) -> tuple[bool, str]:
+        """确保插件已完成初始化并且运行期组件可用。
+
+        Args:
+            wait: True 时等待后台初始化完成（命令/WebUI 请求）；False 时只检查
+                当前状态，用于 LLM 请求钩子，避免初始化期间每个请求轮询等待。
+        """
+        if wait:
+            if not await self.initializer.ensure_initialized():
+                return False, self._get_initialization_status_message()
+        elif not self.initializer.is_initialized:
             return False, self._get_initialization_status_message()
 
         if not await self._ensure_runtime_components():
@@ -370,7 +378,7 @@ class LivingMemoryPlugin(Star):
     @filter.on_llm_request()
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """[Event Hook] Query and inject long-term memory before LLM request"""
-        ready, _ = await self._ensure_plugin_ready()
+        ready, _ = await self._ensure_plugin_ready(wait=False)
         if not ready:
             logger.debug("插件未完成初始化，跳过记忆召回")
             return
@@ -385,7 +393,7 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
         """[Event Hook] Check if reflection and memory storage is needed after LLM response"""
-        ready, _ = await self._ensure_plugin_ready()
+        ready, _ = await self._ensure_plugin_ready(wait=False)
         if not ready:
             logger.debug("插件未完成初始化，跳过记忆反思")
             return
@@ -404,7 +412,7 @@ class LivingMemoryPlugin(Star):
         ):
             return
 
-        ready, _ = await self._ensure_plugin_ready()
+        ready, _ = await self._ensure_plugin_ready(wait=False)
         if not ready:
             return
 

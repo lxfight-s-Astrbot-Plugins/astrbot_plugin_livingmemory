@@ -181,6 +181,52 @@ async def test_mutation_during_inflight_flush(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_search_runs_during_inflight_flush(tmp_path, monkeypatch):
+    """落盘阻塞期间查询仍能完成；增删仍然等待落盘（读者/写者分离）。"""
+    storage = _make_storage(tmp_path)
+    _add_vectors(storage, 0, 10)
+    persister = install_async_persist(storage, debounce_seconds=0)
+
+    write_started = threading.Event()
+    release_write = threading.Event()
+    real_write = faiss_async_persist._write_index_atomic
+
+    def blocking_write(index, path):
+        write_started.set()
+        assert release_write.wait(5)
+        real_write(index, path)
+
+    monkeypatch.setattr(faiss_async_persist, "_write_index_atomic", blocking_write)
+
+    await storage.save_index()
+    mutation = None
+    try:
+        assert await asyncio.to_thread(write_started.wait, 2)
+        distances, ids = await asyncio.wait_for(
+            persister.search(np.zeros(storage.dimension, dtype=np.float32), 1),
+            timeout=1.0,
+        )
+        assert len(ids[0]) == 1
+        # 写盘进行中，增删仍被写者锁挡住
+        mutation = asyncio.create_task(
+            storage.insert_batch(
+                np.zeros((1, storage.dimension), dtype=np.float32), [999]
+            )
+        )
+        await asyncio.sleep(0.01)
+        assert not mutation.done()
+    finally:
+        release_write.set()
+    if mutation is not None:
+        await mutation
+
+    await persister.flush_now()
+    loaded = faiss.read_index(storage.path)
+    assert loaded.ntotal == storage.index.ntotal == 11
+    await persister.aclose()
+
+
+@pytest.mark.asyncio
 async def test_aclose_flushes_pending_and_is_idempotent(tmp_path):
     """aclose 落盘未写变更、关闭线程池，且可重复调用。"""
     storage = _make_storage(tmp_path)

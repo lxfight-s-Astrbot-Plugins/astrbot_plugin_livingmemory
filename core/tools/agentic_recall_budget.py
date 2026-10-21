@@ -124,7 +124,9 @@ async def run_within_budget(
         result = await asyncio.wait_for(factory(), timeout=remaining)
     except asyncio.TimeoutError:
         elapsed = time.monotonic() - start
-        charge_elapsed(budget, elapsed)
+        # wait_for 在边界上可能早几毫秒触发；超时即视为本次预算用尽，
+        # 否则 remaining_seconds 会残留一个微小正值，预算可能被再次放行。
+        charge_elapsed(budget, max(elapsed, remaining))
         return None, elapsed, True
     except asyncio.CancelledError:
         charge_elapsed(budget, time.monotonic() - start)

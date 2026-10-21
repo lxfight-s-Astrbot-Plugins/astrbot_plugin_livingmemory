@@ -44,7 +44,9 @@ class InitializerFinalizeMixin:
             if not self.llm_provider or not isinstance(self.llm_provider, Provider):
                 raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
 
-            faiss_vec_db_cls = self._load_faiss_vec_db_class()
+            # FAISS 运行时探测（subprocess）与整索引读取都是同步阻塞 I/O，
+            # 放到线程池执行，避免阻塞 AstrBot 事件循环。
+            faiss_vec_db_cls = await asyncio.to_thread(self._load_faiss_vec_db_class)
 
             # 检查索引文件维度与当前 embedding provider 维度是否一致
             await self._check_and_fix_dimension_mismatch(str(index_path))
