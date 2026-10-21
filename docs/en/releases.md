@@ -1,5 +1,59 @@
 # Releases and Upgrades
 
+## 2.7.0-beta.4 · October 21, 2026
+
+Maintenance pre-release for the 2.7 series covering PRs 308–332 (25 merged pull requests): recall and write hot-path performance, data-consistency hardening, responsibility cleanup across the codebase, and a lighter dashboard with Japanese support. No new runtime dependencies and no mandatory migration steps; existing configuration keeps working and the stable channel remains 2.6.1.
+
+[Download 2.7.0-beta.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.4)
+
+### What changed
+
+- **Faster recall.** FAISS persistence now uses a readers-writer lock, so searches no longer wait for full-index flushes; LLM hooks stop polling for initialization; startup index reads move off the event loop; graph recall gains the reverse-edge index and reuses read connections; access statistics are coalesced; tokenizer caching and vector-candidate reuse remove duplicate work.
+- **Cheaper writes.** The write-operation journal and its repair chain are gone (about 930 fewer lines), reducing a single memory write from up to eight transactions to two; batch deletes commit at the FTS boundary to avoid `database is locked`.
+- **Steadier data.** Semantic consolidation is grouped by `(session_id, persona_id)` and rolls back the archive on failure; daily decay updates only changed keys and no longer records a date marker on failure; migrations require a backup first and restore it on failure; atom FTS gets a backfill.
+- **More reliable indexing.** Rebuild retries use plain exponential backoff instead of guessing rate limits from error text; when the host cannot delete vectors, archiving marks `needs_index_rebuild` so the startup check rebuilds and removes ghost vectors.
+- **Lighter dashboard.** The full lucide library is replaced by a 21-icon subset (about 408 KB less); styles and scripts are bundled and minified, cutting blocking requests from 14 to 5 and CSS from 85.9 KB to 69.2 KB; cascade-safe CSS rules are de-duplicated.
+- **Cleaner architecture and engineering.** Write-side index maintenance moves to `MemoryIndexWriter`; the reflection, `add_memory` and graph-snapshot methods are split into stages; version and index DDL are single-sourced; CI pins a verified host commit; test dependencies are locked; the deprecated `@register` decorator is removed; the dashboard and config page support Japanese.
+
+### Verification
+
+- Backend `pytest`: 1,132 passed; frontend: 107 passed; CI passes against the pinned host revision.
+- New documentation-parity and version-consistency guards prevent future drift between languages and version sources.
+
+### Upgrade notes
+
+1. No configuration changes are required; new settings have defaults.
+2. The first startup after upgrading fills in indexes and version information automatically; run `/lmem rebuild-index` once if the existing index is older.
+3. The plugin requires AstrBot 4.24.2 or later; after the `@register` removal the host discovers the `Star` subclass automatically.
+4. Dashboard preferences (theme, colour mode, language) are stored in the browser and survive the upgrade.
+
+### Highlighted pull requests
+
+| PR | Change | Author |
+| --- | --- | --- |
+| [#308](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/308) | Unblock recall hot path from FAISS persistence | [@lxfight](https://github.com/lxfight) |
+| [#309](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/309) | Graph-route recall I/O and timing-test stability | [@lxfight](https://github.com/lxfight) |
+| [#310](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/310) | Consolidation, decay and migration reliability | [@lxfight](https://github.com/lxfight) |
+| [#316](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/316) | Remove write-operation journal and repair chain | [@lxfight](https://github.com/lxfight) |
+| [#317](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/317) | Replace full lucide library with a 21-icon subset | [@lxfight](https://github.com/lxfight) |
+| [#319](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/319) | Bundle and minify dashboard assets | [@lxfight](https://github.com/lxfight) |
+| [#321](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/321) | Remove deprecated `@register`, pin CI host | [@lxfight](https://github.com/lxfight) |
+| [#323](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/323) | Split the 343-line reflection handler | [@lxfight](https://github.com/lxfight) |
+| [#328](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/328) | Japanese for bot replies and config page | [@lxfight](https://github.com/lxfight) |
+| [#329](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/329) | Japanese dashboard and language menu | [@lxfight](https://github.com/lxfight) |
+
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of your existing plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the beta release page, extract it into `data/plugins/astrbot_plugin_livingmemory`, and keep existing data and configuration.
+3. Start or reload AstrBot, confirm the plugin version reads `2.7.0-beta.4`, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. For an existing Git installation, switch a clean checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0-beta.4
+```
+
 ## 2.7.0-beta.3 · October 20, 2026
 
 Pre-release of the 2.7 series. This build covers two areas: the dashboard now reports where memories come from and why a recall result surfaced, and the recall pipeline fuses text routes by normalized score, searches wider candidate pools and indexes CJK character bigrams in BM25. An opt-in agentic recall beta is also available. There are no new runtime dependencies and no mandatory migration steps; the stable channel remains 2.6.1.

@@ -1,5 +1,59 @@
 # 版本与升级
 
+## 2.7.0-beta.4 · 2026-10-21
+
+本次维护性预发布覆盖 PR 308–332（25 个合并请求）：召回与写入热路径性能、数据一致性加固、架构职责收敛，以及 Dashboard 载荷与日语支持。不引入新的运行时依赖，无强制迁移步骤，现有配置可直接沿用；稳定通道仍为 2.6.1。
+
+[下载 2.7.0-beta.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.0-beta.4)
+
+### 本次更新
+
+- **召回更快**：FAISS 落盘改为读写锁，检索不再被整索引 flush 阻塞；LLM 钩子不再轮询初始化；启动索引读取移出事件循环；图路补齐反向边索引并复用只读连接；访问统计合并写；分词缓存与向量候选复用减少重复计算。
+- **写入更省**：删除写操作 journal 与修复链（净减约 930 行），单条记忆写入事务从最多 8 个降为 2 个；批量删除补回提交边界，避免 `database is locked`。
+- **数据更稳**：语义整合按 `(session_id, persona_id)` 分组、归档失败回滚；每日衰减只更新变化键、失败不再落日期标记；迁移前置备份并在失败时恢复；原子 FTS 补齐回填。
+- **索引更可靠**：重建重试统一指数退避，移除限流字符串猜测；无法删除向量时归档标记 `needs_index_rebuild`，由启动校验重建清理幽灵向量。
+- **前端更轻**：lucide 全量库替换为 21 个图标子集（约 -408 KB）；样式与脚本打包压缩，阻塞请求 14 → 5，CSS 85.9 KB → 69.2 KB；CSS 层叠安全去重。
+- **架构与工程化**：写侧索引维护拆到 `MemoryIndexWriter`；reflection、`add_memory`、图快照三个大方法拆分为阶段方法；版本表与索引 DDL 单源化；CI 固定已验证宿主提交；测试依赖锁定；移除 `@register`；Dashboard 与配置页支持日语。
+
+### 验证
+
+- 后端 `pytest` 1,132 项全部通过，前端 107 项通过；CI 在固定宿主版本上通过。
+- 新增文档中英 parity 守卫与版本一致性守卫，防止后续版本与文档漂移。
+
+### 升级说明
+
+1. 无需修改配置，新增项均有默认值。
+2. 升级后首次启动会自动补齐索引与版本信息；索引较旧时可执行一次 `/lmem rebuild-index`。
+3. 插件最低要求 AstrBot 4.24.2；`@register` 移除后依赖宿主自动识别继承 `Star` 的插件类。
+4. Dashboard 偏好（主题、明暗、语言）保存在浏览器本地，升级不受影响。
+
+### 本次重点 PR
+
+| PR | 改动 | 作者 |
+| --- | --- | --- |
+| [#308](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/308) | 召回热路径解除 FAISS 落盘阻塞 | [@lxfight](https://github.com/lxfight) |
+| [#309](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/309) | 图召回 I/O 优化与计时测试稳定化 | [@lxfight](https://github.com/lxfight) |
+| [#310](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/310) | 整合、衰减与迁移可靠性加固 | [@lxfight](https://github.com/lxfight) |
+| [#316](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/316) | 删除写操作 journal 与修复/重放链 | [@lxfight](https://github.com/lxfight) |
+| [#317](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/317) | lucide 全量库替换为 21 图标子集 | [@lxfight](https://github.com/lxfight) |
+| [#319](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/319) | Dashboard 样式与脚本打包压缩 | [@lxfight](https://github.com/lxfight) |
+| [#321](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/321) | 移除废弃 `@register` 并固定 CI 宿主 | [@lxfight](https://github.com/lxfight) |
+| [#323](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/323) | reflection 343 行主方法拆分 | [@lxfight](https://github.com/lxfight) |
+| [#328](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/328) | 后端与配置页日语支持 | [@lxfight](https://github.com/lxfight) |
+| [#329](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/329) | Dashboard 日语支持与语言菜单 | [@lxfight](https://github.com/lxfight) |
+
+### 安装与升级
+
+1. 停止 AstrBot，保留现有插件代码、插件数据目录及配置的备份。
+2. 从测试版发布页下载 **Source code (zip)**，解压到 `data/plugins/astrbot_plugin_livingmemory`，保留原数据与配置。
+3. 启动或重载 AstrBot，确认插件版本为 `2.7.0-beta.4`，打开 `插件 → LivingMemory → Pages → dashboard`。
+4. 通过 Git 管理插件代码时，可在干净工作目录切换标签后启动：
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.0-beta.4
+```
+
 ## 2.7.0-beta.3 · 2026-10-20
 
 本次预发布覆盖两个方向：管理面板从“展示数据”转为“支持判断”，召回链路的融合方式与索引质量同步提升；另有默认关闭的自主回忆 Beta 可选。本版不引入新的运行时依赖，也没有必须执行的迁移步骤，现有配置可直接沿用；稳定通道仍为 2.6.1。
