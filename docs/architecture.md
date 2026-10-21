@@ -16,7 +16,7 @@ LivingMemory 的运行时由事件钩子、记忆处理、检索融合、存储�
 
 | 模块 | 职责 |
 | --- | --- |
-| `main.py` | 注册插件、初始化核心组件、注册 Agent 工具和 Pages API |
+| `main.py` | 插件入口（元数据由 `metadata.yaml` 提供）、初始化核心组件、注册 Agent 工具和 Pages API |
 | `core/plugin_initializer.py` | 非阻塞初始化、Provider 等待、数据库迁移、索引加载 |
 | `core/event_handler.py` | 群聊捕获、记忆召回、记忆反思 |
 | `core/managers/memory_engine.py` | 统一记忆写入、搜索、删除和索引维护 |

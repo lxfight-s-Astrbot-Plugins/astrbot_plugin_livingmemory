@@ -31,7 +31,7 @@ After that, pushes that touch docs, VitePress config, `package.json`, or the dep
 
 ## Release and documentation updates
 
-Keep `metadata.yaml`, the registration version in `main.py`, the backup manager's `PLUGIN_VERSION`, `package.json` and the lockfile in sync. Add the matching version section to `CHANGELOG.md`, covering every merged PR since the previous release tag with PR links and GitHub authors. Update both languages of [Releases and Upgrades](/en/releases).
+Keep `metadata.yaml`, the backup manager's `PLUGIN_VERSION`, `package.json` and the lockfile in sync (`python scripts/bump_version.py <version>` updates all of them). Add the matching version section to `CHANGELOG.md`, covering every merged PR since the previous release tag with PR links and GitHub authors. Update both languages of [Releases and Upgrades](/en/releases).
 
 After the version change merges to the default branch, `Auto Release on Version Update` reads that changelog section and tags the exact workflow-triggering commit. Versions containing `beta`, `alpha`, `rc` or `pre` are marked as prereleases. `Deploy VitePress Docs` publishes the site separately; verify both the release and Pages deployment after publishing.
 
