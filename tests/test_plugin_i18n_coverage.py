@@ -17,6 +17,7 @@ EXPECTED_OPTION_LABELS = {
             "zh": "Chinese",
             "en": "English",
             "ru": "Russian",
+            "ja": "Japanese",
         },
         "provider_settings.llm_stream_mode": {
             "auto": "Auto (Recommended)",
@@ -63,6 +64,7 @@ EXPECTED_OPTION_LABELS = {
             "zh": "Китайский",
             "en": "Английский",
             "ru": "Русский",
+            "ja": "Японский",
         },
         "provider_settings.llm_stream_mode": {
             "auto": "Автоматически (рекомендуется)",
@@ -111,6 +113,7 @@ EXPECTED_OPTION_LABELS = {
             "zh": "中文",
             "en": "English",
             "ru": "Русский",
+            "ja": "日本語",
         },
         "provider_settings.llm_stream_mode": {
             "auto": "自动（推荐）",
@@ -157,6 +160,7 @@ EXPECTED_OPTION_LABELS = {
             "zh": "中国語",
             "en": "English",
             "ru": "Русский",
+            "ja": "日本語",
         },
         "provider_settings.llm_stream_mode": {
             "auto": "自動（推奨）",

@@ -1,12 +1,13 @@
 {
     "bot_language": {
         "description": "机器人回复语言",
-        "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский。",
+        "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский，ja=日本語。",
         "type": "string",
         "options": [
             "zh",
             "en",
-            "ru"
+            "ru",
+            "ja"
         ],
         "default": "zh"
     },

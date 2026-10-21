@@ -7,16 +7,18 @@
   "config": {
     "bot_language": {
       "description": "Bot Response Language",
-      "hint": "Set the language for plugin command and status replies. zh=Chinese (default), en=English, ru=Russian.",
+      "hint": "Set the language for plugin commands and status replies. zh=Chinese (default), en=English, ru=Russian, ja=Japanese.",
       "options": {
         "zh": "Chinese",
         "en": "English",
-        "ru": "Russian"
+        "ru": "Russian",
+        "ja": "日本語"
       },
       "labels": [
         "Chinese",
         "English",
-        "Russian"
+        "Russian",
+        "Japanese"
       ]
     },
     "access_control": {

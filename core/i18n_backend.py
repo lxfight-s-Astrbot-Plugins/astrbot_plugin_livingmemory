@@ -16,7 +16,7 @@ _current_lang: str = "zh"
 def init(language: str = "zh"):
     """Initialize translations. Fallback always loaded as zh."""
     global _fallback, _translations, _current_lang
-    if not language or language not in ("zh", "en", "ru"):
+    if not language or language not in ("zh", "en", "ru", "ja"):
         language = "zh"
     _current_lang = language
     base = Path(__file__).parent / "i18n"
