@@ -51,6 +51,7 @@ async def test_subgraph_memory_stats_recompute_after_node_limit(tmp_path):
     assert len(subgraph["entries"]) == 1
     assert subgraph["memories"][0]["entry_count"] == 1
     assert subgraph["memories"][0]["node_count"] == 1
+    await store.close()
 
 
 @pytest.mark.asyncio
@@ -74,6 +75,7 @@ async def test_search_nodes_by_tokens_batches_large_token_lists(tmp_path):
         "needle beta",
         "needle alpha",
     }
+    await store.close()
 
 
 @pytest.mark.asyncio
@@ -109,6 +111,7 @@ async def test_foreign_keys_cascade_on_runtime_connection(tmp_path):
         row = await cursor.fetchone()
 
     assert row[0] == 0
+    await store.close()
 
 
 @pytest.mark.asyncio
@@ -140,3 +143,53 @@ async def test_add_edge_upsert_same_edge_key_is_idempotent(tmp_path):
         row = await cursor.fetchone()
 
     assert row[0] == 1
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_connection_is_reused_across_queries(tmp_path, monkeypatch):
+    """召回链路的只读查询复用同一条连接，不再每次 open/PRAGMA。"""
+    from astrbot_plugin_livingmemory.storage import graph_store as graph_store_module
+
+    real_connect = graph_store_module.aiosqlite.connect
+    opened: list[int] = []
+
+    async def counting_connect(*args, **kwargs):
+        opened.append(1)
+        return await real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(graph_store_module.aiosqlite, "connect", counting_connect)
+
+    store = GraphStore(str(tmp_path / "graph_read_pool.db"), cache_reads=True)
+    await store.initialize()
+    assert len(opened) == 1  # 初始化写连接
+
+    await store.list_vector_doc_ids()
+    await store.list_vector_doc_ids()
+    await store.get_memory_entry_stats()
+
+    assert len(opened) == 2  # 首次读建一条连接，后续复用
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_neighbor_lookup_uses_target_node_index(tmp_path):
+    """邻居扩展按 target_node_id 反查时必须命中索引，而非全表扫描。"""
+    store = GraphStore(str(tmp_path / "graph_neighbor_index.db"))
+    await store.initialize()
+
+    async with store._connect() as db:
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_graph_edges_target'"
+        )
+        assert await cursor.fetchone() is not None
+
+        cursor = await db.execute(
+            "EXPLAIN QUERY PLAN "
+            "SELECT target_node_id FROM graph_edges "
+            "WHERE target_node_id IN (1, 2) AND status = 'active'"
+        )
+        plan = " ".join(str(row) for row in await cursor.fetchall())
+
+    assert "idx_graph_edges_target" in plan
+    await store.close()

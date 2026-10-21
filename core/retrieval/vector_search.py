@@ -50,6 +50,10 @@ async def retrieve_vectors(db, query, k, filters, *, source_key="id"):
         if vector.size != storage.dimension or not np.isfinite(vector).all():
             raise ValueError("Invalid query embedding")
 
+    # 候选窗口翻倍重查时复用已取回的文档，避免每轮重复 SQL + JSON 解析；
+    # 每轮只需查询新增的 kNN id。
+    documents_by_id: dict[int, dict] = {}
+
     while True:
         if native:
             persister = get_async_persister(storage)
@@ -58,16 +62,17 @@ async def retrieve_vectors(db, query, k, filters, *, source_key="id"):
             else:
                 scores, indices = await storage.search(vector, fetch_k)
             ids = [int(value) for value in indices[0] if value >= 0]
-            documents = (
-                await db.document_storage.get_documents(
+            new_ids = [doc_id for doc_id in ids if doc_id not in documents_by_id]
+            if new_ids:
+                documents = await db.document_storage.get_documents(
                     metadata_filters=filters,
-                    ids=ids,
-                    limit=fetch_k,
+                    ids=new_ids,
+                    limit=len(new_ids),
                 )
-                if ids
-                else []
-            )
-            by_id = {int(document["id"]): document for document in documents}
+                documents_by_id.update(
+                    {int(document["id"]): document for document in documents}
+                )
+            by_id = documents_by_id
             raw = [
                 SimpleNamespace(
                     data=by_id[int(doc_id)], similarity=1.0 - float(score) / 2.0

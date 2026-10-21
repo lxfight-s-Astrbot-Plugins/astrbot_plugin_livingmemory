@@ -25,7 +25,7 @@ class GraphStoreReadMixin:
     _NODE_TOKEN_QUERY_BATCH_SIZE: int
 
     async def list_vector_doc_ids(self) -> list[int]:
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             cursor = await db.execute(
                 "SELECT DISTINCT vector_doc_id FROM graph_entries "
                 "WHERE vector_doc_id IS NOT NULL"
@@ -33,7 +33,7 @@ class GraphStoreReadMixin:
             return [int(row[0]) for row in await cursor.fetchall()]
 
     async def list_vector_doc_ids_by_source(self) -> dict[int, list[int]]:
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             cursor = await db.execute(
                 """
                 SELECT source_memory_id, vector_doc_id
@@ -50,7 +50,7 @@ class GraphStoreReadMixin:
     async def iter_memory_entry_groups(self, batch_size: int = 100):
         """Yield graph-vector payloads grouped by source memory."""
         last_memory_id = -1
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             while True:
                 cursor = await db.execute(
                     """
@@ -113,7 +113,7 @@ class GraphStoreReadMixin:
 
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             try:
                 cursor = await db.execute(
@@ -172,7 +172,7 @@ class GraphStoreReadMixin:
             return []
 
         rows_by_id: dict[int, aiosqlite.Row] = {}
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             for start in range(
                 0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE
@@ -243,7 +243,7 @@ class GraphStoreReadMixin:
             params.append(persona_id)
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"""
@@ -290,7 +290,7 @@ class GraphStoreReadMixin:
         placeholders = ",".join("?" * len(normalized_ids))
         limit = max(1, min(limit, 500))
 
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT neighbor_id, SUM(edge_weight) AS total_weight
@@ -318,7 +318,7 @@ class GraphStoreReadMixin:
 
     async def get_memory_entry_stats(self) -> dict[str, int]:
         """Return graph storage counts for status reporting."""
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             node_cursor = await db.execute("SELECT COUNT(*) FROM graph_nodes")
             edge_cursor = await db.execute("SELECT COUNT(*) FROM graph_edges")
             entry_cursor = await db.execute("SELECT COUNT(*) FROM graph_entries")

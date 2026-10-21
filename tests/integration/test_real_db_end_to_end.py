@@ -208,6 +208,7 @@ async def test_graph_memory_batches_real_faiss_index_writes(
         assert vector_db.embedding_storage.index.ntotal == 0
         assert len(write_paths) == 7
     finally:
+        await graph_store.close()
         await vector_db.close()
 
 
@@ -272,6 +273,7 @@ async def test_graph_memory_full_rebuild_saves_real_faiss_once(
         assert vector_db.embedding_storage.index.ntotal == result["rebuilt"]
         assert len(write_paths) == 1
     finally:
+        await graph_store.close()
         await vector_db.close()
 
 

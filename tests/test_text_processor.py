@@ -95,6 +95,32 @@ async def test_stopwords_manager_materializes_fallback_when_builtin_missing(
 
 
 @pytest.mark.asyncio
+async def test_tokenize_async_reuses_cache_until_stopwords_change(monkeypatch):
+    """同一次召回重复查询只分词一次；停用词变化后缓存失效。"""
+    processor = TextProcessor()
+    calls = {"n": 0}
+    real_tokenize = processor.tokenize
+
+    def counting_tokenize(text, remove_stopwords=True):
+        calls["n"] += 1
+        return real_tokenize(text, remove_stopwords)
+
+    monkeypatch.setattr(processor, "tokenize", counting_tokenize)
+
+    first = await processor.tokenize_async("项目 进度 讨论")
+    second = await processor.tokenize_async("项目 进度 讨论")
+    assert first == second
+    assert calls["n"] == 1
+
+    await processor.tokenize_async("另一个 查询")
+    assert calls["n"] == 2
+
+    processor.add_stopwords(["项目"])
+    await processor.tokenize_async("项目 进度 讨论")
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
 async def test_text_processor_async_init_loads_builtin_stopwords(tmp_path: Path):
     processor = TextProcessor(str(tmp_path))
 

@@ -140,7 +140,8 @@ class TestTimeBudget:
         budget = RecallBudget(max_calls=4, time_budget_seconds=5, max_result_chars=100)
 
         async def work():
-            await asyncio.sleep(0.01)
+            # Windows 计时器粒度较粗，sleep 需明显大于精度才能稳定测到耗时
+            await asyncio.sleep(0.05)
             raise RuntimeError("engine exploded")
 
         with pytest.raises(RuntimeError):
