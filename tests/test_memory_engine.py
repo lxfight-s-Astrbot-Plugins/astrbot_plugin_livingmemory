@@ -2046,3 +2046,33 @@ async def test_background_task_failure_is_logged(tmp_path: Path, monkeypatch):
     assert any("后台任务失败" in message for message in messages)
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_archive_marks_index_rebuild_when_vector_delete_unavailable(
+    tmp_path: Path,
+):
+    """无法单独删除向量时，归档必须标记启动重建，避免幽灵向量挤占召回候选。"""
+    from types import SimpleNamespace
+
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "archive_flag.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+    memory_id = await engine.add_memory("archivable memory", session_id="s1")
+
+    # 模拟旧版 AstrBot：embedding_storage 没有 delete 方法
+    engine.faiss_db.embedding_storage = SimpleNamespace()
+
+    archived = await engine.archive_memories([memory_id])
+    assert archived == 1
+
+    cursor = await engine.db_connection.execute(
+        "SELECT value FROM migration_status WHERE key = 'needs_index_rebuild'"
+    )
+    row = await cursor.fetchone()
+    assert row is not None and row[0] == "true"
+
+    await engine.close()

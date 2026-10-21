@@ -207,7 +207,10 @@ async def test_embed_batch_splits_requests_and_waits_between_requests(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_retry_uses_minimum_wait(monkeypatch):
+async def test_retry_uses_exponential_backoff_without_error_classification(
+    monkeypatch,
+):
+    """重试统一走指数退避，不再按错误文本猜测限流并插入 30s 等待。"""
     sleeps: list[float] = []
 
     async def fake_sleep(seconds: float) -> None:
@@ -228,7 +231,7 @@ async def test_rate_limit_retry_uses_minimum_wait(monkeypatch):
         },
     )
 
-    assert sleeps == [30.0]
+    assert sleeps == [1.0]
     assert provider.calls == [["limited"], ["limited"]]
     assert vectors == [[7.0, 1.0]]
 

@@ -267,8 +267,17 @@ class MemoryEngineBatchMixin:
             await embedding_delete(archived_ids)
         else:
             logger.warning(
-                "[归档] 当前 AstrBot 不支持独立删除向量，已保留软归档状态"
+                "[归档] 当前 AstrBot 不支持独立删除向量，已保留软归档状态，"
+                "并标记启动时重建向量索引以清除残留向量"
             )
+            # 无法单独删向量时，让启动时的索引校验触发重建，避免软归档
+            # 的向量长期占用召回候选名额。
+            await self.db_connection.execute(
+                "INSERT OR REPLACE INTO migration_status (key, value, updated_at) "
+                "VALUES (?, ?, datetime('now'))",
+                ("needs_index_rebuild", "true"),
+            )
+            await self.db_connection.commit()
 
         await self._delete_graph_and_atoms_for_batch(archived_ids)
         self._invalidate_search_cache()

@@ -125,16 +125,6 @@ class IndexValidatorRebuildMixin:
             return 0.0
         return errors / total
 
-    @staticmethod
-    def _is_rate_limit_error(error: Exception) -> bool:
-        message = str(error).lower()
-        return (
-            "429" in message
-            or "rate limit" in message
-            or "tpm limit" in message
-            or "too many requests" in message
-        )
-
     async def _get_document_count(self) -> int:
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -411,8 +401,6 @@ class IndexValidatorRebuildMixin:
                 if attempt >= max_retries - 1:
                     break
                 wait_seconds = retry_base_delay * (2**attempt)
-                if self._is_rate_limit_error(e):
-                    wait_seconds = max(wait_seconds, self.RATE_LIMIT_RETRY_MIN_DELAY)
                 logger.warning(
                     f"Embedding 批次失败，{wait_seconds:.1f}s 后重试 "
                     f"({attempt + 1}/{max_retries}): {e}"
