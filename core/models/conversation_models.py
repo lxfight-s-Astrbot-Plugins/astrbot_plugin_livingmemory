@@ -260,14 +260,6 @@ class Session:
         if sender_id not in self.participants:
             self.participants.append(sender_id)
 
-    def update_activity(self) -> None:
-        """更新最后活跃时间"""
-        self.last_active_at = time.time()
-
-    def increment_message_count(self) -> None:
-        """增加消息计数"""
-        self.message_count += 1
-
 
 @dataclass
 class MemoryEvent:

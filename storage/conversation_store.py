@@ -339,64 +339,6 @@ class ConversationStore(ConversationStoreMessagesMixin):
         )
         return session_ids
 
-    async def get_session_participants(self, session_id: str) -> list[str]:
-        """
-        获取会话参与者列表 (群聊场景)
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            List[str]: 参与者ID列表
-        """
-        session = await self.get_session(session_id)
-        if session:
-            return session.participants
-        return []
-
-    async def add_session_participant(self, session_id: str, sender_id: str) -> None:
-        """
-        添加会话参与者 (避免重复)
-
-        Args:
-            session_id: 会话ID
-            sender_id: 发送者ID
-        """
-        if self.connection is None:
-            return
-
-        async with self._write_lock:
-            async with self.connection.execute(
-                "SELECT participants FROM sessions WHERE session_id = ?",
-                (session_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-
-            if not row:
-                return
-
-            try:
-                participants = json.loads(row["participants"] or "[]")
-            except (json.JSONDecodeError, TypeError):
-                participants = []
-            if not isinstance(participants, list):
-                participants = []
-
-            if sender_id in participants:
-                return
-
-            participants.append(sender_id)
-            await self.connection.execute(
-                """
-                UPDATE sessions
-                SET participants = ?
-                WHERE session_id = ?
-            """,
-                (serialize_to_json(participants), session_id),
-            )
-
-            await self.connection.commit()
-
     # ==================== 消息管理 ====================
 
     # ==================== 高级查询 ====================

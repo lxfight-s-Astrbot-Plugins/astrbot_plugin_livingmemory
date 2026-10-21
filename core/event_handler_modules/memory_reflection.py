@@ -590,10 +590,6 @@ class MemoryReflection:
             f"，避免已撤销内容污染长期记忆"
         )
 
-    def cancel_storage_task(self, session_id: str) -> bool:
-        """取消指定会话进行中的后台总结任务（会话回滚时调用）。"""
-        return cancel_session_storage_task(self._storage_session_tasks, session_id)
-
     async def _storage_task(
         self,
         session_id: str,

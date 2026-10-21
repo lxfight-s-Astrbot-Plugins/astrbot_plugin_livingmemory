@@ -17,34 +17,6 @@ from ..utils.faiss_path_bridge import read_index_safe, write_index_safe
 
 class IndexValidatorRebuildMixin:
     """IndexValidator 拆分模块：IndexValidatorRebuildMixin"""
-    async def _clear_bm25_with_retry(
-        self, table_name: str = "livingmemory_memories_fts", max_attempts: int = 5
-    ) -> None:
-        """清空 BM25 索引表，不触碰 documents 原始数据。"""
-        for attempt in range(max_attempts):
-            try:
-                async with aiosqlite.connect(self.db_path) as db:
-                    await db.execute("PRAGMA busy_timeout = 10000")
-                    try:
-                        await db.execute(f"DELETE FROM {table_name}")
-                    except Exception as e:
-                        logger.warning(f"清空BM25索引失败: {e}")
-                    await db.commit()
-                return
-            except Exception as e:
-                if (
-                    "database is locked" in str(e).lower()
-                    and attempt < max_attempts - 1
-                ):
-                    wait_seconds = 0.2 * (attempt + 1)
-                    logger.warning(
-                        f"清空SQLite存储遇到锁，{wait_seconds:.1f}s后重试 "
-                        f"({attempt + 1}/{max_attempts}): {e}"
-                    )
-                    await asyncio.sleep(wait_seconds)
-                    continue
-                raise
-
     async def _create_bm25_shadow(self, table_name: str) -> str:
         """Create a fresh FTS5 table without touching the live index."""
         shadow_table = f"{table_name}_rebuild"

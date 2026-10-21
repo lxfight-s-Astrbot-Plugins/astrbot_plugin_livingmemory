@@ -362,16 +362,6 @@ class AtomStore:
         )
         return atoms
 
-    async def update_status(self, atom_id: int, status: AtomStatus) -> bool:
-        """Update the lifecycle status of one atom."""
-        async with self._connect() as db:
-            await db.execute(
-                "UPDATE memory_atoms SET status = ? WHERE id = ?",
-                (status.value, atom_id),
-            )
-            await db.commit()
-        return True
-
     async def touch(self, atom_id: int) -> None:
         """Update last_accessed_at for an atom."""
         now = time.time()
