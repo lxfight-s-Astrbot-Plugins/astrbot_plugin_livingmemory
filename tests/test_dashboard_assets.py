@@ -1,18 +1,36 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pages" / "dashboard"
 
 
-def test_dashboard_vendors_and_loads_lucide() -> None:
+def test_dashboard_vendors_and_loads_lucide_subset() -> None:
     index = (DASHBOARD / "index.html").read_text(encoding="utf-8")
     app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+    subset = (DASHBOARD / "vendor" / "lucide-subset.js").read_text(encoding="utf-8")
 
-    assert '<script src="./vendor/lucide.min.js"></script>' in index
-    assert (DASHBOARD / "vendor" / "lucide.min.js").stat().st_size > 100_000
+    assert '<script src="./vendor/lucide-subset.js"></script>' in index
+    size = len(subset.encode("utf-8"))
+    assert 1_000 < size < 50_000, f"lucide 子集应保持轻量，实际 {size} 字节"
     assert (DASHBOARD / "vendor" / "LUCIDE_LICENSE").is_file()
     assert "lucide.createIcons" in app
     assert 'data-lucide="' in index
+
+
+def test_lucide_subset_covers_every_used_icon() -> None:
+    subset = (DASHBOARD / "vendor" / "lucide-subset.js").read_text(encoding="utf-8")
+    sources = [DASHBOARD / "index.html", *sorted((DASHBOARD / "modules").glob("*.js"))]
+    used: set[str] = set()
+    for source in sources:
+        used |= set(
+            re.findall(r'data-lucide="([a-z0-9-]+)"', source.read_text(encoding="utf-8"))
+        )
+    # 三目表达式动态生成的图标名不会被正则捕获，显式列出
+    used |= {"trash-2", "check"}
+
+    missing = sorted(name for name in used if f'"{name}":' not in subset)
+    assert not missing, f"lucide 子集缺少图标，需要重新生成: {missing}"
 
 
 def test_dashboard_has_no_handwritten_or_inline_svg_icons() -> None:
