@@ -23,6 +23,58 @@ class GraphStoreSnapshotMixin:
         limit_edges: int = 72,
     ) -> dict[str, Any]:
         """Return a compact graph snapshot for the provided memory identifiers."""
+        normalized_memory_ids = self._normalize_snapshot_ids(memory_ids)
+        if not normalized_memory_ids:
+            return {"nodes": [], "edges": [], "entries": [], "memories": []}
+
+        limit_entries = max(1, min(limit_entries, 400))
+        limit_nodes = max(1, min(limit_nodes, 200))
+        limit_edges = max(1, min(limit_edges, 400))
+
+        entry_rows, node_rows, edge_rows = await self._read_snapshot_rows(
+            normalized_memory_ids, limit_entries, limit_edges
+        )
+        if not entry_rows:
+            return {"nodes": [], "edges": [], "entries": [], "memories": []}
+
+        node_map, entries, edges, memory_base = self._build_snapshot_graph(
+            node_rows, entry_rows, edge_rows
+        )
+        node_map, entries, edges, nodes_were_limited = self._limit_snapshot_nodes(
+            node_map, entries, edges, limit_nodes
+        )
+        memories = self._build_snapshot_memories(
+            memory_base, entries, edges, nodes_were_limited
+        )
+
+        nodes = sorted(
+            node_map.values(),
+            key=lambda item: (
+                -safe_float(item.get("weight"), 0.0),
+                -int(item.get("entry_count", 0)),
+                -int(item.get("degree", 0)),
+                str(item.get("label", "")),
+            ),
+        )
+        memories.sort(
+            key=lambda item: (
+                -int(item.get("entry_count", 0)),
+                -int(item.get("node_count", 0)),
+                -int(item.get("edge_count", 0)),
+                -safe_float(item.get("importance"), 0.0),
+            )
+        )
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "entries": entries,
+            "memories": memories,
+        }
+
+    @staticmethod
+    def _normalize_snapshot_ids(memory_ids: list[int]) -> list[int]:
+        """去重并转成整数，非法 ID 直接跳过。"""
         normalized_memory_ids: list[int] = []
         seen_memory_ids: set[int] = set()
         for memory_id in memory_ids:
@@ -34,16 +86,16 @@ class GraphStoreSnapshotMixin:
                 continue
             seen_memory_ids.add(normalized)
             normalized_memory_ids.append(normalized)
+        return normalized_memory_ids
 
-        if not normalized_memory_ids:
-            return {"nodes": [], "edges": [], "entries": [], "memories": []}
-
-        limit_entries = max(1, min(limit_entries, 400))
-        limit_nodes = max(1, min(limit_nodes, 200))
-        limit_edges = max(1, min(limit_edges, 400))
-
+    async def _read_snapshot_rows(
+        self,
+        normalized_memory_ids: list[int],
+        limit_entries: int,
+        limit_edges: int,
+    ) -> tuple[list[aiosqlite.Row], list[aiosqlite.Row], list[aiosqlite.Row]]:
+        """一次连接内读取 entry / node / edge 三批快照行。"""
         memory_placeholders = ",".join("?" * len(normalized_memory_ids))
-
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             entry_cursor = await db.execute(
@@ -60,7 +112,7 @@ class GraphStoreSnapshotMixin:
             entry_rows = await entry_cursor.fetchall()
 
             if not entry_rows:
-                return {"nodes": [], "edges": [], "entries": [], "memories": []}
+                return [], [], []
 
             entry_ids = [int(row["id"]) for row in entry_rows]
             entry_placeholders = ",".join("?" * len(entry_ids))
@@ -107,6 +159,20 @@ class GraphStoreSnapshotMixin:
                 )
                 edge_rows = await edge_cursor.fetchall()
 
+        return entry_rows, node_rows, edge_rows
+
+    @staticmethod
+    def _build_snapshot_graph(
+        node_rows: list[aiosqlite.Row],
+        entry_rows: list[aiosqlite.Row],
+        edge_rows: list[aiosqlite.Row],
+    ) -> tuple[
+        dict[int, dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        dict[int, dict[str, Any]],
+    ]:
+        """把快照行组装成节点/条目/边和按记忆聚合的基础视图。"""
         entry_node_map: dict[int, list[int]] = {}
         node_map: dict[int, dict[str, Any]] = {}
         memory_base: dict[int, dict[str, Any]] = {}
@@ -212,40 +278,63 @@ class GraphStoreSnapshotMixin:
                 4,
             )
 
-        nodes_were_limited = len(node_map) > limit_nodes
-        if nodes_were_limited:
-            ranked_nodes = sorted(
-                node_map.values(),
-                key=lambda item: (
-                    -safe_float(item.get("weight"), 0.0),
-                    -int(item.get("entry_count", 0)),
-                    -int(item.get("degree", 0)),
-                    str(item.get("label", "")),
-                ),
-            )
-            allowed_node_ids = {node["id"] for node in ranked_nodes[:limit_nodes]}
-            node_map = {
-                node_id: node
-                for node_id, node in node_map.items()
-                if node_id in allowed_node_ids
-            }
-            edges = [
-                edge
-                for edge in edges
-                if edge["source"] in allowed_node_ids
-                and edge["target"] in allowed_node_ids
-            ]
-            filtered_entries: list[dict[str, Any]] = []
-            for entry in entries:
-                entry["node_ids"] = [
-                    node_id
-                    for node_id in entry["node_ids"]
-                    if node_id in allowed_node_ids
-                ]
-                if entry["node_ids"] or entry["entry_type"] == "summary":
-                    filtered_entries.append(entry)
-            entries = filtered_entries
+        return node_map, entries, edges, memory_base
 
+    @staticmethod
+    def _limit_snapshot_nodes(
+        node_map: dict[int, dict[str, Any]],
+        entries: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        limit_nodes: int,
+    ) -> tuple[
+        dict[int, dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        bool,
+    ]:
+        """节点数超限时按权重截断，并同步裁掉条目与边。"""
+        nodes_were_limited = len(node_map) > limit_nodes
+        if not nodes_were_limited:
+            return node_map, entries, edges, False
+
+        ranked_nodes = sorted(
+            node_map.values(),
+            key=lambda item: (
+                -safe_float(item.get("weight"), 0.0),
+                -int(item.get("entry_count", 0)),
+                -int(item.get("degree", 0)),
+                str(item.get("label", "")),
+            ),
+        )
+        allowed_node_ids = {node["id"] for node in ranked_nodes[:limit_nodes]}
+        node_map = {
+            node_id: node
+            for node_id, node in node_map.items()
+            if node_id in allowed_node_ids
+        }
+        edges = [
+            edge
+            for edge in edges
+            if edge["source"] in allowed_node_ids
+            and edge["target"] in allowed_node_ids
+        ]
+        filtered_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            entry["node_ids"] = [
+                node_id for node_id in entry["node_ids"] if node_id in allowed_node_ids
+            ]
+            if entry["node_ids"] or entry["entry_type"] == "summary":
+                filtered_entries.append(entry)
+        return node_map, filtered_entries, edges, True
+
+    @staticmethod
+    def _build_snapshot_memories(
+        memory_base: dict[int, dict[str, Any]],
+        entries: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        nodes_were_limited: bool,
+    ) -> list[dict[str, Any]]:
+        """按（可选的）截断后条目/边重建记忆视图。"""
         memory_view: dict[int, dict[str, Any]] = {}
         for memory_id, base in memory_base.items():
             memory_view[memory_id] = {
@@ -260,9 +349,7 @@ class GraphStoreSnapshotMixin:
                 "entry_types": set(base["entry_types"]),
             }
 
-        if not nodes_were_limited:
-            filtered_memory_map = memory_view
-        else:
+        if nodes_were_limited:
             filtered_memory_map = {
                 memory_id: {
                     **base,
@@ -280,11 +367,12 @@ class GraphStoreSnapshotMixin:
                 memory["entry_count"] += 1
                 memory["node_ids"].update(entry["node_ids"])
                 memory["entry_types"].add(entry["entry_type"])
-
             for edge in edges:
                 memory = filtered_memory_map.get(edge["memory_id"])
                 if memory is not None:
                     memory["edge_count"] += 1
+        else:
+            filtered_memory_map = memory_view
 
         memories: list[dict[str, Any]] = []
         for memory in filtered_memory_map.values():
@@ -295,31 +383,8 @@ class GraphStoreSnapshotMixin:
             memory["node_count"] = len(node_ids_for_memory)
             memory["entry_types"] = sorted(entry_types)
             memories.append(memory)
+        return memories
 
-        nodes = sorted(
-            node_map.values(),
-            key=lambda item: (
-                -safe_float(item.get("weight"), 0.0),
-                -int(item.get("entry_count", 0)),
-                -int(item.get("degree", 0)),
-                str(item.get("label", "")),
-            ),
-        )
-        memories.sort(
-            key=lambda item: (
-                -int(item.get("entry_count", 0)),
-                -int(item.get("node_count", 0)),
-                -int(item.get("edge_count", 0)),
-                -safe_float(item.get("importance"), 0.0),
-            )
-        )
-
-        return {
-            "nodes": nodes,
-            "edges": edges,
-            "entries": entries,
-            "memories": memories,
-        }
 
     async def get_graph_snapshot(
         self,
