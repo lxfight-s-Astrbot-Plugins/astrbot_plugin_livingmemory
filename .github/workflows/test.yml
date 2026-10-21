@@ -24,6 +24,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: AstrBotDevs/AstrBot
+          # 固定到本插件测试套件验证过的上游提交，避免上游 master 变动导致
+          # 同一 commit 的 CI 结果不可复现。升级时先本地跑全量测试再更新此 sha。
+          ref: a6265fa6c9471d499574c119edeba54a125db314
           path: AstrBot
 
       - name: Checkout LivingMemory
