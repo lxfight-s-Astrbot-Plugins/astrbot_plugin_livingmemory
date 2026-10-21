@@ -6,6 +6,7 @@ MemoryEngine 的 MemoryEngineCrudMixin 拆分模块
 import asyncio
 import json
 import time
+from dataclasses import replace
 from typing import Any
 
 from astrbot.api import logger
@@ -461,6 +462,9 @@ class MemoryEngineCrudMixin:
     async def _apply_atom_policy(self, results, skip_doc_ids: set[int] | None = None):
         """Resolve atom-backed recall content from current lifecycle state.
 
+        与 Beta 自主召回共用 `_agentic_atom_rows` / `_agentic_live_rows`：
+        原子表的读取和 active/expires 过滤只有一份实现。
+
         Args:
             results: Document candidates, including cached or recent results.
             skip_doc_ids: Document ids already resolved in this recall; they are
@@ -472,22 +476,10 @@ class MemoryEngineCrudMixin:
         if not results or not self.atom_enabled or self.atom_store is None:
             return results
         skip = skip_doc_ids or set()
-        ids = list(
-            dict.fromkeys(
-                result.doc_id for result in results if result.doc_id not in skip
-            )
+        pending = [result for result in results if result.doc_id not in skip]
+        grouped = await self._agentic_atom_rows(
+            [result.doc_id for result in pending]
         )
-        grouped = {}
-        for start in range(0, len(ids), 500):
-            batch = ids[start : start + 500]
-            cursor = await self.db_connection.execute(
-                f"SELECT id, parent_memory_id, content, status, expires_at FROM memory_atoms "
-                f"WHERE parent_memory_id IN ({','.join('?' for _ in batch)}) ORDER BY id",
-                batch,
-            )
-            for row in await cursor.fetchall():
-                grouped.setdefault(int(row[1]), []).append(row)
-        now = time.time()
         filtered = []
         for result in results:
             if result.doc_id in skip:
@@ -497,17 +489,15 @@ class MemoryEngineCrudMixin:
             if atoms is None and not result.metadata.get("atom_types"):
                 filtered.append(result)
                 continue
-            active = [
-                row for row in (atoms or []) if row[3] == "active" and row[4] > now
-            ]
+            active = self._agentic_live_rows(atoms or [])
             if not active:
                 continue
-            from dataclasses import replace
-
             filtered.append(
                 replace(
                     result,
-                    content="\n".join(dict.fromkeys(str(row[2]) for row in active)),
+                    content="\n".join(
+                        dict.fromkeys(str(row[2]) for row in active)
+                    ),
                     metadata={
                         **result.metadata,
                         "retrieved_atom_ids": [int(row[0]) for row in active],
