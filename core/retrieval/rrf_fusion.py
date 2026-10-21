@@ -6,25 +6,9 @@ RRF融合器 - Reciprocal Rank Fusion
 from dataclasses import dataclass
 from typing import Any
 
-
-@dataclass
-class BM25Result:
-    """BM25检索结果"""
-
-    doc_id: int
-    score: float
-    content: str
-    metadata: dict[str, Any]
-
-
-@dataclass
-class VectorResult:
-    """向量检索结果"""
-
-    doc_id: int
-    score: float
-    content: str
-    metadata: dict[str, Any]
+# 复用检索器自身的结果类型，避免 RRF 层重复定义同字段 dataclass 造成类型不一致
+from .bm25_retriever import BM25Result
+from .vector_retriever import VectorResult
 
 
 @dataclass
