@@ -62,26 +62,60 @@ class MemoryEngineCrudMixin:
         preserve_create_time: bool = False,
         source_messages: list[dict[str, Any]] | None = None,
     ) -> int:
-        """
-        添加新记忆
+        """添加新记忆。
 
         Args:
-            content: 记忆内容
-            session_id: 会话ID(支持多种格式,自动提取UUID)
-            persona_id: 人格ID(支持多种格式,自动提取UUID)
-            importance: 重要性(0-1)
-            metadata: 额外元数据
+            content: 记忆内容。
+            session_id: 会话 ID（保存完整 unified_msg_origin）。
+            persona_id: 人格 ID。
+            importance: 重要性（0-1）。
+            metadata: 额外元数据。
+            atoms: 记忆原子列表。
+            preserve_create_time: 物理替换时保留原记忆的时间轴位置。
+            source_messages: 原文消息。
 
         Returns:
-            int: 记忆ID(doc_id)
+            int: 记忆 ID（doc_id）。
+
+        Raises:
+            ValueError: 内容为空。
+            RuntimeError: 索引写入器未初始化。
         """
         if not content or not content.strip():
             raise ValueError("记忆内容不能为空")
+        if self.index_writer is None:
+            raise RuntimeError("索引写入器未初始化")
 
-        # 准备完整元数据 - 保存完整的 unified_msg_origin，不提取UUID
-        # 只在查询/过滤时才提取UUID进行匹配，存储时保留完整信息
+        full_metadata = self._build_memory_metadata(
+            session_id=session_id,
+            persona_id=persona_id,
+            importance=importance,
+            metadata=metadata,
+            atoms=atoms,
+            preserve_create_time=preserve_create_time,
+            source_messages=source_messages,
+        )
+        doc_id = await self.index_writer.add_memory(content, full_metadata)
+        await self._write_memory_atoms(doc_id, session_id, persona_id, atoms)
+        await self._index_memory_graph(doc_id, content, full_metadata, atoms)
+        await self._persist_memory_source(doc_id, source_messages)
+        self._invalidate_search_cache()
+        return doc_id
+
+    def _build_memory_metadata(
+        self,
+        *,
+        session_id: str | None,
+        persona_id: str | None,
+        importance: float,
+        metadata: dict[str, Any] | None,
+        atoms: list | None,
+        preserve_create_time: bool,
+        source_messages: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """合并调用方元数据与时间/原子类型字段，返回待写入的完整元数据。"""
         current_time = time.time()
-        full_metadata = {
+        full_metadata: dict[str, Any] = {
             "session_id": session_id,  # 保存完整的 unified_msg_origin
             "persona_id": persona_id,  # 保存完整的 persona_id
             "importance": max(0.0, min(1.0, importance)),  # 限制在0-1范围
@@ -90,8 +124,7 @@ class MemoryEngineCrudMixin:
             "status": "active",
         }
 
-        # 合并用户提供的额外元数据
-        # 注意：先合并外部metadata，再确保时间字段不被覆盖
+        # 先合并外部 metadata，再确保时间字段不被覆盖
         if metadata:
             full_metadata.update(metadata)
         if source_messages:
@@ -116,75 +149,90 @@ class MemoryEngineCrudMixin:
             preserved_create_time if preserved_create_time is not None else current_time
         )
         full_metadata["last_access_time"] = current_time
+        return full_metadata
 
-        # 通过写侧索引维护器添加（同时写入 BM25 与向量索引）
-        if self.index_writer is None:
-            raise RuntimeError("索引写入器未初始化")
-        doc_id = await self.index_writer.add_memory(content, full_metadata)
-
-        # 写入记忆原子：批量失败时逐条重试；仍失败的原子只记录日志，
-        # 由启动时的索引校验/重建对账，不再维护 write-op journal。
-        if atoms and self.atom_store is not None and self.atom_enabled:
-            prepared_atoms = []
-            for atom in atoms:
-                atom.session_id = atom.session_id or session_id
-                atom.persona_id = atom.persona_id or persona_id
-                atom.parent_memory_id = doc_id
-                prepared_atoms.append(atom)
-            try:
-                await self.atom_store.insert_many(prepared_atoms)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.error(
-                    "[MemoryEngine] 批量写入记忆原子失败，改为逐条重试",
-                    exc_info=True,
-                )
-                for atom in prepared_atoms:
-                    if getattr(atom, "atom_id", 0):
-                        continue
-                    try:
-                        await self.atom_store.insert(atom)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        logger.error(
-                            f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
-                            exc_info=True,
-                        )
-
-        if self.graph_memory_manager is not None:
-            try:
-                indexed = await self.graph_memory_manager.index_memory(
-                    doc_id, content, full_metadata, atoms
-                )
-                if indexed is False:
-                    raise RuntimeError(
-                        "Graph indexing deferred until rebuild completes"
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.error(
-                    f"[MemoryEngine] 图记忆索引失败 (memory_id={doc_id})",
-                    exc_info=True,
-                )
-
-        if source_messages:
-            try:
-                await self.save_memory_source(doc_id, source_messages)
-            except asyncio.CancelledError:
-                await asyncio.shield(self.delete_memory(doc_id))
-                raise
-            except Exception:
-                if not await self.delete_memory(doc_id):
+    async def _write_memory_atoms(
+        self,
+        doc_id: int,
+        session_id: str | None,
+        persona_id: str | None,
+        atoms: list | None,
+    ) -> None:
+        """写入记忆原子：批量失败时逐条重试，仍失败的留给启动时对账。"""
+        if not atoms or self.atom_store is None or not self.atom_enabled:
+            return
+        prepared_atoms = []
+        for atom in atoms:
+            atom.session_id = atom.session_id or session_id
+            atom.persona_id = atom.persona_id or persona_id
+            atom.parent_memory_id = doc_id
+            prepared_atoms.append(atom)
+        try:
+            await self.atom_store.insert_many(prepared_atoms)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error(
+                "[MemoryEngine] 批量写入记忆原子失败，改为逐条重试",
+                exc_info=True,
+            )
+            for atom in prepared_atoms:
+                if getattr(atom, "atom_id", 0):
+                    continue
+                try:
+                    await self.atom_store.insert(atom)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
                     logger.error(
-                        f"[MemoryEngine] 原文写入失败且记忆回滚失败 (memory_id={doc_id})"
+                        f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
+                        exc_info=True,
                     )
-                raise
 
-        self._invalidate_search_cache()
-        return doc_id
+    async def _index_memory_graph(
+        self,
+        doc_id: int,
+        content: str,
+        full_metadata: dict[str, Any],
+        atoms: list | None,
+    ) -> None:
+        """建立图记忆索引；失败只记录日志，由重建对账。"""
+        if self.graph_memory_manager is None:
+            return
+        try:
+            indexed = await self.graph_memory_manager.index_memory(
+                doc_id, content, full_metadata, atoms
+            )
+            if indexed is False:
+                raise RuntimeError("Graph indexing deferred until rebuild completes")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error(
+                f"[MemoryEngine] 图记忆索引失败 (memory_id={doc_id})",
+                exc_info=True,
+            )
+
+    async def _persist_memory_source(
+        self,
+        doc_id: int,
+        source_messages: list[dict[str, Any]] | None,
+    ) -> None:
+        """保存原文消息；失败时回滚刚写入的记忆。"""
+        if not source_messages:
+            return
+        try:
+            await self.save_memory_source(doc_id, source_messages)
+        except asyncio.CancelledError:
+            await asyncio.shield(self.delete_memory(doc_id))
+            raise
+        except Exception:
+            if not await self.delete_memory(doc_id):
+                logger.error(
+                    f"[MemoryEngine] 原文写入失败且记忆回滚失败 (memory_id={doc_id})"
+                )
+            raise
+
     async def save_memory_source(
         self, memory_id: int, source_messages: list[dict[str, Any]]
     ) -> None:
