@@ -13,7 +13,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.provider import LLMResponse, ProviderRequest
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.star import Context, Star, StarTools
 
 from .core.base.config_manager import ConfigManager
 from .core.command_handler import CommandHandler
@@ -90,13 +90,8 @@ elif _version_lt(_CURRENT_ASTRBOT_VERSION, _MIN_ASTRBOT_VERSION):
     )
 
 
-@register(
-    "LivingMemory",
-    "lxfight",
-    "An intelligent long-term memory plugin with a dynamic lifecycle for AstrBot.",
-    "2.7.0-beta.3",
-    "https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
-)
+# 插件元数据由 metadata.yaml 提供。AstrBot 3.5.19+ 会自动识别继承 Star 的插件类，
+# 已废弃的 @register 装饰器不再使用，避免宿主未来移除它时插件无法加载。
 class LivingMemoryPlugin(Star):
     """LivingMemory 插件主类"""
 

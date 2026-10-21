@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Bump the LivingMemory plugin version in every file that hardcodes it.
 
+Version sources: metadata.yaml, package.json, package-lock.json and
+backup_manager.PLUGIN_VERSION. The plugin class intentionally has no
+@register decorator (deprecated upstream), so main.py no longer carries
+the version.
+
 Usage: python scripts/bump_version.py 2.7.0
 """
 
@@ -46,12 +51,6 @@ def main() -> None:
     escaped_old = re.escape(old)
     targets = [
         (METADATA, rf"(^version:\s*){escaped_old}\s*$", rf"\g<1>{new}", re.M),
-        (
-            ROOT / "main.py",
-            rf'(\n    "LivingMemory",\n    "lxfight",\n    "[^"]*",\n    "){escaped_old}(",)',
-            rf"\g<1>{new}\g<2>",
-            0,
-        ),
         (
             ROOT / "package.json",
             rf'("version":\s*"){escaped_old}(")',
