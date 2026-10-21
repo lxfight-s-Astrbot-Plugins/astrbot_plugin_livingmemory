@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.event_handler import EventHandler
-
 from astrbot.api.platform import MessageType
 
 
@@ -152,3 +151,31 @@ async def test_extract_message_content_skips_unknown_components() -> None:
     content = await handler._message_utils.extract_message_content(event)
 
     assert content == "hello"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_storage_tasks_after_timeout(monkeypatch) -> None:
+    """卸载时存储任务超过超时时间应被取消，不能无限挂起。"""
+    handler = _make_handler()
+    monkeypatch.setattr(EventHandler, "_SHUTDOWN_TIMEOUT_SECONDS", 0.05)
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def hang() -> None:
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    task = asyncio.create_task(hang())
+    handler._storage_tasks.add(task)
+    await started.wait()
+
+    await asyncio.wait_for(handler.shutdown(), timeout=2.0)
+
+    assert cancelled.is_set()
+    assert not handler._storage_tasks
+    assert task.done()

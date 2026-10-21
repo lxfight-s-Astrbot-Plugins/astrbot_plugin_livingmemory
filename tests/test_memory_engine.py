@@ -1148,6 +1148,74 @@ async def test_memory_engine_cleanup_negative_days_returns_zero(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_daily_decay_preserves_concurrent_access_updates(
+    tmp_path: Path, monkeypatch
+):
+    """衰减落库只改 importance/access_count，快照后并发写入的访问时间不能被覆盖。"""
+    import sqlite3
+
+    import astrbot_plugin_livingmemory.core.managers.memory_engine_crud as crud_mod
+
+    db_path = tmp_path / "decay_race.db"
+    engine = MemoryEngine(db_path=str(db_path), faiss_db=_FakeFaissDB(), config={})
+    await engine.initialize()
+    memory_id = await engine.add_memory(
+        content="race",
+        session_id="s1",
+        persona_id="p1",
+        importance=0.5,
+        metadata={},
+    )
+    await engine.db_connection.execute(
+        "INSERT OR REPLACE INTO documents "
+        "(id, doc_id, text, metadata, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+        (
+            memory_id,
+            f"uuid-{memory_id}",
+            "race",
+            json.dumps(
+                {"importance": 0.5, "access_count": 0, "last_access_time": 1.0}
+            ),
+        ),
+    )
+    await engine.db_connection.commit()
+
+    real_to_thread = asyncio.to_thread
+    concurrent_time = 1234567890.0
+
+    async def racing_to_thread(func, *args, **kwargs):
+        result = await real_to_thread(func, *args, **kwargs)
+        # 模拟快照读取之后、衰减落库之前的并发召回写入
+        con = sqlite3.connect(str(db_path))
+        try:
+            con.execute(
+                "UPDATE documents SET metadata = json_set("
+                "json_set(metadata, '$.last_access_time', ?), "
+                "'$.access_count', 10) WHERE id = ?",
+                (concurrent_time, memory_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+        return result
+
+    monkeypatch.setattr(crud_mod.asyncio, "to_thread", racing_to_thread)
+    affected = await engine.apply_daily_decay(decay_rate=0.1, days=1)
+    assert affected == 1
+
+    cursor = await engine.db_connection.execute(
+        "SELECT metadata FROM documents WHERE id = ?", (memory_id,)
+    )
+    row = await cursor.fetchone()
+    metadata = json.loads(row["metadata"])
+    assert metadata["last_access_time"] == concurrent_time
+    assert metadata["access_count"] == 5
+    assert metadata["importance"] < 0.5
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_cleanup_zero_days_deletes_low_importance(tmp_path: Path):
     """days_threshold=0 时，所有低重要性记忆（无论多新）都应被清理。"""
     db_path = tmp_path / "cleanup_zero.db"
@@ -2223,3 +2291,32 @@ class TestMemoryEngineDocumentQueries:
             await engine.db_connection.close()
 
         assert stats == {"consolidated_count": 1, "archived_count": 0}
+
+
+@pytest.mark.asyncio
+async def test_background_task_failure_is_logged(tmp_path: Path, monkeypatch):
+    """后台任务异常必须被取回并记录，不能静默丢弃。"""
+    import astrbot_plugin_livingmemory.core.managers.memory_engine as engine_mod
+
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "bg_task.db"),
+        faiss_db=_FakeFaissDB(),
+        config={},
+    )
+    await engine.initialize()
+    fake_logger = Mock()
+    monkeypatch.setattr(engine_mod, "logger", fake_logger)
+
+    async def boom() -> None:
+        raise RuntimeError("background boom")
+
+    engine._create_tracked_task(boom())
+    await asyncio.sleep(0.05)
+
+    assert not engine._pending_tasks
+    messages = [
+        str(call.args[0]) for call in fake_logger.error.call_args_list if call.args
+    ]
+    assert any("后台任务失败" in message for message in messages)
+
+    await engine.close()

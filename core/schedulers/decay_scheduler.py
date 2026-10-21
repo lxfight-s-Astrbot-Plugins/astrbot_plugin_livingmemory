@@ -152,6 +152,10 @@ class DecayScheduler:
                 affected = await self.memory_engine.apply_daily_decay(
                     self.decay_rate, days
                 )
+                if affected < 0:
+                    # 衰减失败：不能标记“今日已衰减”，否则当天不会再重试
+                    logger.error("[衰减调度] 衰减执行失败，今日状态保持未完成")
+                    return False
                 logger.info(
                     f"[衰减调度] 衰减完成，影响 {affected} 条记忆，衰减天数: {days}"
                 )

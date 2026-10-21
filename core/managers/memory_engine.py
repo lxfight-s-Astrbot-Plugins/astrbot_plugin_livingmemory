@@ -281,8 +281,17 @@ class MemoryEngine(
         """Create and track a background task, auto-discarding on completion."""
         task = asyncio.create_task(coro)
         self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)
+        task.add_done_callback(self._on_background_task_done)
         return task
+
+    def _on_background_task_done(self, task: asyncio.Task) -> None:
+        """取回后台任务异常并记录，避免静默失败。"""
+        self._pending_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(f"[MemoryEngine] 后台任务失败: {exc}", exc_info=exc)
 
     async def _create_tables(self):
         """创建数据库表

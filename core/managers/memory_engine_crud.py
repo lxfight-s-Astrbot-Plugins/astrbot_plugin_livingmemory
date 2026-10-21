@@ -1249,14 +1249,14 @@ class MemoryEngineCrudMixin:
             days: 衰减天数（用于补偿错过的天数）
 
         Returns:
-            int: 受影响的记忆数量
+            int: 受影响的记忆数量；执行失败返回 -1（调用方不应据此落盘“已衰减”状态）
         """
         if decay_rate <= 0 or days <= 0:
             return 0
 
         if self.db_connection is None:
             logger.error("[衰减] 数据库连接未初始化")
-            return 0
+            return -1
 
         try:
             if decay_rate >= 1:
@@ -1278,8 +1278,8 @@ class MemoryEngineCrudMixin:
             )
             rows = await cursor.fetchall()
 
-            def _compute_updates() -> list[tuple[str, int]]:
-                updates: list[tuple[str, int]] = []
+            def _compute_updates() -> list[tuple[float, int]]:
+                updates: list[tuple[float, int]] = []
                 for row in rows:
                     metadata = safe_json_dict(row["metadata"])
                     importance = clamp_float(metadata.get("importance"), default=0.5)
@@ -1296,16 +1296,7 @@ class MemoryEngineCrudMixin:
                         1 - 0.5 * access_factor * recent_access_factor
                     )
                     decay_factor = (1 - effective_decay_rate) ** days
-                    metadata["importance"] = max(
-                        0.01,
-                        round(importance * decay_factor, 4),
-                    )
-                    metadata["access_count"] = int(
-                        access_count * access_decay_multiplier
-                    )
-                    updates.append(
-                        (json.dumps(metadata, ensure_ascii=False), int(row["id"]))
-                    )
+                    updates.append((decay_factor, int(row["id"])))
                 return updates
 
             # 卸载逐行 JSON 解析与数值计算，避免阻塞事件循环。
@@ -1314,9 +1305,39 @@ class MemoryEngineCrudMixin:
             if not updates:
                 return 0
 
+            # 只改 importance / access_count 两个键，且新值在 SQL 里基于当前值计算：
+            # 并发召回写入的 last_access_time（以及期间新增的 access_count）不会被
+            # 旧快照整列回写覆盖。
             await self.db_connection.executemany(
-                "UPDATE documents SET metadata = ? WHERE id = ?",
-                updates,
+                """
+                UPDATE documents
+                SET metadata = json_set(
+                    json_set(
+                        metadata,
+                        '$.importance',
+                        MAX(
+                            0.01,
+                            ROUND(
+                                CAST(json_extract(metadata, '$.importance') AS REAL) * ?,
+                                4
+                            )
+                        )
+                    ),
+                    '$.access_count',
+                    CAST(
+                        COALESCE(
+                            CAST(json_extract(metadata, '$.access_count') AS REAL),
+                            0
+                        ) * ?
+                        AS INTEGER
+                    )
+                )
+                WHERE id = ?
+                """,
+                [
+                    (factor, access_decay_multiplier, doc_id)
+                    for factor, doc_id in updates
+                ],
             )
 
             await self.db_connection.commit()
@@ -1334,7 +1355,7 @@ class MemoryEngineCrudMixin:
             raise
         except Exception as e:
             logger.error(f"[衰减] 批量衰减失败: {e}", exc_info=True)
-            return 0
+            return -1
 
     async def update_access_time(self, memory_id: int) -> bool:
         """
