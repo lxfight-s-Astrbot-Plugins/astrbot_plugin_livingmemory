@@ -26,6 +26,9 @@ from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import (
     HybridResult,
     HybridRetriever,
 )
+from astrbot_plugin_livingmemory.core.retrieval.memory_index_writer import (
+    MemoryIndexWriter,
+)
 from astrbot_plugin_livingmemory.core.retrieval.rrf_fusion import (
     BM25Result as RRFBM25Result,
 )
@@ -652,15 +655,13 @@ async def test_hybrid_add_rolls_back_vector_when_bm25_raises():
             raise RuntimeError("BM25 write failed")
 
     vector = _Vector()
-    retriever = HybridRetriever(
+    writer = MemoryIndexWriter(
         bm25_retriever=cast(BM25Retriever, _BM25()),
         vector_retriever=cast(VectorRetriever, vector),
-        rrf_fusion=RRFFusion(k=60),
-        config={},
     )
 
     with pytest.raises(RuntimeError, match="BM25 write failed"):
-        await retriever.add_memory("summary", {})
+        await writer.add_memory("summary", {})
 
     assert vector.deleted == [17]
 
@@ -683,15 +684,13 @@ async def test_hybrid_add_rolls_back_vector_when_cancelled():
             raise asyncio.CancelledError
 
     vector = _Vector()
-    retriever = HybridRetriever(
+    writer = MemoryIndexWriter(
         bm25_retriever=cast(BM25Retriever, _BM25()),
         vector_retriever=cast(VectorRetriever, vector),
-        rrf_fusion=RRFFusion(k=60),
-        config={},
     )
 
     with pytest.raises(asyncio.CancelledError):
-        await retriever.add_memory("summary", {})
+        await writer.add_memory("summary", {})
 
     assert vector.deleted == [18]
 
@@ -1075,11 +1074,9 @@ async def test_delete_memory_vector_fails_triggers_rollback():
     bm25 = _BM25WithDelete()
     vector = _VectorFails()
 
-    retriever = HybridRetriever(
+    writer = MemoryIndexWriter(
         bm25_retriever=cast(BM25Retriever, bm25),
         vector_retriever=cast(VectorRetriever, vector),
-        rrf_fusion=RRFFusion(k=60),
-        config={"fallback_enabled": True},
     )
 
     # 在 documents 表中准备一条记录供备份查询
@@ -1092,7 +1089,7 @@ async def test_delete_memory_vector_fails_triggers_rollback():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
-        result = await retriever.delete_memory(1)
+        result = await writer.delete_memory(1)
 
     assert result is False
     # BM25 回滚应被调用
@@ -1126,11 +1123,9 @@ async def test_delete_memory_vector_raises_triggers_rollback():
     bm25 = _BM25WithDelete()
     vector = _VectorRaises()
 
-    retriever = HybridRetriever(
+    writer = MemoryIndexWriter(
         bm25_retriever=cast(BM25Retriever, bm25),
         vector_retriever=cast(VectorRetriever, vector),
-        rrf_fusion=RRFFusion(k=60),
-        config={"fallback_enabled": True},
     )
 
     async with aiosqlite.connect(":memory:") as db:
@@ -1142,7 +1137,7 @@ async def test_delete_memory_vector_raises_triggers_rollback():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
-        result = await retriever.delete_memory(1)
+        result = await writer.delete_memory(1)
 
     assert result is False
     bm25.update_document.assert_awaited_once()
@@ -1175,11 +1170,9 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
     bm25 = _BM25Fails()
     vector = _VectorOK()
 
-    retriever = HybridRetriever(
+    writer = MemoryIndexWriter(
         bm25_retriever=cast(BM25Retriever, bm25),
         vector_retriever=cast(VectorRetriever, vector),
-        rrf_fusion=RRFFusion(k=60),
-        config={"fallback_enabled": True},
     )
 
     async with aiosqlite.connect(":memory:") as db:
@@ -1191,7 +1184,7 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
-        result = await retriever.delete_memory(1)
+        result = await writer.delete_memory(1)
 
     assert result is False
     # 回滚不应被调用（BM25 失败时没什么可回滚）

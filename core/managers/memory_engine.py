@@ -32,6 +32,7 @@ from ..retrieval.graph_keyword_retriever import GraphKeywordRetriever
 from ..retrieval.graph_retriever import GraphRetriever
 from ..retrieval.graph_vector_retriever import GraphVectorRetriever
 from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
+from ..retrieval.memory_index_writer import MemoryIndexWriter
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
 from .memory_engine_batch import MemoryEngineBatchMixin
@@ -203,13 +204,16 @@ class MemoryEngine(
         # 6. 初始化向量检索器
         self.vector_retriever = VectorRetriever(self.faiss_db, self.config)
 
-        # 7. 初始化混合检索器
+        # 7. 初始化混合检索器（只负责查询融合）与写侧索引维护器
         self.hybrid_retriever = HybridRetriever(
             self.bm25_retriever,
             self.vector_retriever,
             self.rrf_fusion,
             self.config,
             rerank_provider_resolver=self.rerank_provider_resolver,
+        )
+        self.index_writer = MemoryIndexWriter(
+            self.bm25_retriever, self.vector_retriever
         )
 
         if self.graph_enabled and self.graph_vector_db is not None:

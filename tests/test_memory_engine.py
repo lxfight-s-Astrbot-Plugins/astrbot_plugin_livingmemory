@@ -1808,8 +1808,8 @@ async def test_update_memory_status_only_skips_graph_reindex(tmp_path: Path):
 
     engine.graph_memory_manager = Mock()
     engine.graph_memory_manager.index_memory = AsyncMock()
-    engine.hybrid_retriever = Mock()
-    engine.hybrid_retriever.update_metadata = AsyncMock(return_value=True)
+    engine.index_writer = Mock()
+    engine.index_writer.update_metadata = AsyncMock(return_value=True)
 
     await engine.update_memory(mid, {"metadata": {"status": "archived"}})
     engine.graph_memory_manager.index_memory.assert_not_awaited()
