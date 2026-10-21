@@ -355,12 +355,6 @@ body {
   height: 16px;
 }
 
-.btn-primary {
-  background: var(--accent);
-  color: var(--text-inverse);
-  border-color: var(--accent);
-}
-
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
@@ -426,10 +420,6 @@ body {
 .input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-light);
-}
-
-.input::placeholder {
-  color: var(--text-tertiary);
 }
 
 .input-sm {
@@ -1410,12 +1400,7 @@ body {
   white-space: nowrap;
 }
 
-.origin-tag.is-low {
-  border-color: var(--warning);
-  color: var(--warning);
-}
-
-.type-tag.is-warning {
+.origin-tag.is-low, .type-tag.is-warning {
   border-color: var(--warning);
   color: var(--warning);
 }
