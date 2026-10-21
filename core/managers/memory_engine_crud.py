@@ -44,6 +44,7 @@ class MemoryEngineCrudMixin:
     atom_retriever: Any | None
     vector_retriever: Any | None
     hybrid_retriever: Any | None
+    index_writer: Any | None
     dual_route_retriever: Any | None
     graph_memory_manager: Any | None
     _access_update_pending: set[int]
@@ -116,10 +117,10 @@ class MemoryEngineCrudMixin:
         )
         full_metadata["last_access_time"] = current_time
 
-        # 通过混合检索器添加(会同时添加到BM25和向量索引)
-        if self.hybrid_retriever is None:
-            raise RuntimeError("混合检索器未初始化")
-        doc_id = await self.hybrid_retriever.add_memory(content, full_metadata)
+        # 通过写侧索引维护器添加（同时写入 BM25 与向量索引）
+        if self.index_writer is None:
+            raise RuntimeError("索引写入器未初始化")
+        doc_id = await self.index_writer.add_memory(content, full_metadata)
 
         # 写入记忆原子：批量失败时逐条重试；仍失败的原子只记录日志，
         # 由启动时的索引校验/重建对账，不再维护 write-op journal。
@@ -842,11 +843,11 @@ class MemoryEngineCrudMixin:
             current_metadata.update(metadata_updates)
             current_metadata["updated_at"] = time.time()
 
-            # 【改进】使用增强的update_metadata确保三库同步
-            if self.hybrid_retriever is None:
-                logger.error("混合检索器未初始化")
+            # 使用写侧索引维护器确保多存储元数据同步
+            if self.index_writer is None:
+                logger.error("索引写入器未初始化")
                 return False
-            success = await self.hybrid_retriever.update_metadata(
+            success = await self.index_writer.update_metadata(
                 memory_id, metadata_updates
             )
 
@@ -982,11 +983,11 @@ class MemoryEngineCrudMixin:
             bool: 是否删除成功
         """
 
-        # hybrid_retriever.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
-        if self.hybrid_retriever is None:
-            logger.error("混合检索器未初始化")
+        # index_writer.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
+        if self.index_writer is None:
+            logger.error("索引写入器未初始化")
             return False
-        success = await self.hybrid_retriever.delete_memory(memory_id)
+        success = await self.index_writer.delete_memory(memory_id)
         if not success:
             return False
 
