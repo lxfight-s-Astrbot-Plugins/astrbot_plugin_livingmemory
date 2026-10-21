@@ -13,6 +13,7 @@ import time
 
 from ..faiss_async_persist import get_async_persister
 from ..utils.faiss_path_bridge import read_index_safe, write_index_safe
+from ...storage.schema import MIGRATION_STATUS_SCHEMA_STATEMENTS
 
 
 class IndexValidatorRebuildMixin:
@@ -738,13 +739,8 @@ class IndexValidatorRebuildMixin:
 
         try:
             async with aiosqlite.connect(self.db_path) as status_db:
-                await status_db.execute("""
-                    CREATE TABLE IF NOT EXISTS migration_status (
-                        key TEXT PRIMARY KEY,
-                        value TEXT,
-                        updated_at TEXT
-                    )
-                """)
+                for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                    await status_db.execute(statement)
                 await status_db.execute(
                     """
                     INSERT OR REPLACE INTO migration_status (key, value, updated_at)

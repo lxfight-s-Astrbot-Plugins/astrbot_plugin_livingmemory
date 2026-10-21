@@ -107,3 +107,72 @@ WRITE_OPS_SCHEMA_STATEMENTS: tuple[str, ...] = (
     ON memory_write_ops(memory_id, op_type)
     """,
 )
+
+# Version bookkeeping tables are shared by the engine, migrations and validators;
+# keep the DDL in one place so ownership of the schema stays unambiguous.
+DB_VERSION_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS db_version (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version INTEGER NOT NULL,
+        description TEXT,
+        migrated_at TEXT NOT NULL,
+        migration_duration_seconds REAL
+    )
+    """,
+)
+
+MIGRATION_STATUS_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS migration_status (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
+    )
+    """,
+)
+
+# Expression indexes must match the filter/order expressions used by recall and
+# the dashboard literally (including COALESCE/CAST wrappers) to be usable.
+# These only rely on the metadata column, so migrations can apply them to legacy
+# documents tables before the engine adds its compatibility columns.
+DOCUMENTS_INDEX_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_metadata
+    ON documents(json_extract(metadata, '$.session_id'))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_persona_metadata
+    ON documents(json_extract(metadata, '$.persona_id'))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_importance_metadata
+    ON documents(json_extract(metadata, '$.importance'))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
+    ON documents(json_extract(metadata, '$.last_access_time'))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_status
+    ON documents(COALESCE(json_extract(metadata, '$.status'), 'active'))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_memory_type
+    ON documents(UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL')))
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_doc_create_time
+    ON documents(
+        COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0) DESC,
+        id DESC
+    )
+    """,
+)
+
+# Requires the doc_id compatibility column, which the engine adds before
+# executing this statement; migrations run earlier and must not use it.
+DOCUMENTS_DOC_ID_INDEX_STATEMENT = """
+    CREATE INDEX IF NOT EXISTS idx_documents_doc_id
+    ON documents(doc_id)
+    """

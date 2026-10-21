@@ -12,7 +12,13 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from .schema import GRAPH_SCHEMA_STATEMENTS, WRITE_OPS_SCHEMA_STATEMENTS
+from .schema import (
+    DB_VERSION_SCHEMA_STATEMENTS,
+    DOCUMENTS_INDEX_STATEMENTS,
+    GRAPH_SCHEMA_STATEMENTS,
+    MIGRATION_STATUS_SCHEMA_STATEMENTS,
+    WRITE_OPS_SCHEMA_STATEMENTS,
+)
 
 
 class DBMigration:
@@ -124,15 +130,8 @@ class DBMigration:
         """初始化版本管理表"""
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS db_version (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        version INTEGER NOT NULL,
-                        description TEXT,
-                        migrated_at TEXT NOT NULL,
-                        migration_duration_seconds REAL
-                    )
-                """)
+                for statement in DB_VERSION_SCHEMA_STATEMENTS:
+                    await db.execute(statement)
                 await db.commit()
                 logger.info("数据库版本管理表初始化完成")
         except Exception as e:
@@ -343,13 +342,8 @@ class DBMigration:
 
             # 创建迁移状态标记
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS migration_status (
-                        key TEXT PRIMARY KEY,
-                        value TEXT,
-                        updated_at TEXT
-                    )
-                """)
+                for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                    await db.execute(statement)
                 await db.execute(
                     """
                     INSERT OR REPLACE INTO migration_status (key, value, updated_at)
@@ -621,24 +615,8 @@ class DBMigration:
                     await db.execute(statement)
 
                 if await self._table_exists(db, "documents"):
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_doc_persona_metadata
-                        ON documents(json_extract(metadata, '$.persona_id'))
-                        """
-                    )
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_doc_importance_metadata
-                        ON documents(json_extract(metadata, '$.importance'))
-                        """
-                    )
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
-                        ON documents(json_extract(metadata, '$.last_access_time'))
-                        """
-                    )
+                    for statement in DOCUMENTS_INDEX_STATEMENTS:
+                        await db.execute(statement)
                     await db.execute(
                         """
                         UPDATE documents

@@ -15,6 +15,12 @@ from astrbot.api import logger
 
 from ...storage.atom_store import AtomStore
 from ...storage.graph_store import GraphStore
+from ...storage.schema import (
+    DB_VERSION_SCHEMA_STATEMENTS,
+    DOCUMENTS_DOC_ID_INDEX_STATEMENT,
+    DOCUMENTS_INDEX_STATEMENTS,
+    MIGRATION_STATUS_SCHEMA_STATEMENTS,
+)
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
 from ..managers.graph_memory_manager import GraphMemoryManager
 from ..processors.graph_extractor import GraphExtractor
@@ -356,46 +362,10 @@ class MemoryEngine(
             WHERE updated_at IS NULL OR TRIM(CAST(updated_at AS TEXT)) = ''
         """)
 
-            # 创建索引以提升session_id查询性能
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_metadata
-            ON documents(json_extract(metadata, '$.session_id'))
-        """)
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_persona_metadata
-            ON documents(json_extract(metadata, '$.persona_id'))
-        """)
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_importance_metadata
-            ON documents(json_extract(metadata, '$.importance'))
-        """)
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_last_access_metadata
-            ON documents(json_extract(metadata, '$.last_access_time'))
-        """)
-            # 表达式索引：与召回/列表查询中的过滤、排序表达式逐字匹配，
-            # COALESCE/CAST 包装必须同时出现在索引与查询中才能被命中
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_status
-            ON documents(COALESCE(json_extract(metadata, '$.status'), 'active'))
-        """)
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_memory_type
-            ON documents(UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL')))
-        """)
-            # 复合索引同时服务：近期记忆查询（create_time 范围 + 倒序截断）
-            # 与 WebUI 列表 created_desc/asc 排序（反向扫描即升序）
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_doc_create_time
-            ON documents(
-                COALESCE(CAST(json_extract(metadata, '$.create_time') AS REAL), 0) DESC,
-                id DESC
-            )
-        """)
-            await self.db_connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_documents_doc_id
-            ON documents(doc_id)
-        """)
+            # 索引 DDL 与迁移/校验器共用 storage.schema 中的单一定义
+            for statement in DOCUMENTS_INDEX_STATEMENTS:
+                await self.db_connection.execute(statement)
+            await self.db_connection.execute(DOCUMENTS_DOC_ID_INDEX_STATEMENT)
 
             await self.db_connection.execute("""
             CREATE TABLE IF NOT EXISTS memory_sources (
@@ -406,26 +376,11 @@ class MemoryEngine(
             )
         """)
 
-    
-            # 创建版本管理表
-            await self.db_connection.execute("""
-            CREATE TABLE IF NOT EXISTS db_version (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version INTEGER NOT NULL,
-                description TEXT,
-                migrated_at TEXT NOT NULL,
-                migration_duration_seconds REAL
-            )
-        """)
-
-            # 创建迁移状态表
-            await self.db_connection.execute("""
-            CREATE TABLE IF NOT EXISTS migration_status (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at TEXT
-            )
-        """)
+            # 版本管理 / 迁移状态表：与 DBMigration、IndexValidator 共用同一份 DDL
+            for statement in DB_VERSION_SCHEMA_STATEMENTS:
+                await self.db_connection.execute(statement)
+            for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                await self.db_connection.execute(statement)
 
             await self.db_connection.commit()
 
