@@ -112,7 +112,15 @@ class MemoryConsolidationManager:
     ) -> list[list[dict[str, Any]]]:
         granularity = cfg.get("granularity", "session")
         if granularity == "semantic":
-            groups = await self._group_semantic(candidates, cfg)
+            # 语义聚类可能跨会话：合并前必须按 (session_id, persona_id) 拆分，
+            # 否则合并记忆要么无作用域（任何会话都召回不到），要么把 A 会话
+            # 的内容写进 B 会话的作用域。
+            semantic_groups = await self._group_semantic(candidates, cfg)
+            groups = [
+                scope_group
+                for semantic_group in semantic_groups
+                for scope_group in self._split_by_scope(semantic_group)
+            ]
         else:
             groups = self._group_by_session(candidates)
 
@@ -120,6 +128,21 @@ class MemoryConsolidationManager:
         groups = [g for g in groups if len(g) >= min_per]
         groups.sort(key=len, reverse=True)
         return groups
+
+    @staticmethod
+    def _split_by_scope(
+        group: list[dict[str, Any]],
+    ) -> list[list[dict[str, Any]]]:
+        """按 (session_id, persona_id) 拆分候选，丢弃无会话作用域的旧记忆。"""
+        buckets: dict[tuple[str, Any], list[dict[str, Any]]] = {}
+        for mem in group:
+            metadata = mem["metadata"]
+            session_id = metadata.get("session_id")
+            if not session_id:
+                continue
+            key = (str(session_id), metadata.get("persona_id"))
+            buckets.setdefault(key, []).append(mem)
+        return list(buckets.values())
 
     def _group_by_session(
         self, candidates: list[dict[str, Any]]
@@ -188,11 +211,10 @@ class MemoryConsolidationManager:
         if key_facts:
             rich_content = f"{summary} | {'；'.join(key_facts)}"
 
-        session_id = None
-        persona_id = None
-        if cfg.get("granularity", "session") == "session":
-            session_id = group[0]["metadata"].get("session_id")
-            persona_id = group[0]["metadata"].get("persona_id")
+        session_id = group[0]["metadata"].get("session_id")
+        persona_id = group[0]["metadata"].get("persona_id")
+        if not session_id:
+            raise RuntimeError("整合组缺少会话作用域，无法写出可召回的合并记忆")
 
         metadata = {
             "topics": merged["topics"],
@@ -213,10 +235,20 @@ class MemoryConsolidationManager:
         )
 
         old_ids = [mem["id"] for mem in group]
-        if cfg.get("keep_original", "archive") == "archive":
-            removed = await self.memory_engine.archive_memories(old_ids)
-        else:
-            removed = await self.memory_engine.batch_delete_memories(old_ids)
+        try:
+            if cfg.get("keep_original", "archive") == "archive":
+                removed = await self.memory_engine.archive_memories(old_ids)
+            else:
+                removed = await self.memory_engine.batch_delete_memories(old_ids)
+        except Exception:
+            # 新记忆已写入而旧记忆未清理：回滚新记忆，避免下一轮重试重复生成。
+            try:
+                await self.memory_engine.delete_memory(new_id)
+            except Exception:
+                logger.error(
+                    f"[记忆整合] 归档失败后回滚新记忆 {new_id} 也失败", exc_info=True
+                )
+            raise
 
         logger.info(
             f"[记忆整合] 整合 {len(group)} 条记忆 -> 新记忆 {new_id}，"

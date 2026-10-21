@@ -9,6 +9,9 @@ from datetime import datetime
 import json
 from astrbot.api import logger
 
+# 单条记忆注入内容上限，避免一条导入的超长记忆挤占整个注入预算
+_MAX_INJECTION_ENTRY_CHARS = 800
+
 
 def _memory_injection_content(content: Any, metadata: Any) -> str:
     """Use the personality channel for injection while preserving legacy data."""
@@ -66,10 +69,17 @@ def _memory_metadata_rows(metadata: dict) -> list[str]:
 
     return rows
 
-def format_memories_for_injection(memories: list) -> str:
+def format_memories_for_injection(memories: list, *, max_chars: int = 6000) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
     添加明确的说明文本，告知 LLM 这些是历史对话记忆。
+
+    Args:
+        memories: 记忆字典列表。
+        max_chars: 注入文本的字符预算上限（超出后按顺序截断）。
+
+    Returns:
+        可直接注入的格式化文本；无记忆时返回空字符串。
     """
     # 延迟导入避免循环依赖
     from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
@@ -152,6 +162,11 @@ def format_memories_for_injection(memories: list) -> str:
             # Retrieval uses canonical content; prompt injection uses the
             # personality channel. Legacy rows fall back to content.
             display_content = _memory_injection_content(content, metadata)
+            # 单条记忆也截断：导入的长记忆可能上千字符，避免单条挤占全部预算。
+            if len(display_content) > _MAX_INJECTION_ENTRY_CHARS:
+                display_content = (
+                    display_content[:_MAX_INJECTION_ENTRY_CHARS].rstrip() + "…"
+                )
             entry_parts.append(display_content)
 
             entry = "\n".join(entry_parts)
@@ -175,6 +190,25 @@ def format_memories_for_injection(memories: list) -> str:
 
     body = "\n\n".join(formatted_entries)
     result = f"{header}{body}{footer}"
+
+    # 注入总量上限：记忆条数多或单条内容长时截断 body，避免撑爆用户消息。
+    if len(result) > max_chars:
+        budget = max(0, max_chars - len(header) - len(footer))
+        clipped: list[str] = []
+        used = 0
+        for entry in formatted_entries:
+            separator = 2 if clipped else 0
+            remaining = budget - used - separator
+            if remaining <= 0:
+                break
+            if len(entry) > remaining:
+                clipped.append(entry[: max(0, remaining - 1)].rstrip() + "…")
+                used = budget
+                break
+            clipped.append(entry)
+            used += len(entry) + separator
+        body = "\n\n".join(clipped)
+        result = f"{header}{body}{footer}"
 
     logger.info(
         f"[format_memories_for_injection]  记忆格式化完成: 记忆条数={len(formatted_entries)}, "

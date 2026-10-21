@@ -8,9 +8,15 @@
 
 import json
 import time
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
+from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.base.exceptions import InitializationError
+from astrbot_plugin_livingmemory.core.plugin_initializer_finalize import (
+    InitializerFinalizeMixin,
+)
 from astrbot_plugin_livingmemory.core.utils import format_memories_for_injection
 from astrbot_plugin_livingmemory.storage.db_migration import DBMigration
 
@@ -317,6 +323,78 @@ async def test_migrate_idempotent(tmp_path):
     assert meta["summary_schema_version"] == "v1"
     raw = json.dumps(meta)
     assert raw.count("summary_schema_version") == 1
+
+
+class _FakeInitializer(InitializerFinalizeMixin):
+    """只提供迁移检查所需属性的 InitializerFinalizeMixin 宿主。"""
+
+    def __init__(self, db_migration, *, create_backup: bool = True):
+        self.db_migration = db_migration
+        self.config_manager = ConfigManager(
+            {"migration_settings": {"create_backup": create_backup}}
+        )
+
+
+@pytest.mark.asyncio
+async def test_migration_aborts_when_required_backup_fails(tmp_path, monkeypatch):
+    """备份失败时必须中止迁移，且不能改动用户数据。"""
+    db_path = str(tmp_path / "backup_required.db")
+    await _create_legacy_db(
+        db_path,
+        [{"text": PRIVATE_MEMORY_LONG, "metadata": json.dumps(PRIVATE_METADATA_V1)}],
+    )
+    migration = DBMigration(db_path)
+    monkeypatch.setattr(migration, "create_backup", AsyncMock(return_value=None))
+    host = _FakeInitializer(migration)
+
+    with pytest.raises(InitializationError, match="备份失败"):
+        await InitializerFinalizeMixin._check_and_migrate_database(host)
+
+    records = await _get_all_metadata(db_path)
+    assert len(records) == 1
+    assert "summary_schema_version" not in records[0]["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_migration_restores_backup_when_a_step_fails(tmp_path, monkeypatch):
+    """迁移步骤失败后应使用迁移前备份恢复原库并阻止启动。"""
+    db_path = str(tmp_path / "restore.db")
+    await _create_legacy_db(
+        db_path,
+        [{"text": PRIVATE_MEMORY_LONG, "metadata": json.dumps(PRIVATE_METADATA_V1)}],
+    )
+    migration = DBMigration(db_path)
+
+    async def explode(_progress_callback=None):
+        raise RuntimeError("step exploded")
+
+    monkeypatch.setattr(migration, "_migrate_v1_to_v2", explode)
+    host = _FakeInitializer(migration)
+
+    with pytest.raises(InitializationError, match="恢复"):
+        await InitializerFinalizeMixin._check_and_migrate_database(host)
+
+    assert await migration.get_db_version() == 1
+    records = await _get_all_metadata(db_path)
+    assert len(records) == 1
+    assert "summary_schema_version" not in records[0]["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_migration_continues_without_backup_when_disabled(tmp_path, monkeypatch):
+    """显式关闭迁移备份要求时，备份失败只告警并继续迁移。"""
+    db_path = str(tmp_path / "no_backup.db")
+    await _create_legacy_db(
+        db_path,
+        [{"text": PRIVATE_MEMORY_LONG, "metadata": json.dumps(PRIVATE_METADATA_V1)}],
+    )
+    migration = DBMigration(db_path)
+    monkeypatch.setattr(migration, "create_backup", AsyncMock(return_value=None))
+    host = _FakeInitializer(migration, create_backup=False)
+
+    await InitializerFinalizeMixin._check_and_migrate_database(host)
+
+    assert await migration.get_db_version() == DBMigration.CURRENT_VERSION
 
 
 @pytest.mark.asyncio

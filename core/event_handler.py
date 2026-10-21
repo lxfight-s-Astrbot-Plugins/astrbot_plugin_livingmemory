@@ -26,6 +26,8 @@ from .utils.injection_adapter import InjectionAdapter
 class EventHandler:
     """事件处理器"""
 
+    _SHUTDOWN_TIMEOUT_SECONDS = 10.0
+
     def __init__(
         self,
         context: Any,
@@ -116,13 +118,23 @@ class EventHandler:
             logger.error(f"[{session_id}] 清空插件会话上下文失败: {e}", exc_info=True)
 
     async def shutdown(self):
-        """关闭事件处理器，等待所有存储任务完成"""
+        """关闭事件处理器，限时等待存储任务完成，超时则取消。"""
         self._shutting_down = True
         self._memory_reflection.set_shutting_down(True)
-        if self._storage_tasks:
-            logger.info(f"等待 {len(self._storage_tasks)} 个存储任务完成...")
-            await asyncio.gather(*self._storage_tasks, return_exceptions=True)
-            self._storage_tasks.clear()
+        pending = [task for task in self._storage_tasks if not task.done()]
+        if pending:
+            logger.info(f"等待 {len(pending)} 个存储任务完成（最多 10 秒）...")
+            _, still_running = await asyncio.wait(
+                pending, timeout=self._SHUTDOWN_TIMEOUT_SECONDS
+            )
+            for task in still_running:
+                task.cancel()
+            if still_running:
+                await asyncio.gather(*still_running, return_exceptions=True)
+                logger.warning(
+                    f"已取消 {len(still_running)} 个未在超时内完成的存储任务"
+                )
+        self._storage_tasks.clear()
         self._storage_sessions_inflight.clear()
         self._storage_session_tasks.clear()
         logger.info("EventHandler 已关闭")

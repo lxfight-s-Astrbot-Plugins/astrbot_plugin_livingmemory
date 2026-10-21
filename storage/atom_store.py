@@ -10,6 +10,8 @@ from typing import Any
 
 import aiosqlite
 
+from astrbot.api import logger
+
 from ..core.models.memory_atom import (
     AtomStatus,
     AtomType,
@@ -110,6 +112,21 @@ class AtomStore:
                 USING fts5(content, atom_id UNINDEXED, tokenize='unicode61')
                 """
             )
+            # FTS 表是后加能力：旧库里的存量原子没有对应 FTS 行，部分原子会
+            # 永远检索不到（且非空结果不会触发 LIKE 兜底）。启动时按源表回填。
+            cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms_fts")
+            fts_count = int((await cursor.fetchone())[0])
+            cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms")
+            atom_count = int((await cursor.fetchone())[0])
+            if fts_count != atom_count:
+                await db.execute("DELETE FROM memory_atoms_fts")
+                await db.execute(
+                    "INSERT INTO memory_atoms_fts(atom_id, content) "
+                    "SELECT id, content FROM memory_atoms"
+                )
+                logger.info(
+                    f"[AtomStore] 原子 FTS 索引不一致（{fts_count}/{atom_count}），已从源表重建"
+                )
             await db.commit()
 
     async def insert(self, atom: MemoryAtom) -> int:

@@ -186,6 +186,22 @@ class TestFormatMemoriesForInjection:
         assert "记忆2" in result
         assert "记忆3" in result
 
+    def test_format_enforces_total_size_budget(self):
+        """超长/大量记忆注入时必须截断到字符预算内。"""
+        memories = [
+            {
+                "content": "很长的记忆内容" * 300,
+                "score": 0.9,
+                "metadata": {"importance": 0.8},
+            }
+            for _ in range(6)
+        ]
+
+        result = format_memories_for_injection(memories)
+
+        assert len(result) <= 6000
+        assert "--- END" in result or "--- END" in result.splitlines()[-1]
+
     def test_format_handles_missing_fields(self):
         """测试处理缺失字段"""
         memories = [
