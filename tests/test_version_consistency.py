@@ -21,12 +21,7 @@ def test_all_hardcoded_versions_match_metadata() -> None:
     expected = _metadata_version()
 
     main_py = (ROOT / "main.py").read_text("utf-8")
-    register_match = re.search(
-        r'@register\(\s*"LivingMemory",\s*"lxfight",\s*"[^"]*",\s*"([^"]+)"',
-        main_py,
-    )
-    assert register_match, "main.py 中未找到 @register 版本参数"
-    assert register_match.group(1) == expected, "main.py 的 @register 版本未同步"
+    assert "@register(" not in main_py, "main.py 不应再使用已废弃的 @register 装饰器"
 
     package = json.loads((ROOT / "package.json").read_text("utf-8"))
     assert package["version"] == expected, "package.json 版本未同步"
@@ -45,16 +40,6 @@ def test_bump_version_script_updates_every_hardcoded_file(tmp_path: Path) -> Non
     (tmp_path / "core" / "managers").mkdir(parents=True)
     (tmp_path / "metadata.yaml").write_text(
         "name: astrbot_plugin_livingmemory\nversion: 1.2.3\n", encoding="utf-8"
-    )
-    (tmp_path / "main.py").write_text(
-        '@register(\n'
-        '    "LivingMemory",\n'
-        '    "lxfight",\n'
-        '    "desc",\n'
-        '    "1.2.3",\n'
-        '    "https://example.com",\n'
-        ")\n",
-        encoding="utf-8",
     )
     (tmp_path / "package.json").write_text(
         json.dumps({"name": "x", "version": "1.2.3"}), encoding="utf-8"
@@ -83,7 +68,6 @@ def test_bump_version_script_updates_every_hardcoded_file(tmp_path: Path) -> Non
     assert result.returncode == 0, result.stderr
 
     assert "1.3.0" in (tmp_path / "metadata.yaml").read_text("utf-8")
-    assert '"1.3.0"' in (tmp_path / "main.py").read_text("utf-8")
     assert json.loads((tmp_path / "package.json").read_text())["version"] == "1.3.0"
     lock = json.loads((tmp_path / "package-lock.json").read_text())
     assert lock["version"] == lock["packages"][""]["version"] == "1.3.0"
