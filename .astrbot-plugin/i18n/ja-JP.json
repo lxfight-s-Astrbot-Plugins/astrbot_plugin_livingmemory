@@ -139,6 +139,26 @@
         "description": "並べ替え候補の件数",
         "hint": "Rerank モデルに渡す融合候補の記憶件数。並べ替え後は top_k 件のみ保持します。値が大きいほど順位は正確になりますが、想起ごとの Rerank API 呼び出しコストが増えます。10〜30 を推奨。（許容範囲：2–100）"
       },
+      "fusion_mode": {
+        "description": "融合モード",
+        "hint": "BM25 とベクトル検索の結果の融合方法：score は正規化スコアの重み付き融合（既定）、rrf は逆順位融合。",
+        "labels": [
+          "正規化スコア",
+          "逆順位融合（RRF）"
+        ]
+      },
+      "fusion_bm25_weight": {
+        "description": "融合 BM25 重み",
+        "hint": "score 融合時の BM25 側の重み。ベクトル側は 1 からこの値を引いた値。範囲 0–1。"
+      },
+      "fusion_agreement_bonus": {
+        "description": "経路一致ボーナス",
+        "hint": "同じ記憶が BM25 とベクトルの両方でヒットした場合に加算されるスコア。範囲 0–1。"
+      },
+      "recall_candidate_multiplier": {
+        "description": "候補拡張倍率",
+        "hint": "融合前に各経路が取得する候補数は top_k × この倍率。大きいほど再現率は上がるが遅くなる。範囲 1–10。"
+      },
       "injection_method": {
         "description": "メモリの注入位置",
         "hint": "メモリを LLM リクエストのどこに注入するか。extra_user_content（唯一のサポート対象）：mark_as_temp の一時パートとして現在のユーザーメッセージ末尾に追加され、AstrBot が履歴を保存する際に自動的に除外されるため、プレフィックスキャッシュに影響せず、会話履歴にも一切書き込まれません。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️すべて非推奨（ユーザーメッセージを書き換えるか、会話履歴にメッセージを書き込みます）。選択すると自動的に extra_user_content にフォールバックします。",
