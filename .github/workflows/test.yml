@@ -39,6 +39,7 @@ jobs:
           cache-dependency-path: |
             AstrBot/requirements.txt
             AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements.txt
+            AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements-dev.txt
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -50,7 +51,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r AstrBot/requirements.txt
           python -m pip install -r AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements.txt
-          python -m pip install pytest pytest-asyncio
+          python -m pip install -r AstrBot/data/plugins/astrbot_plugin_livingmemory/requirements-dev.txt
 
       - name: Run test suite
         working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
