@@ -369,18 +369,6 @@ class GraphMemoryConfig(BaseModel):
         default=30.0, ge=1.0, le=365.0, description="遗忘原子物理清理延迟天数"
     )
 
-    @model_validator(mode="after")
-    def validate_route_weights(self):
-        """Normalize route weights to sum to 1.0 for numerically stable fusion."""
-        total = self.document_route_weight + self.graph_route_weight
-        if total <= 0:
-            self.document_route_weight = 0.65
-            self.graph_route_weight = 0.35
-        elif total != 1.0:
-            self.document_route_weight = self.document_route_weight / total
-            self.graph_route_weight = self.graph_route_weight / total
-        return self
-
 
 class MemoryConsolidationConfig(BaseModel):
     """记忆库定期整合配置"""
@@ -708,43 +696,3 @@ def normalize_config(
     return config, corrections
 
 
-def validate_runtime_config_changes(
-    current_config: LivingMemoryConfig, changes: dict[str, Any]
-) -> bool:
-    """
-    验证运行时配置更改是否有效。
-
-    Args:
-        current_config: 当前配置
-        changes: 要更改的配置项
-
-    Returns:
-        bool: 是否有效
-    """
-    try:
-        # 创建更新后的配置副本进行验证
-        updated_dict = current_config.model_dump()
-
-        def update_nested_dict(target: dict[str, Any], updates: dict[str, Any]):
-            for key, value in updates.items():
-                if "." in key:
-                    # 处理嵌套键，如 "recall_engine.top_k"
-                    parts = key.split(".")
-                    current = target
-                    for part in parts[:-1]:
-                        if part not in current:
-                            current[part] = {}
-                        current = current[part]
-                    current[parts[-1]] = value
-                else:
-                    target[key] = value
-
-        update_nested_dict(updated_dict, changes)
-
-        # 验证更新后的配置
-        LivingMemoryConfig(**updated_dict)
-        return True
-
-    except Exception as e:
-        logger.error(f"运行时配置更改验证失败: {e}")
-        return False
