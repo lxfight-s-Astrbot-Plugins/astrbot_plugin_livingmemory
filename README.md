@@ -43,7 +43,7 @@ LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历�
 ## 开始使用
 
 1. 从 AstrBot 插件市场安装，或将指定版本的插件代码放入 `data/plugins/astrbot_plugin_livingmemory`。
-2. 重载 AstrBot，在 LivingMemory 配置中选择 Embedding 和 LLM Provider；留空使用 AstrBot 默认配置。
+2. 先在 AstrBot 后台「LLM 配置」中创建并启用 Embedding Provider，再重载 AstrBot 并在 LivingMemory 配置中填写其 ID 与 LLM Provider；Embedding 留空只会回退到第一个可用 Provider，容易选错或导致向量/图索引初始化失败。
 3. 打开 `插件 → LivingMemory → Pages → dashboard`。Pages 需要 **AstrBot 4.24.2 或更高版本**。
 
 测试版请从上方指定标签下载，具体安装及回退步骤见[版本与升级](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/releases)。已有数据时，升级前保留插件数据与配置备份。

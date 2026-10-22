@@ -15,7 +15,7 @@ The current stable version is **2.7.0** (previous stable: 2.6.1). See [Releases 
 
 | Key | Purpose | Recommendation |
 | --- | --- | --- |
-| `provider_settings.embedding_provider_id` | Generates vectors for semantic retrieval | Leave empty to use AstrBot's default embedding provider |
+| `provider_settings.embedding_provider_id` | Generates vectors for semantic retrieval | Required: fill in an enabled Embedding Provider ID from AstrBot (for example `openai_embedding`) |
 | `provider_settings.llm_provider_id` | Summarizes conversations and evaluates memory | Leave empty to use the default LLM; a stable reasoning model is recommended |
 | `bot_language` | Language for command and status replies | `zh`, `en`, `ru`, or `ja` |
 

@@ -42,7 +42,7 @@
       "hint": "記憶システムが使用する AI モデルを設定します",
       "embedding_provider_id": {
         "description": "Embedding モデル ID",
-        "hint": "記憶ベクトルを生成する Embedding モデル ID。空欄の場合は AstrBot のデフォルトを使用します。既存の Embedding Provider ID は AstrBot 管理画面の「LLM 設定」で確認できます（例：openai_embedding）。"
+        "hint": "必須：AstrBot で有効な Embedding Provider の ID（例: openai_embedding）。空欄にすると利用可能な最初の Embedding Provider にフォールバックするため、意図しないモデルが選ばれたり、ベクトル/グラフインデックスの初期化に失敗することがあります。先に AstrBot の LLM 設定で Embedding Provider を作成・有効化し、その ID をここに入力してください。"
       },
       "llm_provider_id": {
         "description": "LLM モデル ID",

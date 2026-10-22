@@ -42,7 +42,7 @@
       "hint": "Configure the AI models used by the memory system",
       "embedding_provider_id": {
         "description": "Embedding Model ID",
-        "hint": "The Embedding model ID used to generate memory vectors. Leave blank to use AstrBot default. You can find existing Embedding Provider IDs in the AstrBot admin panel under 'LLM Configuration' (e.g., openai_embedding)."
+        "hint": "Required: ID of an enabled Embedding Provider in AstrBot (for example openai_embedding). Leaving it empty only falls back to the first available Embedding Provider and may pick the wrong model or break vector/graph index initialization. Create and enable an Embedding Provider in the AstrBot LLM settings first, then fill in its ID here."
       },
       "llm_provider_id": {
         "description": "LLM Model ID",

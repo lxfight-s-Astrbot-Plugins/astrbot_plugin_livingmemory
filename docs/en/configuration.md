@@ -20,7 +20,7 @@ LivingMemory defaults work for most users. The settings you usually need to touc
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `provider_settings.embedding_provider_id` | empty | Generates memory vectors. Empty means AstrBot's default embedding provider |
+| `provider_settings.embedding_provider_id` | empty (not recommended) | Generates memory vectors; fill in an enabled Embedding Provider ID. An empty value only falls back to the first available provider, which may pick the wrong model or break vector/graph index initialization |
 | `provider_settings.llm_provider_id` | empty | Summarizes conversations and evaluates memory importance. Empty means AstrBot's default LLM |
 | `provider_settings.llm_stream_mode` | `auto` | How memory processing calls the LLM: `auto` tries non-streaming first and switches to streaming when the provider reports non-stream requests are unsupported; `always` always streams; `never` always uses non-streaming (previous behavior) |
 

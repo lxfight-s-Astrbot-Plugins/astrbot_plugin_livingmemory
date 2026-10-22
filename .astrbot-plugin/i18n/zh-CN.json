@@ -42,7 +42,7 @@
       "hint": "配置记忆系统使用的 AI 模型",
       "embedding_provider_id": {
         "description": "Embedding 模型 ID",
-        "hint": "用于生成记忆向量的 Embedding 模型 ID。留空使用 AstrBot 默认。可在 AstrBot 后台「LLM 配置」中查看已有的 Embedding Provider ID（如 openai_embedding）。"
+        "hint": "必填：用于生成记忆向量的 Embedding Provider ID（如 openai_embedding）。留空仅在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败；请先在 AstrBot 后台「LLM 配置」中启用 Embedding Provider，再在此填写其 ID。"
       },
       "llm_provider_id": {
         "description": "LLM 模型 ID",
