@@ -361,7 +361,12 @@
             </div>
             <div class="settings-toolbar">
               <p class="settings-note" data-i18n="settings.reloadHint">Advanced settings live here instead of the AstrBot plugin config page. Reload the plugin after saving so every component picks them up.</p>
-              <button class="btn btn-primary" id="settings-save-btn" type="button" data-i18n="settings.save">Save</button>
+              <div class="settings-actions">
+                <input class="input settings-search" id="settings-search" type="search" data-i18n-placeholder="settings.searchPlaceholder" data-i18n-aria="settings.searchPlaceholder" />
+                <button class="btn btn-secondary btn-sm" id="settings-expand-all" type="button" data-i18n="settings.expandAll">Expand all</button>
+                <button class="btn btn-secondary btn-sm" id="settings-collapse-all" type="button" data-i18n="settings.collapseAll">Collapse all</button>
+                <button class="btn btn-primary" id="settings-save-btn" type="button" data-i18n="settings.save">Save</button>
+              </div>
             </div>
             <div id="settings-container"></div>
           </div>

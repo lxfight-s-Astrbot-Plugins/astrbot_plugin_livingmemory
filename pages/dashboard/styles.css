@@ -2008,3 +2008,50 @@ body {
     align-items: stretch;
   }
 }
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.settings-search {
+  min-width: 200px;
+}
+.settings-group summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.settings-group summary::-webkit-details-marker {
+  display: none;
+}
+.settings-group summary::before {
+  content: "▸";
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+}
+.settings-group[open] summary::before {
+  transform: rotate(90deg);
+}
+.settings-group summary .settings-group-title {
+  margin-bottom: 0;
+}
+.settings-count {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-left: auto;
+}
+.settings-badge {
+  border: 1px solid var(--border-normal);
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  padding: 1px 8px;
+}
+.settings-group[open] .settings-fields {
+  margin-top: var(--space-3);
+}

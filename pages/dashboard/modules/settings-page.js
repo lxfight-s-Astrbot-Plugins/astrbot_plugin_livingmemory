@@ -1,16 +1,28 @@
 /**
  * Settings Page - advanced plugin configuration moved out of the host page.
- * Fields and localized labels come from the plugin schema and config-page
- * locale files, so this page stays in sync without hand-maintained forms.
+ * Sections render as collapsed groups; a search box finds fields by label,
+ * hint or config path. Field metadata and localized labels come from the
+ * backend schema endpoint, so this page stays in sync without hand-written
+ * forms for every option.
  */
 
 import { esc } from "./utils.js";
+
+const RECOMMENDED_SECTIONS = new Set([
+  "graph_memory",
+  "memory_dedup",
+  "memory_consolidation",
+  "recall_engine",
+  "reflection_engine",
+]);
 
 export class SettingsPage {
   constructor(state, apiClient) {
     this.state = state;
     this.api = apiClient;
     this.sections = [];
+    this._open = new Set();
+    this._query = "";
     this._busy = false;
     this._bound = false;
   }
@@ -54,6 +66,12 @@ export class SettingsPage {
     label.textContent = message || "";
   }
 
+  matches(field, query) {
+    if (!query) return true;
+    const haystack = [field.label, field.hint, field.path].join(" ").toLowerCase();
+    return haystack.includes(query);
+  }
+
   render() {
     const container = document.getElementById("settings-container");
     if (!container) return;
@@ -62,17 +80,47 @@ export class SettingsPage {
         '<p class="text-tertiary">' + esc(window.t("settings.empty")) + "</p>";
       return;
     }
-    container.innerHTML = this.sections
+
+    const query = this._query.trim().toLowerCase();
+    const html = this.sections
       .map((section) => {
-        const fields = (section.fields || []).map((field) => this.renderField(field)).join("");
+        const fields = (section.fields || []).filter((field) =>
+          this.matches(field, query)
+        );
+        if (!fields.length) return "";
+        const open = this._open.has(section.key) || Boolean(query);
+        const recommended = RECOMMENDED_SECTIONS.has(section.key)
+          ? '<span class="settings-badge">' +
+            esc(window.t("settings.recommended")) +
+            "</span>"
+          : "";
+        const body = fields.map((field) => this.renderField(field)).join("");
         return (
-          '<section class="settings-group">' +
-          '<div class="settings-group-title">' + esc(section.title) + "</div>" +
-          '<div class="settings-fields">' + fields + "</div>" +
-          "</section>"
+          '<details class="settings-group" data-section="' +
+          esc(section.key) +
+          '"' +
+          (open ? " open" : "") +
+          ">" +
+          "<summary>" +
+          '<span class="settings-group-title">' +
+          esc(section.title) +
+          "</span>" +
+          recommended +
+          '<span class="settings-count">' +
+          esc(window.t("settings.fieldCount", String(fields.length))) +
+          "</span>" +
+          "</summary>" +
+          '<div class="settings-fields">' +
+          body +
+          "</div>" +
+          "</details>"
         );
       })
       .join("");
+
+    container.innerHTML =
+      html ||
+      '<p class="text-tertiary">' + esc(window.t("settings.noMatches")) + "</p>";
   }
 
   renderField(field) {
@@ -91,7 +139,15 @@ export class SettingsPage {
         .map((option, index) => {
           const label = labels[index] || option;
           const selected = String(field.value) === String(option) ? " selected" : "";
-          return '<option value="' + esc(option) + '"' + selected + ">" + esc(label) + "</option>";
+          return (
+            '<option value="' +
+            esc(option) +
+            '"' +
+            selected +
+            ">" +
+            esc(label) +
+            "</option>"
+          );
         })
         .join("");
       control = '<select class="input" ' + common + ">" + options + "</select>";
@@ -136,6 +192,48 @@ export class SettingsPage {
     if (save && !save.dataset.bound) {
       save.dataset.bound = "1";
       save.addEventListener("click", () => this.save());
+    }
+    const expand = document.getElementById("settings-expand-all");
+    if (expand && !expand.dataset.bound) {
+      expand.dataset.bound = "1";
+      expand.addEventListener("click", () => {
+        this.sections.forEach((section) => this._open.add(section.key));
+        this.render();
+      });
+    }
+    const collapse = document.getElementById("settings-collapse-all");
+    if (collapse && !collapse.dataset.bound) {
+      collapse.dataset.bound = "1";
+      collapse.addEventListener("click", () => {
+        this._open.clear();
+        this._query = "";
+        const search = document.getElementById("settings-search");
+        if (search) search.value = "";
+        this.render();
+      });
+    }
+    const search = document.getElementById("settings-search");
+    if (search && !search.dataset.bound) {
+      search.dataset.bound = "1";
+      search.addEventListener("input", () => {
+        this._query = search.value;
+        this.render();
+      });
+    }
+    const container = document.getElementById("settings-container");
+    if (container && !container.dataset.bound) {
+      container.dataset.bound = "1";
+      container.addEventListener(
+        "toggle",
+        (event) => {
+          const details = event.target;
+          const key = details?.dataset?.section;
+          if (!key) return;
+          if (details.open) this._open.add(key);
+          else this._open.delete(key);
+        },
+        true
+      );
     }
     this._bound = true;
   }
