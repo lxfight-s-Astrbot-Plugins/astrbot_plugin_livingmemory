@@ -13,6 +13,9 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 
 ## 必需配置
 
+> 高级配置（召回、反思、图谱、原子、整合、备份等）已迁移到 Dashboard 的「设置」页；AstrBot 插件配置页只保留 Provider 与语言。
+
+
 | 配置项 | 作用 | 建议 |
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | 生成记忆向量，用于语义检索 | 必填：填写 AstrBot 中已启用的 Embedding Provider ID（如 `openai_embedding`） |

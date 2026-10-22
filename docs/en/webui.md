@@ -10,6 +10,12 @@ Open AstrBot WebUI:
 
 AstrBot `4.24.2` or later is recommended. Older versions can still run the plugin, but the dashboard may be unavailable.
 
+## Settings
+
+- Advanced options are grouped by recall, reflection, graph and atoms, consolidation, access control, backups and index maintenance; field labels and hints come from the plugin schema and follow the dashboard language.
+- Saving writes to the plugin configuration. Options used during initialization take full effect after reloading the plugin, while some (such as write-time duplicate merging) apply immediately.
+- The AstrBot plugin config page keeps the model providers, reply language and the required Embedding Provider field.
+
 ## Dashboard areas
 
 | Area | Purpose |

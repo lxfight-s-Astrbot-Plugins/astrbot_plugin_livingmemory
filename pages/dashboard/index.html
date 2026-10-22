@@ -38,6 +38,10 @@
             <i data-lucide="braces" aria-hidden="true"></i>
             <span data-i18n="nav.prompts">Prompts</span>
           </button>
+          <button class="nav-item" data-page="settings" data-i18n-aria="nav.settings">
+            <i data-lucide="palette" aria-hidden="true"></i>
+            <span data-i18n="nav.settings">Settings</span>
+          </button>
         </nav>
         <div class="sidebar-divider"></div>
         <div class="sidebar-footer">
@@ -342,6 +346,24 @@
                 <button class="btn btn-primary" id="prompt-save-btn"><i data-lucide="save" aria-hidden="true"></i><span data-i18n="common.save">Save</span></button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- Page: Settings (advanced config moved out of the host page) -->
+        <section class="page" id="page-settings">
+          <header class="page-header">
+            <div class="page-heading"><span class="page-index">06</span><span class="page-title" data-i18n="nav.settings">Settings</span></div>
+          </header>
+          <div class="page-body">
+            <div id="settings-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
+              <span id="settings-feedback-message"></span>
+              <button id="settings-retry" class="btn btn-sm btn-secondary" type="button" data-i18n="common.retry" hidden>Retry</button>
+            </div>
+            <div class="settings-toolbar">
+              <p class="settings-note" data-i18n="settings.reloadHint">Advanced settings live here instead of the AstrBot plugin config page. Reload the plugin after saving so every component picks them up.</p>
+              <button class="btn btn-primary" id="settings-save-btn" type="button" data-i18n="settings.save">Save</button>
+            </div>
+            <div id="settings-container"></div>
           </div>
         </section>
       </main>

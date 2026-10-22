@@ -1953,3 +1953,58 @@ body {
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-color);
 }
+
+/* Settings page: advanced configuration moved from the host config page. */
+.settings-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.settings-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.settings-group {
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.settings-group-title {
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.settings-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+.settings-field .input {
+  width: 100%;
+}
+@media (max-width: 720px) {
+  .settings-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

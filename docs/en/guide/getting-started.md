@@ -13,6 +13,9 @@ The current stable version is **2.7.0** (previous stable: 2.6.1). See [Releases 
 
 ## Required configuration
 
+> Advanced options (recall, reflection, graph, atoms, consolidation, backups and more) now live on the dashboard Settings page; the AstrBot plugin config page keeps only providers and language.
+
+
 | Key | Purpose | Recommendation |
 | --- | --- | --- |
 | `provider_settings.embedding_provider_id` | Generates vectors for semantic retrieval | Required: fill in an enabled Embedding Provider ID from AstrBot (for example `openai_embedding`) |

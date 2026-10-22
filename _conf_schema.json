@@ -12,6 +12,7 @@
         "default": "zh"
     },
     "access_control": {
+        "invisible": true,
         "description": "记忆访问控制",
         "hint": "限制哪些用户或会话可以使用长期记忆，并统一跨平台身份名称。",
         "type": "object",
@@ -68,6 +69,7 @@
         }
     },
     "session_manager": {
+        "invisible": true,
         "description": "会话管理",
         "hint": "管理用户会话状态和对话历史的缓存行为",
         "type": "object",
@@ -136,6 +138,7 @@
         }
     },
     "recall_engine": {
+        "invisible": true,
         "description": "记忆召回",
         "hint": "控制记忆检索和注入到对话的行为",
         "type": "object",
@@ -367,6 +370,7 @@
         }
     },
     "importance_decay": {
+        "invisible": true,
         "description": "重要性衰减",
         "hint": "随时间逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
         "type": "object",
@@ -429,6 +433,7 @@
         }
     },
     "fusion_strategy": {
+        "invisible": true,
         "description": "检索融合策略",
         "hint": "BM25 和向量检索结果的融合参数（内部使用 RRF 算法）",
         "type": "object",
@@ -447,6 +452,7 @@
         }
     },
     "filtering_settings": {
+        "invisible": true,
         "description": "记忆隔离设置",
         "type": "object",
         "items": {
@@ -483,6 +489,7 @@
         }
     },
     "reflection_engine": {
+        "invisible": true,
         "description": "记忆生成设置",
         "hint": "控制何时触发对话总结并生成记忆",
         "type": "object",
@@ -535,6 +542,7 @@
         }
     },
     "agent_tools": {
+        "invisible": true,
         "description": "Agent 主动记忆工具",
         "hint": "控制是否向 AstrBot Agent 注册长期记忆回忆与写入工具。",
         "type": "object",
@@ -621,6 +629,7 @@
         }
     },
     "graph_memory": {
+        "invisible": true,
         "description": "图记忆双路检索",
         "hint": "启用后会同时维护文档路和图路，两边都支持关键词与向量检索，再统一融合召回结果。",
         "type": "object",
@@ -778,6 +787,7 @@
         }
     },
     "migration_settings": {
+        "invisible": true,
         "description": "数据库迁移",
         "hint": "控制插件启动时的数据库版本升级行为",
         "type": "object",
@@ -797,6 +807,7 @@
         }
     },
     "index_rebuild_settings": {
+        "invisible": true,
         "description": "索引重建",
         "hint": "控制 /lmem rebuild-index 的分批大小、Embedding 请求速率和失败容忍度。低配云服务器建议保持较小并发。",
         "type": "object",
@@ -892,6 +903,7 @@
         }
     },
     "backup_settings": {
+        "invisible": true,
         "description": "定期备份",
         "hint": "每日自动备份记忆数据库，防止数据意外丢失",
         "type": "object",
@@ -916,6 +928,7 @@
         }
     },
     "forgetting_agent": {
+        "invisible": true,
         "description": "自动清理设置",
         "hint": "定期清理时间久远且重要性低的旧记忆，控制记忆库规模",
         "type": "object",
@@ -957,6 +970,7 @@
         }
     },
     "memory_dedup": {
+        "invisible": true,
         "description": "写入时近重复合并",
         "type": "object",
         "invisible": true,
@@ -1009,6 +1023,7 @@
         }
     },
     "memory_consolidation": {
+        "invisible": true,
         "description": "记忆库定期整合",
         "hint": "定期把零散的低价值记忆聚合、整理、总结为更精炼的记忆，从源头控制记忆库规模",
         "type": "object",
