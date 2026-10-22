@@ -10,6 +10,7 @@ import {
   RecallPage,
   SystemPage,
   PromptPage,
+  SettingsPage,
   esc,
 } from "./modules/index.js";
 
@@ -52,6 +53,7 @@ import {
   const recallPage = new RecallPage(state, api, peekPanel);
   const systemPage = new SystemPage(state, api);
   const promptPage = new PromptPage(state, api);
+  const settingsPage = new SettingsPage(state, api);
 
   function hydrateIcons() {
     if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
@@ -135,6 +137,7 @@ import {
     if (name === "recall") { /* 召回页面按需加载 */ }
     if (name === "system") systemPage.fetch();
     if (name === "prompts") promptPage.fetch();
+    if (name === "settings") settingsPage.fetch();
   }
 
   function normalizeLocale(locale) {
@@ -218,6 +221,7 @@ import {
       promptPage.render();
       promptPage.refreshEditorTitle();
     }
+    if (state.page === "settings") settingsPage.fetch();
 
     const peekPanelEl = document.getElementById("peek-panel");
     const peekVisible = peekPanelEl && peekPanelEl.classList.contains("visible");

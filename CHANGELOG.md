@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **写入时近重复合并**：总结记忆落库前，与同会话/同人格的近期记忆比较；相似度达到 `memory_dedup.similarity_threshold`（默认 0.92）时合并到已有记忆而不是新增一条，并保留主题、关键事实、原子与来源消息。检测或合并失败时回退为正常写入；回滚补偿只删除本任务新建的记忆。
+- **Dashboard「设置」页**：召回、反思、图谱与原子、整合、访问控制、备份、索引重建、近重复合并等高级配置迁移到插件 Pages 的设置页，按分组展示并保存；字段说明沿用配置 schema 与四语本地化文案，保存后重载插件完全生效。
+
+### 变更
+
+- **AstrBot 插件配置页精简**：只保留模型 Provider（含必填 Embedding Provider ID）与回复语言；其余配置项在 schema 中标记为隐藏，由 Dashboard 设置页管理。
+
 ### 文档
 
 - **明确 Embedding Provider 必填**：`provider_settings.embedding_provider_id` 留空时只会回退到 AstrBot 第一个可用 Embedding Provider；若选错模型或没有可用 Provider，会表现为向量/图索引初始化失败、Dashboard 无图数据。配置页提示、配置参考、快速开始与 README 已改为要求显式填写已启用的 Provider ID，启动日志也会在回退时输出 warning。

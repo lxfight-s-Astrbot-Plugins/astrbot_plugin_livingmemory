@@ -1236,11 +1236,11 @@ class TestEnsurePluginReady:
 
 
 class TestRouteRegistration:
-    def test_registers_all_ten_routes(self):
+    def test_registers_all_routes(self):
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 20
+        assert len(plugin._api_routes) == 22
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1257,6 +1257,8 @@ class TestRouteRegistration:
         assert f"{prefix}/backups" in paths
         assert f"{prefix}/consolidation/status" in paths
         assert f"{prefix}/consolidation/run" in paths
+        assert f"{prefix}/config" in paths
+        assert f"{prefix}/config/update" in paths
 
     def test_route_prefix_contains_plugin_name(self):
         assert PLUGIN_NAME in PAGE_API_PREFIX

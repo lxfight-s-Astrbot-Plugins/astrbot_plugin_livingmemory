@@ -19,6 +19,7 @@ from .page_api_modules import (
     PageApiUtils,
     PromptHandler,
     RecallHandler,
+    SettingsHandler,
     StatsHandler,
 )
 
@@ -42,6 +43,7 @@ class PluginPageApi:
         self.graph_handler = GraphHandler(self.utils)
         self.prompt_handler = PromptHandler(self.utils, plugin)
         self.consolidation_handler = ConsolidationHandler(self.utils)
+        self.settings_handler = SettingsHandler(self.utils, plugin)
 
         # BackupHandler 需要 data_dir，延迟初始化
         self._backup_handler = None
@@ -166,6 +168,18 @@ class PluginPageApi:
             self.get_prompt_default,
             ["GET"],
             "LivingMemory Page get prompt default content",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/config",
+            self.get_settings_config,
+            ["GET"],
+            "LivingMemory Page advanced config",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/config/update",
+            self.update_settings_config,
+            ["POST"],
+            "LivingMemory Page update advanced config",
         )
         register(
             f"{PAGE_API_PREFIX}/consolidation/status",
@@ -311,6 +325,16 @@ class PluginPageApi:
         if error:
             return error
         return await self.consolidation_handler.run(ready["consolidation_manager"])
+
+    # ---- 设置页路由 ----
+
+    async def get_settings_config(self):
+        """Return advanced configuration sections for the dashboard settings page."""
+        return await self.settings_handler.get_config()
+
+    async def update_settings_config(self):
+        """Persist advanced configuration updates from the dashboard settings page."""
+        return await self.settings_handler.update_config()
 
     # ==================== 辅助方法 ====================
 

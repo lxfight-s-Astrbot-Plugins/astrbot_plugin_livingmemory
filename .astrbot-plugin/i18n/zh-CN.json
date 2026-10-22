@@ -515,6 +515,30 @@
         "description": "语义聚类相似度阈值",
         "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。（允许范围：0–1）"
       }
+    },
+    "memory_dedup": {
+      "description": "写入时近重复合并",
+      "hint": "写入时近重复合并",
+      "enabled": {
+        "description": "启用近重复检测",
+        "hint": "写入总结记忆前，与同会话/同人格的近期记忆比较；相似度达到阈值时合并到已有记忆，而不是新增一条。"
+      },
+      "similarity_threshold": {
+        "description": "相似度阈值",
+        "hint": "触发合并的向量相似度阈值，越高越保守。建议 0.90–0.95。"
+      },
+      "max_candidates": {
+        "description": "候选数量",
+        "hint": "每次检测比较的最近记忆条数。"
+      },
+      "merge_sources": {
+        "description": "保留来源消息",
+        "hint": "合并时把新的来源消息追加到已有记忆，便于回溯与重新总结。"
+      },
+      "max_source_messages": {
+        "description": "来源消息上限",
+        "hint": "合并后单条记忆最多保留的来源消息条数。"
+      }
     }
   },
   "pages": {

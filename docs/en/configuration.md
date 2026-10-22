@@ -1,5 +1,8 @@
 # Configuration
 
+> [!NOTE]
+> The AstrBot plugin config page keeps only **model providers and reply language**; advanced sections such as recall, reflection, graph, atoms, consolidation, backups, index rebuild and access control now live on the dashboard's **Settings** page, grouped for editing. This page remains the reference for every option.
+
 LivingMemory defaults work for most users. The settings you usually need to touch are model providers, recall size, memory isolation, graph retrieval, backup, and cleanup.
 
 > [!NOTE]
