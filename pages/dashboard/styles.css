@@ -2055,3 +2055,38 @@ body {
 .settings-group[open] .settings-fields {
   margin-top: var(--space-3);
 }
+
+.settings-quick {
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.settings-quick-title,
+.settings-categories-title {
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+}
+.settings-categories-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: var(--space-2);
+}
+.settings-subgroup {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-normal);
+}
+.settings-subgroup:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.settings-subgroup-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.settings-group[open] > .settings-subgroup:first-of-type {
+  padding-top: var(--space-2);
+}

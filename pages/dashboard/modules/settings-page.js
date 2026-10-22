@@ -8,13 +8,50 @@
 
 import { esc } from "./utils.js";
 
-const RECOMMENDED_SECTIONS = new Set([
-  "graph_memory",
-  "memory_dedup",
-  "memory_consolidation",
-  "recall_engine",
-  "reflection_engine",
-]);
+const QUICK_PATHS = [
+  "graph_memory.enabled",
+  "memory_dedup.enabled",
+  "memory_dedup.similarity_threshold",
+  "memory_consolidation.enabled",
+  "recall_engine.top_k",
+  "reflection_engine.summary_trigger_rounds",
+  "filtering_settings.memory_scope_mode",
+  "agent_tools.enable_recall_tool",
+];
+
+const CATEGORIES = [
+  {
+    key: "memory",
+    titleKey: "settings.catMemory",
+    sections: [
+      "reflection_engine",
+      "importance_decay",
+      "memory_dedup",
+      "memory_consolidation",
+      "forgetting_agent",
+    ],
+  },
+  {
+    key: "recall",
+    titleKey: "settings.catRecall",
+    sections: ["recall_engine", "fusion_strategy", "agent_tools"],
+  },
+  { key: "graph", titleKey: "settings.catGraph", sections: ["graph_memory"] },
+  {
+    key: "scope",
+    titleKey: "settings.catScope",
+    sections: ["access_control", "filtering_settings", "session_manager"],
+  },
+  {
+    key: "system",
+    titleKey: "settings.catSystem",
+    sections: [
+      "backup_settings",
+      "migration_settings",
+      "index_rebuild_settings",
+    ],
+  },
+];
 
 export class SettingsPage {
   constructor(state, apiClient) {
@@ -82,41 +119,76 @@ export class SettingsPage {
     }
 
     const query = this._query.trim().toLowerCase();
-    const html = this.sections
-      .map((section) => {
-        const fields = (section.fields || []).filter((field) =>
-          this.matches(field, query)
-        );
-        if (!fields.length) return "";
-        const open = this._open.has(section.key) || Boolean(query);
-        const recommended = RECOMMENDED_SECTIONS.has(section.key)
-          ? '<span class="settings-badge">' +
-            esc(window.t("settings.recommended")) +
-            "</span>"
-          : "";
-        const body = fields.map((field) => this.renderField(field)).join("");
-        return (
-          '<details class="settings-group" data-section="' +
-          esc(section.key) +
-          '"' +
-          (open ? " open" : "") +
-          ">" +
-          "<summary>" +
-          '<span class="settings-group-title">' +
-          esc(section.title) +
-          "</span>" +
-          recommended +
-          '<span class="settings-count">' +
-          esc(window.t("settings.fieldCount", String(fields.length))) +
-          "</span>" +
-          "</summary>" +
-          '<div class="settings-fields">' +
-          body +
-          "</div>" +
-          "</details>"
-        );
-      })
-      .join("");
+    const bySection = new Map();
+    this.sections.forEach((section) => bySection.set(section.key, section));
+    const quickSet = new Set(QUICK_PATHS);
+    const quickFields = [];
+    bySection.forEach((section) => {
+      (section.fields || []).forEach((field) => {
+        if (quickSet.has(field.path) && this.matches(field, query)) {
+          quickFields.push(field);
+        }
+      });
+    });
+
+    let html = "";
+    if (quickFields.length) {
+      html +=
+        '<section class="settings-quick">' +
+        '<div class="settings-quick-title">' +
+        esc(window.t("settings.quickTitle")) +
+        "</div>" +
+        '<div class="settings-fields">' +
+        quickFields.map((field) => this.renderField(field)).join("") +
+        "</div>" +
+        "</section>";
+    }
+
+    const categoryHtml = CATEGORIES.map((category) => {
+      const groups = category.sections
+        .map((key) => bySection.get(key))
+        .filter(Boolean)
+        .map((section) => {
+          const fields = (section.fields || []).filter(
+            (field) => !quickSet.has(field.path) && this.matches(field, query)
+          );
+          if (!fields.length) return "";
+          return (
+            '<div class="settings-subgroup">' +
+            '<div class="settings-subgroup-title">' +
+            esc(section.title) +
+            "</div>" +
+            '<div class="settings-fields">' +
+            fields.map((field) => this.renderField(field)).join("") +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .filter(Boolean)
+        .join("");
+      if (!groups) return "";
+      const open = this._open.has(category.key) || Boolean(query);
+      return (
+        '<details class="settings-group settings-category" data-category="' +
+        esc(category.key) +
+        '"' +
+        (open ? " open" : "") +
+        ">" +
+        "<summary>" +
+        '<span class="settings-group-title">' +
+        esc(window.t(category.titleKey)) +
+        "</span>" +
+        "</summary>" +
+        groups +
+        "</details>"
+      );
+    }).join("");
+
+    html +=
+      '<div class="settings-categories-title">' +
+      esc(window.t("settings.advancedTitle")) +
+      "</div>" +
+      categoryHtml;
 
     container.innerHTML =
       html ||
@@ -197,7 +269,7 @@ export class SettingsPage {
     if (expand && !expand.dataset.bound) {
       expand.dataset.bound = "1";
       expand.addEventListener("click", () => {
-        this.sections.forEach((section) => this._open.add(section.key));
+        CATEGORIES.forEach((category) => this._open.add(category.key));
         this.render();
       });
     }
@@ -227,7 +299,7 @@ export class SettingsPage {
         "toggle",
         (event) => {
           const details = event.target;
-          const key = details?.dataset?.section;
+          const key = details?.dataset?.category;
           if (!key) return;
           if (details.open) this._open.add(key);
           else this._open.delete(key);
