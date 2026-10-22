@@ -524,6 +524,98 @@ class MemoryReflection:
             lambda t, sid=plan.session_id: self._on_storage_task_done(t, sid)
         )
 
+    async def _persist_summary_memory(
+        self,
+        *,
+        session_id: str,
+        memory_scope: str,
+        persona_id: Any,
+        content: str,
+        metadata: dict[str, Any],
+        importance: float,
+        atoms: list,
+        source_messages: list[dict[str, Any]] | None,
+    ) -> tuple[int | None, bool, float | None]:
+        """Store a summary memory, merging into a near-duplicate when configured.
+
+        Args:
+            session_id: Raw conversation session id (for logging/compensation).
+            memory_scope: Resolved memory scope stored in metadata.
+            persona_id: Persona id for the summary.
+            content: Generated summary text.
+            metadata: Structured summary metadata.
+            importance: Summary importance.
+            atoms: Classified memory atoms.
+            source_messages: Optional retained source messages.
+
+        Returns:
+            ``(memory_id, created, similarity)``. ``created`` is False when the
+            summary was merged into an existing memory, so rollback compensation
+            must not delete that pre-existing memory.
+        """
+        engine = self.memory_engine
+        if engine is None:
+            return None, False, None
+
+        enabled = True
+        threshold = 0.92
+        limit = 3
+        try:
+            enabled = bool(self.config_manager.get("memory_dedup.enabled", True))
+            threshold = float(
+                self.config_manager.get("memory_dedup.similarity_threshold", 0.92)
+                or 0.92
+            )
+            limit = int(
+                self.config_manager.get("memory_dedup.max_candidates", 3) or 3
+            )
+        except (TypeError, ValueError):
+            enabled, threshold, limit = True, 0.92, 3
+
+        if enabled:
+            try:
+                duplicate = await engine.find_similar_memory(
+                    content,
+                    session_id=memory_scope,
+                    persona_id=persona_id,
+                    threshold=threshold,
+                    limit=limit,
+                )
+                if duplicate is not None:
+                    merged = await engine.merge_duplicate_memory(
+                        int(duplicate["id"]),
+                        importance=importance,
+                        metadata=metadata,
+                        atoms=atoms,
+                        source_messages=source_messages,
+                    )
+                    if merged:
+                        return (
+                            int(duplicate["id"]),
+                            False,
+                            float(duplicate.get("similarity") or 0.0),
+                        )
+                    logger.warning(
+                        f"[{session_id}] 近重复记忆合并失败，改为新增记忆"
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    f"[{session_id}] 近重复检测不可用，按新记忆写入", exc_info=True
+                )
+
+        memory_id = await engine.add_memory(
+            content=content,
+            session_id=memory_scope,
+            persona_id=persona_id,
+            importance=importance,
+            metadata=metadata,
+            atoms=atoms,
+            source_messages=source_messages,
+        )
+        return memory_id, True, None
+
     async def _read_session_revision(self, session_id: str) -> int | None:
         """读取会话修订号；不可用（老版本/Mock）时返回 None，退化为不校验。"""
         manager = self.conversation_manager
@@ -639,6 +731,7 @@ class MemoryReflection:
 
         # 记忆 id 在 try 外初始化：取消可能发生在赋值之前，异常分支需要它
         memory_id: int | None = None
+        memory_created = False
         async with OperationContext("记忆存储", session_id):
             try:
                 # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
@@ -752,7 +845,7 @@ class MemoryReflection:
                     )
                     return
 
-                # 正常流程：添加到记忆引擎
+                # 正常流程：写入记忆引擎；近重复检测命中时合并到已有记忆
                 memory_id: int | None = None
                 if self.memory_engine:
                     source_threshold = float(
@@ -766,19 +859,29 @@ class MemoryReflection:
                         if importance >= source_threshold
                         else None
                     )
-                    memory_id = await self.memory_engine.add_memory(
-                        content=content,
-                        session_id=memory_scope,
+                    (
+                        memory_id,
+                        memory_created,
+                        dedup_similarity,
+                    ) = await self._persist_summary_memory(
+                        session_id=session_id,
+                        memory_scope=memory_scope,
                         persona_id=persona_id,
-                        importance=importance,
+                        content=content,
                         metadata=metadata,
+                        importance=importance,
                         atoms=atoms,
                         source_messages=source_messages,
                     )
-
-                    logger.info(
-                        f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
-                    )
+                    if memory_id is not None and not memory_created:
+                        logger.info(
+                            f"[{session_id}] 检测到近重复记忆，已合并到 #{memory_id}"
+                            f"（相似度={dedup_similarity:.3f}），未新增记忆"
+                        )
+                    else:
+                        logger.info(
+                            f"[{session_id}] 成功存储对话记忆（{len(history_messages)}条消息，重要性={importance:.2f}）"
+                        )
 
                 # 成功：更新已总结的位置，清除待处理记录（原子校验修订号，
                 # 避免把游标写回回滚前的旧位置）
@@ -791,7 +894,7 @@ class MemoryReflection:
                             logger.info(
                                 f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
                             )
-                        elif memory_id is not None:
+                        elif memory_id is not None and memory_created:
                             # 修订号校验发生在写入之前：等待期间若发生回滚，
                             # 刚落库的记忆属于已撤销内容，必须补偿删除
                             await self._compensate_rolled_back_memory(
@@ -820,7 +923,7 @@ class MemoryReflection:
                 # 回滚会 cancel 本任务；取消在 await 点生效并穿透 except Exception。
                 # 若取消发生在 add_memory 之后，内容已 durable，必须补偿删除
                 # （shield：保证补偿不被这次取消再次打断）
-                if memory_id is not None:
+                if memory_id is not None and memory_created:
                     await asyncio.shield(
                         self._compensate_rolled_back_memory(session_id, memory_id)
                     )

@@ -796,6 +796,207 @@ class MemoryEngineCrudMixin:
             raise RuntimeError("vector_retriever 未就绪")
         return await self.vector_retriever.find_similar_pairs(memory_ids, threshold)
 
+    async def find_similar_memory(
+        self,
+        content: str,
+        *,
+        session_id: str | None = None,
+        persona_id: str | None = None,
+        threshold: float = 0.92,
+        limit: int = 3,
+    ) -> dict[str, Any] | None:
+        """Return the most similar active memory in the same scope, if any.
+
+        Args:
+            content: Newly generated summary text.
+            session_id: Memory scope to compare within.
+            persona_id: Persona filter used by the vector retriever.
+            threshold: Minimum cosine similarity to treat as a duplicate.
+            limit: Number of candidates fetched from the vector index.
+
+        Returns:
+            The best matching ``{"id", "similarity"}`` above the threshold, else None.
+        """
+        if not content or not content.strip() or self.vector_retriever is None:
+            return None
+        try:
+            results = await self.vector_retriever.search(
+                content,
+                max(1, min(int(limit), 20)),
+                session_id=session_id,
+                persona_id=persona_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[MemoryEngine] 近重复检测失败，按新记忆写入", exc_info=True)
+            return None
+
+        best: dict[str, Any] | None = None
+        for result in results or []:
+            score = float(getattr(result, "score", 0.0) or 0.0)
+            if score < threshold:
+                continue
+            doc_id = int(getattr(result, "doc_id", 0) or 0)
+            if not doc_id:
+                continue
+            if best is None or score > best["similarity"]:
+                best = {"id": doc_id, "similarity": score}
+        return best
+
+    async def merge_duplicate_memory(
+        self,
+        memory_id: int,
+        *,
+        importance: float,
+        metadata: dict[str, Any] | None = None,
+        atoms: list | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Merge a new summary into an existing near-duplicate memory.
+
+        The existing summary text is kept (avoiding another embedding pass);
+        importance, topics, key facts, source windows, sources and new atoms are
+        folded in so the new facts remain retrievable.
+
+        Args:
+            memory_id: Existing memory document id.
+            importance: Importance of the incoming summary.
+            metadata: Incoming summary metadata.
+            atoms: Newly classified memory atoms.
+            source_messages: Optional retained source messages.
+
+        Returns:
+            True when the merge was persisted.
+        """
+        if self.db_connection is None:
+            return False
+        memory = await self.get_memory(memory_id)
+        if not memory:
+            return False
+        metadata = metadata or {}
+        current_metadata = safe_json_dict(memory.get("metadata"))
+        patch: dict[str, Any] = {}
+
+        for key in ("topics", "key_facts", "participants", "participant_identities"):
+            incoming = metadata.get(key)
+            if not incoming:
+                continue
+            merged = self._merge_unique_values(current_metadata.get(key), incoming)
+            if merged:
+                patch[key] = merged
+
+        now = time.time()
+        source_window = metadata.get("source_window")
+        if isinstance(source_window, dict):
+            windows = list(current_metadata.get("source_windows") or [])
+            windows.append(source_window)
+            patch["source_windows"] = windows[-20:]
+
+        patch["last_access_time"] = now
+        patch["dedup_merge_count"] = (
+            int(current_metadata.get("dedup_merge_count") or 0) + 1
+        )
+        patch["dedup_last_merged_at"] = now
+
+        current_importance = clamp_float(current_metadata.get("importance"), default=0.5)
+        merged_importance = max(current_importance, clamp_float(importance, default=0.5))
+        try:
+            success = await self.update_memory(
+                memory_id,
+                {"importance": merged_importance, "metadata": patch},
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                f"[MemoryEngine] 合并近重复记忆失败 (memory_id={memory_id})",
+                exc_info=True,
+            )
+            return False
+        if not success:
+            return False
+
+        if atoms and self.atom_store is not None and self.atom_enabled:
+            await self._append_atoms_to_memory(memory_id, atoms, metadata)
+
+        dedup_cfg = self.config.get("memory_dedup") or {}
+        if source_messages and bool(dedup_cfg.get("merge_sources", True)):
+            max_sources = int(dedup_cfg.get("max_source_messages", 50) or 50)
+            existing_sources = await self.get_memory_source(memory_id)
+            combined: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for item in [*existing_sources, *source_messages]:
+                key = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(item)
+            try:
+                await self.save_memory_source(memory_id, combined[-max_sources:])
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    f"[MemoryEngine] 合并来源消息失败 (memory_id={memory_id})",
+                    exc_info=True,
+                )
+
+        logger.info(
+            f"[MemoryEngine] 已合并近重复记忆到 #{memory_id}"
+            f"（相似度合并次数={patch['dedup_merge_count']}）"
+        )
+        return True
+
+    @staticmethod
+    def _merge_unique_values(existing: Any, incoming: Any) -> list[Any]:
+        """Union two metadata lists without reordering existing entries."""
+        merged: list[Any] = []
+        seen: set[str] = set()
+        for item in [*(existing or []), *(incoming or [])]:
+            key = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged
+
+    async def _append_atoms_to_memory(
+        self,
+        memory_id: int,
+        atoms: list,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Attach newly classified atoms to an existing memory, skipping duplicates."""
+        if self.db_connection is None or self.atom_store is None:
+            return
+        cursor = await self.db_connection.execute(
+            "SELECT content FROM memory_atoms WHERE parent_memory_id = ?",
+            (int(memory_id),),
+        )
+        existing_contents = {
+            str(row[0]).strip() for row in await cursor.fetchall() if row[0]
+        }
+        session_id = metadata.get("session_id")
+        persona_id = metadata.get("persona_id")
+        for atom in atoms:
+            content = str(getattr(atom, "content", "") or "").strip()
+            if not content or content in existing_contents:
+                continue
+            atom.parent_memory_id = memory_id
+            atom.session_id = atom.session_id or session_id
+            atom.persona_id = atom.persona_id or persona_id
+            try:
+                await self.atom_store.insert(atom)
+                existing_contents.add(content)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    f"[MemoryEngine] 合并记忆原子失败 (memory_id={memory_id}): {content[:60]}",
+                    exc_info=True,
+                )
+
     async def update_memory(
         self,
         memory_id: int,

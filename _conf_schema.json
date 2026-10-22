@@ -956,6 +956,58 @@
             }
         }
     },
+    "memory_dedup": {
+        "description": "写入时近重复合并",
+        "type": "object",
+        "invisible": true,
+        "items": {
+            "enabled": {
+                "description": "启用近重复检测",
+                "hint": "写入总结记忆前，与同会话/同人格的近期记忆比较；相似度达到阈值时合并到已有记忆，而不是新增一条。",
+                "type": "bool",
+                "default": true
+            },
+            "similarity_threshold": {
+                "description": "相似度阈值",
+                "hint": "触发合并的向量相似度阈值，越高越保守。建议 0.90–0.95。（允许范围：0–1）",
+                "type": "float",
+                "default": 0.92,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }
+            },
+            "max_candidates": {
+                "description": "候选数量",
+                "hint": "每次检测比较的最近记忆条数。（允许范围：1–20）",
+                "type": "int",
+                "default": 3,
+                "slider": {
+                    "min": 1,
+                    "max": 20,
+                    "step": 1
+                }
+            },
+            "merge_sources": {
+                "description": "保留来源消息",
+                "hint": "合并时把新的来源消息追加到已有记忆，便于回溯与重新总结。",
+                "type": "bool",
+                "default": true
+            },
+            "max_source_messages": {
+                "description": "来源消息上限",
+                "hint": "合并后单条记忆最多保留的来源消息条数。（允许范围：1–500）",
+                "type": "int",
+                "default": 50,
+                "slider": {
+                    "min": 1,
+                    "max": 500,
+                    "step": 1
+                }
+            }
+        }
+    },
     "memory_consolidation": {
         "description": "记忆库定期整合",
         "hint": "定期把零散的低价值记忆聚合、整理、总结为更精炼的记忆，从源头控制记忆库规模",
