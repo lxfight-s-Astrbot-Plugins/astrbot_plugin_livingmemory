@@ -408,6 +408,29 @@ class MemoryConsolidationConfig(BaseModel):
     )
 
 
+class MemoryDedupConfig(BaseModel):
+    """写入时近重复检测与合并配置。"""
+
+    enabled: bool = Field(
+        default=True, description="写入总结记忆前是否检测同作用域的近重复记忆"
+    )
+    similarity_threshold: float = Field(
+        default=0.92,
+        ge=0.0,
+        le=1.0,
+        description="触发合并的向量相似度阈值，越高越保守",
+    )
+    max_candidates: int = Field(
+        default=3, ge=1, le=20, description="每次检测比较的候选记忆数量"
+    )
+    merge_sources: bool = Field(
+        default=True, description="合并时是否保留新的来源消息"
+    )
+    max_source_messages: int = Field(
+        default=50, ge=1, le=500, description="合并后最多保留的来源消息条数"
+    )
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -437,6 +460,9 @@ class LivingMemoryConfig(BaseModel):
     )
     memory_consolidation: MemoryConsolidationConfig = Field(
         default_factory=MemoryConsolidationConfig, description="记忆库定期整合配置"
+    )
+    memory_dedup: MemoryDedupConfig = Field(
+        default_factory=MemoryDedupConfig, description="写入时近重复合并配置"
     )
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
