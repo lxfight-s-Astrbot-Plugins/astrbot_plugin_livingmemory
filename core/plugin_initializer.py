@@ -243,7 +243,10 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
         if not self._initialization_complete:
             missing = []
             if not self.embedding_provider:
-                missing.append("Embedding Provider（请配置向量嵌入模型）")
+                missing.append(
+                    "Embedding Provider（请先在 AstrBot 后台「LLM 配置」中创建并启用 "
+                    "Embedding Provider，再在插件配置 provider_settings.embedding_provider_id 中填写其 ID）"
+                )
             if not self.llm_provider:
                 missing.append("LLM Provider（请配置语言模型）")
             if missing:
@@ -285,7 +288,12 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
                         "id",
                         self.embedding_provider.provider_config.get("id", "unknown"),
                     )
-                    logger.info(f"未指定 Embedding Provider，使用默认的: {provider_id}")
+                    logger.warning(
+                        "未显式配置 provider_settings.embedding_provider_id，"
+                        f"已回退到 AstrBot 第一个 Embedding Provider: {provider_id}。"
+                        "若有多个 Provider 或非预期模型，请在插件配置中填写正确 ID，"
+                        "否则可能出现维度不匹配、向量索引或图索引写入失败。"
+                    )
             else:
                 self.embedding_provider = None
                 if not silent:

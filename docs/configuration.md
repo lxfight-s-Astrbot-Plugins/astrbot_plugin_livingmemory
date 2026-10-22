@@ -20,7 +20,7 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
-| `provider_settings.embedding_provider_id` | 空 | 用于向量化记忆。留空使用 AstrBot 默认 Embedding Provider |
+| `provider_settings.embedding_provider_id` | 空（不建议） | 用于向量化记忆，应填写已启用的 Embedding Provider ID。留空只在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败 |
 | `provider_settings.llm_provider_id` | 空 | 用于总结对话和评估记忆重要性。留空使用 AstrBot 默认 LLM |
 | `provider_settings.llm_stream_mode` | `auto` | 记忆处理调用 LLM 的方式：`auto` 优先非流式、遇“不支持非流式”错误自动转流式；`always` 始终流式；`never` 始终非流式（旧行为） |
 

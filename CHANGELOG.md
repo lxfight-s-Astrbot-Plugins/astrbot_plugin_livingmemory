@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### 文档
+
+- **明确 Embedding Provider 必填**：`provider_settings.embedding_provider_id` 留空时只会回退到 AstrBot 第一个可用 Embedding Provider；若选错模型或没有可用 Provider，会表现为向量/图索引初始化失败、Dashboard 无图数据。配置页提示、配置参考、快速开始与 README 已改为要求显式填写已启用的 Provider ID，启动日志也会在回退时输出 warning。
+
+
 ## [2.7.0] - 2026-10-21
 
 2.7.0 稳定版发布，整合 `2.7.0-beta.1` 至 `2.7.0-beta.4` 的全部改动，是 2.6.1 之后的正式稳定版本。稳定版不是预发布版本，会正常参与 AstrBot 的插件版本更新提示。

@@ -43,7 +43,7 @@ Every style supports light, dark and automatic modes. Switch from “Appearance�
 ## Get started
 
 1. Install from the AstrBot plugin marketplace, or place the selected version under `data/plugins/astrbot_plugin_livingmemory`.
-2. Reload AstrBot and choose Embedding and LLM providers in LivingMemory settings; empty fields use AstrBot defaults.
+2. Create and enable an Embedding Provider in AstrBot's LLM settings first, then reload AstrBot and fill in its ID plus the LLM provider in LivingMemory. Leaving the embedding field empty only falls back to the first available provider, which can pick the wrong model or break vector/graph index initialization.
 3. Open `Plugins → LivingMemory → Pages → dashboard`. Pages requires **AstrBot 4.24.2 or later**.
 
 For the beta, download the specific tag above and follow [installation and rollback steps](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Back up existing plugin data and configuration before upgrading.
