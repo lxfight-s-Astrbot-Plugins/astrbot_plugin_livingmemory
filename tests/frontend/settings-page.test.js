@@ -27,6 +27,16 @@ const sections = [
         max: 50,
         step: 1,
       },
+      {
+        path: "recall_engine.max_k",
+        label: "Max K",
+        hint: "Agent result limit",
+        type: "int",
+        value: 10,
+        min: 1,
+        max: 50,
+        step: 1,
+      },
     ],
   },
   {
@@ -44,8 +54,7 @@ const sections = [
   },
 ];
 
-test("settings sections render collapsed with search and badges", () => {
-  const container = { innerHTML: "" };
+function createPage(container) {
   globalThis.document = createDocumentStub(container);
   globalThis.window = {
     t(key, value) {
@@ -54,30 +63,35 @@ test("settings sections render collapsed with search and badges", () => {
   };
   const page = new SettingsPage({}, { get: async () => ({ sections }) });
   page.sections = sections;
+  return page;
+}
+
+test("settings render a short common panel plus collapsed categories", () => {
+  const container = { innerHTML: "" };
+  const page = createPage(container);
 
   page.render();
 
-  assert.match(container.innerHTML, /<details class="settings-group" data-section="recall_engine">/);
-  assert.match(container.innerHTML, /<details class="settings-group" data-section="backup_settings">/);
+  assert.match(container.innerHTML, /class="settings-quick"/);
+  assert.match(container.innerHTML, /settings\.quickTitle/);
+  assert.match(container.innerHTML, /data-category="system"/);
+  assert.doesNotMatch(container.innerHTML, /data-section="recall_engine"/);
   assert.doesNotMatch(container.innerHTML, /<details[^>]* open/);
-  assert.match(container.innerHTML, /settings\.recommended/);
+  // The quick field is not duplicated inside its category.
+  assert.equal(
+    (container.innerHTML.match(/recall_engine\.top_k/g) || []).length,
+    1
+  );
 });
 
-test("search filters fields across sections", () => {
+test("search filters fields and expands matching categories", () => {
   const container = { innerHTML: "" };
-  globalThis.document = createDocumentStub(container);
-  globalThis.window = {
-    t(key, value) {
-      return value ? `${key}:${value}` : key;
-    },
-  };
-  const page = new SettingsPage({}, { get: async () => ({ sections }) });
-  page.sections = sections;
-  page._query = "top";
+  const page = createPage(container);
+  page._query = "max";
 
   page.render();
 
-  assert.match(container.innerHTML, /recall_engine/);
   assert.doesNotMatch(container.innerHTML, /backup_settings/);
-  assert.match(container.innerHTML, /<details[^>]* open/);
+  assert.match(container.innerHTML, /<details[^>]* data-category="recall"[^>]* open/);
+  assert.match(container.innerHTML, /recall_engine\.max_k/);
 });

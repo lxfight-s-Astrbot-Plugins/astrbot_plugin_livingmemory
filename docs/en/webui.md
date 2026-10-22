@@ -12,7 +12,7 @@ AstrBot `4.24.2` or later is recommended. Older versions can still run the plugi
 
 ## Settings
 
-- Advanced options are grouped by recall, reflection, graph and atoms, consolidation, access control, backups and index maintenance; groups are collapsed by default, can be found with a search box and expanded or collapsed all at once. Field labels and hints come from the plugin schema and follow the dashboard language.
+- The page opens with eight common settings; the rest is folded into five categories (memory generation and lifecycle, recall and tools, graph and atoms, access and isolation, system and maintenance) that can be searched, expanded or collapsed all at once. Field labels and hints come from the plugin schema and follow the dashboard language.
 - Saving writes to the plugin configuration. Options used during initialization take full effect after reloading the plugin, while some (such as write-time duplicate merging) apply immediately.
 - The AstrBot plugin config page keeps the model providers, reply language and the required Embedding Provider field.
 
