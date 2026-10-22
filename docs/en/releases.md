@@ -1,5 +1,43 @@
 # Releases and Upgrades
 
+## 2.7.1 · October 22, 2026
+
+2.7.1 is a patch release on top of 2.7.0 focused on configuration ergonomics and duplicate memories: advanced settings move from the AstrBot plugin config page to a dashboard Settings page (common panel plus five collapsed categories), and summaries gain write-time near-duplicate merging. No new runtime dependencies and no mandatory migration steps; as a regular release it participates in AstrBot's update prompts normally.
+
+[Download 2.7.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.1)
+
+### What changed
+
+- **Shorter host config page.** The AstrBot plugin config page keeps only model providers (including the required Embedding Provider ID) and reply language; recall, reflection, graph, consolidation and other advanced options move to the dashboard.
+- **Dashboard Settings page.** Eight common settings stay visible; the rest are folded into five categories (memory generation and lifecycle, recall and tools, graph and atoms, access and isolation, system and maintenance) with search, expand/collapse all and localized field labels.
+- **Write-time near-duplicate merging.** Summaries in the same session/persona that reach the similarity threshold (0.92 by default) merge into the existing memory, keeping topics, key facts, atoms and source messages; failures fall back to a normal write.
+- **Embedding Provider clarification.** The field is now documented as required; leaving it empty only falls back to the first available provider and logs a warning, avoiding broken vector/graph indexes.
+
+### Verification
+
+- Backend: 1,145 tests passed; frontend: 109 tests passed; CI green.
+- Version-consistency and Chinese/English docs-parity guards pass; dashboard bundles match their sources.
+
+### Upgrade notes
+
+1. No configuration changes and no mandatory migration steps.
+2. If no Embedding Provider ID is set, create and enable one in AstrBot's LLM settings first; otherwise vector/graph indexes may fail to initialize.
+3. Reload the plugin after saving dashboard settings so options read during initialization take effect; runtime options such as duplicate merging apply immediately.
+4. Run `/lmem rebuild-graph` to backfill graph data for older memories, and `/lmem rebuild-index` after changing the embedding model.
+5. 2.7.1 is the current stable release; earlier pre-releases remain available on the Releases page.
+
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of your existing plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the release page, extract it into `data/plugins/astrbot_plugin_livingmemory`, and keep existing data and configuration.
+3. Start or reload AstrBot, confirm the plugin version reads `2.7.1`, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. For an existing Git installation, switch a clean checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.1
+```
+
 ## 2.7.0 · October 21, 2026
 
 2.7.0 is the stable release that consolidates everything from `2.7.0-beta.1` through `beta.4`. The rebuilt dashboard, recall-quality work, standardized injection, lifecycle guarantees, hot-path performance and Japanese support all reach the stable channel; as a non-prerelease it participates in AstrBot's plugin update prompts normally. No new runtime dependencies and no mandatory migration steps; existing configuration keeps working.

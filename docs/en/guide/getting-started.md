@@ -4,7 +4,7 @@ LivingMemory is a long-term memory plugin for AstrBot. It maintains a searchable
 
 ## Install
 
-The current stable version is **2.7.0** (previous stable: 2.6.1). See [Releases and Upgrades](/en/releases) for tagged downloads, upgrade and rollback steps.
+The current stable version is **2.7.1** (previous version: 2.7.0). See [Releases and Upgrades](/en/releases) for tagged downloads, upgrade and rollback steps.
 
 1. Put the plugin directory under AstrBot's `data/plugins/` directory.
 2. Restart or reload AstrBot.
