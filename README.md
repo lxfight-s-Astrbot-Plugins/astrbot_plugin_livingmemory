@@ -13,7 +13,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-52675c?style=flat-square" alt="Python 3.10 或更高">
-  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Pages 需要 AstrBot 4.24.2 或更高">
+  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="插件视图需要 AstrBot 4.24.2 或更高">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-52675c?style=flat-square" alt="AGPL-3.0"></a>
 </p>
 
@@ -30,7 +30,7 @@ LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历�
 - **自动整理** — 达到配置的对话轮次后生成长期记忆；重要记录可保留原文，方便核验和重新总结。
 - **按上下文召回** — 文档与图谱都支持关键词和向量检索，融合排序后结合会话、人格和生命周期筛选。
 - **主动回忆与写入** — Agent 可调用 `recall_long_term_memory` 和 `memorize_long_term_memory`，按需读写长期记忆。
-- **看得见、可维护** — 在官方 Pages 中浏览关系图谱、编辑记忆、测试召回、管理提示词和查看系统状态。
+- **看得见、可维护** — 在官方插件视图中浏览关系图谱、编辑记忆、测试召回、管理提示词和查看系统状态。
 
 ## 一个工作区，四种风格
 
@@ -44,7 +44,7 @@ LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历�
 
 1. 从 AstrBot 插件市场安装，或将指定版本的插件代码放入 `data/plugins/astrbot_plugin_livingmemory`。
 2. 先在 AstrBot 后台「模型提供商 → 嵌入」中创建并启用 Embedding Provider（推荐免费的 `BAAI/bge-m3`，见[配置步骤](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/guide/embedding-model)），再重载 AstrBot 并在 LivingMemory 配置中填写其 ID 与 LLM Provider；Embedding 留空只会回退到第一个可用 Provider，容易选错或导致向量/图索引初始化失败。
-3. 打开 `插件 → LivingMemory → Pages → dashboard`。Pages 需要 **AstrBot 4.24.2 或更高版本**。
+3. 打开 `插件 → LivingMemory → 视图 → dashboard`（旧版 AstrBot 显示为 `Pages`）。插件视图需要 **AstrBot 4.24.2 或更高版本**。
 
 测试版请从上方指定标签下载，具体安装及回退步骤见[版本与升级](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/releases)。已有数据时，升级前保留插件数据与配置备份。
 

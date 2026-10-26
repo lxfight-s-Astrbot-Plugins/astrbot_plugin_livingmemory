@@ -1,12 +1,12 @@
 # WebUI
 
-LivingMemory uses AstrBot official Plugin Pages for its dashboard. No extra web server is required.
+LivingMemory uses AstrBot official Plugin Views (`Pages` in older releases) for its dashboard. No extra web server is required.
 
 ## Entry
 
 Open AstrBot WebUI:
 
-`Plugins -> LivingMemory -> Pages -> dashboard`
+`Plugins -> LivingMemory -> Views -> dashboard` (`Pages` in older AstrBot releases)
 
 AstrBot `4.24.2` or later is recommended. Older versions can still run the plugin, but the dashboard may be unavailable.
 

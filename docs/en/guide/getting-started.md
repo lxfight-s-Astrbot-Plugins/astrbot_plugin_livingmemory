@@ -39,7 +39,7 @@ LivingMemory's semantic recall depends on an Embedding Provider, not the chat LL
 
 AstrBot `4.24.2` or later is recommended. Open:
 
-`Plugins -> LivingMemory -> Pages -> dashboard`
+`Plugins -> LivingMemory -> Views -> dashboard` (`Pages` in older AstrBot releases)
 
 The dashboard lets you inspect memories, debug recall, manage backups, and browse graph relationships.
 

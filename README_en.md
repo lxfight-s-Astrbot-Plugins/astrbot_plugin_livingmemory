@@ -13,7 +13,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-52675c?style=flat-square" alt="Python 3.10 or later">
-  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Pages requires AstrBot 4.24.2 or later">
+  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Plugin views require AstrBot 4.24.2 or later">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-52675c?style=flat-square" alt="AGPL-3.0"></a>
 </p>
 
@@ -30,7 +30,7 @@ LivingMemory gives AstrBot a durable store of preferences, relationships, projec
 - **Automatic capture** — Summarize conversations after the configured number of turns. Important memories can retain source messages for review and re-summarization.
 - **Context-aware recall** — Document and graph routes combine keyword and vector retrieval, rank fusion, scope filtering and lifecycle checks.
 - **Agent tools** — `recall_long_term_memory` and `memorize_long_term_memory` let the agent read and write long-term memory when needed.
-- **Visible and maintainable** — Browse relationships, edit memories, test recall, manage prompts and inspect system status in official Plugin Pages.
+- **Visible and maintainable** — Browse relationships, edit memories, test recall, manage prompts and inspect system status in official Plugin Views.
 
 ## One workspace, four styles
 
@@ -44,7 +44,7 @@ Every style supports light, dark and automatic modes. Switch from “Appearance�
 
 1. Install from the AstrBot plugin marketplace, or place the selected version under `data/plugins/astrbot_plugin_livingmemory`.
 2. Create and enable an Embedding Provider in AstrBot's Model Providers → Embedding page first (the free `BAAI/bge-m3` setup is documented [here](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/embedding-model)), then reload AstrBot and fill in its ID plus the LLM provider in LivingMemory. Leaving the embedding field empty only falls back to the first available provider, which can pick the wrong model or break vector/graph index initialization.
-3. Open `Plugins → LivingMemory → Pages → dashboard`. Pages requires **AstrBot 4.24.2 or later**.
+3. Open `Plugins → LivingMemory → Views → dashboard` (`Pages` in older AstrBot releases). Plugin views require **AstrBot 4.24.2 or later**.
 
 For the beta, download the specific tag above and follow [installation and rollback steps](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Back up existing plugin data and configuration before upgrading.
 

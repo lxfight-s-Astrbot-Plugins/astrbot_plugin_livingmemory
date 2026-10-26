@@ -1,14 +1,14 @@
 # WebUI 管理
 
-LivingMemory 使用 AstrBot 官方插件 Pages 提供管理界面，不需要额外启动 Web 服务。
+LivingMemory 使用 AstrBot 官方插件视图（Views，旧版称 Pages）提供管理界面，不需要额外启动 Web 服务。
 
 ## 入口
 
 进入 AstrBot WebUI：
 
-`插件 -> LivingMemory -> Pages -> dashboard`
+`插件 -> LivingMemory -> 视图 -> dashboard`（旧版 AstrBot 显示为 `Pages`）
 
-建议 AstrBot 版本为 `4.24.2` 或更高。旧版本如果没有官方 Pages 能力，插件仍可运行，但管理页面可能不可用。
+建议 AstrBot 版本为 `4.24.2` 或更高。旧版本如果没有官方插件视图能力，插件仍可运行，但管理页面可能不可用。
 
 ## 设置
 

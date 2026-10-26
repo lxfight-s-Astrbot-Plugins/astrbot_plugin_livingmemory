@@ -39,7 +39,7 @@ LivingMemory 的语义召回依赖 Embedding Provider，而不是用于聊天的
 
 AstrBot 版本建议为 `4.24.2` 或更高。进入：
 
-`插件 -> LivingMemory -> Pages -> dashboard`
+`插件 -> LivingMemory -> 视图 -> dashboard`（旧版 AstrBot 显示为 `Pages`）
 
 在这里可以查看记忆列表、调试召回、管理备份，并通过图谱视图观察实体关系。
 

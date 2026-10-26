@@ -19,7 +19,7 @@ flowchart TB
         ENGINE --> SQLITE[("SQLite：documents / atoms / graph")]
         ENGINE --> FAISS[("FAISS 向量索引")]
         SCHED["衰减、整合与索引维护"] --> ENGINE
-        API["Pages API 与 Agent 工具"] --> ENGINE
+        API["Plugin View API 与 Agent 工具"] --> ENGINE
     end
 ```
 
@@ -33,11 +33,11 @@ flowchart TB
 | 记忆引擎 | `MemoryEngine` | 写入、搜索、更新、删除、访问统计、衰减与整合的统一入口，对外暴露检索器与 `index_writer` |
 | 检索与融合 | `HybridRetriever`、`DualRouteRetriever`、`RRFFusion`、`GraphRetriever` | 文档路与图谱路的关键词/向量召回，候选扩展、融合、加权、重排与降级 |
 | 存储层 | `storage/` | SQLite 表与索引、FTS、迁移与版本表、FAISS 持久化桥接 |
-| 管理与观测 | `pages/dashboard/`、`/lmem` 命令 | Pages API 复用同一套引擎；状态报告暴露初始化与索引维护进度 |
+| 管理与观测 | `pages/dashboard/`、`/lmem` 命令 | Plugin View API 复用同一套引擎；状态报告暴露初始化与索引维护进度 |
 
 ## 启动与关闭
 
-1. AstrBot 加载插件模块后按 `metadata.yaml` 识别插件类；`main.py` 注册命令、LLM 钩子、Agent 工具与 Pages API，然后启动初始化任务。
+1. AstrBot 加载插件模块后按 `metadata.yaml` 识别插件类；`main.py` 注册命令、LLM 钩子、Agent 工具与 Plugin View API，然后启动初始化任务。
 2. 初始化在后台运行：创建或打开 FAISS 索引与 `documents` 存储并检查向量维度；非 ASCII 路径通过 `faiss_path_bridge` 先写 ASCII 临时目录再原子替换。
 3. 数据库版本不足时执行迁移；迁移前必须成功创建备份，任一步失败会恢复备份并终止初始化，向用户返回明确错误。
 4. `MemoryEngine` 建立连接（`PRAGMA journal_mode = WAL`、`busy_timeout = 10000`）、创建 `documents` 表与表达式索引、初始化 BM25/向量/图谱/原子检索器、检索缓存与访问统计合并写。

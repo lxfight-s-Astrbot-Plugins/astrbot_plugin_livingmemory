@@ -12,6 +12,7 @@ from astrbot.api.star import Context
 from astrbot.core.provider.provider import EmbeddingProvider, Provider
 
 from ..storage.db_migration import DBMigration
+from .astrbot_compat import get_using_provider
 from .base.config_manager import ConfigManager
 from .managers.conversation_manager import ConversationManager
 from .managers.consolidation_manager import MemoryConsolidationManager
@@ -171,7 +172,7 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
         check_interval = 1.0
 
         while time.time() - start_time < max_wait:
-            self._initialize_providers(silent=True)
+            await self._initialize_providers(silent=True)
 
             if self.embedding_provider and self.llm_provider:
                 logger.info(
@@ -204,7 +205,7 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
         ):
             await asyncio.sleep(current_interval)
 
-            self._initialize_providers(silent=True)
+            await self._initialize_providers(silent=True)
             self._provider_check_attempts += 1
 
             if self._provider_check_attempts % log_interval == 0:
@@ -265,7 +266,7 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
                 )
             self._initialization_failed = True
 
-    def _initialize_providers(self, silent: bool = False):
+    async def _initialize_providers(self, silent: bool = False):
         """初始化 Embedding 和 LLM provider"""
         # 初始化 Embedding Provider
         emb_id = self.config_manager.get("provider_settings.embedding_provider_id")
@@ -318,7 +319,7 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
                 if silent and not self.context.get_all_providers():
                     self.llm_provider = None
                     return
-                default_provider = self.context.get_using_provider()
+                default_provider = await get_using_provider(self.context)
                 if default_provider and not isinstance(default_provider, Provider):
                     if not silent:
                         logger.warning(
@@ -329,7 +330,7 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
                     self.llm_provider = default_provider
                 if not silent and self.llm_provider:
                     logger.info("使用 AstrBot 当前默认的 LLM Provider。")
-            except (ValueError, Exception) as e:
+            except Exception as e:
                 if not silent:
                     logger.debug(f"获取默认 LLM Provider 失败: {e}")
                 self.llm_provider = None

@@ -1,7 +1,7 @@
 """Tests for optional streaming LLM calls (#265)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -102,6 +102,20 @@ async def test_auto_mode_prefers_non_stream(config):
     assert result == '{"summary":"非流式"}'
     assert provider.text_chat.await_count == 1
     assert provider.stream_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_processor_resolves_provider_through_async_host_api():
+    provider = _StreamingProvider(non_stream_result='{"summary":"ok"}')
+    context = SimpleNamespace(
+        get_using_provider_async=AsyncMock(return_value=provider),
+        get_using_provider=Mock(
+            side_effect=AssertionError("sync API must not be used")
+        ),
+    )
+    processor = MemoryProcessor(context=context, config={})
+
+    assert await processor._get_current_llm_provider() is provider
 
 
 @pytest.mark.asyncio

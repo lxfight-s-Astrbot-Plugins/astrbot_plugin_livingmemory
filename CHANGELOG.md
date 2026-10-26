@@ -11,6 +11,10 @@
 
 - **反思积压无法在一次触发内消化 (#344)**：窗口按天或空闲间隔切分后，后台任务会在同一次运行内从最老片段开始连续总结，直到清空积压或达到 `reflection_engine.max_segments_per_run`（默认 10，范围 1-50）。每段独立写入 `source_window` 并原子推进游标；任一段失败、取消、回滚或游标未前进时立即停止，剩余积压留待下次触发。
 
+### 变更
+
+- **AstrBot API 自适应**：默认 LLM Provider 在 AstrBot 4.27.3+ 优先通过 `get_using_provider_async()` 获取，旧版本继续回退同步接口，避免宿主异步 Provider 生命周期下的阻塞与弃用告警。Dashboard 优先使用 `AstrBotPluginView` 桥接，旧版 `AstrBotPluginPage` 保持兼容；文档入口同步为 AstrBot 的 Views 命名。
+
 ## [2.7.2] - 2026-10-26
 
 2.7.2 是文档补丁版本，补充 README 与文档站的嵌入模型说明；不修改运行时逻辑、不引入新的依赖，也没有强制迁移步骤。

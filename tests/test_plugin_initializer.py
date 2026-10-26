@@ -42,7 +42,8 @@ async def test_ensure_initialized_timeout(initializer):
     assert ok is False
 
 
-def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path):
+@pytest.mark.asyncio
+async def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path):
     class DummyEmbeddingProvider:
         pass
 
@@ -63,13 +64,18 @@ def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path)
     llm = DummyProvider()
     mock_context.get_provider_by_id.return_value = None
     mock_context.get_all_embedding_providers.return_value = [emb]
-    mock_context.get_using_provider.return_value = llm
+    mock_context.get_all_providers.return_value = [llm]
+    mock_context.get_using_provider_async = AsyncMock(return_value=llm)
+    mock_context.get_using_provider = Mock(
+        side_effect=AssertionError("async API must be preferred")
+    )
 
     init = PluginInitializer(mock_context, ConfigManager(), str(tmp_path))
-    init._initialize_providers(silent=True)
+    await init._initialize_providers(silent=True)
 
     assert init.embedding_provider is emb
     assert init.llm_provider is llm
+    mock_context.get_using_provider_async.assert_awaited_once_with(None)
 
 
 def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
@@ -305,7 +311,7 @@ async def test_provider_change_rebuilds_document_and_graph_indexes(initializer):
 
 @pytest.mark.asyncio
 async def test_wait_for_providers_non_blocking_success(initializer):
-    initializer._initialize_providers = Mock()
+    initializer._initialize_providers = AsyncMock()
     initializer.embedding_provider = object()
     initializer.llm_provider = object()
 
@@ -684,7 +690,7 @@ async def test_retry_initialization_recovers_after_transient_failure(
     init.embedding_provider = Mock()
     init.llm_provider = Mock()
     init._max_provider_attempts = 3
-    init._initialize_providers = Mock()
+    init._initialize_providers = AsyncMock()
     init._teardown_partial_init = AsyncMock()
     monkeypatch.setattr(plugin_initializer_mod.asyncio, "sleep", AsyncMock())
 
