@@ -1,5 +1,41 @@
 # Releases and Upgrades
 
+## 2.7.3 · October 26, 2026
+
+2.7.3 is a runtime fix release that resolves persistent SQLite write locks after failed transactions and reflection-window backlogs that could not be drained in one trigger. It also adapts to the asynchronous Provider and Plugin View APIs in AstrBot 4.27.3+. There are no new runtime dependencies or mandatory migration steps; as a stable release it participates in AstrBot's update prompts normally.
+
+[Download 2.7.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.3)
+
+### What changed
+
+- **SQLite write-lock recovery**: Failed, cancelled or failed-to-commit write transactions now roll back immediately, and stale transactions are cleared before a connection is reused. This fixes an uncommitted write transaction holding a lock while other connections keep receiving `database is locked`. ([#348](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/348))
+- **Reflection backlog drained in one run**: The new `reflection_engine.max_segments_per_run` option (default 10, range 1-50) lets one background task consume oldest split segments until the backlog is empty or the budget is reached, committing each segment's source window and cursor independently. ([#349](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/349))
+- **AstrBot API adaptation**: AstrBot 4.27.3+ uses the asynchronous Provider API with a synchronous fallback on older releases; the dashboard prefers the Plugin View bridge while legacy Pages remains available. The minimum supported version is still 4.24.2. ([#350](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/350))
+
+### Verification
+
+- All 1,154 backend `pytest` tests and 110 frontend tests pass; CI is green.
+- Dashboard bundles match their source and the VitePress documentation build passes; `git diff --check` passes.
+
+### Upgrade notes
+
+1. No configuration changes and no mandatory migration steps.
+2. Sessions with many day or idle-gap splits can tune `reflection_engine.max_segments_per_run`; the default of 10 covers most deployments.
+3. AstrBot 4.24.2 and later can upgrade directly: 4.27.3+ use the asynchronous Provider API and older releases fall back automatically.
+4. `unable to open database file` is SQLite `SQLITE_CANTOPEN` and is not covered by this write-lock fix. If it persists after upgrading, provide the database path, directory permissions, disk state, and antivirus/sync-drive details.
+
+### Install and upgrade
+
+1. Stop AstrBot and back up the plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the release page, extract it into `data/plugins/astrbot_plugin_livingmemory`, and keep existing data and configuration.
+3. Start or reload AstrBot, confirm the plugin version reads `2.7.3`, then open `Plugins → LivingMemory → Views → dashboard`; older AstrBot versions label this entry as Pages.
+4. For an existing Git installation, switch a clean checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.3
+```
+
 ## 2.7.2 · October 26, 2026
 
 2.7.2 is a documentation patch that makes the embedding-model and free BGE-M3 setup available directly from the README and documentation site. It does not change runtime logic, add dependencies or require migration; as a stable release, it participates in AstrBot's update prompts normally.
@@ -22,7 +58,7 @@
 
 1. No configuration changes and no mandatory migration steps.
 2. Users who configured an Embedding Provider in 2.7.1 can upgrade directly; others can follow the new guide to use the free `BAAI/bge-m3`.
-3. 2.7.2 is the current stable release; earlier pre-releases remain available on the Releases page.
+3. 2.7.2 was the current stable release when it shipped; earlier pre-releases remain available on the Releases page.
 
 ### Install and upgrade
 

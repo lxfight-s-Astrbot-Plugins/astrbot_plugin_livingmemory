@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.7.2
+      text: Get 2.7.3
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.7.2 is released
+## 2.7.3 is released
 
-2.7.2 is a documentation patch: a new Embedding Models and BGE-M3 guide explains the SiliconFlow free `BAAI/bge-m3` setup, model ID, Provider ID lookup and AstrBot fields. The README, Quick Start and Configuration pages are updated too; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps.
+2.7.3 is a runtime fix release: failed SQLite writes roll back and release their locks immediately, reflection backlogs split by day or idle gaps drain in one trigger, and AstrBot 4.27.3+ asynchronous Provider and Plugin View APIs are supported. The minimum supported version remains 4.24.2; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps.
 
 ## Who is this for?
 

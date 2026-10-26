@@ -5,15 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.7.3] - 2026-10-26
+
+2.7.3 是运行时修复版本，修复 SQLite 写事务异常后持续占锁与反思窗口积压无法在一次触发内消化的问题，并适配 AstrBot 新的异步 Provider 与 Plugin View API。不引入新的运行时依赖，也没有强制迁移步骤；稳定版会正常参与 AstrBot 的版本更新提示。
 
 ### 修复
 
-- **反思积压无法在一次触发内消化 (#344)**：窗口按天或空闲间隔切分后，后台任务会在同一次运行内从最老片段开始连续总结，直到清空积压或达到 `reflection_engine.max_segments_per_run`（默认 10，范围 1-50）。每段独立写入 `source_window` 并原子推进游标；任一段失败、取消、回滚或游标未前进时立即停止，剩余积压留待下次触发。
+- **SQLite 写锁释放 (#345)**：共享连接上的写操作统一使用 `BEGIN IMMEDIATE` 与实例级写锁；异常、取消或提交失败都会回滚，复用连接前清理残留事务，关闭前也会回滚。修复未提交写事务长期占锁、其他连接持续收到 `database is locked`、关闭持锁连接后才恢复的问题。([#348](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/348), [@lxfight](https://github.com/lxfight))
+- **反思积压无法在一次触发内消化 (#344)**：窗口按天或空闲间隔切分后，后台任务会在同一次运行内从最老片段开始连续总结，直到清空积压或达到 `reflection_engine.max_segments_per_run`（默认 10，范围 1-50）。每段独立写入 `source_window` 并原子推进游标；任一段失败、取消、回滚或游标未前进时立即停止，剩余积压留待下次触发。([#349](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/349), [@lxfight](https://github.com/lxfight))
 
 ### 变更
 
-- **AstrBot API 自适应**：默认 LLM Provider 在 AstrBot 4.27.3+ 优先通过 `get_using_provider_async()` 获取，旧版本继续回退同步接口，避免宿主异步 Provider 生命周期下的阻塞与弃用告警。Dashboard 优先使用 `AstrBotPluginView` 桥接，旧版 `AstrBotPluginPage` 保持兼容；文档入口同步为 AstrBot 的 Views 命名。
+- **AstrBot API 自适应**：默认 LLM Provider 在 AstrBot 4.27.3+ 优先通过 `get_using_provider_async()` 获取，旧版本继续回退同步接口，避免宿主异步 Provider 生命周期下的阻塞与弃用告警。Dashboard 优先使用 `AstrBotPluginView` 桥接，旧版 `AstrBotPluginPage` 保持兼容；文档入口同步为 AstrBot 的 Views 命名。最低兼容版本仍为 4.24.2。([#350](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/350), [@lxfight](https://github.com/lxfight))
+
+### 验证
+
+- 后端 `pytest` 1,154 项全部通过；前端 110 项全部通过。
+- `npm run check:dashboard`、`npm run docs:build` 与 `git diff --check` 通过。
+
+### 升级说明
+
+1. 无需修改配置，也没有强制迁移步骤。
+2. 跨天或长空闲较多、反思积压明显的会话可通过 `reflection_engine.max_segments_per_run` 调整单次消费上限；默认值 10 已覆盖大多数场景。
+3. AstrBot 4.24.2 及以上均可直接升级：4.27.3+ 使用异步 Provider 接口，旧版本自动回退同步接口。
+4. `unable to open database file` 属于 SQLite `SQLITE_CANTOPEN`，不由本次写锁修复覆盖；若升级后仍出现，请提供数据库路径、目录权限、磁盘状态与杀毒软件/同步盘信息。
 
 ## [2.7.2] - 2026-10-26
 

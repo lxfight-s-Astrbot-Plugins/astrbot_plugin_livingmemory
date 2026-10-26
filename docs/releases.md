@@ -1,5 +1,41 @@
 # 版本与升级
 
+## 2.7.3 · 2026-10-26
+
+2.7.3 是运行时修复版本，修复 SQLite 写事务异常后持续占锁与反思窗口积压无法在一次触发内消化的问题，并适配 AstrBot 4.27.3+ 的异步 Provider 与 Plugin View API。不引入新的运行时依赖，也没有强制迁移步骤；作为稳定版，它会正常参与 AstrBot 的版本更新提示。
+
+[下载 2.7.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.3)
+
+### 本次更新
+
+- **SQLite 写锁恢复**：写事务异常、取消或提交失败时立即回滚，复用连接前清理残留事务；修复未提交写事务长期占锁、其他连接持续收到 `database is locked` 的问题。([#348](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/348))
+- **反思积压一次消费**：新增 `reflection_engine.max_segments_per_run`（默认 10，范围 1-50）；单次后台任务从最老片段开始连续消费，直到积压清空或达到预算，每段独立保存来源窗口并推进游标。([#349](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/349))
+- **AstrBot API 自适应**：AstrBot 4.27.3+ 优先使用异步 Provider 接口，旧版自动回退；Dashboard 优先使用 Plugin View 桥接，旧版 Pages 保持可用。最低兼容版本仍为 4.24.2。([#350](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/350))
+
+### 验证
+
+- 后端 `pytest` 1,154 项、前端 110 项全部通过，CI 通过。
+- Dashboard 构建产物与源码一致，VitePress 文档构建通过；`git diff --check` 通过。
+
+### 升级说明
+
+1. 无需修改配置，也没有强制迁移步骤。
+2. 跨天或长空闲较多、反思积压明显的会话可通过 `reflection_engine.max_segments_per_run` 调整单次消费上限；默认值 10 已覆盖大多数场景。
+3. AstrBot 4.24.2 及以上均可直接升级：4.27.3+ 使用异步 Provider 接口，旧版本自动回退同步接口。
+4. `unable to open database file` 属于 SQLite `SQLITE_CANTOPEN`，不由本次写锁修复覆盖；若升级后仍出现，请提供数据库路径、目录权限、磁盘状态与杀毒软件/同步盘信息。
+
+### 安装与升级
+
+1. 停止 AstrBot，备份插件代码、插件数据目录及配置。
+2. 从发布页下载 **Source code (zip)**，解压到 `data/plugins/astrbot_plugin_livingmemory`，保留原数据与配置。
+3. 启动或重载 AstrBot，确认插件版本为 `2.7.3`，打开 `插件 → LivingMemory → Views → dashboard`；旧版 AstrBot 中该入口显示为 Pages。
+4. 通过 Git 管理插件代码时，可在干净工作目录切换标签后启动：
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.3
+```
+
 ## 2.7.2 · 2026-10-26
 
 2.7.2 是文档补丁版本，让 README 与文档站完整说明嵌入模型和免费 BGE-M3 的配置方法。不修改运行时逻辑，无新增依赖和强制迁移步骤；作为稳定版，它会正常参与 AstrBot 的版本更新提示。
@@ -22,7 +58,7 @@
 
 1. 无需修改配置，也没有强制迁移步骤。
 2. 已在 2.7.1 中配置好 Embedding Provider 的用户可直接升级；尚未配置的用户可按新文档使用免费 `BAAI/bge-m3`。
-3. 稳定版为 2.7.2；历史预发布版本仍保留在 Releases 页面。
+3. 2.7.2 发布时为稳定版；历史预发布版本仍保留在 Releases 页面。
 
 ### 安装与升级
 
