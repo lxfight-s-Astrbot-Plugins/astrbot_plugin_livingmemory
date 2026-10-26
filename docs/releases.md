@@ -1,5 +1,41 @@
 # 版本与升级
 
+## 2.7.2 · 2026-10-26
+
+2.7.2 是文档补丁版本，让 README 与文档站完整说明嵌入模型和免费 BGE-M3 的配置方法。不修改运行时逻辑，无新增依赖和强制迁移步骤；作为稳定版，它会正常参与 AstrBot 的版本更新提示。
+
+[下载 2.7.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.2)
+
+### 本次更新
+
+- **嵌入模型科普**：新增中英文「嵌入模型与 BGE-M3」页面，说明文本向量化、语义召回，以及索引和查询必须使用同一模型与维度的原因。
+- **硅基流动 BGE-M3 配置**：补充免费 `BAAI/bge-m3` 的 API Key、API Base URL、模型 ID、1024 维设置与 AstrBot Provider ID 查找方式。
+- **README 更新**：中英俄三份 README 增加免费嵌入模型章节和文档链接，仓库首页与插件市场可直接看到完整配置入口。
+- **文档导航**：快速开始、配置参考和 VitePress 侧边栏加入新页面入口，新页面同时纳入中英文 parity 测试。
+
+### 验证
+
+- 后端 `pytest` 1,145 项全部通过；本版本无运行时行为变更。
+- VitePress 文档构建通过；README 契约与中英文档 parity 测试 8 项通过。
+
+### 升级说明
+
+1. 无需修改配置，也没有强制迁移步骤。
+2. 已在 2.7.1 中配置好 Embedding Provider 的用户可直接升级；尚未配置的用户可按新文档使用免费 `BAAI/bge-m3`。
+3. 稳定版为 2.7.2；历史预发布版本仍保留在 Releases 页面。
+
+### 安装与升级
+
+1. 停止 AstrBot，备份插件代码、插件数据目录及配置。
+2. 从发布页下载 **Source code (zip)**，解压到 `data/plugins/astrbot_plugin_livingmemory`，保留原数据与配置。
+3. 启动或重载 AstrBot，确认插件版本为 `2.7.2`，打开 `插件 → LivingMemory → Pages → dashboard`。
+4. 通过 Git 管理插件代码时，可在干净工作目录切换标签后启动：
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.2
+```
+
 ## 2.7.1 · 2026-10-22
 
 2.7.1 是 2.7.0 之后的补丁版本，聚焦配置体验与重复记忆：把高级配置从 AstrBot 插件配置页迁移到 Dashboard「设置」页（常用设置 + 5 类折叠分组），并新增写入时近重复合并。不引入新的运行时依赖，也没有强制迁移步骤；稳定版会正常参与 AstrBot 的版本更新提示。
@@ -24,7 +60,7 @@
 2. 若尚未填写 Embedding Provider ID，请先在 AstrBot「LLM 配置」中启用后填写，否则向量/图索引可能初始化失败。
 3. 保存 Dashboard 设置后重载插件，使初始化阶段读取的配置生效；近重复合并等运行时选项即时生效。
 4. 旧记忆需要补图数据时可执行 `/lmem rebuild-graph`；更换 Embedding 模型后执行 `/lmem rebuild-index`。
-5. 稳定版为 2.7.1；历史预发布版本仍保留在 Releases 页面。
+5. 2.7.1 发布时为稳定版；历史预发布版本仍保留在 Releases 页面。
 
 ### 安装与升级
 

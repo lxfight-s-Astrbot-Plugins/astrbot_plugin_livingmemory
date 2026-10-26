@@ -1,5 +1,41 @@
 # Releases and Upgrades
 
+## 2.7.2 · October 26, 2026
+
+2.7.2 is a documentation patch that makes the embedding-model and free BGE-M3 setup available directly from the README and documentation site. It does not change runtime logic, add dependencies or require migration; as a stable release, it participates in AstrBot's update prompts normally.
+
+[Download 2.7.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.2)
+
+### What changed
+
+- **Embedding-model primer**: A new Chinese and English "Embedding Models and BGE-M3" page explains text vectorization, semantic recall, and why indexing and querying must use the same model and dimensions.
+- **SiliconFlow BGE-M3 setup**: The guide covers the free `BAAI/bge-m3` API key, API Base URL, model ID, 1024 dimensions and how to locate the AstrBot Provider ID.
+- **README updates**: The Chinese, English and Russian README files gain a free embedding-model section and documentation link, so the repository homepage and plugin listing expose the full setup path.
+- **Documentation navigation**: Quick Start, Configuration and the VitePress sidebar link to the new page, which is also covered by the Chinese/English parity test.
+
+### Verification
+
+- All 1,145 backend `pytest` tests pass; this release changes no runtime behavior.
+- The VitePress documentation build passes; the README contract and Chinese/English docs-parity tests pass all 8 cases.
+
+### Upgrade notes
+
+1. No configuration changes and no mandatory migration steps.
+2. Users who configured an Embedding Provider in 2.7.1 can upgrade directly; others can follow the new guide to use the free `BAAI/bge-m3`.
+3. 2.7.2 is the current stable release; earlier pre-releases remain available on the Releases page.
+
+### Install and upgrade
+
+1. Stop AstrBot and keep a backup of your existing plugin code, plugin data directory and configuration.
+2. Download **Source code (zip)** from the release page, extract it into `data/plugins/astrbot_plugin_livingmemory`, and keep existing data and configuration.
+3. Start or reload AstrBot, confirm the plugin version reads `2.7.2`, then open `Plugins → LivingMemory → Pages → dashboard`.
+4. For an existing Git installation, switch a clean checkout to the tag before starting AstrBot:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.7.2
+```
+
 ## 2.7.1 · October 22, 2026
 
 2.7.1 is a patch release on top of 2.7.0 focused on configuration ergonomics and duplicate memories: advanced settings move from the AstrBot plugin config page to a dashboard Settings page (common panel plus five collapsed categories), and summaries gain write-time near-duplicate merging. No new runtime dependencies and no mandatory migration steps; as a regular release it participates in AstrBot's update prompts normally.
@@ -24,7 +60,7 @@
 2. If no Embedding Provider ID is set, create and enable one in AstrBot's LLM settings first; otherwise vector/graph indexes may fail to initialize.
 3. Reload the plugin after saving dashboard settings so options read during initialization take effect; runtime options such as duplicate merging apply immediately.
 4. Run `/lmem rebuild-graph` to backfill graph data for older memories, and `/lmem rebuild-index` after changing the embedding model.
-5. 2.7.1 is the current stable release; earlier pre-releases remain available on the Releases page.
+5. 2.7.1 was the stable release at the time; earlier pre-releases remain available on the Releases page.
 
 ### Install and upgrade
 

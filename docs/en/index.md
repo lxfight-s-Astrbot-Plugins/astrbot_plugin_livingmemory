@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.7.1
+      text: Get 2.7.2
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.7.1 is released
+## 2.7.2 is released
 
-2.7.1 is a patch release focused on configuration ergonomics and duplicate memories: advanced settings move from the AstrBot plugin config page to a dashboard Settings page (common panel plus five collapsed categories), and summaries get write-time near-duplicate merging. As a non-prerelease it participates in AstrBot's update prompts normally; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps.
+2.7.2 is a documentation patch: a new Embedding Models and BGE-M3 guide explains the SiliconFlow free `BAAI/bge-m3` setup, model ID, Provider ID lookup and AstrBot fields. The README, Quick Start and Configuration pages are updated too; [Releases and Upgrades](/en/releases) has the full notes, downloads and upgrade steps.
 
 ## Who is this for?
 

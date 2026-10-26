@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.7.1 稳定版
+      text: 2.7.2 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.7.1 已发布
+## 2.7.2 已发布
 
-2.7.1 补丁版聚焦配置体验与重复记忆：高级配置从 AstrBot 插件配置页迁移到 Dashboard 设置页（常用设置 + 5 类折叠分组），并新增写入时近重复合并。稳定版会正常参与 AstrBot 的版本更新提示；[版本与升级](/releases)提供完整说明、下载与升级步骤。
+2.7.2 是文档补丁版本：新增「嵌入模型与 BGE-M3」科普页，说明硅基流动免费 `BAAI/bge-m3` 的 AstrBot 配置、模型 ID 与 Provider ID 查找方式。README、快速开始和配置参考已同步更新；[版本与升级](/releases)提供完整说明、下载与升级步骤。
 
 ## 这份文档适合谁？
 

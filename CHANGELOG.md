@@ -5,21 +5,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.7.2] - 2026-10-26
 
-### 新增
-
-- **写入时近重复合并**：总结记忆落库前，与同会话/同人格的近期记忆比较；相似度达到 `memory_dedup.similarity_threshold`（默认 0.92）时合并到已有记忆而不是新增一条，并保留主题、关键事实、原子与来源消息。检测或合并失败时回退为正常写入；回滚补偿只删除本任务新建的记忆。
-- **Dashboard「设置」页**：召回、反思、图谱与原子、整合、访问控制、备份、索引重建、近重复合并等高级配置迁移到插件 Pages 的设置页，按分组展示并保存；字段说明沿用配置 schema 与四语本地化文案，保存后重载插件完全生效。
-
-### 变更
-
-- **AstrBot 插件配置页精简**：只保留模型 Provider（含必填 Embedding Provider ID）与回复语言；其余配置项在 schema 中标记为隐藏，由 Dashboard 设置页管理。
-- **设置页降低认知负担**：页面顶部只保留 8 个常用设置；其余配置按「记忆生成与生命周期、召回与工具、图谱与原子、访问与隔离、系统与维护」5 类折叠，支持搜索与一键展开/收起，长说明只在展开后出现。
+2.7.2 是文档补丁版本，补充 README 与文档站的嵌入模型说明；不修改运行时逻辑、不引入新的依赖，也没有强制迁移步骤。
 
 ### 文档
 
-- **明确 Embedding Provider 必填**：`provider_settings.embedding_provider_id` 留空时只会回退到 AstrBot 第一个可用 Embedding Provider；若选错模型或没有可用 Provider，会表现为向量/图索引初始化失败、Dashboard 无图数据。配置页提示、配置参考、快速开始与 README 已改为要求显式填写已启用的 Provider ID，启动日志也会在回退时输出 warning。
+- **嵌入模型科普**：新增中英文「嵌入模型与 BGE-M3」页面，解释嵌入模型如何把文本映射为向量、LivingMemory 如何用它做语义召回，以及为什么索引与查询必须使用同一模型和维度。
+- **硅基流动 BGE-M3 配置**：给出免费 `BAAI/bge-m3` 的 API Key、API Base URL、模型 ID、1024 维配置，以及 AstrBot Provider ID 的查找方式，并说明模型 ID 与 Provider ID 的区别。
+- **README 更新**：中英俄三份 README 增加免费嵌入模型章节和文档入口，让插件市场与仓库首页直接展示可执行的配置步骤。
+- **文档入口与校验**：快速开始、配置参考和 VitePress 侧边栏加入新页面入口，并将该页面纳入中英文 parity 测试。
+
+### 验证
+
+- 后端 `pytest` 1,145 项全部通过；无运行时行为变更。
+- `npm run docs:build` 通过；README 契约与中英文档 parity 测试 8 项通过。
 
 
 ## [2.7.1] - 2026-10-22
