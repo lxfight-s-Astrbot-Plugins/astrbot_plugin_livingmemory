@@ -113,6 +113,7 @@ function sidebarZh() {
       text: '开始使用',
       items: [
         { text: '快速开始', link: '/guide/getting-started' },
+        { text: '嵌入模型与 BGE-M3', link: '/guide/embedding-model' },
         { text: '版本与升级', link: '/releases' },
         { text: '配置参考', link: '/configuration' },
         { text: '命令速查', link: '/commands' },
@@ -136,6 +137,7 @@ function sidebarEn() {
       text: 'Get Started',
       items: [
         { text: 'Quick Start', link: '/en/guide/getting-started' },
+        { text: 'Embedding Models and BGE-M3', link: '/en/guide/embedding-model' },
         { text: 'Releases and Upgrades', link: '/en/releases' },
         { text: 'Configuration', link: '/en/configuration' },
         { text: 'Commands', link: '/en/commands' },

@@ -22,6 +22,10 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 | `provider_settings.llm_provider_id` | 总结对话、评估记忆 | 留空可使用默认 LLM，建议选择推理能力稳定的模型 |
 | `bot_language` | 命令与状态回复语言 | `zh`、`en`、`ru`、`ja` |
 
+## 嵌入模型
+
+LivingMemory 的语义召回依赖 Embedding Provider，而不是用于聊天的 LLM。推荐免费的 `BAAI/bge-m3`（1024 维）；从获取密钥、创建 Provider 到查找 ID 的完整步骤，见[嵌入模型与 BGE-M3](/guide/embedding-model)。
+
 ## 推荐配置
 
 | 场景 | 建议 |

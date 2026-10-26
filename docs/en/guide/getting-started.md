@@ -22,6 +22,10 @@ The current stable version is **2.7.1** (previous version: 2.7.0). See [Releases
 | `provider_settings.llm_provider_id` | Summarizes conversations and evaluates memory | Leave empty to use the default LLM; a stable reasoning model is recommended |
 | `bot_language` | Language for command and status replies | `zh`, `en`, `ru`, or `ja` |
 
+## Embedding model
+
+LivingMemory's semantic recall depends on an Embedding Provider, not the chat LLM. The free `BAAI/bge-m3` model (1024 dimensions) is recommended; see [Embedding Models and BGE-M3](/en/guide/embedding-model) for the full workflow from obtaining a key and creating a provider to finding its ID.
+
 ## Recommended settings
 
 | Scenario | Recommendation |

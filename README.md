@@ -43,12 +43,24 @@ LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历�
 ## 开始使用
 
 1. 从 AstrBot 插件市场安装，或将指定版本的插件代码放入 `data/plugins/astrbot_plugin_livingmemory`。
-2. 先在 AstrBot 后台「LLM 配置」中创建并启用 Embedding Provider，再重载 AstrBot 并在 LivingMemory 配置中填写其 ID 与 LLM Provider；Embedding 留空只会回退到第一个可用 Provider，容易选错或导致向量/图索引初始化失败。
+2. 先在 AstrBot 后台「模型提供商 → 嵌入」中创建并启用 Embedding Provider（推荐免费的 `BAAI/bge-m3`，见[配置步骤](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/guide/embedding-model)），再重载 AstrBot 并在 LivingMemory 配置中填写其 ID 与 LLM Provider；Embedding 留空只会回退到第一个可用 Provider，容易选错或导致向量/图索引初始化失败。
 3. 打开 `插件 → LivingMemory → Pages → dashboard`。Pages 需要 **AstrBot 4.24.2 或更高版本**。
 
 测试版请从上方指定标签下载，具体安装及回退步骤见[版本与升级](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/releases)。已有数据时，升级前保留插件数据与配置备份。
 
 发送几轮对话后，用 `/lmem status` 查看状态、`/lmem summarize` 手动总结、`/lmem search 关键词` 检查召回。
+
+## 免费的嵌入模型
+
+LivingMemory 的语义召回依赖 Embedding Provider，推荐硅基流动当前免费的 `BAAI/bge-m3`（1024 维）。在 AstrBot「模型提供商 → 嵌入 → 新增模型提供商 → OpenAI Embedding」中填写：
+
+- Provider ID：保留 AstrBot 生成的值，如 `openai_embedding`
+- API Base URL：`https://api.siliconflow.cn/v1`
+- API Key：硅基流动控制台创建的密钥
+- 嵌入模型：`BAAI/bge-m3`
+- 嵌入维度：`1024`
+
+保存并点击测试后，把该 Provider ID 填入 LivingMemory 的 `provider_settings.embedding_provider_id`。模型 ID 与 Provider ID 不同，完整说明见[嵌入模型与 BGE-M3](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/guide/embedding-model)。
 
 ## 继续了解
 
