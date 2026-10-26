@@ -147,6 +147,12 @@ class ReflectionEngineConfig(BaseModel):
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
     )
+    max_segments_per_run: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="单次反思触发最多连续总结的窗口片段数",
+    )
     window_split_by_day: bool = Field(
         default=True, description="是否按本地日期切分总结窗口"
     )

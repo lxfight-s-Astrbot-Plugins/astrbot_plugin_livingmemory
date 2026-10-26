@@ -163,7 +163,7 @@ def test_find_window_split_boundary(
 
 
 def test_find_window_split_boundary_returns_oldest_boundary_only():
-    """多个边界并存时只返回最老的一个，较新片段留待后续触发（FIFO）。"""
+    """多个边界并存时只返回最老的一个，供积压消费按段继续处理。"""
     messages = _messages(
         _day(1, 22, 0),
         _day(1, 22, 5),

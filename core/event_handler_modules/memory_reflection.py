@@ -401,6 +401,29 @@ class MemoryReflection:
         pending_summary: dict | None,
         expected_revision: int | None,
     ) -> _ReflectionPlan | None:
+        """首次触发总结：解析人格/作用域后构造最老片段计划。"""
+        persona_id = await get_persona_id(self.context, event)
+        memory_scope = resolve_memory_scope(self.config_manager, event) or session_id
+        return await self._build_reflection_plan_for_cursor(
+            session_id,
+            total_messages,
+            last_summarized_index,
+            pending_summary,
+            expected_revision,
+            persona_id,
+            memory_scope,
+        )
+
+    async def _build_reflection_plan_for_cursor(
+        self,
+        session_id: str,
+        total_messages: int,
+        last_summarized_index: int,
+        pending_summary: dict | None,
+        expected_revision: int | None,
+        persona_id: Any,
+        memory_scope: str,
+    ) -> _ReflectionPlan | None:
         """处理待重试范围、窗口切分并取回总结输入消息。"""
         start_index = last_summarized_index
         end_index = total_messages
@@ -431,7 +454,7 @@ class MemoryReflection:
             logger.debug(f"[{session_id}] 消息数不足一轮对话，跳过总结")
             return None
 
-        # 窗口切分配置：跨天或空闲间隔超过阈值时只总结最老片段（FIFO），
+        # 窗口切分配置：跨天或空闲间隔超过阈值时从最老片段开始逐段总结，
         # 避免一整段跨天/跨长空闲的对话被合并进同一条记忆。
         split_by_day = bool(
             self.config_manager.get("reflection_engine.window_split_by_day", True)
@@ -461,8 +484,8 @@ class MemoryReflection:
             reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
             logger.info(
                 f"[{session_id}] 总结窗口按{reason_text}在消息 {end_index} 处切分："
-                f"仅总结最老片段 [{start_index}:{end_index}]，"
-                f"较新片段 [{end_index}:{total_messages}] 留待后续触发"
+                f"本次总结片段 [{start_index}:{end_index}]，"
+                f"后续片段在同一任务内继续消费"
             )
 
         messages_to_summarize = end_index - start_index
@@ -475,7 +498,6 @@ class MemoryReflection:
         history_messages = candidate_messages[:messages_to_summarize]
         logger.info(f"[{session_id}] 获取到 {len(history_messages)} 条消息用于总结")
 
-        persona_id = await get_persona_id(self.context, event)
         return _ReflectionPlan(
             session_id=session_id,
             history_messages=history_messages,
@@ -483,11 +505,96 @@ class MemoryReflection:
             start_index=start_index,
             end_index=end_index,
             retry_count=retry_count,
-            memory_scope=(
-                resolve_memory_scope(self.config_manager, event) or session_id
-            ),
+            memory_scope=memory_scope,
             expected_revision=expected_revision,
         )
+
+    async def _build_next_reflection_plan(
+        self,
+        session_id: str,
+        persona_id: Any,
+        memory_scope: str,
+        expected_revision: int | None,
+    ) -> _ReflectionPlan | None:
+        """读取成功提交后的最新游标，为积压消费构造下一段计划。"""
+        if not await self._revision_still_valid(session_id, expected_revision):
+            return None
+
+        total_messages = await self.conversation_manager.store.get_message_count(
+            session_id
+        )
+        last_summarized_index = await self.conversation_manager.get_session_metadata(
+            session_id, "last_summarized_index", 0
+        )
+        pending_summary = await self.conversation_manager.get_session_metadata(
+            session_id, "pending_summary", None
+        )
+        if pending_summary is not None:
+            return None
+        if total_messages - last_summarized_index < 2:
+            return None
+
+        return await self._build_reflection_plan_for_cursor(
+            session_id,
+            total_messages,
+            last_summarized_index,
+            pending_summary,
+            expected_revision,
+            persona_id,
+            memory_scope,
+        )
+
+    def _max_segments_per_run(self) -> int:
+        try:
+            value = int(
+                self.config_manager.get(
+                    "reflection_engine.max_segments_per_run", 10
+                )
+            )
+        except (TypeError, ValueError):
+            value = 10
+        return max(1, min(value, 50))
+
+    async def _consume_reflection_segments(self, plan: _ReflectionPlan) -> None:
+        """在同一后台任务内逐段消费积压，直到清空或达到单次片段预算。"""
+        max_segments = self._max_segments_per_run()
+        for segment_index in range(max_segments):
+            committed = await self._storage_task(
+                plan.session_id,
+                plan.history_messages,
+                plan.persona_id,
+                plan.start_index,
+                plan.end_index,
+                plan.retry_count,
+                memory_scope=plan.memory_scope,
+                expected_revision=plan.expected_revision,
+            )
+            if not committed:
+                return
+            if self._shutting_down:
+                return
+
+            if segment_index + 1 >= max_segments:
+                logger.debug(
+                    f"[{plan.session_id}] 达到单次反思片段上限 {max_segments}，"
+                    "停止继续消费"
+                )
+                return
+
+            next_plan = await self._build_next_reflection_plan(
+                plan.session_id,
+                plan.persona_id,
+                plan.memory_scope,
+                plan.expected_revision,
+            )
+            if next_plan is None:
+                return
+            if next_plan.start_index <= plan.start_index:
+                logger.warning(
+                    f"[{plan.session_id}] 总结游标未向前推进，停止积压消费"
+                )
+                return
+            plan = next_plan
 
     async def _schedule_reflection(self, plan: _ReflectionPlan) -> None:
         """创建并跟踪后台总结任务；同一会话已有任务在跑时跳过。"""
@@ -503,16 +610,7 @@ class MemoryReflection:
 
         try:
             task = asyncio.create_task(
-                self._storage_task(
-                    plan.session_id,
-                    plan.history_messages,
-                    plan.persona_id,
-                    plan.start_index,
-                    plan.end_index,
-                    plan.retry_count,
-                    memory_scope=plan.memory_scope,
-                    expected_revision=plan.expected_revision,
-                )
+                self._consume_reflection_segments(plan)
             )
         except Exception:
             self._storage_sessions_inflight.discard(plan.session_id)
@@ -715,8 +813,8 @@ class MemoryReflection:
         retry_count: int,
         memory_scope: str | None | object = _DEFAULT_MEMORY_SCOPE,
         expected_revision: int | None = None,
-    ):
-        """后台存储任务"""
+    ) -> bool:
+        """总结并提交一个窗口片段；返回是否成功推进总结游标。"""
         from ..utils import OperationContext
 
         if memory_scope is _DEFAULT_MEMORY_SCOPE:
@@ -750,14 +848,14 @@ class MemoryReflection:
                         f"[{session_id}] 检测到过期总结任务，跳过: "
                         f"current={summarized_index}, target_end={end_index}"
                     )
-                    return
+                    return False
 
                 if not await self._revision_still_valid(session_id, expected_revision):
                     logger.info(
                         f"[{session_id}] 会话已回滚（修订号变化），跳过过期总结 "
                         f"范围=[{start_index}:{end_index}]"
                     )
-                    return
+                    return False
 
                 # 判断是否为群聊
                 is_group_chat = bool(
@@ -783,7 +881,7 @@ class MemoryReflection:
                         retry_count,
                         expected_revision,
                     )
-                    return
+                    return False
 
                 try:
                     logger.info(
@@ -834,7 +932,7 @@ class MemoryReflection:
                         retry_count,
                         expected_revision,
                     )
-                    return
+                    return False
 
                 # 回滚会推进会话修订号：等待 LLM 期间若发生编辑/重试回滚，
                 # 本任务的消息范围已失效，不得把被撤销内容写入长期记忆
@@ -843,7 +941,7 @@ class MemoryReflection:
                         f"[{session_id}] 会话已回滚（修订号变化），放弃写入过期总结 "
                         f"范围=[{start_index}:{end_index}]"
                     )
-                    return
+                    return False
 
                 # 正常流程：写入记忆引擎；近重复检测命中时合并到已有记忆
                 memory_id: int | None = None
@@ -885,39 +983,46 @@ class MemoryReflection:
 
                 # 成功：更新已总结的位置，清除待处理记录（原子校验修订号，
                 # 避免把游标写回回滚前的旧位置）
-                if self.conversation_manager:
+                if self.conversation_manager is None:
+                    return False
+
+                try:
+                    committed = await self._commit_summary_cursor(
+                        session_id, end_index, expected_revision
+                    )
+                    if committed:
+                        logger.info(
+                            f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
+                        )
+                        return True
+                    if memory_id is not None and memory_created:
+                        # 修订号校验发生在写入之前：等待期间若发生回滚，
+                        # 刚落库的记忆属于已撤销内容，必须补偿删除
+                        await self._compensate_rolled_back_memory(
+                            session_id, memory_id
+                        )
+                    return False
+                except Exception as meta_err:
+                    logger.error(
+                        f"[{session_id}] 记忆已存储但元数据更新失败: {meta_err}。"
+                        "下次触发时将跳过本段消息，避免重复总结。",
+                        exc_info=True,
+                    )
+                    # Advance the index anyway to prevent re-processing the
+                    # same message range (memory is already stored durably).
                     try:
                         committed = await self._commit_summary_cursor(
                             session_id, end_index, expected_revision
                         )
                         if committed:
-                            logger.info(
-                                f"[{session_id}] 更新滑动窗口位置: last_summarized_index = {end_index}"
-                            )
-                        elif memory_id is not None and memory_created:
-                            # 修订号校验发生在写入之前：等待期间若发生回滚，
-                            # 刚落库的记忆属于已撤销内容，必须补偿删除
-                            await self._compensate_rolled_back_memory(
-                                session_id, memory_id
-                            )
-                    except Exception as meta_err:
+                            return True
+                    except Exception:
                         logger.error(
-                            f"[{session_id}] 记忆已存储但元数据更新失败: {meta_err}。"
-                            "下次触发时将跳过本段消息，避免重复总结。",
+                            f"[{session_id}] 重试元数据更新仍然失败，"
+                            "可能出现重复总结。",
                             exc_info=True,
                         )
-                        # Advance the index anyway to prevent re-processing the
-                        # same message range (memory is already stored durably).
-                        try:
-                            await self._commit_summary_cursor(
-                                session_id, end_index, expected_revision
-                            )
-                        except Exception:
-                            logger.error(
-                                f"[{session_id}] 重试元数据更新仍然失败，"
-                                "可能出现重复总结。",
-                                exc_info=True,
-                            )
+                    return False
 
             except asyncio.CancelledError:
                 # 回滚会 cancel 本任务；取消在 await 点生效并穿透 except Exception。
@@ -937,6 +1042,7 @@ class MemoryReflection:
                     retry_count,
                     expected_revision,
                 )
+                return False
 
     async def _record_pending_summary(
         self,
