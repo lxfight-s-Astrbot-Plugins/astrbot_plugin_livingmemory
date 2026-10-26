@@ -1284,11 +1284,11 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
                     json.dumps(doc["metadata"], ensure_ascii=False),
                 ),
             )
+            await engine.db_connection.commit()
             await engine.save_memory_source(
                 mid,
                 [{"role": "user", "content": f"source-{mid}"}],
             )
-        await engine.db_connection.commit()
 
     deleted = await engine.batch_delete_memories(ids)
     assert deleted == 5

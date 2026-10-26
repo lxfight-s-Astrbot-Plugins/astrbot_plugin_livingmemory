@@ -256,10 +256,11 @@ class MemoryEngineWriteOpsMixin:
             return 0
 
         placeholders = ",".join("?" * len(memory_ids))
-        await self.db_connection.execute(
-            f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
-            memory_ids,
-        )
+        async with self._write_transaction() as connection:
+            await connection.execute(
+                f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+                memory_ids,
+            )
 
         cursor = await self.db_connection.execute(
             f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
@@ -280,15 +281,15 @@ class MemoryEngineWriteOpsMixin:
                     exc_info=True,
                 )
 
-        cursor = await self.db_connection.execute(
-            f"DELETE FROM documents WHERE id IN ({placeholders})",
-            memory_ids,
-        )
-        await self.db_connection.execute(
-            f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
-            memory_ids,
-        )
-        await self.db_connection.commit()
+        async with self._write_transaction() as connection:
+            cursor = await connection.execute(
+                f"DELETE FROM documents WHERE id IN ({placeholders})",
+                memory_ids,
+            )
+            await connection.execute(
+                f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
+                memory_ids,
+            )
         return int(cursor.rowcount or 0)
 
     async def _delete_graph_and_atoms_for_batch(self, memory_ids: list[int]) -> None:
@@ -301,11 +302,10 @@ class MemoryEngineWriteOpsMixin:
         if self.atom_store is not None:
             await self.atom_store.batch_delete_by_parent(memory_ids)
 
-    async def _drop_legacy_documents_fts_triggers(self):
-        if self.db_connection is None:
-            return
-
-        cursor = await self.db_connection.execute("""
+    async def _drop_legacy_documents_fts_triggers(
+        self, connection: aiosqlite.Connection
+    ):
+        cursor = await connection.execute("""
             SELECT name FROM sqlite_master
             WHERE type='trigger' AND tbl_name='documents'
               AND sql LIKE '%documents_fts%'
@@ -313,5 +313,5 @@ class MemoryEngineWriteOpsMixin:
         rows = await cursor.fetchall()
         for row in rows:
             trigger_name = row[0]
-            await self.db_connection.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
+            await connection.execute(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
             logger.warning(f"已清理旧 LivingMemory FTS 触发器: {trigger_name}")

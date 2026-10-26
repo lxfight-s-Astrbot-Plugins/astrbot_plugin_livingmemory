@@ -237,25 +237,23 @@ class MemoryEngineCrudMixin:
         self, memory_id: int, source_messages: list[dict[str, Any]]
     ) -> None:
         """Persist source messages outside retrieval metadata and indexes."""
-        if self.db_connection is None:
-            raise RuntimeError("数据库连接未初始化")
         now = time.time()
-        await self.db_connection.execute(
-            """
-            INSERT INTO memory_sources(memory_id, source_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(memory_id) DO UPDATE SET
-                source_json = excluded.source_json,
-                updated_at = excluded.updated_at
-            """,
-            (
-                int(memory_id),
-                json.dumps(source_messages, ensure_ascii=False),
-                now,
-                now,
-            ),
-        )
-        await self.db_connection.commit()
+        async with self._write_transaction() as connection:
+            await connection.execute(
+                """
+                INSERT INTO memory_sources(memory_id, source_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(memory_id) DO UPDATE SET
+                    source_json = excluded.source_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(memory_id),
+                    json.dumps(source_messages, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
 
     async def get_memory_source(self, memory_id: int) -> list[dict[str, Any]]:
         """Return structured source messages for one memory."""
@@ -1241,10 +1239,10 @@ class MemoryEngineCrudMixin:
             return False
 
         if self.db_connection is not None:
-            await self.db_connection.execute(
-                "DELETE FROM memory_sources WHERE memory_id = ?", (memory_id,)
-            )
-            await self.db_connection.commit()
+            async with self._write_transaction() as connection:
+                await connection.execute(
+                    "DELETE FROM memory_sources WHERE memory_id = ?", (memory_id,)
+                )
 
         try:
             if self.graph_memory_manager is not None:
@@ -1392,39 +1390,38 @@ class MemoryEngineCrudMixin:
             # 只改 importance / access_count 两个键，且新值在 SQL 里基于当前值计算：
             # 并发召回写入的 last_access_time（以及期间新增的 access_count）不会被
             # 旧快照整列回写覆盖。
-            await self.db_connection.executemany(
-                """
-                UPDATE documents
-                SET metadata = json_set(
-                    json_set(
-                        metadata,
-                        '$.importance',
-                        MAX(
-                            0.01,
-                            ROUND(
-                                CAST(json_extract(metadata, '$.importance') AS REAL) * ?,
-                                4
+            async with self._write_transaction() as connection:
+                await connection.executemany(
+                    """
+                    UPDATE documents
+                    SET metadata = json_set(
+                        json_set(
+                            metadata,
+                            '$.importance',
+                            MAX(
+                                0.01,
+                                ROUND(
+                                    CAST(json_extract(metadata, '$.importance') AS REAL) * ?,
+                                    4
+                                )
                             )
+                        ),
+                        '$.access_count',
+                        CAST(
+                            COALESCE(
+                                CAST(json_extract(metadata, '$.access_count') AS REAL),
+                                0
+                            ) * ?
+                            AS INTEGER
                         )
-                    ),
-                    '$.access_count',
-                    CAST(
-                        COALESCE(
-                            CAST(json_extract(metadata, '$.access_count') AS REAL),
-                            0
-                        ) * ?
-                        AS INTEGER
                     )
+                    WHERE id = ?
+                    """,
+                    [
+                        (factor, access_decay_multiplier, doc_id)
+                        for factor, doc_id in updates
+                    ],
                 )
-                WHERE id = ?
-                """,
-                [
-                    (factor, access_decay_multiplier, doc_id)
-                    for factor, doc_id in updates
-                ],
-            )
-
-            await self.db_connection.commit()
             affected = len(updates)
 
             logger.info(
@@ -1498,36 +1495,38 @@ class MemoryEngineCrudMixin:
         try:
             # 单条原子 SQL，避免并发召回任务对同一记忆产生丢失更新
             placeholders = ",".join("?" * len(unique_ids))
-            cursor = await self.db_connection.execute(
-                f"""
-                UPDATE documents
-                SET metadata = CASE
-                    WHEN json_valid(metadata) THEN json_set(
-                        json_set(metadata, '$.last_access_time', ?),
-                        '$.access_count',
-                        MIN(
-                            COALESCE(
-                                CAST(json_extract(metadata, '$.access_count') AS INTEGER),
-                                0
-                            ) + 1,
-                            1000000
+            async with self._write_transaction() as connection:
+                cursor = await connection.execute(
+                    f"""
+                    UPDATE documents
+                    SET metadata = CASE
+                        WHEN json_valid(metadata) THEN json_set(
+                            json_set(metadata, '$.last_access_time', ?),
+                            '$.access_count',
+                            MIN(
+                                COALESCE(
+                                    CAST(json_extract(metadata, '$.access_count') AS INTEGER),
+                                    0
+                                ) + 1,
+                                1000000
+                            )
                         )
-                    )
-                    ELSE json_set('{{}}', '$.last_access_time', ?, '$.access_count', 1)
-                END
-                WHERE id IN ({placeholders})
-                """,
-                (current_time, current_time, *unique_ids),
-            )
-            if atom_ids and self.atom_store is not None:
-                unique_atoms = list(dict.fromkeys(int(atom_id) for atom_id in atom_ids))
-                await self.db_connection.execute(
-                    f"UPDATE memory_atoms SET last_accessed_at = ? "
-                    f"WHERE id IN ({','.join('?' for _ in unique_atoms)}) "
-                    "AND status = 'active' AND expires_at > ?",
-                    (current_time, *unique_atoms, current_time),
+                        ELSE json_set('{{}}', '$.last_access_time', ?, '$.access_count', 1)
+                    END
+                    WHERE id IN ({placeholders})
+                    """,
+                    (current_time, current_time, *unique_ids),
                 )
-            await self.db_connection.commit()
+                if atom_ids and self.atom_store is not None:
+                    unique_atoms = list(
+                        dict.fromkeys(int(atom_id) for atom_id in atom_ids)
+                    )
+                    await connection.execute(
+                        f"UPDATE memory_atoms SET last_accessed_at = ? "
+                        f"WHERE id IN ({','.join('?' for _ in unique_atoms)}) "
+                        "AND status = 'active' AND expires_at > ?",
+                        (current_time, *unique_atoms, current_time),
+                    )
             return cursor.rowcount > 0
         except asyncio.CancelledError:
             raise

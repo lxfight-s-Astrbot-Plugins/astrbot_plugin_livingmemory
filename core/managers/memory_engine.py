@@ -6,6 +6,7 @@
 import asyncio
 from collections import OrderedDict
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,7 @@ class MemoryEngine(
         self.atom_lifecycle_manager = None
         self.atom_retriever = None
         self.db_connection = None
+        self._db_write_lock = asyncio.Lock()
         self._search_cache_enabled = bool(self.config.get("search_cache_enabled", True))
         self._search_cache_ttl = float(
             self.config.get("search_cache_ttl_seconds", 45.0)
@@ -275,11 +277,38 @@ class MemoryEngine(
                 await self._flush_access_updates()
             except (asyncio.CancelledError, Exception):
                 logger.warning("关闭前写入访问统计失败", exc_info=True)
+            if self.db_connection.in_transaction:
+                await self.db_connection.rollback()
             await self.db_connection.close()
         if self.graph_store is not None:
             await self.graph_store.close()
         if self.graph_vector_db is not None:
             await self.graph_vector_db.close()
+
+    @asynccontextmanager
+    async def _write_transaction(self):
+        """串行执行主连接写事务，并保证任何失败都不会残留写锁。"""
+        if self.db_connection is None:
+            raise RuntimeError("memory database is not initialized")
+
+        async with self._db_write_lock:
+            connection = self.db_connection
+            if connection.in_transaction:
+                await connection.rollback()
+            await connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield connection
+            except BaseException:
+                if connection.in_transaction:
+                    await connection.rollback()
+                raise
+            else:
+                try:
+                    await connection.commit()
+                except BaseException:
+                    if connection.in_transaction:
+                        await connection.rollback()
+                    raise
 
     def _create_tracked_task(self, coro) -> asyncio.Task:
         """Create and track a background task, auto-discarding on completion."""
@@ -306,11 +335,11 @@ class MemoryEngine(
         - 如果 FAISS 未创建（极端情况），插件仍能正常工作
         - 插件需要直接操作此表进行高频更新（如访问时间）
         """
-        # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
-        if self.db_connection is not None:
-            await self._drop_legacy_documents_fts_triggers()
+        async with self._write_transaction() as connection:
+            await self._drop_legacy_documents_fts_triggers(connection)
 
-            await self.db_connection.execute("""
+            # documents表 - 与FAISS共享，IF NOT EXISTS确保不重复创建
+            await connection.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 doc_id TEXT,
@@ -322,23 +351,21 @@ class MemoryEngine(
         """)
 
             # 兼容旧版插件创建的简化 documents 表，确保 FAISS DocumentStorage 所需字段存在
-            cursor = await self.db_connection.execute("PRAGMA table_info(documents)")
+            cursor = await connection.execute("PRAGMA table_info(documents)")
             column_rows = await cursor.fetchall()
             existing_columns = {row[1] for row in column_rows}
 
             missing_columns = []
             if "doc_id" not in existing_columns:
-                await self.db_connection.execute(
-                    "ALTER TABLE documents ADD COLUMN doc_id TEXT"
-                )
+                await connection.execute("ALTER TABLE documents ADD COLUMN doc_id TEXT")
                 missing_columns.append("doc_id")
             if "created_at" not in existing_columns:
-                await self.db_connection.execute(
+                await connection.execute(
                     "ALTER TABLE documents ADD COLUMN created_at TEXT"
                 )
                 missing_columns.append("created_at")
             if "updated_at" not in existing_columns:
-                await self.db_connection.execute(
+                await connection.execute(
                     "ALTER TABLE documents ADD COLUMN updated_at TEXT"
                 )
                 missing_columns.append("updated_at")
@@ -350,17 +377,17 @@ class MemoryEngine(
                 )
 
             # 回填旧数据，避免 doc_id/timestamp 缺失导致删除与展示异常
-            await self.db_connection.execute("""
+            await connection.execute("""
             UPDATE documents
             SET doc_id = 'legacy-' || id
             WHERE doc_id IS NULL OR TRIM(doc_id) = ''
         """)
-            await self.db_connection.execute("""
+            await connection.execute("""
             UPDATE documents
             SET created_at = datetime('now')
             WHERE created_at IS NULL OR TRIM(CAST(created_at AS TEXT)) = ''
         """)
-            await self.db_connection.execute("""
+            await connection.execute("""
             UPDATE documents
             SET updated_at = COALESCE(created_at, datetime('now'))
             WHERE updated_at IS NULL OR TRIM(CAST(updated_at AS TEXT)) = ''
@@ -368,10 +395,10 @@ class MemoryEngine(
 
             # 索引 DDL 与迁移/校验器共用 storage.schema 中的单一定义
             for statement in DOCUMENTS_INDEX_STATEMENTS:
-                await self.db_connection.execute(statement)
-            await self.db_connection.execute(DOCUMENTS_DOC_ID_INDEX_STATEMENT)
+                await connection.execute(statement)
+            await connection.execute(DOCUMENTS_DOC_ID_INDEX_STATEMENT)
 
-            await self.db_connection.execute("""
+            await connection.execute("""
             CREATE TABLE IF NOT EXISTS memory_sources (
                 memory_id INTEGER PRIMARY KEY,
                 source_json TEXT NOT NULL,
@@ -382,14 +409,12 @@ class MemoryEngine(
 
             # 版本管理 / 迁移状态表：与 DBMigration、IndexValidator 共用同一份 DDL
             for statement in DB_VERSION_SCHEMA_STATEMENTS:
-                await self.db_connection.execute(statement)
+                await connection.execute(statement)
             for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
-                await self.db_connection.execute(statement)
-
-            await self.db_connection.commit()
+                await connection.execute(statement)
 
             # 检查是否需要初始化版本信息
-            cursor = await self.db_connection.execute("SELECT COUNT(*) FROM db_version")
+            cursor = await connection.execute("SELECT COUNT(*) FROM db_version")
             version_result = await cursor.fetchone()
             version_count = version_result[0] if version_result else 0
 
@@ -399,7 +424,7 @@ class MemoryEngine(
 
                 from ...storage.db_migration import DBMigration
 
-                await self.db_connection.execute(
+                await connection.execute(
                     """
                     INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
                     VALUES (?, ?, ?, ?)
@@ -411,7 +436,6 @@ class MemoryEngine(
                         0.0,
                     ),
                 )
-                await self.db_connection.commit()
 
                 logger.info(f"已初始化数据库版本信息: v{DBMigration.CURRENT_VERSION}")
 
