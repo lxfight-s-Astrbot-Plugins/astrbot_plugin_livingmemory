@@ -153,6 +153,111 @@ async def test_initialize_drops_legacy_documents_fts_triggers(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_failed_shared_write_rolls_back_and_releases_other_connections(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "failed_write.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "rrf_k": 60},
+    )
+    await engine.initialize()
+    async with engine.db_connection.execute("""
+        CREATE TRIGGER reject_memory_source
+        BEFORE INSERT ON memory_sources
+        BEGIN
+            SELECT RAISE(ABORT, 'source blocked');
+        END
+    """):
+        await engine.db_connection.commit()
+
+    with pytest.raises(Exception, match="source blocked"):
+        await engine.save_memory_source(1, [{"content": "will fail"}])
+
+    assert engine.db_connection.in_transaction is False
+    async with aiosqlite.connect(db_path, timeout=0.2) as other:
+        await other.execute(
+            "INSERT INTO documents(doc_id, text, metadata) VALUES (?, ?, ?)",
+            ("other-doc", "other connection write", "{}"),
+        )
+        await other.commit()
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_write_transaction_clears_stale_transaction_before_writing(tmp_path: Path):
+    db_path = tmp_path / "stale_write.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "rrf_k": 60},
+    )
+    await engine.initialize()
+    await engine.db_connection.execute("BEGIN IMMEDIATE")
+    await engine.db_connection.execute(
+        "INSERT INTO documents(doc_id, text, metadata) VALUES (?, ?, ?)",
+        ("stale-doc", "uncommitted", "{}"),
+    )
+
+    await engine.save_memory_source(1, [{"content": "committed"}])
+
+    assert engine.db_connection.in_transaction is False
+    async with aiosqlite.connect(db_path, timeout=0.2) as other:
+        cursor = await other.execute("SELECT COUNT(*) FROM memory_sources")
+        assert (await cursor.fetchone())[0] == 1
+        cursor = await other.execute(
+            "SELECT COUNT(*) FROM documents WHERE doc_id = 'stale-doc'"
+        )
+        assert (await cursor.fetchone())[0] == 0
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_swallowed_access_update_error_releases_other_connections(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "access_update_error.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "rrf_k": 60},
+    )
+    await engine.initialize()
+    await engine.db_connection.execute(
+        "INSERT INTO documents(doc_id, text, metadata) VALUES (?, ?, ?)",
+        ("access-doc", "access update", '{"access_count": 0}'),
+    )
+    await engine.db_connection.execute(
+        "CREATE TABLE memory_atoms (id INTEGER PRIMARY KEY, status TEXT, expires_at REAL)"
+    )
+    await engine.db_connection.execute("""
+        CREATE TRIGGER reject_atom_touch
+        BEFORE UPDATE ON memory_atoms
+        BEGIN
+            SELECT RAISE(ABORT, 'atom blocked');
+        END
+    """)
+    await engine.db_connection.commit()
+    engine.atom_store = Mock()
+
+    written = await engine._write_access_updates([1], [1])
+
+    assert written is False
+    assert engine.db_connection.in_transaction is False
+    async with aiosqlite.connect(db_path, timeout=0.2) as other:
+        cursor = await other.execute("SELECT metadata FROM documents WHERE id = 1")
+        metadata = json.loads((await cursor.fetchone())[0])
+        assert metadata == {"access_count": 0}
+        await other.execute("UPDATE documents SET text = ? WHERE id = 1", ("recovered",))
+        await other.commit()
+
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_add_search_get_delete(tmp_path: Path):
     db_path = tmp_path / "memory.db"
     engine = MemoryEngine(
@@ -1284,11 +1389,11 @@ async def test_batch_delete_memories_deletes_multiple(tmp_path: Path):
                     json.dumps(doc["metadata"], ensure_ascii=False),
                 ),
             )
+            await engine.db_connection.commit()
             await engine.save_memory_source(
                 mid,
                 [{"role": "user", "content": f"source-{mid}"}],
             )
-        await engine.db_connection.commit()
 
     deleted = await engine.batch_delete_memories(ids)
     assert deleted == 5

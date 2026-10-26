@@ -56,13 +56,11 @@ class MemoryEngineBatchMixin:
 
             try:
                 # 1. Batch delete from BM25 FTS
-                await self.db_connection.execute(
-                    f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
-                    batch,
-                )
-                # 先提交，释放写事务；向量库使用独立连接删除 documents，不能与
-                # 本连接未提交的写事务并发（否则 SQLite 报 database is locked）。
-                await self.db_connection.commit()
+                async with self._write_transaction() as connection:
+                    await connection.execute(
+                        f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+                        batch,
+                    )
                 # 2. Look up UUIDs and delete from FAISS vector DB
                 cursor = await self.db_connection.execute(
                     f"SELECT id, doc_id FROM documents WHERE id IN ({placeholders})",
@@ -80,15 +78,15 @@ class MemoryEngineBatchMixin:
                             f"expected={found_ids}, deleted={deleted_vector_ids}"
                         )
                 # 3. Batch delete from documents table
-                cursor = await self.db_connection.execute(
-                    f"DELETE FROM documents WHERE id IN ({placeholders})",
-                    batch,
-                )
-                await self.db_connection.execute(
-                    f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
-                    batch,
-                )
-                await self.db_connection.commit()
+                async with self._write_transaction() as connection:
+                    await connection.execute(
+                        f"DELETE FROM documents WHERE id IN ({placeholders})",
+                        batch,
+                    )
+                    await connection.execute(
+                        f"DELETE FROM memory_sources WHERE memory_id IN ({placeholders})",
+                        batch,
+                    )
                 # FaissVecDB 与本引擎共享 documents 表；向量删除可能已移除
                 # 对应行，因此以删除前查到的记录数作为准确结果。
                 batch_deleted = len(found_ids)
@@ -251,15 +249,15 @@ class MemoryEngineBatchMixin:
 
         archived_ids = [int(document["id"]) for document in active_documents]
         placeholders = ",".join("?" * len(archived_ids))
-        await self.db_connection.executemany(
-            "UPDATE documents SET metadata = ? WHERE id = ?",
-            metadata_updates,
-        )
-        await self.db_connection.execute(
-            f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
-            archived_ids,
-        )
-        await self.db_connection.commit()
+        async with self._write_transaction() as connection:
+            await connection.executemany(
+                "UPDATE documents SET metadata = ? WHERE id = ?",
+                metadata_updates,
+            )
+            await connection.execute(
+                f"DELETE FROM livingmemory_memories_fts WHERE doc_id IN ({placeholders})",
+                archived_ids,
+            )
 
         embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
         embedding_delete = getattr(embedding_storage, "delete", None)
@@ -272,12 +270,12 @@ class MemoryEngineBatchMixin:
             )
             # 无法单独删向量时，让启动时的索引校验触发重建，避免软归档
             # 的向量长期占用召回候选名额。
-            await self.db_connection.execute(
-                "INSERT OR REPLACE INTO migration_status (key, value, updated_at) "
-                "VALUES (?, ?, datetime('now'))",
-                ("needs_index_rebuild", "true"),
-            )
-            await self.db_connection.commit()
+            async with self._write_transaction() as connection:
+                await connection.execute(
+                    "INSERT OR REPLACE INTO migration_status (key, value, updated_at) "
+                    "VALUES (?, ?, datetime('now'))",
+                    ("needs_index_rebuild", "true"),
+                )
 
         await self._delete_graph_and_atoms_for_batch(archived_ids)
         self._invalidate_search_cache()
@@ -341,20 +339,20 @@ class MemoryEngineBatchMixin:
                     memory_id, content, metadata, atoms
                 )
 
-            await self.db_connection.execute(
-                "UPDATE documents SET metadata = ? WHERE id = ?",
-                (json.dumps(metadata, ensure_ascii=False), memory_id),
-            )
-            await self.db_connection.commit()
+            async with self._write_transaction() as connection:
+                await connection.execute(
+                    "UPDATE documents SET metadata = ? WHERE id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), memory_id),
+                )
             self._invalidate_search_cache()
             return True
         except Exception:
             if fts_inserted:
-                await self.db_connection.execute(
-                    "DELETE FROM livingmemory_memories_fts WHERE doc_id = ?",
-                    (memory_id,),
-                )
-                await self.db_connection.commit()
+                async with self._write_transaction() as connection:
+                    await connection.execute(
+                        "DELETE FROM livingmemory_memories_fts WHERE doc_id = ?",
+                        (memory_id,),
+                    )
             if vector_inserted and callable(embedding_delete):
                 await embedding_delete([memory_id])
             if self.graph_memory_manager is not None:
@@ -440,11 +438,11 @@ class MemoryEngineBatchMixin:
             if not rows:
                 logger.info("[自动迁移] 未找到需要迁移的旧数据")
                 # 即使没有旧数据也标记为已检查，避免重复查询
-                await self.db_connection.execute(
-                    "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                    (migration_key, "true"),
-                )
-                await self.db_connection.commit()
+                async with self._write_transaction() as connection:
+                    await connection.execute(
+                        "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                        (migration_key, "true"),
+                    )
                 return
 
             logger.info(f"[自动迁移] 找到 {len(rows)} 条旧数据需要迁移")
@@ -469,22 +467,17 @@ class MemoryEngineBatchMixin:
 
                 updates.append((json.dumps(metadata, ensure_ascii=False), doc_id))
 
-            if updates:
-                await self.db_connection.executemany(
-                    "UPDATE documents SET metadata = ? WHERE id = ?",
-                    updates,
-                )
             updated_count = len(updates)
-
-            # 6. 提交更新
-            await self.db_connection.commit()
-
-            # 7. 标记为已迁移
-            await self.db_connection.execute(
-                "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                (migration_key, "true"),
-            )
-            await self.db_connection.commit()
+            async with self._write_transaction() as connection:
+                if updates:
+                    await connection.executemany(
+                        "UPDATE documents SET metadata = ? WHERE id = ?",
+                        updates,
+                    )
+                await connection.execute(
+                    "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    (migration_key, "true"),
+                )
 
             logger.info(
                 f"[自动迁移] 完成！已更新 {updated_count} 条记录 -> {unified_msg_origin}"
@@ -722,9 +715,10 @@ class MemoryEngineBatchMixin:
                 "memory_atoms_fts",
             ):
                 try:
-                    await self.db_connection.execute(
-                        f"INSERT INTO {fts_table}({fts_table}) VALUES ('optimize')"
-                    )
+                    async with self._write_transaction() as connection:
+                        await connection.execute(
+                            f"INSERT INTO {fts_table}({fts_table}) VALUES ('optimize')"
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -733,7 +727,6 @@ class MemoryEngineBatchMixin:
                         exc_info=True,
                     )
 
-            await self.db_connection.commit()
             await self.db_connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
             if vacuum:
