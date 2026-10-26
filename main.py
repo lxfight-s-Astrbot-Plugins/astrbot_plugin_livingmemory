@@ -86,7 +86,7 @@ if _CURRENT_ASTRBOT_VERSION is None:
 elif _version_lt(_CURRENT_ASTRBOT_VERSION, _MIN_ASTRBOT_VERSION):
     logger.warning(
         f"AstrBot 版本 {_CURRENT_ASTRBOT_VERSION} 低于推荐版本 {_MIN_ASTRBOT_VERSION}。"
-        f"插件 Pages / WebUI 功能可能不可用。建议升级 AstrBot 以获得完整体验。"
+        f"插件视图 / WebUI 功能可能不可用。建议升级 AstrBot 以获得完整体验。"
     )
 
 

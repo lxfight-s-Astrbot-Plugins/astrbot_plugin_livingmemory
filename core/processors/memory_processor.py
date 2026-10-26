@@ -12,6 +12,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..astrbot_compat import get_using_provider
 from ..models.conversation_models import Message
 from .memory_processor_parse import MemoryProcessorParseMixin
 from .memory_processor_build import MemoryProcessorBuildMixin
@@ -49,7 +50,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         # 加载提示词模板
         self._load_prompts()
 
-    def _get_current_llm_provider(self):
+    async def _get_current_llm_provider(self):
         """动态解析LLM Provider以避免持有过期引用
 
         AstrBot可能在运行期间重新创建Provider实例（例如配置变更后），
@@ -80,7 +81,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
 
         # 回退到AstrBot当前默认Provider
         try:
-            provider = self.context.get_using_provider()
+            provider = await get_using_provider(self.context)
             if provider:
                 return provider
         except Exception:
@@ -310,7 +311,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         last_error = None
         for attempt in range(max_retries):
             try:
-                provider = self._get_current_llm_provider()
+                provider = await self._get_current_llm_provider()
                 if not provider:
                     raise RuntimeError("LLM Provider 不可用")
 

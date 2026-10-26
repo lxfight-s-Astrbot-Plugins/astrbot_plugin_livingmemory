@@ -5,7 +5,7 @@
 
 export class ApiClient {
   constructor() {
-    this.bridge = window.AstrBotPluginPage;
+    this.bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
     this._context = null;
     this._pendingGets = new Map();
   }

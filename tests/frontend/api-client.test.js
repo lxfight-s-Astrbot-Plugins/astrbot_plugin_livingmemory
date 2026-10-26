@@ -40,3 +40,28 @@ test("a rejected GET releases its in-flight slot so retry can succeed", async ()
     delete globalThis.window;
   }
 });
+
+test("the plugin view bridge takes precedence over the legacy page alias", async () => {
+  let activeBridge = "";
+  globalThis.window = {
+    AstrBotPluginView: {
+      apiGet() {
+        activeBridge = "view";
+        return { status: "ok", data: { total: 2 } };
+      },
+    },
+    AstrBotPluginPage: {
+      apiGet() {
+        activeBridge = "page";
+        return { status: "ok", data: { total: 1 } };
+      },
+    },
+  };
+  try {
+    const api = new ApiClient();
+    assert.deepEqual(await api.get("stats"), { total: 2 });
+    assert.equal(activeBridge, "view");
+  } finally {
+    delete globalThis.window;
+  }
+});

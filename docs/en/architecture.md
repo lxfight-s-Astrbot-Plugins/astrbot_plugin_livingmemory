@@ -19,7 +19,7 @@ flowchart TB
         ENGINE --> SQLITE[("SQLite: documents / atoms / graph")]
         ENGINE --> FAISS[("FAISS vector index")]
         SCHED["Decay, consolidation and index maintenance"] --> ENGINE
-        API["Pages API and agent tools"] --> ENGINE
+        API["Plugin View API and agent tools"] --> ENGINE
     end
 ```
 
@@ -33,11 +33,11 @@ flowchart TB
 | Memory engine | `MemoryEngine` | Single entry point for write, search, update, delete, access statistics, decay and consolidation; exposes retrievers and the `index_writer` |
 | Retrieval and fusion | `HybridRetriever`, `DualRouteRetriever`, `RRFFusion`, `GraphRetriever` | Keyword and vector recall on the document and graph routes, candidate expansion, fusion, weighting, rerank and fallback |
 | Storage | `storage/` | SQLite tables and indexes, FTS, migration and version tables, FAISS persistence bridge |
-| Management and observability | `pages/dashboard/`, `/lmem` commands | Pages API reuses the same engine; status reports expose initialization and index maintenance progress |
+| Management and observability | `pages/dashboard/`, `/lmem` commands | Plugin View API reuses the same engine; status reports expose initialization and index maintenance progress |
 
 ## Startup and shutdown
 
-1. After AstrBot loads the plugin module it identifies the plugin class from `metadata.yaml`; `main.py` registers commands, LLM hooks, agent tools and the Pages API, then starts initialization.
+1. After AstrBot loads the plugin module it identifies the plugin class from `metadata.yaml`; `main.py` registers commands, LLM hooks, agent tools and the Plugin View API, then starts initialization.
 2. Initialization runs in the background: it creates or opens the FAISS index and `documents` storage, checks vector dimensions, and routes non-ASCII paths through `faiss_path_bridge` to an ASCII temporary directory followed by an atomic replace.
 3. If the database version is behind, migrations run; a backup must be created successfully before migration starts, and any failure restores that backup and aborts initialization with an explicit error.
 4. `MemoryEngine` opens its connection (`PRAGMA journal_mode = WAL`, `busy_timeout = 10000`), creates the `documents` table and expression indexes, initializes the BM25, vector, graph and atom retrievers, the retrieval cache and coalesced access writes.

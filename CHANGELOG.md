@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 变更
+
+- **AstrBot API 自适应**：默认 LLM Provider 在 AstrBot 4.27.3+ 优先通过 `get_using_provider_async()` 获取，旧版本继续回退同步接口，避免宿主异步 Provider 生命周期下的阻塞与弃用告警。Dashboard 优先使用 `AstrBotPluginView` 桥接，旧版 `AstrBotPluginPage` 保持兼容；文档入口同步为 AstrBot 的 Views 命名。
+
 ## [2.7.2] - 2026-10-26
 
 2.7.2 是文档补丁版本，补充 README 与文档站的嵌入模型说明；不修改运行时逻辑、不引入新的依赖，也没有强制迁移步骤。

@@ -13,7 +13,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-52675c?style=flat-square" alt="Python 3.10 или новее">
-  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Для Pages требуется AstrBot 4.24.2 или новее">
+  <img src="https://img.shields.io/badge/AstrBot-4.24.2%2B-52675c?style=flat-square" alt="Для представлений плагина требуется AstrBot 4.24.2 или новее">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-52675c?style=flat-square" alt="AGPL-3.0"></a>
 </p>
 
@@ -30,7 +30,7 @@ LivingMemory хранит для AstrBot предпочтения, отноше�
 - **Автоматическая запись** — Сводки создаются после заданного числа реплик. Важные записи могут сохранять исходные сообщения для проверки и повторного обобщения.
 - **Поиск с учётом контекста** — Документы и граф поддерживают поиск по ключевым словам и векторам, объединение рейтингов, фильтрацию области и проверку жизненного цикла.
 - **Инструменты агента** — `recall_long_term_memory` и `memorize_long_term_memory` позволяют читать и записывать долговременную память по мере необходимости.
-- **Управление через Pages** — Просмотр связей, редактирование памяти, тестирование поиска, настройка промптов и состояние системы.
+- **Управление через Views** — Просмотр связей, редактирование памяти, тестирование поиска, настройка промптов и состояние системы.
 
 ## Одно пространство, четыре стиля
 
@@ -44,7 +44,7 @@ LivingMemory хранит для AstrBot предпочтения, отноше�
 
 1. Установите плагин из каталога AstrBot или поместите выбранную версию в `data/plugins/astrbot_plugin_livingmemory`.
 2. Сначала создайте и включите провайдер Embedding в разделе AstrBot «Model Providers → Embedding» (настройка бесплатной `BAAI/bge-m3` описана [здесь · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/embedding-model)), затем перезагрузите AstrBot и укажите ID этого провайдера и LLM-провайдера в настройках LivingMemory. Пустое поле Embedding лишь выбирает первый доступный провайдер, что может привести к неверной модели или сбою инициализации индексов.
-3. Откройте `Plugins → LivingMemory → Pages → dashboard`. Для Pages требуется **AstrBot 4.24.2 или новее**.
+3. Откройте `Plugins → LivingMemory → Views → dashboard` (в старых версиях AstrBot раздел называется `Pages`). Для представлений плагина требуется **AstrBot 4.24.2 или новее**.
 
 Для тестирования скачайте указанный выше тег и следуйте [инструкции по установке и откату · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Перед обновлением сохраните резервную копию данных и конфигурации плагина.
 
