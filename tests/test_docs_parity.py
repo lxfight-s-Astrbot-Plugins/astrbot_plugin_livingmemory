@@ -13,6 +13,7 @@ DOCS = ROOT / "docs"
 PAIRS = [
     ("index.md", "en/index.md"),
     ("guide/getting-started.md", "en/guide/getting-started.md"),
+    ("guide/embedding-model.md", "en/guide/embedding-model.md"),
     ("features.md", "en/features.md"),
     ("configuration.md", "en/configuration.md"),
     ("commands.md", "en/commands.md"),

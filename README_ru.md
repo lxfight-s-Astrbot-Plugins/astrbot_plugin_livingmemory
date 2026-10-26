@@ -43,12 +43,24 @@ LivingMemory хранит для AstrBot предпочтения, отноше�
 ## Начало работы
 
 1. Установите плагин из каталога AstrBot или поместите выбранную версию в `data/plugins/astrbot_plugin_livingmemory`.
-2. Сначала создайте и включите провайдер Embedding в настройках LLM AstrBot, затем перезагрузите его и укажите ID этого провайдера и LLM-провайдера в настройках LivingMemory. Пустое поле Embedding лишь выбирает первый доступный провайдер, что может привести к неверной модели или сбою инициализации индексов.
+2. Сначала создайте и включите провайдер Embedding в разделе AstrBot «Model Providers → Embedding» (настройка бесплатной `BAAI/bge-m3` описана [здесь · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/embedding-model)), затем перезагрузите AstrBot и укажите ID этого провайдера и LLM-провайдера в настройках LivingMemory. Пустое поле Embedding лишь выбирает первый доступный провайдер, что может привести к неверной модели или сбою инициализации индексов.
 3. Откройте `Plugins → LivingMemory → Pages → dashboard`. Для Pages требуется **AstrBot 4.24.2 или новее**.
 
 Для тестирования скачайте указанный выше тег и следуйте [инструкции по установке и откату · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases). Перед обновлением сохраните резервную копию данных и конфигурации плагина.
 
 После нескольких реплик проверьте `/lmem status`, `/lmem summarize` и `/lmem search ключевые слова`.
+
+## Бесплатная модель Embedding
+
+Семантический поиск LivingMemory зависит от Embedding Provider. Рекомендуется бесплатная модель `BAAI/bge-m3` от SiliconFlow (1024 измерения). В разделе AstrBot «Model Providers → Embedding → Add Model Provider → OpenAI Embedding» укажите:
+
+- Provider ID: оставьте значение, созданное AstrBot, например `openai_embedding`
+- API Base URL: `https://api.siliconflow.cn/v1`
+- API Key: ключ, созданный в консоли SiliconFlow
+- Embedding Model: `BAAI/bge-m3`
+- Embedding Dimensions: `1024`
+
+Сохраните и протестируйте провайдер, затем укажите его Provider ID в `provider_settings.embedding_provider_id` настроек LivingMemory. ID модели и ID провайдера различаются; полная инструкция доступна [здесь · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/guide/embedding-model).
 
 ## Подробнее
 

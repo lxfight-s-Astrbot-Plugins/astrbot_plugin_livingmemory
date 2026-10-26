@@ -29,6 +29,8 @@ LivingMemory defaults work for most users. The settings you usually need to touc
 
 Try to keep the embedding model stable. If you change it and old memories recall poorly, run `/lmem rebuild-index`.
 
+See [Embedding Models and BGE-M3](/en/guide/embedding-model) for the SiliconFlow free BGE-M3 parameters, locating the Provider ID, and verification steps.
+
 Providers that only accept streaming requests (`stream=true`) are switched to streaming automatically in `auto` mode; set `always` to force streaming. An interrupted stream, timeout, or missing complete response is treated as a failure, so incomplete results are never written to memory.
 
 ## Session management
