@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "../../pages/dashboard/graph-2d.js"), "utf-8");
+const topologySource = readFileSync(join(here, "../../pages/dashboard/graph-topology.js"), "utf-8");
 const coreSource = readFileSync(join(here, "../../pages/dashboard/graph-layout-core.js"), "utf-8");
 const sharedSource = readFileSync(join(here, "../../pages/dashboard/graph-shared.js"), "utf-8");
 const rendererSource = readFileSync(join(here, "../../pages/dashboard/graph-renderer.js"), "utf-8");
@@ -96,6 +97,7 @@ function loadGraph() {
   global.MutationObserver = Observer;
   (0, eval)(sharedSource);
   global.GraphShared = global.window.GraphShared;
+  (0, eval)(topologySource);
   (0, eval)(coreSource);
   (0, eval)(rendererSource);
   (0, eval)(interactionSource);
@@ -477,6 +479,7 @@ function installFakeWorker() {
           /* importScripts 把核心加载进 worker 全局作用域（即 globalThis）。 */
           const saved = global.self;
           global.self = global;
+          (0, eval)(topologySource);
           (0, eval)(coreSource);
           global.self = saved;
         },

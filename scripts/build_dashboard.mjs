@@ -27,6 +27,7 @@ const CSS_SOURCES = ["styles.css", "art-direction.css", "themes.css", "workflows
 const BASE_SOURCES = ["appearance.js", "i18n.js"];
 const GRAPH_SOURCES = [
   "graph-shared.js",
+  "graph-topology.js",
   "graph-layout-core.js",
   "graph-renderer.js",
   "graph-interaction.js",

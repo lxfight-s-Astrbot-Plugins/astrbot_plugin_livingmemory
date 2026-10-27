@@ -65,11 +65,16 @@ export default class Graph3D {
       if (data.generation !== this._generation) return;
       this.positions.array.set(data.positions);
       this.positions.needsUpdate = true;
+      this.edgeGeometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+      this.graph.overviewCount = data.overviewCount;
+      const hubs = new Set(data.hubs);
+      this.graph.labelOrder = [...hubs, ...this.graph.labelOrder.filter(index => !hubs.has(index))];
       this.points.geometry.computeBoundingSphere();
       this.edgeGeometry.boundingSphere = this.points.geometry.boundingSphere;
       this.focusEdges.geometry.boundingSphere = this.points.geometry.boundingSphere;
       this.graphGroup.visible = true;
       this._ready = true;
+      this._updateRelations();
       this._layoutMs = data.layoutMs;
       this._fitScene();
       this._buildLabels();
@@ -167,8 +172,9 @@ export default class Graph3D {
     }
     this.worker.postMessage({
       generation: this._generation,
-      nodes: this.graph.nodes.map(node => ({ id: node.id })),
+      nodes: this.graph.nodes.map(({ id, type, size, weight }) => ({ id, type, size, weight })),
       links: this.graph.links,
+      linkOrder: this.graph.linkOrder,
     });
   }
 
@@ -179,7 +185,7 @@ export default class Graph3D {
     const color = new THREE.Color();
     this.graph.nodes.forEach((node, i) => {
       color.set(SPACE_COLORS[node.type] || SPACE_COLORS.other).toArray(colors, i * 3);
-      sizes[i] = Math.min(2.8, 0.7 + Math.log1p(Number(node.memory_count || 0) + Number(node.degree || 0)) * 0.35);
+      sizes[i] = node.size;
       indices[i] = i;
     });
     const geometry = new THREE.BufferGeometry();
@@ -188,16 +194,16 @@ export default class Graph3D {
     geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
     geometry.setAttribute("aIndex", new THREE.BufferAttribute(indices, 1));
     geometry.setAttribute("aEmphasis", new THREE.BufferAttribute(new Float32Array(count), 1));
-    this.uniforms = { focus: { value: 0 }, hover: { value: -1 }, dpr: { value: this.renderer.getPixelRatio() } };
+    this.uniforms = { focus: { value: 0 }, hover: { value: -1 }, dpr: { value: this.renderer.getPixelRatio() }, viewDistance: { value: 650 } };
     const material = new THREE.ShaderMaterial({
       uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: `attribute vec3 color; attribute float aSize; attribute float aIndex; attribute float aEmphasis;
-        uniform float focus; uniform float hover; uniform float dpr; varying vec3 vColor; varying float vAlpha;
+        uniform float focus; uniform float hover; uniform float dpr; uniform float viewDistance; varying vec3 vColor; varying float vAlpha;
         void main(){vec4 p=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*p;
         float linked=step(.5,aEmphasis);float chosen=step(1.5,aEmphasis);float hovered=1.-step(.5,abs(aIndex-hover));
-        gl_PointSize=clamp(aSize*26.*(650./-p.z)*(1.+chosen*.55+hovered*.2)*dpr,3.,160.*dpr);
+        gl_PointSize=clamp(aSize*16.*(viewDistance/-p.z)*(1.+chosen*.55+hovered*.2)*dpr,3.,160.*dpr);
         vColor=mix(color,vec3(1.,.8,.48),max(chosen,hovered*.5));
-        vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1800.,9000.,-p.z));}`,
+        vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1.2,4.,-p.z/viewDistance));}`,
       fragmentShader: `varying vec3 vColor; varying float vAlpha; void main(){float r=length(gl_PointCoord-.5)*2.;
         if(r>1.)discard;float core=exp(-r*r*90.);float glow=exp(-r*r*8.)*.24;
         gl_FragColor=vec4(mix(vColor,vec3(1.,.94,.82),core*.6),(core+glow)*vAlpha);}`,
@@ -228,6 +234,7 @@ export default class Graph3D {
     this._radius = Math.max(sphere.radius, 30);
     const fov = THREE.MathUtils.degToRad(this.camera.fov / 2);
     this._overviewDistance = this._radius / Math.sin(Math.min(fov, Math.atan(Math.tan(fov) * this.camera.aspect))) * 1.12;
+    this.uniforms.viewDistance.value = this._overviewDistance;
     this.controls.maxDistance = Math.max(8000, this._overviewDistance * 3);
     this.camera.far = Math.max(12000, this._overviewDistance * 5);
     this.camera.updateProjectionMatrix();
