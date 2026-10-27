@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.7.3 稳定版
+      text: 2.8.0 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.7.3 已发布
+## 2.8.0 已发布
 
-2.7.3 是运行时修复版本：SQLite 写事务失败后立即回滚释放锁，跨天或空闲切分的反思积压可在一次触发内连续消费，并适配 AstrBot 4.27.3+ 的异步 Provider 与 Plugin View API。最低兼容版本仍为 4.24.2；[版本与升级](/releases)提供完整说明、下载与升级步骤。
+2.8.0 新增独立暖光 3D 图谱，支持点击变焦、关联记忆和大图批量绘制，并适配 AstrBot 沙盒中的布局 Worker。最低兼容版本仍为 4.24.2；[版本与升级](/releases)提供下载和升级步骤。
 
 ## 这份文档适合谁？
 
