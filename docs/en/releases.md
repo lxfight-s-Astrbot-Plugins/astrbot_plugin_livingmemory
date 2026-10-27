@@ -1,5 +1,35 @@
 # Releases and Upgrades
 
+## 2.8.0 · October 28, 2026
+
+2.8.0 adds an independent warm-lit 3D graph. Clicking a node moves the camera closer and exposes its memories; search, memory focus and selection sharing work across 2D/3D. GPU batches and a separate layout Worker support large graphs, and full requests no longer truncate at fixed counts. No configuration changes or database migration are required.
+
+[Download 2.8.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.0)
+
+### What changed
+
+- **Independent visuals and interaction.** Rotate, pan, zoom, focus nodes and browse related memories in a warm-lit space. The 3D view hides extra headings, statistics and repeated metadata.
+- **Large graphs.** GPU batches draw nodes and indexed relations, a Worker computes the 3D layout, and rendering stops when settled or hidden. Toggle between structural overview and **All relations**.
+- **Host compatibility.** An embedded Blob Worker works inside AstrBot's sandbox iframe and fixes Worker construction from origin `null`.
+- **Community.** QQ group 1, 953245617, is full; the new group 2 is **1129994749**.
+
+### Verification
+
+- All 1,155 backend and 115 frontend tests pass; feature PR [#353](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/353) passed CI.
+- Dashboard and documentation builds pass. Browser sandbox checks cover camera focus, touch input, memory focus and synthetic workloads up to 5,000 nodes / 100,000 relations. Results vary with real data and devices.
+
+### Install and upgrade
+
+1. Keep your existing data and configuration, download **Source code (zip)** from the release page, and replace the plugin code.
+2. Reload the plugin and hard-refresh the dashboard, confirm version `2.8.0`, then select **3D Space** on the graph page.
+3. Release archives include all offline frontend assets; using the plugin does not require Node.js. Run `npm ci` and `npm run build:dashboard` only after changing frontend sources.
+4. For a Git installation, switch a clean checkout to the tag:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.8.0
+```
+
 ## 2.7.3 · October 26, 2026
 
 2.7.3 is a runtime fix release that resolves persistent SQLite write locks after failed transactions and reflection-window backlogs that could not be drained in one trigger. It also adapts to the asynchronous Provider and Plugin View APIs in AstrBot 4.27.3+. There are no new runtime dependencies or mandatory migration steps; as a stable release it participates in AstrBot's update prompts normally.

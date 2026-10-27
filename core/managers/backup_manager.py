@@ -15,9 +15,8 @@ from pathlib import Path
 
 from astrbot.api import logger
 
-# Match metadata.yaml — single source of truth for the plugin version.
-# Keep in sync with the @register decorator in main.py.
-PLUGIN_VERSION = "2.7.3"
+# Match metadata.yaml; backup manifests use this plugin version.
+PLUGIN_VERSION = "2.8.0"
 
 _VERSION_FILE = ".plugin_version"
 _BACKUP_INFO_FILE = "backup_info.json"

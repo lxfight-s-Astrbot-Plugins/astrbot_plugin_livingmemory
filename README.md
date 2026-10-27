@@ -21,9 +21,9 @@
 
 LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历史约定。它从对话中整理记忆，在需要时结合关键词、语义和图谱召回，并通过归档、衰减和访问强化管理记忆生命周期。
 
-> **最新稳定版：2.7.3**<br>
-> 运行时修复：SQLite 写事务失败后立即回滚释放锁，跨天或空闲切分的反思积压可在一次触发内连续消费，并适配 AstrBot 4.27.3+ 的异步 Provider 与 Plugin View API。<br>
-> [下载 2.7.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.7.3) · [版本与升级](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/releases) · [历史版本](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
+> **最新稳定版：2.8.0**<br>
+> 独立暖光 3D 图谱，支持点击变焦、关联记忆和大图批量绘制；修复 AstrBot 沙盒中的 Worker 加载，并更新新 QQ 群。<br>
+> [下载 2.8.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.0) · [版本与升级](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/releases) · [历史版本](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
 
 ## 从记住，到想起来
 
