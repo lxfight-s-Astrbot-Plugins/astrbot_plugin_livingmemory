@@ -37,6 +37,7 @@
 .graph-operation { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .graph-operation .input { flex: 1; min-width: 0; width: 100% !important; }
 .graph-operation .btn { flex: 0 0 auto; width: auto; }
+#page-graph #graph-reset-view { width: auto; flex-shrink: 0; }
 @media (max-width: 1300px) {
   #memory-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #mem-keyword { grid-column: span 2; }
@@ -46,6 +47,7 @@
   #page-graph .page-header { flex-wrap: wrap; gap: 10px; }
   #page-graph .page-actions { min-width: 0; max-width: 100%; }
   #page-graph .page-actions .input { display: block; min-width: 0; flex: 1; width: auto !important; }
+  #page-graph .page-actions #graph-view-mode { flex: 0 0 auto; }
   #memory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #memory-filters > :first-child { grid-column: 1 / -1; }
   .transfer-sections { grid-template-columns: minmax(0, 1fr); gap: 12px; }

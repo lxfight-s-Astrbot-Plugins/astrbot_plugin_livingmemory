@@ -30,13 +30,15 @@ LivingMemory 为 AstrBot 保存长期偏好、人物关系、项目进展和历�
 - **自动整理** — 达到配置的对话轮次后生成长期记忆；重要记录可保留原文，方便核验和重新总结。
 - **按上下文召回** — 文档与图谱都支持关键词和向量检索，融合排序后结合会话、人格和生命周期筛选。
 - **主动回忆与写入** — Agent 可调用 `recall_long_term_memory` 和 `memorize_long_term_memory`，按需读写长期记忆。
-- **看得见、可维护** — 在官方插件视图中浏览关系图谱、编辑记忆、测试召回、管理提示词和查看系统状态。
+- **看得见、可维护** — 在官方插件视图中浏览 2D/3D 图谱、点击节点变焦并查看关联记忆，以及编辑记忆、测试召回、管理提示词和查看系统状态。
 
 ## 一个工作区，四种风格
 
 **Editorial · 原野** 的绿色网格，**Studio · 轻盈** 的柔和卡片，**Paper · 书页** 的暖纸色与衬线标题，或 **Terminal · 终端** 的等宽字体和仪表布局。
 
 每种风格均支持浅色、深色与自动模式。点击管理页面的「外观与主题」即时切换，偏好保存在当前浏览器。放大图谱时标签保持稳定，手机端也能筛选会话、定位记忆和完成管理操作。
+
+3D 图谱使用独立的暖光空间，支持旋转、缩放、节点聚焦和关联记忆查看；大量节点与关系通过 GPU 批量绘制。
 
 [查看主题与操作指南 →](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/webui)
 
@@ -70,5 +72,5 @@ LivingMemory 的语义召回依赖 Embedding Provider，推荐硅基流动当前
 
 ---
 
-社区支持：[QQ 群 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · 口令：`lxfight`<br>
+社区支持：QQ 二群 `1129994749`（新群） · [QQ 一群 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh)（已满） · 口令：`lxfight`<br>
 开源许可证：[AGPL-3.0](LICENSE)

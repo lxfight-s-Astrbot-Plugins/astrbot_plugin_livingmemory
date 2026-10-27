@@ -43,6 +43,7 @@ function loadGraphUi(withGraph2D) {
   const elements = {};
   const docListeners = {};
   const g2dCalls = [];
+  const viewCalls = [];
   let lastHandler = null;
 
   global.window = {
@@ -76,6 +77,7 @@ function loadGraphUi(withGraph2D) {
       loadData(payload, options) { g2dCalls.push({ payload, options }); },
       selection: null,
       renderer: { _selection: null },
+      resetView() { viewCalls.push("reset"); },
     };
   }
   global.document = {
@@ -96,7 +98,7 @@ function loadGraphUi(withGraph2D) {
 
   /* 手动触发 DOMContentLoaded，让 graph-ui init() 挂载事件监听。 */
   if (lastHandler) lastHandler();
-  return { calls, posts, elements, g2dCalls };
+  return { calls, posts, elements, g2dCalls, viewCalls };
 }
 
 async function flushMicrotasks() {
@@ -111,6 +113,13 @@ test("ensureGraphScene loads the constrained overview without full_graph", async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, "page/graph/overview");
   assert.equal(calls[0].params.full_graph, undefined, "默认概览不应传 full_graph");
+});
+
+test("resetting the view does not request graph data", () => {
+  const { calls, elements, viewCalls } = loadGraphUi(true);
+  elements["graph-reset-view"].trigger("click");
+  assert.deepEqual(viewCalls, ["reset"]);
+  assert.equal(calls.length, 0);
 });
 
 test("overview button toggles between full graph and limited view", async () => {

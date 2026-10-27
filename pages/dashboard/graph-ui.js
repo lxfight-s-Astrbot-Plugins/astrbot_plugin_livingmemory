@@ -2,8 +2,8 @@
   "use strict";
 
   /* ================================================================
-     Graph UI — 2D Knowledge Graph Controller
-     Bridges page_api data → Graph2D renderer
+     Graph UI — Knowledge Graph Controller
+     Shares page_api data and selection across the two renderers.
      ================================================================ */
 
   const state = {
@@ -15,6 +15,11 @@
     hasLoadedOverview: false,
     isGraphReady: false,
     overviewMode: null, /* "limited" | "full" | null */
+    viewMode: "2d",
+    renderer: null,
+    graph3D: null,
+    viewGeneration: 0,
+    pageActive: true,
   };
 
   const EXPANDED_GRAPH_LIMITS = {
@@ -100,6 +105,12 @@
     dom.legend = document.getElementById("graph-legend");
     dom.canvas = document.getElementById("graph-canvas");
     dom.canvasState = document.getElementById("graph-canvas-state");
+    dom.viewMode = document.getElementById("graph-view-mode");
+    dom.resetView = document.getElementById("graph-reset-view");
+    dom.relationsButton = document.getElementById("graph-relations-btn");
+    dom.page = document.getElementById("page-graph");
+    dom.view2D = document.getElementById("graph-view-2d");
+    dom.view3D = document.getElementById("graph-view-3d");
 
     if (!dom.canvas) return;
 
@@ -109,6 +120,17 @@
       fetchOverview(state.overviewMode !== "full");
     });
     setOverviewButtonLabel();
+    dom.viewMode.addEventListener("change", switchView);
+    dom.resetView.addEventListener("click", function() {
+      state.selectedNodeId = state.selectedMemoryId = null;
+      if (state.isGraphReady) state.renderer.resetView();
+      if (window.lmClosePeek) window.lmClosePeek();
+    });
+    dom.relationsButton.addEventListener("click", function() {
+      state.graph3D.setShowAllRelations(!state.graph3D.showAllRelations);
+      dom.relationsButton.setAttribute("aria-pressed", String(state.graph3D.showAllRelations));
+    });
+    setInteractionHint();
 
     dom.queryInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") { e.preventDefault(); runQuery(); }
@@ -123,15 +145,13 @@
 
     /* Init Graph2D */
     if (window.Graph2D && typeof window.Graph2D.init === "function") {
-      window.Graph2D.init(dom.canvas, {
+      state.renderer = window.Graph2D;
+      window.Graph2D.init(dom.view2D, {
         onNodeClick: function(nodeId) {
           selectNode(nodeId, false);
         },
         onNodeDblClick: function(nodeId) {
           selectNode(nodeId, true);
-        },
-        onNodeHover: function(nodeId) {
-          /* Tooltip could go here */
         },
         onBackgroundClick: function() {
           clearSelection();
@@ -145,11 +165,63 @@
     window.addEventListener("languagechange", function() {
       initLabels();
       setOverviewButtonLabel();
+      setInteractionHint();
       if (state.payload) renderLegend(state.payload);
     });
 
     /* app.js starts loading after the host Bridge reports ready. */
   }
+
+  function setInteractionHint() {
+    dom.canvas.setAttribute("title", state.viewMode === "3d" ? "" : window.t("graph.controls2d"));
+    const queryKey = state.viewMode === "3d" ? "graph.searchPh" : "graph.queryPh";
+    const scopeKey = state.viewMode === "3d" ? "graph.scopePh" : "graph.sessionPh";
+    dom.queryInput.setAttribute("data-i18n-placeholder", queryKey);
+    dom.queryInput.setAttribute("placeholder", window.t(queryKey));
+    dom.sessionInput.setAttribute("data-i18n-placeholder", scopeKey);
+    dom.sessionInput.setAttribute("placeholder", window.t(scopeKey));
+  }
+
+  async function switchView() {
+    const mode = dom.viewMode.value;
+    const generation = ++state.viewGeneration;
+    if (mode === "3d" && !state.graph3D) {
+      try {
+        const { default: Graph3D } = await import(new URL("./assets/graph-3d.min.js", document.baseURI).href);
+        if (generation !== state.viewGeneration) return;
+        state.graph3D = new Graph3D();
+        dom.view3D.hidden = false;
+        state.graph3D.init(dom.view3D, {
+          onNodeClick: nodeId => selectNode(nodeId, false),
+          onBackgroundClick: clearSelection,
+          onError: message => setCanvasMessage(message || window.t("graph.renderFail"), false),
+        });
+      } catch (error) {
+        dom.viewMode.value = state.viewMode;
+        state.graph3D = null;
+        dom.view3D.hidden = true;
+        setCanvasMessage(error.message || window.t("graph.renderFail"), false);
+        return;
+      }
+    }
+    state.viewMode = mode;
+    state.renderer = mode === "3d" ? state.graph3D : window.Graph2D;
+    dom.page.classList.toggle("graph-space-mode", mode === "3d");
+    dom.view2D.hidden = mode !== "2d";
+    dom.view3D.hidden = mode !== "3d";
+    dom.relationsButton.hidden = mode !== "3d";
+    state.isGraphReady = true;
+    window.lmSetGraphActive(state.pageActive);
+    setInteractionHint();
+    if (state.payload) { renderScene(); renderLegend(state.payload); }
+  }
+
+  window.lmSetGraphActive = function(active) {
+    state.pageActive = active;
+    if (window.Graph2D) window.Graph2D.setActive(active && state.viewMode === "2d");
+    if (state.graph3D) state.graph3D.setActive(active && state.viewMode === "3d");
+    document.documentElement.dataset.graphView = active ? state.viewMode : "";
+  };
 
   /* Expose for app.js lazy-load */
   window.ensureGraphScene = function() {
@@ -257,6 +329,8 @@
         method: "POST",
         body: body,
       });
+      state.selectedNodeId = null;
+      state.selectedMemoryId = id;
       renderPayload(payload, true);
     } catch (e) {
       setCanvasMessage(e.message || window.t("graph.focusFail"), false);
@@ -285,8 +359,10 @@
     state.graphIndex = buildGraphIndex(payload.snapshot || {});
 
     if (!payload.enabled) {
+      state.selectedNodeId = state.selectedMemoryId = null;
       setCanvasMessage(window.t("graph.disabledMsg"), false);
       renderLegend(payload);
+      if (state.isGraphReady) renderScene();
       return;
     }
 
@@ -299,27 +375,6 @@
     if (!shouldFocusSelection) {
       state.selectedNodeId = null;
       state.selectedMemoryId = null;
-      if (state.isGraphReady && window.Graph2D) {
-        window.Graph2D.selection = null;
-        if (window.Graph2D.renderer) window.Graph2D.renderer._selection = null;
-      }
-    }
-
-    /* Delegate to Graph2D renderer */
-    if (state.isGraphReady) {
-      if (hasGraphData) {
-        /* 布局期间显示「正在生成图谱布局…」，完成后由回调清除（#248）。 */
-        setCanvasMessage(window.t("graph.layouting"), true);
-      } else {
-        setCanvasMessage(window.t("graph.canvasEmpty"), false);
-      }
-      window.Graph2D.loadData(payload, {
-        onLayoutDone: function() {
-          if (state.graphIndex && state.graphIndex.nodeMap.size > 0) {
-            setCanvasMessage("", false);
-          }
-        },
-      });
     }
 
     /* Auto-select based on payload mode */
@@ -331,17 +386,34 @@
     }
 
     renderLegend(payload);
-
-    /* Apply selection to Graph2D */
-    if (state.isGraphReady) {
-      if (state.selectedNodeId !== null) {
-        window.Graph2D.selectNode(state.selectedNodeId);
-      } else if (state.selectedMemoryId !== null) {
-        window.Graph2D.selectMemory(state.selectedMemoryId);
-      }
-    }
+    if (state.isGraphReady) renderScene();
 
     if (window.lmFetchGraphStats) window.lmFetchGraphStats();
+  }
+
+  function renderScene() {
+    const renderer = state.renderer;
+    const payload = state.payload;
+    if (!payload.enabled) {
+      renderer.selection = null;
+      renderer.loadData({ snapshot: { nodes: [], edges: [] } });
+      setCanvasMessage(window.t("graph.disabledMsg"), false);
+      return;
+    }
+    const hasGraphData = state.graphIndex.nodeMap.size > 0;
+    const selection = state.selectedNodeId !== null ? { type: "node", id: state.selectedNodeId }
+      : state.selectedMemoryId !== null ? { type: "memory", id: state.selectedMemoryId } : null;
+    state.renderer.selection = selection;
+    if (state.renderer.renderer && state.viewMode === "2d") state.renderer.renderer._selection = selection;
+    setCanvasMessage(window.t(hasGraphData ? "graph.layouting" : "graph.canvasEmpty"), hasGraphData);
+    state.renderer.loadData(state.payload, {
+      onLayoutDone: function() {
+        if (state.renderer !== renderer || state.payload !== payload) return;
+        if (state.graphIndex.nodeMap.size) setCanvasMessage("", false);
+      },
+    });
+    if (selection?.type === "node") state.renderer.selectNode(selection.id);
+    else if (selection?.type === "memory") state.renderer.selectMemory(selection.id);
   }
 
   /* ================================================================
@@ -399,7 +471,7 @@
     if (!state.payload) return;
     state.selectedNodeId = null;
     state.selectedMemoryId = null;
-    if (state.isGraphReady) window.Graph2D.clearSelection();
+    if (state.isGraphReady && state.renderer.selection) state.renderer.clearSelection();
     if (window.lmClosePeek) window.lmClosePeek();
   }
 
@@ -410,8 +482,8 @@
     state.selectedNodeId = nodeId;
     state.selectedMemoryId = null;
 
-    if (state.isGraphReady) {
-      window.Graph2D.selectNode(nodeId);
+    if (state.isGraphReady && (state.renderer.selection?.type !== "node" || state.renderer.selection.id !== nodeId)) {
+      state.renderer.selectNode(nodeId);
     }
 
     /* 一并传出该节点的关联记忆，图 → 记忆不再是死路 */
@@ -437,7 +509,7 @@
     state.selectedNodeId = null;
 
     if (state.isGraphReady) {
-      window.Graph2D.selectMemory(memoryId);
+      state.renderer.selectMemory(memoryId);
     }
 
     /* Show in peek panel */
@@ -463,13 +535,14 @@
     if (!dom.legend) return;
     var summary = payload.summary || {};
     var nodeTypes = summary.node_type_breakdown || {};
+    var colors = state.viewMode === "3d" ? state.graph3D.colors : NODE_TYPE_COLORS;
 
     /* 图例只解释画布上真实存在的编码：节点颜色。关系 chip 既没有色点，
        也与画布上的边色无关，还用的是未本地化的枚举名。 */
     var chips = Object.entries(nodeTypes).sort(function(a, b) { return b[1] - a[1]; })
       .map(function(e) {
         return '<span class="legend-chip"><span class="dot" style="background:' +
-          (NODE_TYPE_COLORS[e[0]] || NODE_TYPE_COLORS.other) + '"></span>' +
+          (colors[e[0]] || colors.other) + '"></span>' +
           typeLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
       });
 

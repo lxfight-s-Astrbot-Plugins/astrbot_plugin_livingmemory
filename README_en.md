@@ -30,13 +30,15 @@ LivingMemory gives AstrBot a durable store of preferences, relationships, projec
 - **Automatic capture** — Summarize conversations after the configured number of turns. Important memories can retain source messages for review and re-summarization.
 - **Context-aware recall** — Document and graph routes combine keyword and vector retrieval, rank fusion, scope filtering and lifecycle checks.
 - **Agent tools** — `recall_long_term_memory` and `memorize_long_term_memory` let the agent read and write long-term memory when needed.
-- **Visible and maintainable** — Browse relationships, edit memories, test recall, manage prompts and inspect system status in official Plugin Views.
+- **Visible and maintainable** — Browse 2D/3D graphs, zoom into nodes and inspect their memories, edit memories, test recall, manage prompts and inspect system status in official Plugin Views.
 
 ## One workspace, four styles
 
 **Editorial** offers green grids and crisp lines; **Studio** uses soft cards; **Paper** pairs warm surfaces with serif headings; **Terminal** combines monospace type with instrument panels.
 
 Every style supports light, dark and automatic modes. Switch from “Appearance” in the dashboard; preferences stay in the current browser. Graph labels settle during zoomed reading, and mobile controls support session filtering and memory focus.
+
+The 3D graph has an independent warm-lit scene with rotation, zoom, node focus and associated memories. GPU batches render large sets of nodes and relationships.
 
 [Explore themes and workflows →](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/webui)
 
@@ -70,5 +72,5 @@ Upgrading from v1.4.0–v1.4.2? Read the [backup and migration guide](https://lx
 
 ---
 
-Community: [QQ group 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) · Password: `lxfight`<br>
+Community: QQ group 2: `1129994749` (new) · [QQ group 1: 953245617](https://qm.qq.com/cgi-bin/qm/qr?k=WdyqoP-AOEXqGAN08lOFfVSguF2EmBeO&jump_from=webapi&authKey=tPyfv90TVYSGVhbAhsAZCcSBotJuTTLf03wnn7/lQZPUkWfoQ/J8e9nkAipkOzwh) (full) · Password: `lxfight`<br>
 License: [AGPL-3.0](LICENSE)

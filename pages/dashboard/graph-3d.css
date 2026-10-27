@@ -1,0 +1,65 @@
+.graph-view { position: absolute; inset: 0; }
+.graph-view[hidden], #graph-relations-btn[hidden] { display: none; }
+#graph-view-3d { background: radial-gradient(ellipse at 32% 58%, #76553820, transparent 48%), radial-gradient(ellipse at 76% 25%, #38507620, transparent 52%), #05080f; }
+#graph-view-3d canvas { display: block; outline-offset: -3px; touch-action: none; cursor: grab; }
+.space-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.space-node-label { position: absolute; top: 0; left: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d8ccbb; font: 11px/20px "Microsoft YaHei", sans-serif; text-shadow: 0 2px 8px #000; }
+.space-node-label[hidden] { display: none; }
+html[data-graph-view="3d"] { --accent: #d8bc91; --accent-light: #d8bc9116; --accent-hover: #e9d1ab; --bg-app: #070a10; --bg-card: #10141d; --bg-sidebar: #080b12; --text-primary: #e8e2d8; --text-secondary: #aaa69f; --text-tertiary: #7f8390; --border-normal: #d8bc9126; --border-light: #d8bc9117; }
+html[data-graph-view="3d"] .sidebar { background: #080b12; border-color: #d8bc9117; }
+html[data-graph-view="3d"] .brand-mark { background: #d8bc91; color: #15120f; }
+html[data-graph-view="3d"] .sidebar::before,
+html[data-graph-view="3d"] .sidebar::after,
+html[data-graph-view="3d"] .sidebar-brand::after { display: none; }
+html[data-graph-view="3d"] .nav-item.active { background: #d8bc9112; color: #e0c69d; border-color: #d8bc91; box-shadow: none; }
+.graph-space-mode .page-heading,
+.graph-space-mode #graph-stat-pills { display: none; }
+#page-graph.graph-space-mode { position: relative; background: #05080f; }
+#page-graph.graph-space-mode .page-header { position: absolute; inset: 0 0 auto; z-index: 3; min-height: 0; padding: 18px 24px; border: 0; background: linear-gradient(#05080fe6, #05080f00); pointer-events: none; }
+#page-graph.graph-space-mode .page-header::before,
+.graph-space-mode .graph-canvas-container::before,
+.graph-space-mode .graph-canvas-container::after { display: none; }
+.graph-space-mode .page-actions { display: flex; width: 100%; gap: 8px; align-self: auto; pointer-events: auto; }
+.graph-space-mode #graph-session-filter { margin-left: auto; width: 150px !important; }
+#page-graph.graph-space-mode .graph-page-body { position: relative; display: block; padding: 0; overflow: hidden; height: 100%; }
+.graph-space-mode .graph-canvas-container { position: absolute; inset: 0; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: #05080f; }
+.graph-space-mode .graph-toolbar { position: absolute; z-index: 4; top: 16px; left: 50%; transform: translateX(-50%); display: block; width: min(310px, 30%); margin: 0; padding: 0; border: 0; background: transparent; }
+.graph-space-mode .graph-operation { gap: 4px; }
+.graph-space-mode .graph-operation .btn { padding: 8px; min-width: 32px; border: 0; background: transparent; color: #dfc39a; box-shadow: none; }
+.graph-space-mode .graph-operation .btn span { display: none; }
+.graph-space-mode .input,
+.graph-space-mode .btn-secondary { border: 1px solid #d8bc9126; background: #10141dba; color: #d5cbbd; border-radius: 20px; box-shadow: none; font-size: 11px; backdrop-filter: blur(12px); }
+.graph-space-mode .input { height: 36px; padding: 8px 14px; }
+.graph-space-mode .input::placeholder { color: #888b95; }
+.graph-space-mode .btn-secondary { padding: 8px 12px; }
+.graph-space-mode #graph-legend { position: absolute; z-index: 2; bottom: 16px; left: 24px; right: 150px; border: 0; margin: 0; padding: 0; gap: 12px; }
+.graph-space-mode .legend-chip { padding: 0; background: transparent; color: #9c9ba0; border: 0; font-size: 10px; }
+.graph-space-mode .legend-chip .dot { width: 4px; height: 4px; }
+.graph-space-mode #graph-relations-btn { position: absolute; z-index: 4; bottom: 16px; right: 24px; }
+.graph-space-mode .graph-canvas-state { top: 50%; left: 50%; transform: translate(-50%, -50%); color: #b7aa98; background: #10141dbf; border-color: #d8bc9126; border-radius: 4px; font-size: 12px; }
+html[data-graph-view="3d"] #peek-panel:not(.wide) { top: 82px; right: 20px; bottom: auto; height: auto; width: 330px; max-height: calc(100dvh - 147px); border: 1px solid #d8bc9126; border-radius: 6px; background: linear-gradient(130deg, #1b1c24ed, #10141df5); backdrop-filter: blur(20px); box-shadow: 0 20px 80px #0005; }
+html[data-graph-view="3d"] #peek-panel:not(.visible) { transform: translateX(calc(100% + 24px)); }
+html[data-graph-view="3d"] #peek-panel:not(.wide) #peek-badge,
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-section:has(> .peek-meta-grid) { display: none; }
+html[data-graph-view="3d"] #peek-close { border: 0; border-radius: 50%; background: transparent; color: #b3afa7; }
+.graph-space-mode #graph-relations-btn[aria-pressed="true"] { border-color: #d8bc9170; color: #ead2ac; background: #d8bc9117; }
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-header { background: transparent; border-bottom-color: #d8bc9117; }
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-title { font-family: "Songti SC", "SimSun", serif; font-weight: 400; }
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-meta-grid,
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-section-title { display: none; }
+html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-related-item { padding: 16px 0; border: 0; border-bottom: 1px solid #ffffff0c; border-radius: 0; background: transparent; color: #d4d0ca; font-size: 12px; line-height: 1.9; }
+@media (max-width: 1100px) {
+  .graph-space-mode .graph-toolbar { top: 68px; width: min(420px, calc(100% - 48px)); }
+}
+@media (max-width: 768px) {
+  #page-graph.graph-space-mode .page-header { padding: 14px 16px; }
+  #page-graph.graph-space-mode .page-actions { flex-wrap: nowrap; gap: 6px; }
+  #page-graph.graph-space-mode #graph-session-filter { width: 85px !important; flex: 1; }
+  #page-graph.graph-space-mode .page-actions #graph-view-mode { flex: 0 0 auto; width: 86px !important; }
+  .graph-space-mode #graph-overview-btn { flex: 0 0 34px; }
+  .graph-space-mode #graph-legend { bottom: 18px; left: 16px; right: 110px; gap: 6px 12px; }
+  .graph-space-mode #graph-relations-btn { bottom: 14px; right: 16px; }
+  .graph-space-mode .graph-toolbar { width: calc(100% - 32px); top: 64px; }
+  html[data-graph-view="3d"] #peek-panel:not(.wide) { top: auto; left: 16px; right: 16px; bottom: 128px; width: auto; max-height: 38dvh; }
+  html[data-graph-view="3d"] .sidebar { border-top-color: #d8bc9126; }
+}

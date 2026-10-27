@@ -18,7 +18,10 @@
     "vue": "^3.5.42"
   },
   "devDependencies": {
+    "d3-force-3d": "^3.0.6",
+    "esbuild": "^0.25.12",
     "mermaid": "^11.17.2",
+    "three": "^0.186.1",
     "vitepress": "^1.6.4",
     "vitepress-plugin-mermaid": "^2.0.17"
   }

@@ -14,7 +14,6 @@
   var performanceTier = global.GraphShared.performanceTier;
   var themeColor = global.GraphShared.themeColor;
   var hexToRgba = global.GraphShared.hexToRgba;
-  var easeInOutCubic = global.GraphShared.easeInOutCubic;
   var pointToSegmentDistance = global.GraphShared.pointToSegmentDistance;
 
   /* ═══════════════════════════════════════════════════════════════
@@ -287,6 +286,14 @@
 
     /* Compute animated positions */
     var ap = animProgress == null ? 1 : animProgress;
+    var screenPositions = {};
+    for (var ni = 0; ni < nodes.length; ni++) {
+      var node = nodes[ni];
+      screenPositions[node.id] = this.worldToScreen(
+        lerp(node._prevX == null ? node.x : node._prevX, node.x, ap),
+        lerp(node._prevY == null ? node.y : node._prevY, node.y, ap)
+      );
+    }
 
     this._drawCommunities(nodes, layout, ap, dark);
     if (this.performanceTier > 0) this._drawCommunityBundles(dark, hasFocus);
@@ -308,11 +315,8 @@
       var tgt = nodeMap[edge.target];
       if (!src || !tgt) continue;
 
-      var sAnim = { x: lerp(src._prevX || src.x, src.x, ap), y: lerp(src._prevY || src.y, src.y, ap) };
-      var tAnim = { x: lerp(tgt._prevX || tgt.x, tgt.x, ap), y: lerp(tgt._prevY || tgt.y, tgt.y, ap) };
-
-      var ssp = this.worldToScreen(sAnim.x, sAnim.y);
-      var tsp = this.worldToScreen(tAnim.x, tAnim.y);
+      var ssp = screenPositions[edge.source];
+      var tsp = screenPositions[edge.target];
       var edgeMargin = 48;
       if (Math.max(ssp.x, tsp.x) < -edgeMargin || Math.min(ssp.x, tsp.x) > this.width + edgeMargin ||
           Math.max(ssp.y, tsp.y) < -edgeMargin || Math.min(ssp.y, tsp.y) > this.height + edgeMargin) {
@@ -374,10 +378,7 @@
     ctx.save();
     for (var i = 0; i < nodes.length; i++) {
       var nd = nodes[i];
-      /* Animated position */
-      var px = lerp(nd._prevX || nd.x, nd.x, ap);
-      var py = lerp(nd._prevY || nd.y, nd.y, ap);
-      var sp = this.worldToScreen(px, py);
+      var sp = screenPositions[nd.id];
       var nodeMargin = 36;
       if (sp.x < -nodeMargin || sp.x > this.width + nodeMargin ||
           sp.y < -nodeMargin || sp.y > this.height + nodeMargin) {
