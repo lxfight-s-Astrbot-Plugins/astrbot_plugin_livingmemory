@@ -4,15 +4,9 @@
   /* 共享常量与工具（见 graph-shared.js） */
   var CFG = GraphShared.CFG;
   var TYPE_COLORS = GraphShared.TYPE_COLORS;
-  var isDark = GraphShared.isDark;
   var clamp = GraphShared.clamp;
   var lerp = GraphShared.lerp;
-  var performanceTier = GraphShared.performanceTier;
-  var themeColor = GraphShared.themeColor;
-  var hexToRgba = GraphShared.hexToRgba;
-  var getPos = GraphShared.getPos;
   var easeInOutCubic = GraphShared.easeInOutCubic;
-  var pointToSegmentDistance = GraphShared.pointToSegmentDistance;
   /* 渲染器与交互（见 graph-renderer.js / graph-interaction.js） */
   var Renderer = GraphRenderer;
   var Interaction = GraphInteraction;
@@ -213,13 +207,15 @@
     options = options || {};
     if (!this._nodes.length || !this.renderer.width || !this.renderer.height) return;
 
-    var centerId = options.centerId != null ? options.centerId : this._layout.centerId;
-    var centerTarget = centerId != null ? this._layout.getTarget(centerId) : null;
+    var centerId = options.centerId === undefined ? this._layout.centerId : options.centerId;
+    var centerNode = centerId != null ? this._nodeMap[centerId] : null;
+    var centerTarget = centerNode && centerNode.fixed ? { tx: centerNode.x, ty: centerNode.y }
+      : centerId != null ? this._layout.getTarget(centerId) : null;
     var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
     for (var i = 0; i < this._nodes.length; i++) {
       var nd = this._nodes[i];
-      var target = this._layout.getTarget(nd.id);
+      var target = nd.fixed ? { tx: nd.x, ty: nd.y } : this._layout.getTarget(nd.id);
       var isCenter = this._layout.centerId != null && nd.id === this._layout.centerId;
       var pad = this.renderer.nodeWorldRadius(nd, isCenter) + 28;
       var prominent = Number(nd.degree || 0) >= 2 || Number(nd.memory_count || 0) >= 3;
@@ -453,17 +449,7 @@
     }
     this._needsRender = true;
     this.start();
-    if (this._onLayoutDone) {
-      try { this._onLayoutDone(); } catch (err) { /* 回调异常不影响布局 */ }
-    }
-  };
-
-  Animator.prototype._renderFrame = function() {
-    this.renderer.clear();
-    var sel = this.renderer._selection;
-    var hoverId = this.interaction.getHoverId();
-    this.renderer.render(this._nodes, this._edges, this._nodeMap, sel, hoverId, this._layout, 1, this.interaction.getHoverType());
-    this._needsRender = false;
+    if (this._onLayoutDone) this._onLayoutDone();
   };
 
   Animator.prototype._graphSignature = function() {
@@ -481,7 +467,8 @@
     if (centerId == null) {
       this.fitViewport({ centerId: null });
     } else {
-      var target = this._layout.getTarget(centerId);
+      var node = this._nodeMap[centerId];
+      var target = node.fixed ? { tx: node.x, ty: node.y } : this._layout.getTarget(centerId);
       this.renderer.viewport.ox = -target.tx;
       this.renderer.viewport.oy = -target.ty;
       this.renderer.viewport.scale = Math.max(this.renderer.viewport.scale, 0.28);
@@ -581,10 +568,6 @@
     if (!this._running) this.start();
     this._needsRender = true;
   };
-
-  function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
 
   /* ═══════════════════════════════════════════════════════════════
      Graph2D — Public API
@@ -745,6 +728,11 @@
     this._nodes = nodes;
     this._edges = edges;
 
+    if (this.selection && this.selection.type === "node" && !this.animator._nodeMap[this.selection.id]) {
+      this.selection = null;
+      this.renderer._selection = null;
+    }
+
     /* Determine center: if there's a selection, use it; else pick highest weight node */
     var centerId = null;
     if (this.selection && this.selection.type === "node") {
@@ -782,6 +770,15 @@
     this.selection = null;
     this.renderer._selection = null;
     this.animator.recenter(null);
+  };
+
+  Graph2D.prototype.resetView = function() {
+    this.interaction._cancelGesture();
+    this.selection = null;
+    this.renderer._selection = null;
+    this.animator._layout.centerId = null;
+    this.animator.fitViewport({ centerId: null });
+    this.animator.wake();
   };
 
   /**

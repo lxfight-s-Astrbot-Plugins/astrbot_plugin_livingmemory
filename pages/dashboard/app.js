@@ -130,9 +130,7 @@ import {
       fetchGraphStats();
       if (window.ensureGraphScene) window.ensureGraphScene();
     }
-    if (window.Graph2D && typeof window.Graph2D.setActive === "function") {
-      window.Graph2D.setActive(name === "graph");
-    }
+    window.lmSetGraphActive(name === "graph");
     if (name === "memory") memoryPage.fetch();
     if (name === "recall") { /* 召回页面按需加载 */ }
     if (name === "system") systemPage.fetch();

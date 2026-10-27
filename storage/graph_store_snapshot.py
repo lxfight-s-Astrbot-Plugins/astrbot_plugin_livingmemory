@@ -2,12 +2,15 @@
 GraphStore 的 GraphStoreSnapshotMixin 拆分模块
 自动从 storage/graph_store.py 拆分，保持行为不变
 """
+
 from __future__ import annotations
 
-import aiosqlite
 from typing import Any
-from ..core.utils.number_utils import safe_float
+
+import aiosqlite
+
 from ..core.utils.json_utils import safe_json_dict
+from ..core.utils.number_utils import safe_float
 
 
 class GraphStoreSnapshotMixin:
@@ -15,6 +18,7 @@ class GraphStoreSnapshotMixin:
 
     宿主契约：``_connect`` 连接工厂由 ``GraphStore`` 提供，无额外共享状态。
     """
+
     async def get_subgraph_for_memories(
         self,
         memory_ids: list[int],
@@ -315,8 +319,7 @@ class GraphStoreSnapshotMixin:
         edges = [
             edge
             for edge in edges
-            if edge["source"] in allowed_node_ids
-            and edge["target"] in allowed_node_ids
+            if edge["source"] in allowed_node_ids and edge["target"] in allowed_node_ids
         ]
         filtered_entries: list[dict[str, Any]] = []
         for entry in entries:
@@ -385,7 +388,6 @@ class GraphStoreSnapshotMixin:
             memories.append(memory)
         return memories
 
-
     async def get_graph_snapshot(
         self,
         session_id: str | None = None,
@@ -426,12 +428,11 @@ class GraphStoreSnapshotMixin:
 
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            # 防御性上限：全量图谱是显式请求，但极端规模的库仍可能拖垮事件循环
             node_cursor = await db.execute(
                 f"""
                 SELECT gn.id, gn.node_key, gn.node_type, gn.node_value,
                        gn.canonical_value, gn.metadata,
-                       COUNT(DISTINCT ge.id) AS entry_count,
+                       COUNT(ge.id) AS entry_count,
                        COUNT(DISTINCT ge.source_memory_id) AS memory_count
                 FROM graph_nodes gn
                 JOIN graph_entry_nodes gen ON gen.node_id = gn.id
@@ -439,7 +440,6 @@ class GraphStoreSnapshotMixin:
                 {where_clause}
                 GROUP BY gn.id
                 ORDER BY gn.id ASC
-                LIMIT 5000
                 """,
                 tuple(params),
             )
@@ -447,16 +447,17 @@ class GraphStoreSnapshotMixin:
 
             edge_cursor = await db.execute(
                 f"""
-                SELECT DISTINCT edge.id, edge.edge_key, edge.source_node_id,
+                SELECT edge.id, edge.edge_key, edge.source_node_id,
                                 edge.target_node_id, edge.relation_type,
                                 edge.source_memory_id, edge.weight,
                                 edge.confidence, edge.status, edge.metadata
                 FROM graph_edges edge
-                JOIN graph_entries ge
-                  ON ge.source_memory_id = edge.source_memory_id
-                {where_clause}
+                WHERE EXISTS (
+                    SELECT 1 FROM graph_entries ge
+                    WHERE ge.source_memory_id = edge.source_memory_id
+                    {"AND " + " AND ".join(filters) if filters else ""}
+                )
                 ORDER BY edge.id ASC
-                LIMIT 10000
                 """,
                 tuple(params),
             )
@@ -474,7 +475,6 @@ class GraphStoreSnapshotMixin:
                     GROUP BY ge.source_memory_id
                 ) latest ON latest.latest_entry_id = ge.id
                 ORDER BY ge.source_memory_id ASC
-                LIMIT 2000
                 """,
                 tuple(params),
             )

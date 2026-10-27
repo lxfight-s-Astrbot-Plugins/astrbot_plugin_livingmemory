@@ -67,6 +67,12 @@ Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus
 
 ## What the graph view is good for
 
+Use the selector at the top of the graph page to switch from the default **2D Plane** to **3D Space**. The independent warm-lit 3D scene hides the page heading and statistics. Left-drag or use one finger to rotate, right-drag to pan, and scroll or pinch to zoom. Clicking a node smoothly moves the camera closer and opens its memories. Click the background to restore the previous view; **Reset view** fits the whole graph. Switching dimensions preserves the data and selection. An independent three-dimensional layout places the nodes; positions do not represent semantic distance and are never saved to memory data.
+
+![3D graph using demonstration data](/images/graph-3d.png)
+
+The 3D overview displays structural links, while selection highlights direct relationships. **All relations** toggles the complete set of links. Nodes and links are rendered in GPU batches, layout runs in a separate Worker, and rendering stops when settled or when leaving the graph page.
+
 | Observation | Example |
 | --- | --- |
 | High-frequency entities | Users, projects, places, group topics |
@@ -75,7 +81,7 @@ Recall supports Ctrl / Cmd + Enter. Each result shows the fused final score plus
 | Aging risk | Low-importance relationships that have not been accessed for a long time |
 
 ::: tip
-The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). Click the **Full Graph** button to load every node and relation. The full graph still obeys server-side caps; when truncated, the legend reports **Nodes visible / total** instead of contradicting the counters above.
+The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). **Full Graph** loads all nodes, relations and associated memories in the selected session and persona scope. Full requests no longer truncate at fixed counts; the current display level controls how many links are visible in 3D.
 :::
 
 In 2.7.0-beta.1, zoomed reading, hover and node selection pause ambient movement and stabilize label priority and collision bounds. Settled reading stops idle drawing; overview motion resumes when zoomed out with no hover or selection. Lower-priority labels may be omitted when space is limited; select a node to read its full details.

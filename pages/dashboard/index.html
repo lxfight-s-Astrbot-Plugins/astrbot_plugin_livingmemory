@@ -72,6 +72,11 @@
           <header class="page-header">
             <div class="page-heading"><span class="page-index">01</span><span class="page-title" data-i18n="nav.graph">Knowledge Graph</span></div>
             <div class="page-actions">
+              <select id="graph-view-mode" class="input input-sm" data-i18n-aria="graph.viewMode" style="width:auto">
+                <option value="2d" data-i18n="graph.view2d">2D</option>
+                <option value="3d" data-i18n="graph.view3d">3D</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" id="graph-reset-view" data-i18n="graph.resetView">Reset view</button>
               <input type="text" id="graph-session-filter" list="graph-session-options" data-i18n-aria="graph.sessionPh" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
               <datalist id="graph-session-options"></datalist>
               <button class="btn btn-secondary btn-sm" id="graph-overview-btn" data-i18n-aria="graph.overviewBtn">
@@ -89,18 +94,22 @@
             </div>
             <div class="graph-canvas-container" style="flex:1">
               <div class="graph-canvas-state" id="graph-canvas-state"></div>
-              <div id="graph-canvas" class="graph-canvas"></div>
+              <div id="graph-canvas" class="graph-canvas">
+                <div id="graph-view-2d" class="graph-view"></div>
+                <div id="graph-view-3d" class="graph-view" hidden></div>
+              </div>
             </div>
             <div class="graph-legend" id="graph-legend"></div>
             <div class="graph-toolbar">
               <div class="graph-operation">
                 <input type="text" id="graph-query-input" data-i18n-aria="graph.queryPh" class="input" data-i18n-placeholder="graph.queryPh" placeholder="Search entities, topics, or memories..." />
-                <button class="btn btn-primary btn-sm" id="graph-search-btn">
+                <button class="btn btn-primary btn-sm" id="graph-search-btn" data-i18n-aria="graph.searchBtn">
                   <i data-lucide="search" aria-hidden="true"></i>
                   <span data-i18n="graph.searchBtn">Search</span>
                 </button>
               </div>
             </div>
+            <button id="graph-relations-btn" class="btn btn-secondary btn-sm" data-i18n="graph.allRelations" aria-pressed="false" hidden>All relations</button>
           </div>
         </section>
 

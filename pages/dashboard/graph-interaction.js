@@ -7,7 +7,6 @@
 
   var CFG = global.GraphShared.CFG;
   var clamp = global.GraphShared.clamp;
-  var lerp = global.GraphShared.lerp;
   var getPos = global.GraphShared.getPos;
 
   /* ═══════════════════════════════════════════════════════════════

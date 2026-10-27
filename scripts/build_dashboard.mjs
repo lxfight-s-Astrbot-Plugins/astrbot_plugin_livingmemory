@@ -3,10 +3,11 @@
  * Build the dashboard's static bundles.
  *
  * The dashboard is served as plain files by AstrBot Pages, so there is no
- * bundler at runtime. This script only concatenates and lightly minifies:
- *   - four stylesheets -> assets/styles.min.css
+ * bundler at runtime. This script produces:
+ *   - stylesheets -> assets/styles.min.css
  *   - appearance.js + i18n.js -> assets/base.min.js (loaded in <head>)
- *   - six graph scripts -> assets/graph.min.js (loaded at end of <body>)
+ *   - graph scripts -> assets/graph.min.js (loaded at end of <body>)
+ *   - independent WebGL ESM bundle with its layout worker embedded
  *
  * Source files stay editable; run `node scripts/build_dashboard.mjs` after
  * changing them or `node scripts/build_dashboard.mjs --check` in CI.
@@ -15,13 +16,14 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DASHBOARD = join(ROOT, "pages", "dashboard");
 const OUTPUT = join(DASHBOARD, "assets");
 const CHECK = process.argv.includes("--check");
 
-const CSS_SOURCES = ["styles.css", "art-direction.css", "themes.css", "workflows.css"];
+const CSS_SOURCES = ["styles.css", "art-direction.css", "themes.css", "workflows.css", "graph-3d.css"];
 const BASE_SOURCES = ["appearance.js", "i18n.js"];
 const GRAPH_SOURCES = [
   "graph-shared.js",
@@ -66,6 +68,22 @@ const artifacts = new Map([
   ["base.min.js", joinScripts("LivingMemory dashboard base bundle", BASE_SOURCES)],
   ["graph.min.js", joinScripts("LivingMemory dashboard graph bundle", GRAPH_SOURCES)],
 ]);
+
+const worker = await build({
+  entryPoints: [join(DASHBOARD, "graph-3d-worker.js")], bundle: true, minify: true,
+  format: "iife", target: "es2022", write: false, legalComments: "inline",
+});
+const scene = await build({
+  entryPoints: [join(DASHBOARD, "graph-3d.js")], bundle: true, minify: true,
+  format: "esm", target: "es2022", write: false, legalComments: "inline",
+  supported: { "template-literal": false },
+  define: { __GRAPH_3D_WORKER_SOURCE__: JSON.stringify(worker.outputFiles[0].text) },
+});
+artifacts.set("graph-3d.min.js", scene.outputFiles[0].text);
+const packages = ["three", "d3-force-3d", "d3-binarytree", "d3-octree", "d3-quadtree", "d3-dispatch", "d3-timer"];
+artifacts.set("graph-3d.LICENSE.txt", packages.map(name =>
+  name + "\n" + readFileSync(join(ROOT, "node_modules", name, "LICENSE"), "utf8").replace(/\r\n/g, "\n")
+).join("\n"));
 
 mkdirSync(OUTPUT, { recursive: true });
 

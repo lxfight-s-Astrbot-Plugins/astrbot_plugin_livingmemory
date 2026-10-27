@@ -30,6 +30,7 @@ def test_readmes_link_languages_and_project_resources() -> None:
         "/issues",
         "qm.qq.com",
         "953245617",
+        "1129994749",
         "`lxfight`",
         "astrbot_plugin_livingmemory",
     )
@@ -53,10 +54,9 @@ def test_readme_local_images_exist() -> None:
             assert (ROOT / source).is_file(), f"{name} references missing {source}"
 
 
-def test_readmes_do_not_claim_a_3d_graph() -> None:
+def test_readmes_describe_available_graph_views() -> None:
     for name, content in _read_readmes().items():
-        outdated_claim = re.search(r"(?<![%\w])3D(?![%\w])", content)
-        assert outdated_claim is None, f"{name} contains an outdated graph claim"
+        assert "2D/3D" in content, f"{name} is missing the available graph views"
 
 
 def test_legacy_chinese_readme_points_to_default_homepage() -> None:
