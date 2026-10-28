@@ -1,6 +1,6 @@
 const TYPE_ORDER = { person: 0, topic: 1, summary: 2, fact: 3, other: 4 };
 const PARENTS = { person: [], topic: ["person"], summary: ["topic", "person"], fact: ["summary", "topic", "person"], other: ["summary", "topic", "person"] };
-const MASSES = { person: 70, topic: 25, summary: 10, fact: 2, other: 5 };
+const MASSES = { person: 70, topic: 25, summary: 10 };
 const STEP = 1 / 120;
 
 export class MemoryGravity {
@@ -76,7 +76,7 @@ export class MemoryGravity {
       const pitch = 0.55 * Math.sin(2 * Math.atan2(dy, dx) + community * 0.719);
       const cosine = Math.cos(pitch), sine = Math.sin(pitch);
       const softened = extent * 0.18;
-      const mass = roots.has(parent) ? 120 : (MASSES[graph.nodes[parent].type] || MASSES.other);
+      const mass = roots.has(parent) ? 120 : MASSES[graph.nodes[parent].type];
       this.softeningSquared[i] = softened * softened;
       this.mu[i] = (2 * Math.PI / 60) ** 2 * (extent * extent * 0.36 + softened * softened) ** 1.5 * mass / 120;
       const periapsis = radius * (childCounts[i] ? 0.62 : 0.82);
