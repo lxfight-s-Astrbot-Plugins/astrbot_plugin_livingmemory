@@ -1,15 +1,20 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { prepareGraph, SPACE_COLORS } from "./graph-3d-core.js";
+import { MemoryOrbits } from "./graph-3d-orbits.js";
 
 export default class Graph3D {
   constructor() {
     this.colors = SPACE_COLORS;
     this.selection = null;
     this.showAllRelations = false;
+    this.motionEnabled = true;
     this._active = true;
     this._frame = null;
     this._hoverFrame = null;
+    this._motionTimer = null;
+    this._lastMotionStamp = null;
+    this._orbits = null;
     this._flight = null;
     this._generation = 0;
     this._listeners = [];
@@ -24,6 +29,7 @@ export default class Graph3D {
   init(container, callbacks = {}) {
     this.container = container;
     this.callbacks = callbacks;
+    this.motionEnabled = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 12000);
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
@@ -64,12 +70,20 @@ export default class Graph3D {
     this.worker.onmessage = ({ data }) => {
       if (data.generation !== this._generation) return;
       this.positions.array.set(data.positions);
+      this._orbits = new MemoryOrbits(this.graph, data);
+      this._orbits.advance(0, this.positions.array);
+      this._syncOrbitHold();
       this.positions.needsUpdate = true;
       this.edgeGeometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
       this.graph.overviewCount = data.overviewCount;
       const hubs = new Set(data.hubs);
       this.graph.labelOrder = [...hubs, ...this.graph.labelOrder.filter(index => !hubs.has(index))];
       this.points.geometry.computeBoundingSphere();
+      const bounds = this.points.geometry.boundingSphere;
+      for (let community = 0; community < data.hubs.length; community++) {
+        this._scratch.fromBufferAttribute(this.positions, data.hubs[community]);
+        bounds.radius = Math.max(bounds.radius, bounds.center.distanceTo(this._scratch) + data.communityRadii[community] + 12);
+      }
       this.edgeGeometry.boundingSphere = this.points.geometry.boundingSphere;
       this.focusEdges.geometry.boundingSphere = this.points.geometry.boundingSphere;
       this.graphGroup.visible = true;
@@ -102,6 +116,7 @@ export default class Graph3D {
         const index = this._hit(event.clientX, event.clientY);
         if (index === this._hover) return;
         this._hover = index;
+        this._syncOrbitHold();
         this.canvas.style.cursor = index < 0 ? "grab" : "pointer";
         if (this.uniforms) this.uniforms.hover.value = index;
         this._buildLabels();
@@ -152,6 +167,8 @@ export default class Graph3D {
       return;
     }
     this._payload = payload;
+    this._stopFrames();
+    this._orbits = null;
     this._generation++;
     this._flight = null;
     this._ready = false;
@@ -266,6 +283,7 @@ export default class Graph3D {
     for (const index of indices) target.add(this._scratch.fromBufferAttribute(this.positions, index));
     target.divideScalar(indices.length);
     this._focusNodeIndices = indices;
+    this._syncOrbitHold();
     this._updateRelations();
     const lengths = [];
     for (const index of this._highlightNodes) lengths.push(this._scratch.fromBufferAttribute(this.positions, index).distanceTo(target));
@@ -310,9 +328,24 @@ export default class Graph3D {
     this._schedule();
   }
 
+  setMotionEnabled(enabled) {
+    this.motionEnabled = enabled;
+    this._lastMotionStamp = null;
+    if (this._motionTimer !== null) clearTimeout(this._motionTimer);
+    this._motionTimer = null;
+    this._schedule();
+  }
+
+  _syncOrbitHold() {
+    if (!this._orbits) return;
+    this._orbits.setHeld([...(this._focusNodeIndices || []), this._hover]);
+    this._lastMotionStamp = null;
+  }
+
   clearSelection() {
     this.selection = null;
     this._focusNodeIndices = [];
+    this._syncOrbitHold();
     this._updateRelations();
     if (this._savedCamera) {
       this._fly(this._savedCamera.position, this._savedCamera.target, 0);
@@ -325,6 +358,7 @@ export default class Graph3D {
   resetView() {
     this.selection = null;
     this._focusNodeIndices = [];
+    this._syncOrbitHold();
     this._savedCamera = null;
     this._updateRelations();
     if (this._ready && this.graph.nodes.length) this._fly(this._homePosition, this._center, 0);
@@ -369,6 +403,7 @@ export default class Graph3D {
     if (this._hoverFrame !== null) cancelAnimationFrame(this._hoverFrame);
     this._hoverFrame = null;
     this._hover = -1;
+    this._syncOrbitHold();
     if (this.uniforms) this.uniforms.hover.value = -1;
     if (this.labelLayer) this._buildLabels();
     this._schedule();
@@ -376,12 +411,22 @@ export default class Graph3D {
 
   _schedule() {
     if (!this._active || document.hidden || this._frame !== null) return;
+    if (this._motionTimer !== null) clearTimeout(this._motionTimer);
+    this._motionTimer = null;
     this._frame = requestAnimationFrame(this._render);
   }
 
   _render(now) {
     this._frame = null;
     if (!this._active || document.hidden) return;
+    const orbiting = this.motionEnabled && this._ready && this._orbits?.movingCount > 0;
+    if (orbiting) {
+      if (this._lastMotionStamp !== null) {
+        this._orbits.advance((now - this._lastMotionStamp) / 1000, this.positions.array);
+        this.positions.needsUpdate = true;
+      }
+      this._lastMotionStamp = now;
+    }
     if (this._flight) {
       const flight = this._flight;
       const t = Math.min(1, (now - flight.started) / flight.duration);
@@ -405,12 +450,18 @@ export default class Graph3D {
       element.hidden = hidden;
       if (!hidden) { boxes.push(box); element.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px) translateX(-50%)`; }
     }
+    if (orbiting && this._frame === null) {
+      this._motionTimer = setTimeout(() => { this._motionTimer = null; this._schedule(); },
+        Math.max(0, 1000 / 30 - (performance.now() - now)));
+    }
   }
 
   _stopFrames() {
     if (this._frame !== null) cancelAnimationFrame(this._frame);
     if (this._hoverFrame !== null) cancelAnimationFrame(this._hoverFrame);
+    if (this._motionTimer !== null) clearTimeout(this._motionTimer);
     this._frame = this._hoverFrame = null;
+    this._motionTimer = this._lastMotionStamp = null;
   }
 
   setActive(active) {
@@ -459,6 +510,7 @@ export default class Graph3D {
       renderedRelations: this.graph ? this.edgeGeometry.drawRange.count / 2 : 0,
       drawCalls: this.renderer.info.render.calls, layoutMs: this._layoutMs || 0,
       framePending: this._frame !== null, layoutReady: this._ready, animating: !!this._flight,
+      motionEnabled: this.motionEnabled, movingNodes: this._orbits?.movingCount || 0,
       cameraDistance: this.camera.position.distanceTo(this.controls.target),
     };
   }

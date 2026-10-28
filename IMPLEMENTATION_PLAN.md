@@ -1,30 +1,30 @@
-# Community-aware 3D graph layout
+# Dynamic memory orbits
 
-Goal: reuse the existing topology grouping to form separated 3D communities, place representative nodes near each community center, and distinguish node types through size as well as color. Keep layout computation in the existing Blob Worker and retain complete graph data and memory sources.
+Goal: add continuously moving, type-aware orbital systems on top of the merged community layout and theme fixes. Community representatives remain fixed; topics orbit associated people; summaries orbit topics; relationship/preference facts prefer people, while other facts prefer summaries/topics. Use existing relation weights to choose parents and retain all original graph edges.
 
-Scope: this PR changes layout and node presentation. Theme conflicts are handled in an independent PR. No new dependencies, backend routes, storage fields, validation gates or automatic fallbacks.
+Scope: frontend animation only. No new backend fields, persistent memory changes, dependencies, runtime validation gates or automatic fallbacks. One small pause/resume control is added; no headings or explanatory UI copy.
 
-## Stage 1: Share topology grouping
-**Goal**: extract the existing pure topology calculation without changing 2D behavior.
-**Success Criteria**: both layout workers use the same implementation; existing 2D layout tests pass.
-**Tests**: existing 2D layout/interaction tests and deterministic community fixtures.
-**Project Structure Impact**: one shared `graph-topology.js`; update classic-worker and bundle inputs.
+## Stage 1: Orbital hierarchy and math
+**Goal**: deterministic, cycle-free parent assignment and nested orbits with bounded community extents.
+**Success Criteria**: typed relationships select the expected parent, satellites move with their parent, and freezing a target also freezes its ancestry without phase jumps.
+**Tests**: parent preferences, strongest ties, community boundaries, constant orbital radius, nested motion and selective holds.
+**Project Structure Impact**: one pure `graph-3d-orbits.js` module; Worker emits compact community IDs, representatives and radii.
 **Status**: Complete
 
-## Stage 2: Community layout and node hierarchy
-**Goal**: separate community centers, arrange local systems around representative nodes, and apply type-dependent sizes.
-**Success Criteria**: connected communities remain separated despite bridge links; peripheral and disconnected nodes remain visible; dense bridges do not dominate the default overview.
-**Tests**: clustered graphs with hubs, bridges, isolated nodes and parallel relations; relative type size and deterministic 3D positions.
-**Project Structure Impact**: existing 3D core, renderer and worker; typed layout results also carry community representatives and overview indices.
+## Stage 2: Rendering and interaction
+**Goal**: visible orbital animation at a controlled frame rate using the existing shared position buffer.
+**Success Criteria**: indexed edges follow moving nodes; focus and hover remain usable; pause/resume, reduced motion, hidden pages and destruction stop unnecessary work.
+**Tests**: real sandbox browser checks for motion, focus, holds, pause/resume, visibility, mode switches and unchanged edge buffers.
+**Project Structure Impact**: existing renderer, Graph UI, controls, styles and translations. Animation math and scheduling stay separate; no additional abstraction layer.
 **Status**: Complete
 
-## Stage 3: Visual and scale checks
-**Goal**: verify anonymized local graph topology and dense multi-community fixtures in the AstrBot sandbox.
-**Success Criteria**: community structure and node hierarchy are visible; camera focus, complete relations and idle rendering continue to work.
-**Tests**: frontend suite, dashboard artifact check, browser interactions and 5,000-node/100,000-edge workload.
-**Project Structure Impact**: update bilingual WebUI documentation and an anonymized/synthetic screenshot; never publish real labels or memory text.
+## Stage 3: Scale verification and delivery
+**Goal**: document orbit rules and verify 5,000-node/100,000-edge animation.
+**Success Criteria**: no per-frame edge rebuilding or force simulation, no animation jump on resume, and previous theme behavior remains readable.
+**Tests**: frontend suite, dashboard/doc checks and browser performance/interaction checks.
+**Project Structure Impact**: bilingual WebUI instructions and rebuilt assets; create a separate PR for the new motion behavior.
 **Status**: Complete
 
-Validation: frontend tests and dashboard/documentation checks pass. Browser comparisons use a read-only export of the available local graph (68 nodes/68 edges), with labels, relations and memory IDs anonymized, plus a 1,200-node hub-heavy fixture. The sandbox scale check covers 5,000 nodes/100,000 edges, focus/reset, complete relations, touch input and idle rendering. No original memory text or labels are included in this PR.
+Validation: 124 frontend tests and 16 dashboard/documentation tests passed. The sandbox browser verifies default movement, stationary camera, nested holds, pause/resume without catch-up, hidden pages, reduced-motion opt-in and unchanged edge-index buffers under a 5,000-node/100,000-edge workload. Stellar glow, importance-driven pulsars and corrected camera pivots are implemented in a separate follow-up PR.
 
-Rollback: revert this PR and rebuild dashboard assets; there are no data migrations.
+Rollback: revert this PR and rebuild dashboard assets. Merged community layout and theme fixes remain available; no data migration is involved.
