@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { prepareGraph, SPACE_COLORS } from "./graph-3d-core.js";
-import { MemoryOrbits } from "./graph-3d-orbits.js";
+import { MemoryGravity } from "./graph-3d-gravity.js";
 
 export default class Graph3D {
   constructor() {
@@ -14,7 +14,7 @@ export default class Graph3D {
     this._hoverFrame = null;
     this._motionTimer = null;
     this._lastMotionStamp = null;
-    this._orbits = null;
+    this._gravity = null;
     this._pulseClock = 0;
     this._viewOffset = { x: 0, y: 0 };
     this._flight = null;
@@ -80,9 +80,9 @@ export default class Graph3D {
     this.worker.onmessage = ({ data }) => {
       if (data.generation !== this._generation) return;
       this.positions.array.set(data.positions);
-      this._orbits = new MemoryOrbits(this.graph, data);
-      this._orbits.advance(0, this.positions.array);
-      this._syncOrbitHold();
+      this._gravity = new MemoryGravity(this.graph, data);
+      this._gravity.advance(0, this.positions.array);
+      this._syncGravityHold();
       this.positions.needsUpdate = true;
       this.edgeGeometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
       this.graph.overviewCount = data.overviewCount;
@@ -91,7 +91,7 @@ export default class Graph3D {
       const star = this.points.geometry.attributes.aStar;
       for (const hub of data.hubs) star.array[hub] = 1;
       star.needsUpdate = true;
-      const bounds = new THREE.Sphere(new THREE.Vector3().fromArray(this._orbits.center), 0);
+      const bounds = new THREE.Sphere(new THREE.Vector3().fromArray(this._gravity.center), 0);
       for (let community = 0; community < data.hubs.length; community++) {
         this._scratch.fromBufferAttribute(this.positions, data.hubs[community]);
         bounds.radius = Math.max(bounds.radius, bounds.center.distanceTo(this._scratch) + data.communityRadii[community] + 12);
@@ -129,7 +129,7 @@ export default class Graph3D {
         const index = this._hit(event.clientX, event.clientY);
         if (index === this._hover) return;
         this._hover = index;
-        this._syncOrbitHold();
+        this._syncGravityHold();
         this.canvas.style.cursor = index < 0 ? "grab" : "pointer";
         if (this.uniforms) this.uniforms.hover.value = index;
         this._buildLabels();
@@ -181,7 +181,7 @@ export default class Graph3D {
     }
     this._payload = payload;
     this._stopFrames();
-    this._orbits = null;
+    this._gravity = null;
     this._pulseClock = 0;
     this._generation++;
     this._flight = null;
@@ -317,7 +317,7 @@ export default class Graph3D {
     if (!indices.length || indices[0] === undefined) { this.clearSelection(); return; }
     if (!this._savedCamera) this._savedCamera = { position: this.camera.position.clone(), target: this.controls.target.clone(), offset: { ...this._viewOffset } };
     this._focusNodeIndices = indices;
-    this._syncOrbitHold();
+    this._syncGravityHold();
     const target = this._selectionCenter();
     this._updateRelations();
     const lengths = [];
@@ -388,16 +388,16 @@ export default class Graph3D {
     this._schedule();
   }
 
-  _syncOrbitHold() {
-    if (!this._orbits) return;
-    this._orbits.setHeld([...(this._focusNodeIndices || []), this._hover]);
+  _syncGravityHold() {
+    if (!this._gravity) return;
+    this._gravity.setHeld([...(this._focusNodeIndices || []), this._hover]);
     this._lastMotionStamp = null;
   }
 
   clearSelection() {
     this.selection = null;
     this._focusNodeIndices = [];
-    this._syncOrbitHold();
+    this._syncGravityHold();
     this._updateRelations();
     if (this._savedCamera) {
       this._fly(this._savedCamera.position, this._savedCamera.target, 0, this._savedCamera.offset);
@@ -410,7 +410,7 @@ export default class Graph3D {
   resetView() {
     this.selection = null;
     this._focusNodeIndices = [];
-    this._syncOrbitHold();
+    this._syncGravityHold();
     this._savedCamera = null;
     this._updateRelations();
     if (this._ready && this.graph.nodes.length) { this._updateHomeFrame(); this._fly(this._homePosition, this._center, 0); }
@@ -456,7 +456,7 @@ export default class Graph3D {
     if (this._hoverFrame !== null) cancelAnimationFrame(this._hoverFrame);
     this._hoverFrame = null;
     this._hover = -1;
-    this._syncOrbitHold();
+    this._syncGravityHold();
     if (this.uniforms) this.uniforms.hover.value = -1;
     if (this.labelLayer) this._buildLabels();
     this._schedule();
@@ -475,9 +475,10 @@ export default class Graph3D {
     const orbiting = this.motionEnabled && this._ready && this.graph.nodes.length > 0;
     if (orbiting) {
       if (this._lastMotionStamp !== null) {
-        const seconds = (now - this._lastMotionStamp) / 1000;
-        if (this._orbits.movingCount > 0) {
-          this._orbits.advance(seconds, this.positions.array);
+        // Limit physics catch-up after a stalled frame so interaction stays responsive.
+        const seconds = Math.min(0.1, (now - this._lastMotionStamp) / 1000);
+        if (this._gravity.movingCount > 0) {
+          this._gravity.advance(seconds, this.positions.array);
           this.positions.needsUpdate = true;
         }
         this._pulseClock += seconds;
@@ -580,7 +581,7 @@ export default class Graph3D {
       renderedRelations: this.graph ? this.edgeGeometry.drawRange.count / 2 : 0,
       drawCalls: this.renderer.info.render.calls, layoutMs: this._layoutMs || 0,
       framePending: this._frame !== null, layoutReady: this._ready, animating: !!this._flight,
-      motionEnabled: this.motionEnabled, movingNodes: this._orbits?.movingCount || 0,
+      motionEnabled: this.motionEnabled, movingNodes: this._gravity?.movingCount || 0,
       cameraDistance: this.camera.position.distanceTo(this.controls.target),
     };
   }

@@ -1,52 +1,36 @@
-# Stellar presentation and camera pivots
+# Gravity-driven 3D memory motion
 
-Goal: extend the orbital motion in PR #357 with representative-star halos, importance-driven pulsars, and correct rotation centers. Keep the actual controls pivot separate from screen composition, and preserve the pause/background behavior.
+Goal: replace prescribed phase-based circles with hierarchical central-gravity motion. Retain semantic parent assignment, spatial depth, terminal shells, stable focus pivots, pause/background behavior and batched rendering. PRs #357–#360 are merged into master.
 
-Scope: no new dependencies or memory persistence changes. Standardize the existing full-snapshot memory-to-node association so content nodes can use source-memory importance. Do not infer importance from graph degree or add explanatory UI copy.
+Scope: visual, softened central-gravity approximation with normalized masses. Community anchors stay fixed; each node moves relative to its semantic parent. No all-pairs force evaluation, new dependencies, persistence/API changes, extra controls, explanatory UI copy, or runtime self-check/repair loops. Remove the superseded phase/speed/basis implementation and its constant-radius test.
 
-## Stage 1: Source associations and value cues
-**Goal**: full graph memories retain their node associations; high-importance fact/summary nodes receive a pulsar score.
-**Success Criteria**: person/topic hubs do not become pulsars merely due to high degree; content without source evidence is not assigned a value.
-**Tests**: scoped full-graph node associations and source importance/type cases.
-**Project Structure Impact**: existing graph snapshot query and 3D preparation.
+## Stage 1: Gravity state and core behavior
+**Goal**: preserve the existing type/relationship hierarchy; initialize spatial relative positions and coherent tangential velocities; integrate softened central acceleration using fixed-step velocity Verlet.
+**Success Criteria**: curvature follows attraction, speed increases near the center, same-system angular momentum has a consistent direction, and trajectories stay within the interior/terminal radial budgets. Energy error stays bounded in a sustained motion test.
+**Tests**: replace constant-radius behavior with varying radius/speed and shared-spin tests; retain parent/hold/depth/envelope cases; add frame-partition and branch-order cases.
+**Project Structure Impact**: rename the existing orbital module/test to gravity, with the renderer consuming the same position buffer. No compatibility wrappers.
 **Status**: Complete
 
-## Stage 2: Stellar shading and camera geometry
-**Goal**: batch halos and pulsar emission in the existing point shader, use community-weighted overview centers, and focus OrbitControls on actual selected coordinates.
-**Success Criteria**: rotating around a focused target keeps it stationary on screen; projection offsets make room for details; reset/restore retains camera composition.
-**Tests**: weighted community center, sandbox projection/pivot checks, interrupted focus and resize behavior.
-**Project Structure Impact**: existing orbital metadata, renderer and camera methods; no extra draw objects per node.
+The previous constant-circle model fails the varying-radius regression. Core cases cover bounded energy error over 600 simulated seconds, equivalent trajectories at 30/120 FPS, shared angular-momentum direction, phase-by-phase volume, and terminal-shell ordering. A smooth vertical initial-velocity field prevents temporary flattening without runtime impulses or noise. Following visual feedback, interior spacing is shared by remaining branch depth instead of decaying geometrically, while terminal paths move inward to a compact radius band. Two regression cases demonstrate the previous deep-branch crowding and excessive terminal radius.
+
+## Stage 2: Renderer integration and lifecycle
+**Goal**: integrate gravity state into the existing 30 FPS render loop, without per-edge force calculations or geometry rebuilds.
+**Success Criteria**: selected/hovered ancestry remains stationary; release resumes saved velocities; hidden/inactive views stop simulation; long frame delays do not cause a physics catch-up stall.
+**Tests**: sandbox interaction, pause/resume, visibility, reduced-motion opt-in, rotation/zoom and mobile resizing.
+**Project Structure Impact**: existing renderer references and frame-time budget; no new UI.
 **Status**: Complete
 
-## Stage 3: Integrated verification
-**Goal**: verify orbital motion, effects, controls and theme readability together at display scale.
-**Success Criteria**: pause and background stop updates; position/index buffers remain shared; no per-edge geometry rebuilds.
-**Tests**: frontend and scoped backend suites, dashboard/doc builds, sandbox interaction and 5,000-node/100,000-edge checks.
-**Project Structure Impact**: bilingual instructions, screenshots and bundled assets; a follow-up PR based on #357.
+Sandbox checks pass for selected rotation/zoom, mobile resizing, pause/resume with saved velocities, page/tab suspension, reduced-motion opt-in, and a three-second stalled-frame case capped to 0.1 seconds of physics catch-up.
+
+## Stage 3: Display-scale verification and delivery
+**Goal**: verify gravity motion with sparse and dense graphs, document the approximation, and create a focused follow-up PR.
+**Success Criteria**: 5,000 nodes / 100,000 edges retain three draw calls and shared indices; no scene flattening or branch/terminal inversion.
+**Tests**: frontend tests, affected asset/documentation tests, dashboard/documentation builds, browser scale check and scene capture.
+**Project Structure Impact**: bilingual WebUI guidance, synthetic screenshot, built dashboard asset and PR description.
 **Status**: Complete
 
-Validation: 126 frontend tests and 124 related backend/resource/documentation tests passed. The sandbox regression reproduced the previous 67-unit focus-pivot error; corrected focus now matches actual node coordinates and stays fixed on screen through rotation, zoom and viewport changes. Halo/pulsar attributes, shader compilation, pause/resume and a 5,000-node/100,000-edge workload pass. Spatial volume and line brightness are isolated in the next follow-up PR.
+Validation: 136 frontend tests, 17 affected asset/documentation/full-snapshot tests, dashboard build and documentation build pass. The local Chrome 5,000-node/100,000-edge case renders every relation at approximately 26 FPS with three draw calls and unchanged edge indices; gravity takes about 0.52 ms per frame on average (0.9 ms at the 95th percentile). Sparse anonymous topology and dense synthetic scene checks pass. A 17-second browser capture demonstrates the compact layout and motion. VitePress retains its existing large-chunk advisory.
 
-Rollback: revert this PR and rebuild frontend assets. Orbital motion in #357 and the previously merged community/theme fixes remain available.
+References: [REBOUND gravity softening](https://rebound.hanno-rein.de/simulation/variables/), [REBOUND leapfrog integration](https://rebound.hanno-rein.de/integrators/leapfrog/).
 
-## Follow-up: spatial volume and line readability
-**Goal**: preserve grouping while replacing planar community centers and narrow orbital inclinations with genuinely spatial distributions. Brighten overview/focus relations and account for full-graph density.
-**Success Criteria**: local layouts and animated systems retain visible depth; representative centers span 3D; complete relations and selected pivots remain correct.
-**Tests**: local depth, multi-community depth/volume, orbital swept extents, sandbox rotation and scale checks.
-**Project Structure Impact**: existing 3D core, orbital math, relation material and documentation; no new dependencies or API fields.
-**Status**: Complete
-
-Validation: 129 frontend tests and 17 affected asset/documentation/full-snapshot tests passed. Three regression cases fail with the previous layout and pass with the spatial distribution, including a non-coplanar representative check. Browser checks pass for motion, selected rotation/zoom, mobile resizing, theme contrast, and the opaque-origin sandbox. A local 5,000-node/100,000-edge run renders all relations at approximately 28 FPS with three draw calls and unchanged index buffers. Dashboard and documentation builds pass; VitePress reports its existing large-chunk advisory.
-
-Rollback: revert this spatial/line follow-up and rebuild dashboard assets; the preceding orbital and camera changes remain available.
-
-## Follow-up: terminal-node radial ordering
-**Goal**: keep nodes with orbital children inside each community and reserve the outer shell for terminal nodes, including terminal people or topics. Preserve type-based parent selection and continuous motion.
-**Success Criteria**: terminal nodes remain farther from the community anchor than internal nodes throughout orbital motion, with all paths inside the existing community envelope.
-**Tests**: nested person/topic/summary branches, terminal status taking priority over node type, existing motion/hold/depth cases, and browser interaction/scale checks.
-**Project Structure Impact**: existing orbital radius assignment, frontend tests, bilingual instructions and screenshots. Remove the superseded type-only radius bands; no extra runtime checks or controls.
-**Status**: Complete
-
-Validation: 131 frontend tests and 17 affected asset/documentation/full-snapshot tests passed. The two new ordering tests fail with the previous radius bands and pass with branch envelopes and terminal shells. Real-browser checks confirm terminal shells, selected pivot/zoom, pause/background behavior and reduced-motion opt-in. A local 5,000-node/100,000-edge run reaches approximately 27 FPS with three draw calls and shared, unchanged relation indices. Dashboard and documentation builds pass.
-
-Rollback: revert this radial-ordering follow-up and rebuild dashboard assets.
+Rollback: revert the gravity follow-up and rebuild dashboard assets; the merged orbital and stellar features remain available.
