@@ -5,7 +5,8 @@ self.onmessage = ({ data }) => {
   clearTimeout(timer);
   if (!data.nodes.length) return;
   const started = performance.now();
-  const { simulation, nodes, iterations, communities } = createSimulation(data);
+  const { simulation, nodes, iterations, communities, hierarchy, frames } = createSimulation(data);
+  const { parents, order } = hierarchy;
   const { indices, overviewCount } = communityRelations(data, nodes);
   let remaining = iterations;
   function step() {
@@ -22,8 +23,8 @@ self.onmessage = ({ data }) => {
     });
     communities.forEach(group => { hubs[group.id] = group.hub; communityRadii[group.id] = group.radius; });
     self.postMessage({ generation: data.generation, positions, indices, overviewCount,
-      hubs, communityIds, communityRadii, layoutMs: performance.now() - started },
-    [positions.buffer, indices.buffer, hubs.buffer, communityIds.buffer, communityRadii.buffer]);
+      hubs, communityIds, communityRadii, parents, order, frames, layoutMs: performance.now() - started },
+    [positions.buffer, indices.buffer, hubs.buffer, communityIds.buffer, communityRadii.buffer, parents.buffer, order.buffer, frames.buffer]);
   }
   step();
 };

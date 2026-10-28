@@ -18,21 +18,25 @@ Validation: 139 frontend tests and 94 scoped backend/documentation tests pass; a
 **Success Criteria**: no narrow terminal shell, no crowding from geometric depth shrinkage, branch parents stay inside their own terminal extent, and all systems retain spatial volume.
 **Tests**: semantic parents, branch intervals, radial coverage, thickness, representative centers, sparse/dense layouts.
 **Project Structure Impact**: 3D core owns one hierarchy calculation; worker returns hierarchy and galaxy frames. Remove the old spherical/type radius seeds.
-**Status**: In progress
+**Status**: Complete
+
+Semantic branches now share leaf intervals within each spiral arm, giving each arm continuous radial coverage. Small/edgeless groups use spatial clusters. The worker supplies the one semantic hierarchy and orthonormal community frames; gravity no longer rebuilds or overwrites the layout.
 
 ## Stage 3: Shape-preserving gravity motion
 **Goal**: combine slow coherent system rotation with bounded local gravitational movement around semantic rest positions; retain world coordinates shared by drawing, picking and focus.
 **Success Criteria**: arms remain recognizable, focus holds stay stationary, pause resumes saved state, and frame rate/visibility do not change the trajectory unexpectedly.
 **Tests**: fixed-step state, bounded displacement/volume, semantic holds, shared spin, rotation/zoom and lifecycle browser checks.
 **Project Structure Impact**: replace the old full-radius parent orbits in MemoryGravity; no legacy mode or compatibility wrapper. Stages 2 and 3 form the second focused PR.
-**Status**: Not started
+**Status**: Complete
+
+Validation: 140 frontend tests and 16 asset/documentation tests pass. New regressions cover exact layout preservation on animation startup, stable branch lengths, continuous terminal radii and bounded motion. The sandbox retains focus pivots and lifecycle behavior; a 5,000-node/100,000-edge run reaches approximately 27 FPS with three draw calls and unchanged indices. Documentation/dashboard builds pass. Ordinary motion combines slow system rotation and small energy-bounded gravitational displacements; hovered/focused systems stop bulk rotation without losing state.
 
 ## Stage 4: Relation levels, star density and lighting
 **Goal**: use a small set of bundled community links in overview, reveal internal structure on approach/selection, and add GPU star dust following galaxy frames with restrained node glow.
 **Success Criteria**: preserved relations are clear, full-relations mode keeps every edge, stars never count as memories or affect picking, and no new UI text is added.
 **Tests**: relation aggregation/completeness, zoom levels, shader compilation, bounds and pause/background handling.
 **Project Structure Impact**: renderer, worker relation metadata and galaxy dust shader; reuse the existing 2D aggregation idea without copying its visual style. Third focused PR.
-**Status**: Not started
+**Status**: In progress
 
 ## Stage 5: Integrated validation and delivery
 **Goal**: verify the final scene against the same anonymous and synthetic datasets, update bilingual docs/screenshots and create stacked PRs.
