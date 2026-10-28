@@ -45,17 +45,11 @@ export class MemoryOrbits {
     for (const i of this.order) {
       const parent = this.parents[i];
       if (parent < 0) continue;
-      const node = graph.nodes[i], parentType = graph.nodes[parent].type;
+      const node = graph.nodes[i];
       const community = layout.communityIds[i], extent = this.communityRadii[community];
-      let minimum, maximum;
-      if (node.type === "person") { minimum = 0.12; maximum = 0.25; }
-      else if (node.type === "topic") { minimum = 0.2; maximum = 0.42; }
-      else if (parentType === "summary") { minimum = 0.025; maximum = 0.07; }
-      else if (parentType === "topic") { minimum = 0.07; maximum = node.type === "summary" ? 0.15 : 0.2; }
-      else { minimum = 0.28; maximum = node.type === "summary" ? 0.5 : 0.75; }
-      const available = extent * 0.95 - envelopes[parent];
-      maximum = Math.min(extent * maximum, available * 0.8);
-      minimum = Math.min(extent * minimum, maximum * 0.65);
+      // Branch envelopes stay within 0.25R; leaf orbits stay outside them at every phase.
+      const maximum = childCounts[i] ? (extent * 0.25 - envelopes[parent]) * 0.8 : extent * 0.7;
+      const minimum = childCounts[i] ? maximum * 0.45 : extent * 0.55;
       const rank = childRanks[parent]++;
       const spacing = minimum + (maximum - minimum) * Math.sqrt((rank + 0.5) / childCounts[parent]);
       const dx = this.base[i * 3] - this.base[parent * 3];

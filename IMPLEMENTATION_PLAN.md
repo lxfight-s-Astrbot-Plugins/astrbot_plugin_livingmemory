@@ -39,3 +39,14 @@ Rollback: revert this PR and rebuild frontend assets. Orbital motion in #357 and
 Validation: 129 frontend tests and 17 affected asset/documentation/full-snapshot tests passed. Three regression cases fail with the previous layout and pass with the spatial distribution, including a non-coplanar representative check. Browser checks pass for motion, selected rotation/zoom, mobile resizing, theme contrast, and the opaque-origin sandbox. A local 5,000-node/100,000-edge run renders all relations at approximately 28 FPS with three draw calls and unchanged index buffers. Dashboard and documentation builds pass; VitePress reports its existing large-chunk advisory.
 
 Rollback: revert this spatial/line follow-up and rebuild dashboard assets; the preceding orbital and camera changes remain available.
+
+## Follow-up: terminal-node radial ordering
+**Goal**: keep nodes with orbital children inside each community and reserve the outer shell for terminal nodes, including terminal people or topics. Preserve type-based parent selection and continuous motion.
+**Success Criteria**: terminal nodes remain farther from the community anchor than internal nodes throughout orbital motion, with all paths inside the existing community envelope.
+**Tests**: nested person/topic/summary branches, terminal status taking priority over node type, existing motion/hold/depth cases, and browser interaction/scale checks.
+**Project Structure Impact**: existing orbital radius assignment, frontend tests, bilingual instructions and screenshots. Remove the superseded type-only radius bands; no extra runtime checks or controls.
+**Status**: Complete
+
+Validation: 131 frontend tests and 17 affected asset/documentation/full-snapshot tests passed. The two new ordering tests fail with the previous radius bands and pass with branch envelopes and terminal shells. Real-browser checks confirm terminal shells, selected pivot/zoom, pause/background behavior and reduced-motion opt-in. A local 5,000-node/100,000-edge run reaches approximately 27 FPS with three draw calls and shared, unchanged relation indices. Dashboard and documentation builds pass.
+
+Rollback: revert this radial-ordering follow-up and rebuild dashboard assets.
