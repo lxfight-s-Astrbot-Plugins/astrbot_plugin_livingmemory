@@ -44,26 +44,14 @@ export function prepareGraph(snapshot) {
   for (const memory of snapshot.memories || []) {
     const importance = Number(memory.importance || 0) / (memory.importance_scale === "display" ? 10 : 1);
     if (importance < 0.8) continue;
-    for (const index of memoryNodes.get(Number(memory.memory_id)) || []) {
-      const node = nodes[index];
-      if (node.type === "fact" || node.type === "summary") node.pulsar = Math.max(node.pulsar, Math.min(1, importance));
-    }
-  }
-  const ranked = links.map((_, index) => index).sort((a, b) => links[b].weight - links[a].weight || a - b);
-  const degree = new Uint8Array(nodes.length), overview = [], remaining = [];
-  const budget = Math.min(4000, Math.max(160, nodes.length * 2));
-  for (const index of ranked) {
-    const link = links[index];
-    if (overview.length < budget && (degree[link.source] < 2 || degree[link.target] < 2)) {
-      overview.push(index);
-      if (degree[link.source] < 2) degree[link.source]++;
-      if (degree[link.target] < 2) degree[link.target]++;
-    } else remaining.push(index);
+    const content = [...(memoryNodes.get(Number(memory.memory_id)) || [])].filter(index => nodes[index].type === "fact" || nodes[index].type === "summary");
+    const index = content.find(index => nodes[index].type === "summary") ?? content[0];
+    if (index !== undefined) nodes[index].pulsar = Math.max(nodes[index].pulsar, Math.min(1, importance));
   }
   const labelOrder = nodes.map((_, index) => index).sort((a, b) =>
     Number(nodes[b].memory_count || 0) - Number(nodes[a].memory_count || 0) ||
     Number(nodes[b].weight || 0) - Number(nodes[a].weight || 0));
-  return { nodes, nodeIndex, links, adjacency, memoryNodes, memoryLinks, labelOrder, linkOrder: overview.concat(remaining), overviewCount: overview.length };
+  return { nodes, nodeIndex, links, adjacency, memoryNodes, memoryLinks, labelOrder, overviewCount: 0 };
 }
 
 export function buildMemoryHierarchy(graph, communityIds, hubs) {
@@ -200,8 +188,11 @@ export function createSimulation(graph) {
   const simulation = forceSimulation(nodes, 3).stop()
     .alphaDecay(1 - Math.pow(0.001, 1 / iterations))
     .force("charge", forceManyBody().strength(-6).theta(1.1).distanceMax(80))
-    .force("links", forceLink(links).distance(38).strength(link =>
-      link.source.community === link.target.community ? Math.min(0.025, 0.008 * Math.sqrt(link.weight)) : 0.0002 * Math.min(1, link.weight)))
+    .force("links", forceLink(links).distance(38).strength(link => {
+      const degree = Math.min(graph.adjacency[link.source.index].length, graph.adjacency[link.target.index].length);
+      return link.source.community === link.target.community ? Math.min(0.035, 0.025 * Math.sqrt(link.weight) / degree)
+        : 0.0002 * Math.min(1, link.weight);
+    }))
     .force("collision", forceCollide(node => node.radius + 2))
     .force("x", forceX(node => node.homeX).strength(0.55))
     .force("y", forceY(node => node.homeY).strength(0.55))
@@ -209,22 +200,31 @@ export function createSimulation(graph) {
   return { simulation, nodes, iterations, communities, communityLinks, hierarchy, frames };
 }
 
-export function communityRelations(graph, nodes) {
-  const overview = [], remaining = [], bridges = new Set();
-  for (const index of graph.linkOrder) {
+export function communityRelations(graph, nodes, communityCount, parents) {
+  const local = Array.from({ length: communityCount }, () => []), remaining = [];
+  const degree = new Uint8Array(nodes.length), sizes = new Uint32Array(communityCount);
+  for (const node of nodes) sizes[node.community]++;
+  const budgets = Uint8Array.from(sizes, size => Math.min(120, Math.max(12, Math.floor(Math.sqrt(size) * 5))));
+  const tree = link => parents[link.source] === link.target || parents[link.target] === link.source;
+  const ranked = graph.links.map((_, index) => index).sort((a, b) =>
+    Number(tree(graph.links[b])) - Number(tree(graph.links[a])) || graph.links[b].weight - graph.links[a].weight || a - b);
+  for (const index of ranked) {
     const link = graph.links[index];
     const source = nodes[link.source].community, target = nodes[link.target].community;
-    const pair = source < target ? source + ":" + target : target + ":" + source;
-    if ((source === target && overview.length < 4000) || (source !== target && !bridges.has(pair))) {
-      overview.push(index);
-      if (source !== target) bridges.add(pair);
+    if (source === target && link.source !== link.target && link.weight > 0 &&
+        local[source].length < budgets[source] && degree[link.source] < 4 && degree[link.target] < 4) {
+      local[source].push(index);
+      degree[link.source]++; degree[link.target]++;
     } else remaining.push(index);
   }
+  const overview = local.flat(), ranges = new Uint32Array(communityCount * 2);
+  let start = 0;
+  local.forEach((indices, community) => { ranges.set([start, indices.length], community * 2); start += indices.length; });
   const indices = new Uint32Array(graph.links.length * 2);
   overview.concat(remaining).forEach((index, position) => {
     const link = graph.links[index];
     indices[position * 2] = link.source;
     indices[position * 2 + 1] = link.target;
   });
-  return { indices, overviewCount: overview.length };
+  return { indices, overviewCount: overview.length, ranges };
 }
