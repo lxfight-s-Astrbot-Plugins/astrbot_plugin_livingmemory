@@ -15,6 +15,11 @@ export default class Graph3D {
     this._motionTimer = null;
     this._lastMotionStamp = null;
     this._gravity = null;
+    this._relationCommunity = -1;
+    this._communityRanges = null;
+    this._galaxyPhases = null;
+    this.galaxyDust = null;
+    this.communityLines = null;
     this._pulseClock = 0;
     this._viewOffset = { x: 0, y: 0 };
     this._flight = null;
@@ -60,7 +65,6 @@ export default class Graph3D {
       this._flight = null;
     };
     this.controls.addEventListener("start", this._onControlStart);
-    this.raycaster = new THREE.Raycaster();
     this.graphGroup = new THREE.Group();
     this.scene.add(this.graphGroup);
     const dust = new Float32Array(1100 * 3);
@@ -86,6 +90,7 @@ export default class Graph3D {
       this.positions.needsUpdate = true;
       this.edgeGeometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
       this.graph.overviewCount = data.overviewCount;
+      this._communityRanges = data.ranges;
       const hubs = new Set(data.hubs);
       this.graph.labelOrder = [...hubs, ...this.graph.labelOrder.filter(index => !hubs.has(index))];
       const star = this.points.geometry.attributes.aStar;
@@ -99,6 +104,8 @@ export default class Graph3D {
       this.points.geometry.boundingSphere = bounds;
       this.edgeGeometry.boundingSphere = this.points.geometry.boundingSphere;
       this.focusEdges.geometry.boundingSphere = this.points.geometry.boundingSphere;
+      this._buildGalaxyDust(data);
+      this._buildCommunityLinks(data);
       this.graphGroup.visible = true;
       this._ready = true;
       this._updateRelations();
@@ -130,6 +137,7 @@ export default class Graph3D {
         if (index === this._hover) return;
         this._hover = index;
         this._syncGravityHold();
+        this._updateRelations();
         this.canvas.style.cursor = index < 0 ? "grab" : "pointer";
         if (this.uniforms) this.uniforms.hover.value = index;
         this._buildLabels();
@@ -140,7 +148,7 @@ export default class Graph3D {
       const click = this._pointers.size === 1 && !this._gestureMoved && event.button === 0;
       this._pointers.delete(event.pointerId);
       if (!click || !this._ready) return;
-      const index = this._hit(event.clientX, event.clientY);
+      const index = this._hit(event.clientX, event.clientY, event.pointerType === "touch" ? 18 : 8);
       if (index >= 0) {
         const id = this.graph.nodes[index].id;
         this.selectNode(id);
@@ -188,6 +196,8 @@ export default class Graph3D {
     this._ready = false;
     this._clearHover();
     this._disposeGraph();
+    this._relationCommunity = -1;
+    this._communityRanges = null;
     this.graph = prepareGraph(payload.snapshot);
     if (this.selection?.type === "node" && !this.graph.nodeIndex.has(this.selection.id)) this.selection = null;
     this.graphGroup.visible = false;
@@ -206,7 +216,6 @@ export default class Graph3D {
       nodes: this.graph.nodes.map(({ id, type, size, weight, community, atomType }) => ({ id, type, size, weight, community, atomType })),
       links: this.graph.links,
       adjacency: this.graph.adjacency,
-      linkOrder: this.graph.linkOrder,
     });
   }
 
@@ -220,7 +229,7 @@ export default class Graph3D {
       color.set(SPACE_COLORS[node.type] || SPACE_COLORS.other).toArray(colors, i * 3);
       sizes[i] = node.size;
       indices[i] = i;
-      stars[i] = node.type === "person" ? 1 : 0;
+      stars[i] = node.type === "person" ? 0.35 : 0;
       pulsars[i] = node.pulsar;
     });
     const geometry = new THREE.BufferGeometry();
@@ -236,33 +245,33 @@ export default class Graph3D {
       uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: `attribute vec3 color; attribute float aSize; attribute float aIndex; attribute float aEmphasis; attribute float aStar; attribute float aPulsar;
         uniform float focus; uniform float hover; uniform float dpr; uniform float viewDistance; uniform float pulseTime;
-        varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
+        varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vCore; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
         void main(){vec4 p=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*p;
         float linked=step(.5,aEmphasis);float chosen=step(1.5,aEmphasis);float hovered=1.-step(.5,abs(aIndex-hover));
-        gl_PointSize=clamp(aSize*16.*(viewDistance/-p.z)*(1.+chosen*.55+hovered*.2+aPulsar*.45)*dpr,3.,160.*dpr);
+        gl_PointSize=clamp(aSize*10.*pow(abs(viewDistance/p.z),.6)*(1.+chosen*.55+hovered*.2+aPulsar*.55)*dpr,2.,90.*dpr);
         vColor=mix(color,vec3(1.,.8,.48),max(chosen,hovered*.5));
         vStar=aStar*(.85+.15*sin(pulseTime*.5+aIndex));vPulsar=aPulsar;
+        vCore=mix(aStar<.01?1.:aStar>.9?.85:.55,1.,max(chosen,hovered));
         vEmission=aPulsar*pow(.5+.5*sin(pulseTime*1.3+aIndex*2.399963),5.);
         vBeam=vec2(cos(pulseTime*.6+aIndex),sin(pulseTime*.6+aIndex));
         vRing=.18+fract(pulseTime*.23+aIndex*.37)*.75;
         vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1.2,4.,-p.z/viewDistance));}`,
-      fragmentShader: `varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
+      fragmentShader: `varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vCore; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
         void main(){vec2 point=gl_PointCoord-.5;float r=length(point)*2.;
-        if(r>1.)discard;float core=exp(-r*r*90.);float glow=exp(-r*r*8.)*.24;
-        float corona=vStar*exp(-r*r*3.2)*.09;float emission=0.;
+        if(r>1.)discard;float core=exp(-r*r*75.);float glow=exp(-r*r*12.)*.10;
+        float corona=vStar*exp(-r*r*3.2)*.065;float emission=0.;
         if(vPulsar>0.){float beam=exp(-abs(dot(point,vec2(-vBeam.y,vBeam.x)))*55.)*exp(-r*2.5);
           float ring=exp(-pow((r-vRing)*35.,2.))*.12*(1.-vRing);
           emission=vEmission*(beam*.25+ring)+vPulsar*exp(-r*r*2.8)*.025;}
         vec3 tint=mix(vColor,vec3(1.,.94,.82),core*.6);tint=mix(tint,vec3(.86,.94,1.),min(.45,emission*.6));
-        gl_FragColor=vec4(tint,(core+glow+corona+emission)*vAlpha);
+        gl_FragColor=vec4(tint,(core*vCore+glow+corona+emission)*vAlpha);
         #include <colorspace_fragment>
         }`,
     });
     this.points = new THREE.Points(geometry, material);
     this.graphGroup.add(this.points);
     const lineIndices = new Uint32Array(this.graph.links.length * 2);
-    this.graph.linkOrder.forEach((index, i) => {
-      const link = this.graph.links[index];
+    this.graph.links.forEach((link, i) => {
       lineIndices[i * 2] = link.source; lineIndices[i * 2 + 1] = link.target;
     });
     this.edgeGeometry = new THREE.BufferGeometry().setAttribute("position", this.positions);
@@ -276,6 +285,86 @@ export default class Graph3D {
       new THREE.LineBasicMaterial({ color: "#f4d19b", transparent: true, opacity: 0.55, depthWrite: false }));
     this.graphGroup.add(this.focusEdges);
     this._updateRelations();
+  }
+
+  _buildGalaxyDust(data) {
+    const count = Math.min(24000, this.graph.nodes.length * 12);
+    const positions = new Float32Array(count * 3), centers = new Float32Array(count * 3), spins = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3), sizes = new Float32Array(count), systems = new Float32Array(count), haze = new Float32Array(count);
+    const warm = new THREE.Color("#d9ac75"), cool = new THREE.Color("#7199cd"), tint = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      const node = i % this.graph.nodes.length, community = data.communityIds[node], center = data.hubs[community] * 3;
+      const radius = data.communityRadii[community], seed = (i * 0.61803398875) % 1;
+      const angle = i * 2.3999632297, height = 1 - 2 * (i + 0.5) / count, circle = Math.sqrt(1-height*height);
+      const spread = radius * (0.018 + 0.07 * seed * seed), offset = i * 3;
+      positions.set([data.positions[node*3]+Math.cos(angle)*circle*spread,
+        data.positions[node*3+1]+Math.sin(angle)*circle*spread, data.positions[node*3+2]+height*spread], offset);
+      centers.set(data.positions.subarray(center, center+3), offset);
+      spins.set(data.frames.subarray(community*9+6, community*9+9), offset);
+      const distance = Math.hypot(...[0,1,2].map(axis => data.positions[node*3+axis]-data.positions[center+axis])) / radius;
+      tint.copy(warm).lerp(cool, Math.min(1, distance)).toArray(colors, offset);
+      haze[i] = i % 19 === 0 ? 1 : 0;
+      sizes[i] = haze[i] ? 28 + seed * 18 : 1.3 + seed ** 3 * 2.8;
+      systems[i] = community;
+    }
+    this._galaxyPhases = new THREE.DataTexture(new Float32Array(data.hubs.length*4), data.hubs.length, 1, THREE.RGBAFormat, THREE.FloatType);
+    this._galaxyPhases.needsUpdate = true;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("aCenter", new THREE.BufferAttribute(centers, 3));
+    geometry.setAttribute("aSpin", new THREE.BufferAttribute(spins, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute("aSystem", new THREE.BufferAttribute(systems, 1));
+    geometry.setAttribute("aHaze", new THREE.BufferAttribute(haze, 1));
+    geometry.boundingSphere = this.points.geometry.boundingSphere;
+    const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uPhase: { value: this._galaxyPhases }, uSystems: { value: data.hubs.length }, uOpacity: { value: 1 },
+        dpr: this.uniforms.dpr, viewDistance: this.uniforms.viewDistance },
+      vertexShader: `attribute vec3 aCenter;attribute vec3 aSpin;attribute vec3 color;
+        attribute float aSize;attribute float aSystem;attribute float aHaze;
+        uniform sampler2D uPhase;uniform float uSystems;uniform float dpr;uniform float viewDistance;
+        varying vec3 vColor;varying float vHaze;varying float vDepth;
+        void main(){float angle=texture2D(uPhase,vec2((aSystem+.5)/uSystems,.5)).r;
+          vec3 p=position-aCenter;float c=cos(angle),s=sin(angle);
+          p=aCenter+p*c+cross(aSpin,p)*s+aSpin*dot(aSpin,p)*(1.-c);
+          vec4 view=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*view;
+          gl_PointSize=clamp(aSize*dpr*pow(abs(viewDistance/view.z),.6),.8,65.*dpr);
+          vColor=color;vHaze=aHaze;vDepth=1.-smoothstep(1.5,5.,-view.z/viewDistance);}`,
+      fragmentShader: `uniform float uOpacity;varying vec3 vColor;varying float vHaze;varying float vDepth;
+        void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;
+          float light=exp(-r*r*mix(7.,3.,vHaze))*mix(.22,.012,vHaze);
+          gl_FragColor=vec4(vColor,light*vDepth*uOpacity);
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.galaxyDust = new THREE.Points(geometry, material);
+    this.graphGroup.add(this.galaxyDust);
+  }
+
+  _buildCommunityLinks(data) {
+    this._bundleCount = data.bundleWeights.length;
+    if (!this._bundleCount) return;
+    const positions = [], colors = [], color = new THREE.Color("#aab7d2");
+    for (let i = 0; i < this._bundleCount; i++) {
+      const source = data.bundlePairs[i*2], target = data.bundlePairs[i*2+1];
+      const a = new THREE.Vector3().fromBufferAttribute(this.positions, data.hubs[source]);
+      const b = new THREE.Vector3().fromBufferAttribute(this.positions, data.hubs[target]);
+      const normal = b.clone().sub(a).cross(new THREE.Vector3(0.3,0.8,0.5)).normalize();
+      const bend = Math.min(a.distanceTo(b)*0.14, (data.communityRadii[source]+data.communityRadii[target])*0.3);
+      const curve = new THREE.CubicBezierCurve3(a, a.clone().lerp(b,0.32).addScaledVector(normal,bend),
+        a.clone().lerp(b,0.68).addScaledVector(normal,bend), b);
+      const intensity = 0.35 + 0.65 * Math.log1p(data.bundleWeights[i]) / Math.log1p(data.bundleWeights[0]);
+      for (let segment = 0; segment < 12; segment++) {
+        positions.push(...curve.getPoint(segment/12).toArray(), ...curve.getPoint((segment+1)/12).toArray());
+        for (let end = 0; end < 2; end++) colors.push(color.r*intensity,color.g*intensity,color.b*intensity);
+      }
+    }
+    const geometry = new THREE.BufferGeometry().setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    this.communityLines = new THREE.LineSegments(geometry,
+      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false }));
+    this.graphGroup.add(this.communityLines);
   }
 
   _fitScene() {
@@ -350,8 +439,20 @@ export default class Graph3D {
 
   _updateRelations() {
     if (!this.edges) return;
-    this.edgeGeometry.setDrawRange(0, (this.showAllRelations ? this.graph.links.length : this.graph.overviewCount) * 2);
-    const density = Math.max(1, this.graph.links.length / this.graph.nodes.length);
+    let start = 0, count = 0;
+    if (this.showAllRelations) count = this.graph.links.length;
+    else if (!this.selection && this._relationCommunity >= 0) {
+      start = this._communityRanges[this._relationCommunity*2];
+      count = this._communityRanges[this._relationCommunity*2+1];
+    }
+    this.edgeGeometry.setDrawRange(start*2, count*2);
+    this.edges.visible = count > 0;
+    if (this.communityLines) {
+      this.communityLines.visible = !this.showAllRelations;
+      this.communityLines.material.opacity = this.selection ? 0.08 : this._relationCommunity >= 0 ? 0.15 : 0.3;
+    }
+    if (this.galaxyDust) this.galaxyDust.material.uniforms.uOpacity.value = this.selection ? 0.45 : 1;
+    const density = Math.max(1, this.graph.links.length / Math.max(1, this.graph.nodes.length));
     this.edges.material.opacity = this.selection ? 0.015 : this.showAllRelations
       ? Math.min(0.16, Math.max(0.045, 0.24 / Math.sqrt(density))) : 0.15;
     const emphasis = this.points.geometry.attributes.aEmphasis;
@@ -360,6 +461,7 @@ export default class Graph3D {
     let links = [];
     if (this.selection?.type === "node") links = this.graph.adjacency[this.graph.nodeIndex.get(this.selection.id)] || [];
     else if (this.selection?.type === "memory") links = [...(this.graph.memoryLinks.get(this.selection.id) || [])];
+    else if (this._hover >= 0) links = this.graph.adjacency[this._hover];
     links = links.slice().sort((a, b) => this.graph.links[b].weight - this.graph.links[a].weight || a - b);
     if (!this.showAllRelations) links = links.slice(0, 64);
     const lineIndices = [];
@@ -373,6 +475,21 @@ export default class Graph3D {
     emphasis.needsUpdate = true;
     this.focusEdges.geometry.setIndex(lineIndices);
     this.focusEdges.visible = lineIndices.length > 0;
+  }
+
+  _updateRelationLevel() {
+    if (!this._ready || !this.graph.nodes.length) return;
+    let next = -1, nearest = 1.5;
+    if (!this.showAllRelations && !this.selection) {
+      for (let community = 0; community < this._gravity.hubs.length; community++) {
+        this._scratch.fromBufferAttribute(this.positions, this._gravity.hubs[community]);
+        const radius = this._gravity.communityRadii[community];
+        const distance = this.camera.position.distanceTo(this._scratch) / radius;
+        const attention = this.controls.target.distanceTo(this._scratch) / radius;
+        if (distance < 3.2 && attention < nearest) { nearest = attention; next = community; }
+      }
+    }
+    if (next !== this._relationCommunity) { this._relationCommunity = next; this._updateRelations(); this._buildLabels(); }
   }
 
   setShowAllRelations(show) {
@@ -431,8 +548,10 @@ export default class Graph3D {
   _buildLabels() {
     this.labelLayer.replaceChildren();
     this._labels = [];
-    if (!this._ready || !this.graph) return;
-    const candidates = new Set([this._hover, ...(this._focusNodeIndices || []), ...(this.selection ? this._highlightNodes : this.graph.labelOrder.slice(0, 16))]);
+    if (!this._ready || !this.graph.nodes.length) return;
+    const overview = this._relationCommunity < 0 ? [...this._gravity.hubs].slice(0,16)
+      : this.graph.labelOrder.filter(index => this._gravity.communityIds[index] === this._relationCommunity).slice(0,12);
+    const candidates = new Set([this._hover, ...(this._focusNodeIndices || []), ...(this.selection ? this._highlightNodes : overview)]);
     for (const index of candidates) {
       if (index < 0) continue;
       if (this._labels.length >= 24) break;
@@ -444,13 +563,22 @@ export default class Graph3D {
     }
   }
 
-  _hit(clientX, clientY) {
+  _hit(clientX, clientY, radius = 8) {
     if (!this._ready || !this.graph.nodes.length) return -1;
+    this.camera.updateMatrixWorld();
     const rect = this.canvas.getBoundingClientRect();
-    const pointer = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
-    this.raycaster.params.Points.threshold = this.camera.position.distanceTo(this.controls.target) * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 14 / this.height;
-    this.raycaster.setFromCamera(pointer, this.camera);
-    return this.raycaster.intersectObject(this.points)[0]?.index ?? -1;
+    const x = clientX - rect.left, y = clientY - rect.top;
+    let hit = -1, closest = radius * radius, depth = Infinity;
+    for (let index = 0; index < this.graph.nodes.length; index++) {
+      const point = this._scratch.fromBufferAttribute(this.positions,index).project(this.camera);
+      if (point.z < -1 || point.z > 1) continue;
+      const dx = (point.x*0.5+0.5)*rect.width-x, dy = (-point.y*0.5+0.5)*rect.height-y;
+      const distance = dx*dx + dy*dy;
+      if (distance < closest || (distance === closest && point.z < depth)) {
+        hit = index; closest = distance; depth = point.z;
+      }
+    }
+    return hit;
   }
 
   _clearHover() {
@@ -458,6 +586,7 @@ export default class Graph3D {
     this._hoverFrame = null;
     this._hover = -1;
     this._syncGravityHold();
+    this._updateRelations();
     if (this.uniforms) this.uniforms.hover.value = -1;
     if (this.labelLayer) this._buildLabels();
     this._schedule();
@@ -481,6 +610,9 @@ export default class Graph3D {
         if (this._gravity.movingCount > 0) {
           this._gravity.advance(seconds, this.positions.array);
           this.positions.needsUpdate = true;
+          const phases = this._galaxyPhases.image.data;
+          for (let community = 0; community < this._gravity.angles.length; community++) phases[community*4] = this._gravity.angles[community];
+          this._galaxyPhases.needsUpdate = true;
         }
         this._pulseClock += seconds;
         this.uniforms.pulseTime.value = this._pulseClock;
@@ -500,6 +632,7 @@ export default class Graph3D {
       else this._schedule();
     }
     this.controls.update();
+    this._updateRelationLevel();
     this.renderer.render(this.scene, this.camera);
     const boxes = [];
     for (const { index, element } of this._labels || []) {
@@ -557,6 +690,9 @@ export default class Graph3D {
   _disposeGraph() {
     for (const object of this.graphGroup.children) { object.geometry.dispose(); object.material.dispose(); }
     this.graphGroup.clear();
+    this._galaxyPhases?.dispose();
+    this._galaxyPhases = null;
+    this.galaxyDust = this.communityLines = null;
     this._focusNodeIndices = [];
   }
 
@@ -581,6 +717,7 @@ export default class Graph3D {
       sourceNodes: this.graph?.nodes.length || 0, sourceEdges: this._payload?.snapshot.edges.length || 0,
       renderedRelations: this.graph ? this.edgeGeometry.drawRange.count / 2 : 0,
       drawCalls: this.renderer.info.render.calls, layoutMs: this._layoutMs || 0,
+      renderedCommunityLinks: this.communityLines?.visible ? this._bundleCount : 0,
       framePending: this._frame !== null, layoutReady: this._ready, animating: !!this._flight,
       motionEnabled: this.motionEnabled, movingNodes: this._gravity?.movingCount || 0,
       cameraDistance: this.camera.position.distanceTo(this.controls.target),

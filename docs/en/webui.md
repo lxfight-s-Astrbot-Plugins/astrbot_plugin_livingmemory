@@ -75,7 +75,7 @@ The 3D scene, node panel and full memory detail share one dark palette so conten
 
 ![Memory detail in the 3D scene using demonstration data](/images/graph-3d-detail.png)
 
-The 3D overview displays structural links, while selection highlights direct relationships. **All relations** toggles the complete set of links. A separate Worker computes the initial layout, distributing large communities along thick spiral arms and smaller communities or isolates as stellar clusters. Animation preserves this shape, combining slow system rotation with bounded local gravity near semantic branches.
+The 3D overview displays a small set of community curves. Moving closer reveals internal structure, while hover or selection highlights direct relationships. **All relations** toggles the complete set of links. A separate Worker computes the initial layout, distributing large communities along thick spiral arms and smaller communities or isolates as stellar clusters. Animation preserves this shape, combining slow system rotation with bounded local gravity near semantic branches.
 
 Gravity uses normalized masses assigned by node type and a softened center. Community anchors stay fixed; each node evaluates only its assigned center, so per-frame work grows linearly with node count. All indexed relations share the node position buffer and remain rendered in GPU batches.
 
@@ -85,7 +85,7 @@ Community representatives stay fixed as stellar anchors. Topics prefer the most 
 
 **Pause motion / Resume motion** controls continuous animation. Hovering or focusing holds the target and its ancestry and pauses its system's bulk rotation; other systems keep moving. Released objects retain their saved position and velocity. Computation and rendering stop when leaving the graph page or hiding the browser tab. The system's reduced-motion preference starts the view paused, with the button allowing an explicit opt-in.
 
-Representative stars have an outer corona. Facts and summaries linked to memories with importance of at least 8/10 show pulsing halos and rotating beams; entity connection counts do not determine memory value. Overview rotation uses the community-weighted center; focus rotation uses the actual node or selected-memory-node center. Projection offsets reserve room for details without moving the rotation pivot. Pausing motion also pauses corona and pulsar time.
+Representative stars have an outer corona. Each source memory rated at least 8/10 prefers a summary node for its pulsing halo and rotating beams, using a fact when no summary exists; entity connection counts do not determine memory value. Star dust provides background density and never participates in counts, picking or retrieval. Overview rotation uses the community-weighted center; focus rotation uses the actual node or selected-memory-node center. Projection offsets reserve room for details without moving the rotation pivot. Pausing motion also pauses corona and pulsar time.
 
 | Observation | Example |
 | --- | --- |

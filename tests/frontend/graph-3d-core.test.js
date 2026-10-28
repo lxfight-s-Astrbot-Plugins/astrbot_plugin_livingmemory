@@ -36,14 +36,16 @@ test("zero-weight evidence retains its source without adding community attractio
   assert.equal(createSimulation(graph).communityLinks.length, 0);
 });
 
-test("overview keeps a readable structural subset and full order contains every relation", () => {
+test("overview keeps a structural subset and full geometry retains every relation", () => {
   const nodes = Array.from({ length: 100 }, (_, id) => ({ id }));
   const edges = [];
   for (let a = 0; a < 100; a++) for (let b = a + 1; b < 100; b++) edges.push({ source: a, target: b, weight: 1 });
   const graph = prepareGraph({ nodes, edges });
-  assert.ok(graph.overviewCount < graph.links.length);
-  assert.equal(graph.linkOrder.length, graph.links.length);
-  assert.equal(new Set(graph.linkOrder).size, graph.links.length);
+  const result = communityRelations(graph, nodes.map(node => ({ ...node, community: 0 })), 1, new Int32Array(100).fill(-1));
+  assert.ok(result.overviewCount < graph.links.length);
+  assert.equal(result.indices.length, graph.links.length * 2);
+  const pairs = Array.from({ length: graph.links.length }, (_, i) => result.indices[i*2]+":"+result.indices[i*2+1]);
+  assert.equal(new Set(pairs).size, graph.links.length);
 });
 
 test("three-dimensional simulation produces stable spatial coordinates", () => {
@@ -113,17 +115,27 @@ test("community layout keeps disconnected nodes finite and separate from the con
   assert.notEqual(result.nodes[0].community, result.nodes[11].community);
 });
 
-test("community overview keeps one bridge per community pair and retains all relations", () => {
+test("local overview excludes cross-community rays while full mode retains every relation", () => {
   const graph = prepareGraph({
     nodes: Array.from({ length: 8 }, (_, id) => ({ id })),
     edges: Array.from({ length: 16 }, (_, i) => ({ source: i % 4, target: 4 + Math.floor(i / 4) })),
   });
   const nodes = graph.nodes.map((node, i) => ({ ...node, community: i < 4 ? 0 : 1 }));
-  const result = communityRelations(graph, nodes);
-  assert.equal(result.overviewCount, 1);
+  const result = communityRelations(graph, nodes, 2, new Int32Array(8).fill(-1));
+  assert.equal(result.overviewCount, 0);
   assert.equal(result.indices.length, 32);
   const pairs = Array.from({ length: 16 }, (_, i) => result.indices[i * 2] + ":" + result.indices[i * 2 + 1]);
   assert.equal(new Set(pairs).size, 16);
+});
+
+test("a high-degree hub has a small visible fan while all evidence remains available", () => {
+  const graph = prepareGraph({ nodes: Array.from({ length: 80 }, (_, id) => ({ id, community: 0 })),
+    edges: Array.from({ length: 79 }, (_, i) => ({ source: 0, target: i+1 })) });
+  const parents = new Int32Array(80); parents[0] = -1;
+  const result = communityRelations(graph, graph.nodes, 1, parents);
+  assert.ok(result.overviewCount <= 8);
+  assert.equal(result.indices.length, 158);
+  assert.deepEqual([...result.ranges], [0,result.overviewCount]);
 });
 
 test("pulsars use source-memory importance only for content nodes", () => {
@@ -135,6 +147,12 @@ test("pulsars use source-memory importance only for content nodes", () => {
       { memory_id: 12, importance: 0.55, node_ids: [5] }],
   });
   assert.deepEqual(graph.nodes.map(node => node.pulsar), [0,0,0.95,0.9,0]);
+});
+
+test("one valuable memory highlights its summary rather than every associated fact", () => {
+  const graph = prepareGraph({ nodes: [{ id: 1, type: "summary" }, { id: 2, type: "fact" }, { id: 3, type: "fact" }],
+    edges: [], memories: [{ memory_id: 1, importance: 0.95, node_ids: [2,3,1] }] });
+  assert.deepEqual(graph.nodes.map(node => node.pulsar), [0.95,0,0]);
 });
 
 test("a local community has substantial depth before orbital animation", () => {
@@ -181,4 +199,17 @@ test("stronger relations bring the same pair of communities closer", () => {
     return Math.hypot(...["x","y","z"].map(axis => communities[0][axis] - communities[1][axis]));
   }
   assert.ok(distance(100) + 20 < distance(1));
+});
+
+test("dense relationships do not pull spiral arms back into the core", () => {
+  const nodes = Array.from({ length: 200 }, (_, id) => ({ id, community: 0, type: id === 0 ? "person" : "fact" }));
+  const edges = Array.from({ length: 199 }, (_, i) => ({ source: 0, target: i+1, weight: 1 }));
+  for (let i = 1; i < 200; i++) for (let step = 1; step <= 24; step++) {
+    const target = (i*17+step*19)%199+1;
+    if (target !== i) edges.push({ source: i, target, weight: 0.8 });
+  }
+  const result = createSimulation(prepareGraph({ nodes, edges }));
+  result.simulation.tick(result.iterations);
+  const outer = result.nodes.filter(node => Math.hypot(node.homeX,node.homeY,node.homeZ) > result.communities[0].radius * 0.6);
+  assert.ok(outer.every(node => Math.hypot(node.x,node.y,node.z) > Math.hypot(node.homeX,node.homeY,node.homeZ)*0.85));
 });

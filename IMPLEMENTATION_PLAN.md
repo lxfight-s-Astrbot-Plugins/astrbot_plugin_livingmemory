@@ -36,13 +36,26 @@ Validation: 140 frontend tests and 16 asset/documentation tests pass. New regres
 **Success Criteria**: preserved relations are clear, full-relations mode keeps every edge, stars never count as memories or affect picking, and no new UI text is added.
 **Tests**: relation aggregation/completeness, zoom levels, shader compilation, bounds and pause/background handling.
 **Project Structure Impact**: renderer, worker relation metadata and galaxy dust shader; reuse the existing 2D aggregation idea without copying its visual style. Third focused PR.
-**Status**: In progress
+**Status**: Complete
+
+Overview uses bounded aggregated community curves, proximity reveals a per-community structural range, and hover/selection shows direct real ties. Full mode retains every relation in one shared index buffer. GPU dust follows the same held system phases and never participates in counts or picking. Ordinary glows are restrained and each high-value source selects one representative content pulsar. Real-data checks exposed foreground systems stealing detail/picking; LOD now follows the controls target and picking uses nearest projected node centers.
 
 ## Stage 5: Integrated validation and delivery
 **Goal**: verify the final scene against the same anonymous and synthetic datasets, update bilingual docs/screenshots and create stacked PRs.
 **Success Criteria**: 5,000 nodes / 100,000 edges remain responsive, relation indices stay shared during motion, and mobile/sandbox behavior remains correct.
 **Tests**: relevant backend/frontend suites, scoped Ruff, dashboard/doc builds, opaque-origin browser interactions and actual motion capture.
 **Project Structure Impact**: existing tests, docs and built assets; no release or merge until requested.
-**Status**: Not started
+**Status**: Complete
+
+Validation: 1,161 backend tests and 147 frontend tests pass. Dashboard and documentation builds pass; all eight appearance/theme combinations retain detail contrast. The actual local 10,000-node/200,000-edge fixture passes overview/near levels, real mouse picking, focus, complete relations and shared-index checks at approximately 25 FPS with four draw calls. Screenshots and a 16-second native motion capture use only scoped synthetic records. VitePress retains its existing large-chunk advisory; the six backend warnings are existing warnings in unrelated tests.
+
+## Stage 6: Requested large local visual fixture
+**Goal**: append 10,000 nodes, 200,000 relations and 1,200 readable synthetic memories to the requested local plugin data directory, in a dedicated display scope.
+**Success Criteria**: existing records remain intact; the fixture has varied weighted communities, semantic types, isolates, weak bridges and high-value content.
+**Tests**: real-store integration with existing records and archived details; render the resulting scoped snapshot through the actual community/payload functions.
+**Project Structure Impact**: standalone developer seed script and usage docs, separate from presentation changes. Data stays local and is never committed. Documents are archived and no embedding provider or vector-file writes are used.
+**Status**: Complete
+
+The local write completed once in session `livingmemory:visual:galaxy`. Production snapshot/community code reads exactly 10,000 nodes, 200,000 relations and 1,200 memories, partitioned into 12 thematic communities plus one isolate group. Browser checks cover near/overview relation levels, real mouse picking, focus, complete-edge rendering and pause. The local complete-mode run reaches approximately 25 FPS with four draw calls and unchanged indices.
 
 Rollback: revert the relevant PRs and rebuild dashboard assets, or return to the 2.8.1 tag. Community IDs are display metadata and do not modify stored memories.
