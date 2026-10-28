@@ -87,6 +87,12 @@ Community representatives stay fixed as stellar anchors. Topics prefer the most 
 
 Representative stars have an outer corona. Each source memory rated at least 8/10 prefers a summary node for its pulsing halo and rotating beams, using a fact when no summary exists; entity connection counts do not determine memory value. Star dust provides background density and never participates in counts, picking or retrieval. Overview rotation uses the community-weighted center; focus rotation uses the actual node or selected-memory-node center. Projection offsets reserve room for details without moving the rotation pivot. Pausing motion also pauses corona and pulsar time.
 
+For development, append visual fixtures to an initialized plugin data directory. The command below defaults to 10,000 nodes, 200,000 relations and 1,200 archived synthetic memories, including varied thematic groups, weak bridges and isolates; no embeddings are generated. Reload the plugin and hard-refresh, select `livingmemory:visual:galaxy` in the session field, then load **Full graph**. Existing records remain intact; running the script again appends another fixture.
+
+```bash
+python scripts/seed_visual_graph.py --data-dir "<plugin_data_dir>"
+```
+
 | Observation | Example |
 | --- | --- |
 | High-frequency entities | Users, projects, places, group topics |
