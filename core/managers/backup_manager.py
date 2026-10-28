@@ -16,7 +16,7 @@ from pathlib import Path
 from astrbot.api import logger
 
 # Match metadata.yaml; backup manifests use this plugin version.
-PLUGIN_VERSION = "2.8.0"
+PLUGIN_VERSION = "2.8.1"
 
 _VERSION_FILE = ".plugin_version"
 _BACKUP_INFO_FILE = "backup_info.json"

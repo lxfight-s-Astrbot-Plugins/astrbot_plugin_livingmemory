@@ -5,6 +5,39 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.8.1] - 2026-10-28
+
+2.8.1 完善 3D 记忆图谱的空间布局、动态效果与阅读交互：按记忆类型和真实关联构建分层引力运动，展开内部节点并收紧外围，同时修复详情配色和聚焦旋转中心。无需修改配置或迁移数据库，无新增运行时依赖。
+
+### 新增与体验
+
+- **分层引力运动**：节点由所属人物、主题或总结的中心引力持续改变速度，近处加速、远处减速；同一星系保持一致的旋转方向和三维运动分量。支持暂停/继续，悬停或聚焦时固定当前对象及其上级，恢复时保留位置和速度；离页或标签不可见时停止计算与绘制，系统开启“减少动态效果”时默认暂停。([#357](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/357), [#361](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/361), [@lxfight](https://github.com/lxfight))
+- **星系层级与节点样式**：复用已有拓扑分群，社区中心和节点独立分布在三维空间；人物、主题、总结和事实使用不同大小。内部间距按分支深度分配，外围末端节点采用更紧凑的半径，运转时保持分支在内、末端在外。([#355](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/355), [#360](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/360), [#361](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/361))
+- **恒星辉光与高价值脉冲**：代表恒星带有外层辉光，来源记忆重要性达到 8/10 的事实或总结呈现脉冲光晕与旋转光束；实体连接数不用于判断记忆价值。([#358](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/358))
+
+### 修复与性能
+
+- **三维纵深与关系线**：修复社区发现后近似共面的布局，保留暂停和运转过程中的空间体积；提亮总览和选中关系，完整连线按关系密度调整透明度。([#359](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/359))
+- **聚焦与旋转中心**：全图围绕按社区规模加权的中心旋转，聚焦后围绕实际节点或所选记忆节点的中心旋转；详情留白通过投影偏移处理，修复旋转、缩放、窗口变化及中断聚焦时的目标漂移。([#358](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/358))
+- **主题冲突**：3D 场景中的详情、元数据、编辑字段和迷你图谱使用统一深色配色；返回 2D 或其他页面时恢复原有外观与明暗模式。([#356](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/356))
+- **大图与来源关联**：每个节点只计算所属中心的引力，使用固定步长积分和共享位置缓冲；运动时不重建连线索引，卡顿帧限制物理追帧开销。全量快照补齐记忆与节点的关联，保留高价值内容的来源依据；清理旧相位、类型周期和轨道基向量实现。([#358](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/358), [#361](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/361))
+
+### 文档
+
+- 更新中英文 WebUI 使用说明、演示截图及版本升级文档，同步中英俄 README 和文档首页的稳定版入口。
+
+### 验证
+
+- 功能 PR 的 GitHub CI：后端 `pytest` 1,155 项、前端 136 项全部通过；版本、README、发布工作流、文档及前端产物相关检查通过。
+- Dashboard 产物检查、文档构建和 `git diff --check` 通过。
+- 浏览器沙盒验证覆盖暂停/继续、聚焦旋转与缩放、手机尺寸、前后台切换和三维层级；本机合成 5,000 节点/100,000 条边约 26 FPS、3 次绘制调用，引力计算平均约 0.5 毫秒/帧。真实数据和不同设备的表现可能不同。
+
+### 升级说明
+
+1. 保留现有数据和配置，更新插件代码后重载插件，并强制刷新管理页面，确认版本为 `2.8.1`。
+2. 无需数据库迁移或新增配置；系统开启“减少动态效果”时，可在 3D 图谱中点击「继续运转」主动开启动画。
+3. 发布包已包含离线前端资源；使用插件无需安装 Node.js，只有修改前端源码后才需要重新构建。
+
 ## [2.8.0] - 2026-10-28
 
 2.8.0 新增独立的沉浸式 3D 记忆图谱，支持点击变焦、关联记忆联动和大规模节点/关系批量绘制。现有 2D 视图和记忆数据继续沿用，无需配置或数据库迁移。([#353](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/353), [@lxfight](https://github.com/lxfight))

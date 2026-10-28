@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.8.0 稳定版
+      text: 2.8.1 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.8.0 已发布
+## 2.8.1 已发布
 
-2.8.0 新增独立暖光 3D 图谱，支持点击变焦、关联记忆和大图批量绘制，并适配 AstrBot 沙盒中的布局 Worker。最低兼容版本仍为 4.24.2；[版本与升级](/releases)提供下载和升级步骤。
+2.8.1 完善 3D 图谱的社区布局与分层引力运动，加入恒星辉光和高价值脉冲，展开内部层级并收紧外围，同时修复聚焦旋转中心和详情主题冲突。最低兼容版本仍为 4.24.2；[版本与升级](/releases)提供下载和升级步骤。
 
 ## 这份文档适合谁？
 
