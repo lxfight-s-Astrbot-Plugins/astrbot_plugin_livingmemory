@@ -87,3 +87,23 @@ test("overview rotation uses the community-weighted center rather than the bound
   const { orbits } = system();
   assert.deepEqual([...orbits.center], [250,0,0]);
 });
+
+test("orbital paths fill a spatial system instead of one near-planar disk", () => {
+  const graph = prepareGraph({
+    nodes: Array.from({ length: 41 }, (_, id) => ({ id, type: id === 0 ? "person" : "fact" })),
+    edges: Array.from({ length: 40 }, (_, i) => ({ source: 0, target: i + 1 })),
+  });
+  const positions = new Float32Array(41 * 3);
+  for (let i = 1; i < 41; i++) positions.set([Math.cos(i) * 100,Math.sin(i) * 100,0],i*3);
+  const orbits = new MemoryOrbits(graph, { positions, communityIds: new Uint16Array(41), hubs: new Uint32Array([0]), communityRadii: new Float32Array([300]) });
+  const min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
+  for (let time = 0; time < 60; time++) {
+    orbits.advance(1, positions);
+    for (let i = 1; i < 41; i++) for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], positions[i*3+axis]);
+      max[axis] = Math.max(max[axis], positions[i*3+axis]);
+    }
+  }
+  const spans = min.map((value,axis) => max[axis]-value);
+  assert.ok(spans[2] > Math.max(spans[0],spans[1])*0.65);
+});

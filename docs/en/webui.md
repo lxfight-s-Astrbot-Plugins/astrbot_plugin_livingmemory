@@ -77,7 +77,7 @@ The 3D scene, node panel and full memory detail share one dark palette so conten
 
 The 3D overview displays structural links, while selection highlights direct relationships. **All relations** toggles the complete set of links. A separate Worker computes the layout. Motion updates only the node position buffer; all indexed relations share these positions and remain rendered in GPU batches.
 
-3D shares the topology grouping used by 2D, separates communities in space, and arranges members around a representative node. People, topics, summaries and facts have different node sizes. The overview reduces cross-community links; selecting a node or toggling **All relations** still exposes complete connections.
+3D shares topology grouping with 2D, while community centers are placed independently in three dimensions. Nodes fill each community's spherical volume and use different orbital inclinations, preserving depth even when paused. People, topics, summaries and facts have different sizes. The overview reduces cross-community links; selecting a node or toggling **All relations** still exposes complete connections. Overview and selected relations are brighter, with full-relation opacity adjusted to graph density.
 
 Community representatives stay fixed as stellar anchors, with other people orbiting slowly. Topics prefer the most strongly connected person, and summaries prefer topics. Relationship and preference facts prefer people; other facts prefer related summaries or topics. Nodes without a suitable connected parent orbit their community representative. Orbits affect display positions only and never add or change memory relations.
 

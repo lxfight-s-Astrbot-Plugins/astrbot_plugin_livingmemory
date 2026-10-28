@@ -267,12 +267,12 @@ export default class Graph3D {
     this.edgeGeometry = new THREE.BufferGeometry().setAttribute("position", this.positions);
     this.edgeGeometry.setIndex(new THREE.BufferAttribute(lineIndices, 1));
     this.edges = new THREE.LineSegments(this.edgeGeometry,
-      new THREE.LineBasicMaterial({ color: "#bfa782", transparent: true, opacity: 0.045, depthWrite: false }));
+      new THREE.LineBasicMaterial({ color: "#d2b993", transparent: true, depthWrite: false }));
     this.graphGroup.add(this.edges);
     const focusGeometry = new THREE.BufferGeometry().setAttribute("position", this.positions);
     focusGeometry.setIndex([]);
     this.focusEdges = new THREE.LineSegments(focusGeometry,
-      new THREE.LineBasicMaterial({ color: "#e4ba75", transparent: true, opacity: 0.24, depthWrite: false }));
+      new THREE.LineBasicMaterial({ color: "#f4d19b", transparent: true, opacity: 0.55, depthWrite: false }));
     this.graphGroup.add(this.focusEdges);
     this._updateRelations();
   }
@@ -350,7 +350,9 @@ export default class Graph3D {
   _updateRelations() {
     if (!this.edges) return;
     this.edgeGeometry.setDrawRange(0, (this.showAllRelations ? this.graph.links.length : this.graph.overviewCount) * 2);
-    this.edges.material.opacity = this.selection ? 0.003 : this.showAllRelations ? 0.025 : 0.045;
+    const density = Math.max(1, this.graph.links.length / this.graph.nodes.length);
+    this.edges.material.opacity = this.selection ? 0.015 : this.showAllRelations
+      ? Math.min(0.16, Math.max(0.045, 0.24 / Math.sqrt(density))) : 0.15;
     const emphasis = this.points.geometry.attributes.aEmphasis;
     emphasis.array.fill(0);
     this._highlightNodes = new Set();

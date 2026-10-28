@@ -74,20 +74,31 @@ export function createSimulation(graph) {
     if (!groups.has(id)) groups.set(id, { id, members: [] });
     groups.get(id).members.push(index);
   });
-  const communities = [...groups.values()];
+  const communities = [...groups.values()].sort((a, b) => a.id - b.id);
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  communities.forEach(group => {
+  communities.forEach((group, index) => {
     group.radius = 60 + Math.sqrt(group.members.length) * 28;
-    const center = topology.centers[group.id];
-    group.x = center.x * 0.8;
-    group.y = center.y * 0.8;
-    group.z = Math.sin(group.id * 1.7) * group.radius * 0.75;
+    const height = 2 * ((index * Math.SQRT2) % 1) - 1;
+    const circle = Math.sqrt(1 - height * height), angle = index * goldenAngle;
+    const distance = group.radius * 2 * Math.cbrt(index);
+    group.x = Math.cos(angle) * circle * distance;
+    group.y = Math.sin(angle) * circle * distance;
+    group.z = height * distance;
+    if (index === 0) Object.assign(group, { fx: 0, fy: 0, fz: 0 });
     group.members.sort((a, b) => {
       const aStar = graph.nodes[a].type === "person" ? 1 : 0, bStar = graph.nodes[b].type === "person" ? 1 : 0;
       return bStar - aStar || Number(graph.nodes[b].weight || 0) - Number(graph.nodes[a].weight || 0) || a - b;
     });
     group.hub = group.members[0];
   });
+  if (communities.length > 1) {
+    forceSimulation(communities, 3).stop()
+      .force("collision", forceCollide(group => group.radius + 40).iterations(2))
+      .force("x", forceX().strength(0.025))
+      .force("y", forceY().strength(0.025))
+      .force("z", forceZ().strength(0.025))
+      .tick(100);
+  }
   const nodes = new Array(graph.nodes.length);
   const orbitScale = { person: 0.4, topic: 0.65, summary: 0.8, fact: 1, other: 0.8 };
   for (const group of communities) {
@@ -101,8 +112,10 @@ export function createSimulation(graph) {
       const radius = rank === 0 ? 0 : group.radius * (orbitScale[raw.type] || orbitScale.other) *
         (0.25 + 0.65 * Math.sqrt(typeRank / Math.max(1, counts[raw.type] - 1)));
       const angle = rank * goldenAngle;
-      const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius;
-      const z = Math.sin(rank * 1.618) * radius * 0.18;
+      const height = 1 - 2 * (typeRank + 0.5) / counts[raw.type];
+      const circle = Math.sqrt(1 - height * height);
+      const x = Math.cos(angle) * circle * radius, y = Math.sin(angle) * circle * radius;
+      const z = height * radius;
       const homeX = group.x + x * Math.cos(tilt) + z * Math.sin(tilt);
       const homeY = group.y + y;
       const homeZ = group.z + z * Math.cos(tilt) - x * Math.sin(tilt);
