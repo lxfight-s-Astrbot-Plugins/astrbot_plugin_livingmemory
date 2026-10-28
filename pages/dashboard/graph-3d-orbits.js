@@ -14,9 +14,12 @@ export class MemoryOrbits {
     this.speeds = new Float32Array(count);
     this.basis = new Float32Array(count * 6);
     this.held = new Uint8Array(count);
+    this.center = new Float64Array(3);
     this.movingCount = count - this.hubs.length;
     const roots = new Set(this.hubs);
     for (let i = 0; i < count; i++) {
+      const hub = this.hubs[layout.communityIds[i]];
+      for (let axis = 0; axis < 3; axis++) this.center[axis] += this.base[hub * 3 + axis] / count;
       if (roots.has(i)) continue;
       const node = graph.nodes[i], community = layout.communityIds[i];
       const atomType = node.metadata?.atom_type;

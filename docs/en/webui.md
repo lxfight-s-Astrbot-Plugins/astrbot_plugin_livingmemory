@@ -83,6 +83,8 @@ Community representatives stay fixed as stellar anchors, with other people orbit
 
 **Pause motion / Resume motion** controls continuous animation. Hovering or focusing holds the target and its ancestry while other systems keep moving; released objects continue from their held orbital phase. Rendering stops when leaving the graph page or hiding the browser tab. The system's reduced-motion preference starts the view paused, with the button allowing an explicit opt-in.
 
+Representative stars have an outer corona. Facts and summaries linked to memories with importance of at least 8/10 show pulsing halos and rotating beams; entity connection counts do not determine memory value. Overview rotation uses the community-weighted center; focus rotation uses the actual node or selected-memory-node center. Projection offsets reserve room for details without moving the rotation pivot. Pausing motion also pauses corona and pulsar time.
+
 | Observation | Example |
 | --- | --- |
 | High-frequency entities | Users, projects, places, group topics |

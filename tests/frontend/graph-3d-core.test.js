@@ -117,3 +117,14 @@ test("community overview keeps one bridge per community pair and retains all rel
   const pairs = Array.from({ length: 16 }, (_, i) => result.indices[i * 2] + ":" + result.indices[i * 2 + 1]);
   assert.equal(new Set(pairs).size, 16);
 });
+
+test("pulsars use source-memory importance only for content nodes", () => {
+  const graph = prepareGraph({
+    nodes: [{ id: 1, type: "person", weight: 99999 }, { id: 2, type: "topic" },
+      { id: 3, type: "fact" }, { id: 4, type: "summary" }, { id: 5, type: "fact", weight: 99999 }],
+    edges: [{ source: 1, target: 3, memory_id: 10 }, { source: 2, target: 3, memory_id: 10 }],
+    memories: [{ memory_id: 10, importance: 0.95 }, { memory_id: 11, importance: 9, importance_scale: "display", node_ids: [4] },
+      { memory_id: 12, importance: 0.55, node_ids: [5] }],
+  });
+  assert.deepEqual(graph.nodes.map(node => node.pulsar), [0,0,0.95,0.9,0]);
+});

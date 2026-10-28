@@ -415,7 +415,15 @@ class GraphStoreSnapshotMixin:
         session_id: str | None = None,
         persona_id: str | None = None,
     ) -> dict[str, Any]:
-        """Return every graph node and edge represented in the selected scope."""
+        """Return the complete scoped graph and memory-node associations.
+
+        Args:
+            session_id: Optional session scope.
+            persona_id: Optional persona scope.
+
+        Returns:
+            Nodes, relations and memories with their associated node IDs.
+        """
         filters: list[str] = []
         params: list[Any] = []
         if session_id is not None:
@@ -433,7 +441,7 @@ class GraphStoreSnapshotMixin:
                 SELECT gn.id, gn.node_key, gn.node_type, gn.node_value,
                        gn.canonical_value, gn.metadata,
                        COUNT(ge.id) AS entry_count,
-                       COUNT(DISTINCT ge.source_memory_id) AS memory_count
+                       GROUP_CONCAT(DISTINCT ge.source_memory_id) AS memory_ids
                 FROM graph_nodes gn
                 JOIN graph_entry_nodes gen ON gen.node_id = gn.id
                 JOIN graph_entries ge ON ge.id = gen.entry_id
@@ -481,8 +489,10 @@ class GraphStoreSnapshotMixin:
             memory_rows = await memory_cursor.fetchall()
 
         node_map: dict[int, dict[str, Any]] = {}
+        memory_node_ids: dict[int, list[int]] = {}
         for row in node_rows:
             node_id = int(row["id"])
+            memory_ids = row["memory_ids"].split(",")
             node_map[node_id] = {
                 "id": node_id,
                 "key": row["node_key"],
@@ -491,10 +501,12 @@ class GraphStoreSnapshotMixin:
                 "canonical_value": row["canonical_value"],
                 "metadata": safe_json_dict(row["metadata"]),
                 "entry_count": int(row["entry_count"] or 0),
-                "memory_count": int(row["memory_count"] or 0),
+                "memory_count": len(memory_ids),
                 "degree": 0,
                 "weight": 0.0,
             }
+            for memory_id in memory_ids:
+                memory_node_ids.setdefault(int(memory_id), []).append(node_id)
 
         edges: list[dict[str, Any]] = []
         for row in edge_rows:
@@ -530,16 +542,18 @@ class GraphStoreSnapshotMixin:
         memories: list[dict[str, Any]] = []
         for row in memory_rows:
             metadata = safe_json_dict(row["metadata"])
+            memory_id = int(row["source_memory_id"])
             summary = str(metadata.get("canonical_summary") or row["content"] or "")[
                 :500
             ]
             memories.append(
                 {
-                    "memory_id": int(row["source_memory_id"]),
+                    "memory_id": memory_id,
                     "summary": summary,
                     "session_id": metadata.get("session_id") or row["session_id"],
                     "persona_id": metadata.get("persona_id") or row["persona_id"],
                     "importance": safe_float(metadata.get("importance"), 0.0),
+                    "node_ids": memory_node_ids.get(memory_id, []),
                 }
             )
 

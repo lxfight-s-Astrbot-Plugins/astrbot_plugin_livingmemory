@@ -37,6 +37,10 @@ async def test_full_graph_retains_all_nodes_relations_and_memories(tmp_path):
             [("extra:1",), ("extra:2",)],
         )
         await db.executemany(
+            "INSERT INTO graph_entry_nodes (entry_id,node_id) VALUES (?,1)",
+            [(2003,), (2004,)],
+        )
+        await db.executemany(
             "INSERT INTO graph_edges "
             "(edge_key,source_node_id,target_node_id,relation_type,source_memory_id,created_at,updated_at) "
             "VALUES (?,?,?,'related',1,'2026-01-01','2026-01-01')",
@@ -47,6 +51,12 @@ async def test_full_graph_retains_all_nodes_relations_and_memories(tmp_path):
     assert len(snapshot["nodes"]) == 5002
     assert len(snapshot["edges"]) == 10002
     assert len(snapshot["memories"]) == 2002
+    assert (
+        next(node for node in snapshot["nodes"] if node["id"] == 1)["memory_count"] == 1
+    )
+    assert next(memory for memory in snapshot["memories"] if memory["memory_id"] == 1)[
+        "node_ids"
+    ] == list(range(1, 5003))
     assert await store.get_full_graph_snapshot(session_id="other") == {
         "nodes": [],
         "edges": [],
