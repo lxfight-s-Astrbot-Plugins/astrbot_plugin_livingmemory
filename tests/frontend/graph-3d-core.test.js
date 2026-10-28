@@ -28,6 +28,14 @@ test("memory entries locate nodes even when the memory has no edge", () => {
   assert.deepEqual([...graph.memoryNodes.get(4)], [0]);
 });
 
+test("zero-weight evidence retains its source without adding community attraction", () => {
+  const graph = prepareGraph({ nodes: [{ id: 1, community: 0 }, { id: 2, community: 1 }],
+    edges: [{ source: 1, target: 2, memory_id: 7, weight: 0 }] });
+  assert.equal(graph.links[0].weight, 0);
+  assert.deepEqual([...graph.memoryNodes.get(7)], [0,1]);
+  assert.equal(createSimulation(graph).communityLinks.length, 0);
+});
+
 test("overview keeps a readable structural subset and full order contains every relation", () => {
   const nodes = Array.from({ length: 100 }, (_, id) => ({ id }));
   const edges = [];
@@ -40,7 +48,7 @@ test("overview keeps a readable structural subset and full order contains every 
 
 test("three-dimensional simulation produces stable spatial coordinates", () => {
   const graph = prepareGraph({
-    nodes: Array.from({ length: 20 }, (_, id) => ({ id })),
+    nodes: Array.from({ length: 20 }, (_, id) => ({ id, community: 0 })),
     edges: Array.from({ length: 19 }, (_, i) => ({ source: i, target: i + 1 })),
   });
   const first = createSimulation(graph);
@@ -63,7 +71,7 @@ test("node types have distinct sizes without turning high-degree facts into star
 });
 
 function clusteredGraph() {
-  const nodes = Array.from({ length: 54 }, (_, id) => ({ id, type: id % 18 === 0 ? "person" : "fact", weight: 1 }));
+  const nodes = Array.from({ length: 54 }, (_, id) => ({ id, community: Math.floor(id / 18), type: id % 18 === 0 ? "person" : "fact", weight: 1 }));
   const edges = [];
   for (let group = 0; group < 3; group++) {
     const hub = group * 18;
@@ -95,7 +103,7 @@ test("communities stay separated while their representative nodes anchor local s
 
 test("community layout keeps disconnected nodes finite and separate from the connected system", () => {
   const graph = prepareGraph({
-    nodes: Array.from({ length: 12 }, (_, id) => ({ id, type: id === 0 ? "person" : "fact" })),
+    nodes: Array.from({ length: 12 }, (_, id) => ({ id, community: id < 8 ? 0 : 1, type: id === 0 ? "person" : "fact" })),
     edges: Array.from({ length: 7 }, (_, i) => ({ source: 0, target: i + 1 })),
   });
   const result = createSimulation(graph);
@@ -131,7 +139,7 @@ test("pulsars use source-memory importance only for content nodes", () => {
 
 test("a local community has substantial depth before orbital animation", () => {
   const graph = prepareGraph({
-    nodes: Array.from({ length: 7 }, (_, id) => ({ id, type: id === 0 ? "person" : "fact" })),
+    nodes: Array.from({ length: 7 }, (_, id) => ({ id, community: 0, type: id === 0 ? "person" : "fact" })),
     edges: Array.from({ length: 6 }, (_, i) => ({ source: 0, target: i + 1 })),
   });
   const result = createSimulation(graph);
@@ -142,7 +150,7 @@ test("a local community has substantial depth before orbital animation", () => {
 
 test("community representatives occupy three-dimensional space", () => {
   const graph = prepareGraph({
-    nodes: Array.from({ length: 96 }, (_, id) => ({ id, type: id % 24 === 0 ? "person" : "fact" })),
+    nodes: Array.from({ length: 96 }, (_, id) => ({ id, community: Math.floor(id / 24), type: id % 24 === 0 ? "person" : "fact" })),
     edges: Array.from({ length: 4 }, (_, group) => Array.from({ length: 23 }, (_, i) => ({ source: group * 24, target: group * 24 + i + 1 }))).flat(),
   });
   const { communities } = createSimulation(graph);
@@ -152,4 +160,25 @@ test("community representatives occupy three-dimensional space", () => {
   const [a, b, c] = communities.slice(1).map(group => ["x","y","z"].map(axis => group[axis] - communities[0][axis]));
   const volume = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
   assert.ok(Math.abs(volume) / (Math.hypot(...a) * Math.hypot(...b) * Math.hypot(...c)) > 0.05);
+});
+
+test("3D preserves the weighted community IDs supplied by the graph endpoint", () => {
+  const graph = prepareGraph({
+    nodes: Array.from({ length: 8 }, (_, id) => ({ id, community: id % 2, type: "person" })),
+    edges: Array.from({ length: 7 }, (_, i) => ({ source: 0, target: i+1 })),
+  });
+  const { nodes } = createSimulation(graph);
+  assert.deepEqual(nodes.map(node => node.community), [0,1,0,1,0,1,0,1]);
+});
+
+test("stronger relations bring the same pair of communities closer", () => {
+  function distance(weight) {
+    const graph = prepareGraph({
+      nodes: Array.from({ length: 4 }, (_, id) => ({ id, community: id, type: "person" })),
+      edges: [{ source: 0, target: 1, weight }, { source: 0, target: 2, weight: 1 }, { source: 0, target: 3, weight: 1 }],
+    });
+    const { communities } = createSimulation(graph);
+    return Math.hypot(...["x","y","z"].map(axis => communities[0][axis] - communities[1][axis]));
+  }
+  assert.ok(distance(100) + 20 < distance(1));
 });

@@ -1,5 +1,4 @@
 import { forceSimulation, forceManyBody, forceLink, forceCollide, forceX, forceY, forceZ } from "d3-force-3d";
-import "./graph-topology.js";
 
 export const SPACE_COLORS = { person: "#e5bc85", topic: "#98bacd", fact: "#d9d1bd", summary: "#b5a7c1", other: "#a7b6b4" };
 
@@ -25,7 +24,7 @@ export function prepareGraph(snapshot) {
       adjacency[source].push(index);
       if (source !== target) adjacency[target].push(index);
     }
-    links[index].weight += Number(edge.weight || 1);
+    links[index].weight += Number(edge.weight ?? 1);
     const memoryId = Number(edge.memory_id);
     if (!memoryNodes.has(memoryId)) { memoryNodes.set(memoryId, new Set()); memoryLinks.set(memoryId, new Set()); }
     memoryNodes.get(memoryId).add(source).add(target);
@@ -66,11 +65,9 @@ export function prepareGraph(snapshot) {
 }
 
 export function createSimulation(graph) {
-  const topologyNodes = graph.nodes.map((node, index) => ({ ...node, id: index }));
-  const topology = globalThis.GraphTopology.buildTopologySeed(topologyNodes, graph.links);
   const groups = new Map();
-  topologyNodes.forEach((node, index) => {
-    const id = topology.assignment[index] || 0;
+  graph.nodes.forEach((node, index) => {
+    const id = node.community;
     if (!groups.has(id)) groups.set(id, { id, members: [] });
     groups.get(id).members.push(index);
   });
@@ -91,12 +88,24 @@ export function createSimulation(graph) {
     });
     group.hub = group.members[0];
   });
+  const communityLinkMap = new Map();
+  for (const link of graph.links) {
+    const a = graph.nodes[link.source].community, b = graph.nodes[link.target].community;
+    if (a === b || link.weight === 0) continue;
+    const source = Math.min(a, b), target = Math.max(a, b), key = source + ":" + target;
+    if (!communityLinkMap.has(key)) communityLinkMap.set(key, { source, target, weight: 0 });
+    communityLinkMap.get(key).weight += link.weight;
+  }
+  const communityLinks = [...communityLinkMap.values()];
   if (communities.length > 1) {
     forceSimulation(communities, 3).stop()
       .force("collision", forceCollide(group => group.radius + 40).iterations(2))
-      .force("x", forceX().strength(0.025))
-      .force("y", forceY().strength(0.025))
-      .force("z", forceZ().strength(0.025))
+      .force("links", forceLink(communityLinks).id(group => group.id)
+        .distance(link => link.source.radius + link.target.radius + 120 + 420 / (1 + Math.sqrt(link.weight)))
+        .strength(link => Math.min(0.45, 0.08 + Math.log1p(link.weight) * 0.04)))
+      .force("x", forceX().strength(0.006))
+      .force("y", forceY().strength(0.006))
+      .force("z", forceZ().strength(0.006))
       .tick(100);
   }
   const nodes = new Array(graph.nodes.length);
@@ -130,12 +139,12 @@ export function createSimulation(graph) {
     .alphaDecay(1 - Math.pow(0.001, 1 / iterations))
     .force("charge", forceManyBody().strength(-18).theta(1.1).distanceMax(160))
     .force("links", forceLink(links).distance(38).strength(link =>
-      link.source.community === link.target.community ? Math.min(0.08, 0.02 * Math.sqrt(link.weight)) : 0.001))
+      link.source.community === link.target.community ? Math.min(0.08, 0.02 * Math.sqrt(link.weight)) : 0.001 * Math.min(1, link.weight)))
     .force("collision", forceCollide(node => node.radius + 2))
     .force("x", forceX(node => node.homeX).strength(0.18))
     .force("y", forceY(node => node.homeY).strength(0.18))
     .force("z", forceZ(node => node.homeZ).strength(0.18));
-  return { simulation, nodes, iterations, communities };
+  return { simulation, nodes, iterations, communities, communityLinks };
 }
 
 export function communityRelations(graph, nodes) {
