@@ -107,3 +107,27 @@ test("orbital paths fill a spatial system instead of one near-planar disk", () =
   const spans = min.map((value,axis) => max[axis]-value);
   assert.ok(spans[2] > Math.max(spans[0],spans[1])*0.65);
 });
+
+test("internal branch nodes remain inside terminal nodes throughout motion", () => {
+  const { orbits, positions } = system();
+  for (let time = 0; time < 120; time++) {
+    orbits.advance(1, positions);
+    const distance = index => Math.hypot(...[0,1,2].map(axis => positions[index*3+axis] - positions[axis]));
+    assert.ok(Math.max(...[1,2,3].map(distance)) < Math.min(...[4,5].map(distance)));
+  }
+});
+
+test("terminal status puts a leaf person outside an internal topic and summary", () => {
+  const graph = prepareGraph({
+    nodes: [{ id: 1, type: "person" }, { id: 2, type: "person" }, { id: 3, type: "topic" },
+      { id: 4, type: "summary" }, { id: 5, type: "fact" }],
+    edges: [{ source: 1, target: 2 }, { source: 1, target: 3 }, { source: 3, target: 4 }, { source: 4, target: 5 }],
+  });
+  const positions = new Float32Array([0,0,0, 20,0,0, 300,100,0, 350,100,10, 355,100,10]);
+  const orbits = new MemoryOrbits(graph, { positions: positions.slice(), communityIds: new Uint16Array(5),
+    hubs: new Uint32Array([0]), communityRadii: new Float32Array([400]) });
+  orbits.advance(0, positions);
+  const distance = index => Math.hypot(...positions.slice(index*3,index*3+3));
+  assert.ok(distance(1) > Math.max(distance(2),distance(3)));
+  assert.ok(distance(4) > Math.max(distance(2),distance(3)));
+});
