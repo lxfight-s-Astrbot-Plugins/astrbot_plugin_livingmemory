@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareGraph } from "../../pages/dashboard/graph-3d-core.js";
+import { prepareGraph, createSimulation, buildMemoryHierarchy } from "../../pages/dashboard/graph-3d-core.js";
 import { MemoryGravity } from "../../pages/dashboard/graph-3d-gravity.js";
 
 function system() {
@@ -24,12 +24,48 @@ function system() {
     positions: new Float32Array([0,0,0, 70,0,0, 120,70,12, 135,90,20, 160,100,30, -100,40,10, 1000,0,0, 1040,20,0]),
     communityIds: new Uint16Array([0,0,0,0,0,0,1,1]),
     hubs: new Uint32Array([0,6]), communityRadii: new Float32Array([400,150]),
+    frames: new Float32Array([1,0,0,0,1,0,0,0,1, 1,0,0,0,1,0,0,0,1]),
   };
+  Object.assign(layout, buildMemoryHierarchy(graph, layout.communityIds, layout.hubs));
   const gravity = new MemoryGravity(graph, layout);
   const positions = layout.positions.slice();
   gravity.advance(0, positions);
   return { graph, layout, gravity, positions };
 }
+
+function galaxySystem() {
+  const graph = prepareGraph({
+    nodes: Array.from({ length: 180 }, (_, id) => ({ id, community: 0,
+      type: id === 0 ? "person" : id < 7 ? "topic" : id < 13 ? "summary" : "fact", weight: 1 })),
+    edges: Array.from({ length: 179 }, (_, i) => {
+      const child = i+1, parent = child < 7 ? 0 : child < 13 ? 1+(child-7)%6 : 7+(child-13)%6;
+      return { source: child, target: parent, weight: 1 };
+    }),
+  });
+  const result = createSimulation(graph);
+  result.simulation.tick(result.iterations);
+  const layout = { positions: new Float32Array(result.nodes.flatMap(node => [node.x,node.y,node.z])),
+    communityIds: new Uint16Array(180), hubs: new Uint32Array([result.communities[0].hub]),
+    communityRadii: new Float32Array([result.communities[0].radius]), frames: result.frames,
+    parents: result.hierarchy.parents, order: result.hierarchy.order };
+  const gravity = new MemoryGravity(graph, layout), positions = layout.positions.slice();
+  gravity.advance(0, positions);
+  return { graph, layout, gravity, positions };
+}
+
+test("starting gravity preserves the worker's galaxy layout", () => {
+  const { positions, layout } = galaxySystem();
+  assert.ok(positions.every((value, index) => value === layout.positions[index]));
+});
+
+test("motion retains the lengths of semantic branches within a small displacement", () => {
+  const { graph, positions, layout, gravity } = galaxySystem();
+  const lengths = () => graph.links.map(link => Math.hypot(...[0,1,2].map(axis => positions[link.source*3+axis]-positions[link.target*3+axis])));
+  const before = lengths();
+  gravity.advance(40, positions);
+  const after = lengths();
+  assert.ok(after.every((value,i) => Math.abs(value-before[i]) < layout.communityRadii[0]*0.06));
+});
 
 test("types and strongest real ties choose the orbital hierarchy", () => {
   const { gravity } = system();
@@ -46,17 +82,14 @@ test("orbit assignment preserves the original graph and ignores stronger cross-c
   }
 });
 
-test("central attraction produces varying radius and faster motion near the parent", () => {
+test("local gravity produces varying radius and faster motion near its rest center", () => {
   const { gravity, positions } = system();
   let near = { radius: Infinity }, far = { radius: 0 };
-  let before = [0,1,2].map(axis => positions[21+axis] - positions[18+axis]);
   for (let time = 0; time < 600; time++) {
     gravity.advance(0.25, positions);
-    const relative = [0,1,2].map(axis => positions[21+axis] - positions[18+axis]);
-    const radius = Math.hypot(...relative), speed = Math.hypot(...relative.map((value,axis) => value-before[axis])) / 0.25;
+    const radius = Math.hypot(...gravity.offsets.slice(21,24)), speed = Math.hypot(...gravity.velocities.slice(21,24));
     if (radius < near.radius) near = { radius, speed };
     if (radius > far.radius) far = { radius, speed };
-    before = relative;
   }
   assert.ok(far.radius - near.radius > far.radius * 0.15);
   assert.ok(near.speed > far.speed * 1.2);
@@ -101,7 +134,10 @@ test("gravity preserves the depth of a spatial community", () => {
     const height = 1 - 2 * (i - 0.5) / 40, circle = Math.sqrt(1 - height * height);
     positions.set([Math.cos(i * 2.3999632297) * circle * 100,Math.sin(i * 2.3999632297) * circle * 100,height * 100],i*3);
   }
-  const gravity = new MemoryGravity(graph, { positions, communityIds: new Uint16Array(41), hubs: new Uint32Array([0]), communityRadii: new Float32Array([300]) });
+  const layout = { positions: positions.slice(), communityIds: new Uint16Array(41), hubs: new Uint32Array([0]),
+    communityRadii: new Float32Array([300]), frames: new Float32Array([1,0,0,0,1,0,0,0,1]) };
+  Object.assign(layout, buildMemoryHierarchy(graph, layout.communityIds, layout.hubs));
+  const gravity = new MemoryGravity(graph, layout);
   const min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
   for (let time = 0; time < 60; time++) {
     gravity.advance(1, positions);
@@ -119,28 +155,13 @@ test("gravity preserves the depth of a spatial community", () => {
   assert.ok(spans[2] > Math.max(spans[0],spans[1])*0.65);
 });
 
-test("internal branch nodes remain inside terminal nodes throughout motion", () => {
-  const { gravity, positions } = system();
+test("semantic branches remain inside their own descendants throughout motion", () => {
+  const { gravity, positions, layout } = galaxySystem();
   for (let time = 0; time < 120; time++) {
     gravity.advance(1, positions);
     const distance = index => Math.hypot(...[0,1,2].map(axis => positions[index*3+axis] - positions[axis]));
-    assert.ok(Math.max(...[1,2,3].map(distance)) < Math.min(...[4,5].map(distance)));
+    for (let i = 1; i < gravity.parents.length; i++) assert.ok(distance(i) > distance(gravity.parents[i]) - layout.communityRadii[0]*0.01);
   }
-});
-
-test("terminal status puts a leaf person outside an internal topic and summary", () => {
-  const graph = prepareGraph({
-    nodes: [{ id: 1, type: "person" }, { id: 2, type: "person" }, { id: 3, type: "topic" },
-      { id: 4, type: "summary" }, { id: 5, type: "fact" }],
-    edges: [{ source: 1, target: 2 }, { source: 1, target: 3 }, { source: 3, target: 4 }, { source: 4, target: 5 }],
-  });
-  const positions = new Float32Array([0,0,0, 20,0,0, 300,100,0, 350,100,10, 355,100,10]);
-  const gravity = new MemoryGravity(graph, { positions: positions.slice(), communityIds: new Uint16Array(5),
-    hubs: new Uint32Array([0]), communityRadii: new Float32Array([400]) });
-  gravity.advance(0, positions);
-  const distance = index => Math.hypot(...positions.slice(index*3,index*3+3));
-  assert.ok(distance(1) > Math.max(distance(2),distance(3)));
-  assert.ok(distance(4) > Math.max(distance(2),distance(3)));
 });
 
 test("central gravity keeps energy error bounded during sustained motion", () => {
@@ -180,13 +201,15 @@ test("members of a community keep a consistent angular momentum direction", () =
 });
 
 test("nested branches retain readable spacing at deeper levels", () => {
-  const { gravity } = system();
-  const gap = index => Math.hypot(...gravity.offsets.slice(index*3,index*3+3));
-  assert.ok(gap(2) > gap(1) * 0.5);
-  assert.ok(gap(3) > gap(1) * 0.5);
+  const { gravity, positions } = galaxySystem();
+  const gap = index => Math.hypot(...[0,1,2].map(axis => positions[index*3+axis] - positions[gravity.parents[index]*3+axis]));
+  for (let i = 7; i < 13; i++) assert.ok(gap(i) > gap(gravity.parents[i])*0.5);
 });
 
-test("terminal paths use a compact radius around their branch", () => {
-  const { gravity, layout } = system();
-  for (const index of [4,5]) assert.ok(Math.hypot(...gravity.offsets.slice(index*3,index*3+3)) < layout.communityRadii[0] * 0.65);
+test("terminal nodes fill continuous radial space instead of a narrow shell", () => {
+  const { positions, layout } = galaxySystem();
+  const radii = Array.from({ length: 167 }, (_, i) => Math.hypot(...positions.slice((i+13)*3,(i+14)*3)) / layout.communityRadii[0]);
+  assert.ok(Math.min(...radii) < 0.4);
+  assert.ok(Math.max(...radii) > 0.7);
+  assert.ok(Math.max(...radii)-Math.min(...radii) > 0.4);
 });

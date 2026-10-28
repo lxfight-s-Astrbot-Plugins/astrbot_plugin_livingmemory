@@ -1,11 +1,13 @@
 import { forceSimulation, forceManyBody, forceLink, forceCollide, forceX, forceY, forceZ } from "d3-force-3d";
 
 export const SPACE_COLORS = { person: "#e5bc85", topic: "#98bacd", fact: "#d9d1bd", summary: "#b5a7c1", other: "#a7b6b4" };
+const TYPE_ORDER = { person: 0, topic: 1, summary: 2, fact: 3, other: 4 };
+const PARENTS = { person: [], topic: ["person"], summary: ["topic", "person"], fact: ["summary", "topic", "person"], other: ["summary", "topic", "person"] };
 
 export function prepareGraph(snapshot) {
   const typeSizes = { person: 3.6, topic: 1.8, summary: 1.2, fact: 0.65, other: 1 };
   const nodes = snapshot.nodes.map(node => ({
-    ...node, id: Number(node.id), pulsar: 0,
+    ...node, id: Number(node.id), pulsar: 0, atomType: node.metadata?.atom_type,
     size: (typeSizes[node.type] || typeSizes.other) *
       (1 + Math.min(0.3, Math.log1p(Number(node.memory_count || 0) + Number(node.degree || 0)) * 0.04)),
   }));
@@ -64,6 +66,31 @@ export function prepareGraph(snapshot) {
   return { nodes, nodeIndex, links, adjacency, memoryNodes, memoryLinks, labelOrder, linkOrder: overview.concat(remaining), overviewCount: overview.length };
 }
 
+export function buildMemoryHierarchy(graph, communityIds, hubs) {
+  const parents = new Int32Array(graph.nodes.length).fill(-1), roots = new Set(hubs);
+  for (let i = 0; i < graph.nodes.length; i++) {
+    if (roots.has(i)) continue;
+    const node = graph.nodes[i], community = communityIds[i];
+    const preferences = node.type === "fact" && (node.atomType === "relational" || node.atomType === "preference")
+      ? ["person", "summary", "topic"] : (PARENTS[node.type] || PARENTS.other);
+    let parent = hubs[community], bestRank = Infinity, bestWeight = -Infinity;
+    for (const edgeIndex of graph.adjacency[i]) {
+      const link = graph.links[edgeIndex], other = link.source === i ? link.target : link.source;
+      if (other === i || communityIds[other] !== community) continue;
+      const rank = preferences.indexOf(graph.nodes[other].type);
+      if (rank >= 0 && (rank < bestRank || (rank === bestRank && link.weight > bestWeight))) {
+        parent = other; bestRank = rank; bestWeight = link.weight;
+      }
+    }
+    parents[i] = parent;
+  }
+  const order = new Uint32Array([...hubs, ...graph.nodes.map((_, i) => i).filter(i => !roots.has(i)).sort((a, b) =>
+    (TYPE_ORDER[graph.nodes[a].type] ?? TYPE_ORDER.other) - (TYPE_ORDER[graph.nodes[b].type] ?? TYPE_ORDER.other) || a - b)]);
+  const childCounts = new Uint32Array(graph.nodes.length);
+  for (const parent of parents) if (parent >= 0) childCounts[parent]++;
+  return { parents, order, childCounts };
+}
+
 export function createSimulation(graph) {
   const groups = new Map();
   graph.nodes.forEach((node, index) => {
@@ -74,7 +101,7 @@ export function createSimulation(graph) {
   const communities = [...groups.values()].sort((a, b) => a.id - b.id);
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   communities.forEach((group, index) => {
-    group.radius = 60 + Math.sqrt(group.members.length) * 28;
+    group.radius = 48 + Math.sqrt(group.members.length) * 22;
     const height = 2 * ((index * Math.SQRT2) % 1) - 1;
     const circle = Math.sqrt(1 - height * height), angle = index * goldenAngle;
     const distance = group.radius * 2 * Math.cbrt(index);
@@ -87,6 +114,11 @@ export function createSimulation(graph) {
       return bStar - aStar || Number(graph.nodes[b].weight || 0) - Number(graph.nodes[a].weight || 0) || a - b;
     });
     group.hub = group.members[0];
+    group.spiral = group.members.length >= 80 && group.members.some(i => graph.adjacency[i].some(edgeIndex => {
+      const edge = graph.links[edgeIndex];
+      return edge.source !== edge.target && edge.weight > 0;
+    }));
+    group.arms = group.spiral ? (group.members.length >= 400 ? 3 : 2) : 1;
   });
   const communityLinkMap = new Map();
   for (const link of graph.links) {
@@ -108,43 +140,73 @@ export function createSimulation(graph) {
       .force("z", forceZ().strength(0.006))
       .tick(100);
   }
-  const nodes = new Array(graph.nodes.length);
-  const orbitScale = { person: 0.4, topic: 0.65, summary: 0.8, fact: 1, other: 0.8 };
+  const communityIds = new Uint16Array(graph.nodes.map(node => node.community));
+  const hubs = new Uint32Array(communities.map(group => group.hub));
+  const hierarchy = buildMemoryHierarchy(graph, communityIds, hubs);
+  const { parents, order, childCounts } = hierarchy;
+  const leafCounts = new Uint32Array(graph.nodes.length), heights = new Uint8Array(graph.nodes.length);
+  for (let index = order.length - 1; index >= 0; index--) {
+    const i = order[index], parent = parents[i];
+    if (!childCounts[i]) leafCounts[i] = 1;
+    if (parent >= 0) { leafCounts[parent] += leafCounts[i]; heights[parent] = Math.max(heights[parent], heights[i] + 1); }
+  }
+  const armIds = new Int8Array(graph.nodes.length).fill(-1), childRanks = new Uint32Array(graph.nodes.length);
+  const armLeaves = new Uint32Array(communities.length * 3), armCursor = new Uint32Array(communities.length * 3);
+  for (const i of order) {
+    const parent = parents[i], group = communities[communityIds[i]];
+    if (parent < 0) continue;
+    armIds[i] = armIds[parent] >= 0 ? armIds[parent] : childCounts[parent] > 1
+      ? childRanks[parent]++ % group.arms : childCounts[i] ? -1 : 0;
+    if (!childCounts[i]) armLeaves[group.id * 3 + armIds[i]]++;
+  }
+  const frames = new Float32Array(communities.length * 9);
   for (const group of communities) {
-    const tilt = Math.sin(group.id * 1.3) * 0.55;
-    const counts = {}, ranks = {};
-    group.members.forEach(index => { const type = graph.nodes[index].type; counts[type] = (counts[type] || 0) + 1; });
-    group.members.forEach((index, rank) => {
-      const raw = graph.nodes[index];
-      const typeRank = ranks[raw.type] || 0;
-      ranks[raw.type] = typeRank + 1;
-      const radius = rank === 0 ? 0 : group.radius * (orbitScale[raw.type] || orbitScale.other) *
-        (0.25 + 0.65 * Math.sqrt(typeRank / Math.max(1, counts[raw.type] - 1)));
-      const angle = rank * goldenAngle;
-      const height = 1 - 2 * (typeRank + 0.5) / counts[raw.type];
-      const circle = Math.sqrt(1 - height * height);
-      const x = Math.cos(angle) * circle * radius, y = Math.sin(angle) * circle * radius;
-      const z = height * radius;
-      const homeX = group.x + x * Math.cos(tilt) + z * Math.sin(tilt);
-      const homeY = group.y + y;
-      const homeZ = group.z + z * Math.cos(tilt) - x * Math.sin(tilt);
-      nodes[index] = { id: raw.id, type: raw.type, community: group.id, radius: raw.size * 2.2,
-        x: homeX, y: homeY, z: homeZ, homeX, homeY, homeZ };
-      if (rank === 0) Object.assign(nodes[index], { fx: homeX, fy: homeY, fz: homeZ });
-    });
+    const yaw = group.id * goldenAngle + 0.35, tilt = 0.45 + (group.id * 0.41 % 0.65);
+    const c = Math.cos(yaw), s = Math.sin(yaw), ct = Math.cos(tilt), st = Math.sin(tilt);
+    frames.set([c,s,0, -s*ct,c*ct,st, s*st,-c*st,ct], group.id * 9);
+  }
+  const nodes = new Array(graph.nodes.length), low = new Float64Array(graph.nodes.length);
+  const cursor = new Uint32Array(graph.nodes.length), radial = new Float64Array(graph.nodes.length);
+  for (const index of order) {
+    const raw = graph.nodes[index], group = communities[raw.community], hub = group.hub, parent = parents[index];
+    const arm = armIds[index], armIndex = group.id * 3 + arm;
+    const total = arm >= 0 ? armLeaves[armIndex] : leafCounts[hub];
+    if (parent >= 0 && arm >= 0) {
+      if (armIds[parent] < 0) { low[index] = armCursor[armIndex] / total; armCursor[armIndex] += leafCounts[index]; }
+      else { low[index] = low[parent] + cursor[parent] / total; cursor[parent] += leafCounts[index]; }
+    }
+    const fraction = low[index] + leafCounts[index] * 0.5 / total;
+    const firstLeaf = low[index] + 0.5 / total;
+    const endRadius = group.radius * (0.22 + 0.64 * Math.sqrt(firstLeaf));
+    radial[index] = parent < 0 ? 0 : childCounts[index]
+      ? radial[parent] + (endRadius - radial[parent]) / (heights[index] + 1)
+      : group.radius * (0.22 + 0.64 * Math.sqrt(fraction));
+    const r = radial[index] / group.radius, spiral = group.spiral;
+    const angle = spiral ? Math.max(0, arm) * Math.PI * 2 / group.arms + 5.4 * r + Math.sin(index * goldenAngle) * 0.16
+      : fraction * Math.PI * 2 + index * goldenAngle * 0.3;
+    const height = spiral ? Math.sin(index * goldenAngle * 1.3) * (0.55 * (1-r) + 0.28) : 1 - 2 * ((index * Math.SQRT2) % 1);
+    const planar = spiral ? 1 / Math.hypot(1, height) : Math.sqrt(1 - height * height);
+    const x = Math.cos(angle) * planar * radial[index], y = Math.sin(angle) * planar * radial[index];
+    const z = (spiral ? height * planar : height) * radial[index], frame = group.id * 9;
+    const homeX = group.x + frames[frame]*x + frames[frame+3]*y + frames[frame+6]*z;
+    const homeY = group.y + frames[frame+1]*x + frames[frame+4]*y + frames[frame+7]*z;
+    const homeZ = group.z + frames[frame+2]*x + frames[frame+5]*y + frames[frame+8]*z;
+    nodes[index] = { id: raw.id, type: raw.type, community: group.id, radius: raw.size * 1.5,
+      x: homeX, y: homeY, z: homeZ, homeX, homeY, homeZ };
+    if (parent < 0) Object.assign(nodes[index], { fx: homeX, fy: homeY, fz: homeZ });
   }
   const links = graph.links.map(link => ({ ...link }));
   const iterations = Math.max(60, 150 - Math.floor(nodes.length / 30));
   const simulation = forceSimulation(nodes, 3).stop()
     .alphaDecay(1 - Math.pow(0.001, 1 / iterations))
-    .force("charge", forceManyBody().strength(-18).theta(1.1).distanceMax(160))
+    .force("charge", forceManyBody().strength(-6).theta(1.1).distanceMax(80))
     .force("links", forceLink(links).distance(38).strength(link =>
-      link.source.community === link.target.community ? Math.min(0.08, 0.02 * Math.sqrt(link.weight)) : 0.001 * Math.min(1, link.weight)))
+      link.source.community === link.target.community ? Math.min(0.025, 0.008 * Math.sqrt(link.weight)) : 0.0002 * Math.min(1, link.weight)))
     .force("collision", forceCollide(node => node.radius + 2))
-    .force("x", forceX(node => node.homeX).strength(0.18))
-    .force("y", forceY(node => node.homeY).strength(0.18))
-    .force("z", forceZ(node => node.homeZ).strength(0.18));
-  return { simulation, nodes, iterations, communities, communityLinks };
+    .force("x", forceX(node => node.homeX).strength(0.55))
+    .force("y", forceY(node => node.homeY).strength(0.55))
+    .force("z", forceZ(node => node.homeZ).strength(0.55));
+  return { simulation, nodes, iterations, communities, communityLinks, hierarchy, frames };
 }
 
 export function communityRelations(graph, nodes) {
