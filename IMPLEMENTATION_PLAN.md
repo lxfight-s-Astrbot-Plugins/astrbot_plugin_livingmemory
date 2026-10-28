@@ -1,36 +1,44 @@
-# Gravity-driven 3D memory motion
+# Galaxy structure and presentation
 
-Goal: replace prescribed phase-based circles with hierarchical central-gravity motion. Retain semantic parent assignment, spatial depth, terminal shells, stable focus pivots, pause/background behavior and batched rendering. PRs #357–#360 are merged into master.
+Goal: show a galaxy group at overview scale, thick spiral systems for larger communities and compact stellar clusters for smaller ones. Keep semantic relationships, branch/periphery ordering, stable focus, reduced motion, and large-graph performance. Starting point is released 2.8.1.
 
-Scope: visual, softened central-gravity approximation with normalized masses. Community anchors stay fixed; each node moves relative to its semantic parent. No all-pairs force evaluation, new dependencies, persistence/API changes, extra controls, explanatory UI copy, or runtime self-check/repair loops. Remove the superseded phase/speed/basis implementation and its constant-radius test.
+Scope: use existing NetworkX, d3-force-3d and Three.js. No dependencies, migrations, new UI headings, controls or explanatory copy. No all-pairs runtime gravity, checksum/state gates, silent fallbacks, or reconstruction of all edge geometry during animation. Keep 2D styling unchanged.
 
-## Stage 1: Gravity state and core behavior
-**Goal**: preserve the existing type/relationship hierarchy; initialize spatial relative positions and coherent tangential velocities; integrate softened central acceleration using fixed-step velocity Verlet.
-**Success Criteria**: curvature follows attraction, speed increases near the center, same-system angular momentum has a consistent direction, and trajectories stay within the interior/terminal radial budgets. Energy error stays bounded in a sustained motion test.
-**Tests**: replace constant-radius behavior with varying radius/speed and shared-spin tests; retain parent/hold/depth/envelope cases; add frame-partition and branch-order cases.
-**Project Structure Impact**: rename the existing orbital module/test to gravity, with the renderer consuming the same position buffer. No compatibility wrappers.
+## Stage 1: Weighted communities and topology-aware centers
+**Goal**: attach deterministic weighted Louvain community IDs to scoped dashboard snapshots and position their centers using aggregated real relations.
+**Success Criteria**: dense groups stay together, isolates form a compact separate cluster, relation strength affects community proximity, and no source nodes/edges/memory links are lost.
+**Tests**: weighted graph partitions, isolates, scope/API results, linked 3D centers and existing graph tests.
+**Project Structure Impact**: graph handler computes community IDs in a thread; 3D core/worker consume IDs. Remove the 3D dependency on 2D hub/BFS seeds. First focused PR.
 **Status**: Complete
 
-The previous constant-circle model fails the varying-radius regression. Core cases cover bounded energy error over 600 simulated seconds, equivalent trajectories at 30/120 FPS, shared angular-momentum direction, phase-by-phase volume, and terminal-shell ordering. A smooth vertical initial-velocity field prevents temporary flattening without runtime impulses or noise. Following visual feedback, interior spacing is shared by remaining branch depth instead of decaying geometrically, while terminal paths move inward to a compact radius band. Two regression cases demonstrate the previous deep-branch crowding and excessive terminal radius.
+Validation: 139 frontend tests and 94 scoped backend/documentation tests pass; affected Ruff checks and dashboard/documentation builds pass. The sandbox regression retains focus/zoom, pause/background handling and reduced-motion opt-in. A 5,000-node/100,000-edge run reaches approximately 26 FPS with three draw calls and unchanged edge indices. Zero-weight evidence remains visible without adding grouping/layout attraction.
 
-## Stage 2: Renderer integration and lifecycle
-**Goal**: integrate gravity state into the existing 30 FPS render loop, without per-edge force calculations or geometry rebuilds.
-**Success Criteria**: selected/hovered ancestry remains stationary; release resumes saved velocities; hidden/inactive views stop simulation; long frame delays do not cause a physics catch-up stall.
-**Tests**: sandbox interaction, pause/resume, visibility, reduced-motion opt-in, rotation/zoom and mobile resizing.
-**Project Structure Impact**: existing renderer references and frame-time budget; no new UI.
-**Status**: Complete
+## Stage 2: Continuous spatial hierarchy and galaxy forms
+**Goal**: distribute semantic branches across continuous radii, with thick spiral arms for large communities and ellipsoidal clusters for small ones.
+**Success Criteria**: no narrow terminal shell, no crowding from geometric depth shrinkage, branch parents stay inside their own terminal extent, and all systems retain spatial volume.
+**Tests**: semantic parents, branch intervals, radial coverage, thickness, representative centers, sparse/dense layouts.
+**Project Structure Impact**: 3D core owns one hierarchy calculation; worker returns hierarchy and galaxy frames. Remove the old spherical/type radius seeds.
+**Status**: In progress
 
-Sandbox checks pass for selected rotation/zoom, mobile resizing, pause/resume with saved velocities, page/tab suspension, reduced-motion opt-in, and a three-second stalled-frame case capped to 0.1 seconds of physics catch-up.
+## Stage 3: Shape-preserving gravity motion
+**Goal**: combine slow coherent system rotation with bounded local gravitational movement around semantic rest positions; retain world coordinates shared by drawing, picking and focus.
+**Success Criteria**: arms remain recognizable, focus holds stay stationary, pause resumes saved state, and frame rate/visibility do not change the trajectory unexpectedly.
+**Tests**: fixed-step state, bounded displacement/volume, semantic holds, shared spin, rotation/zoom and lifecycle browser checks.
+**Project Structure Impact**: replace the old full-radius parent orbits in MemoryGravity; no legacy mode or compatibility wrapper. Stages 2 and 3 form the second focused PR.
+**Status**: Not started
 
-## Stage 3: Display-scale verification and delivery
-**Goal**: verify gravity motion with sparse and dense graphs, document the approximation, and create a focused follow-up PR.
-**Success Criteria**: 5,000 nodes / 100,000 edges retain three draw calls and shared indices; no scene flattening or branch/terminal inversion.
-**Tests**: frontend tests, affected asset/documentation tests, dashboard/documentation builds, browser scale check and scene capture.
-**Project Structure Impact**: bilingual WebUI guidance, synthetic screenshot, built dashboard asset and PR description.
-**Status**: Complete
+## Stage 4: Relation levels, star density and lighting
+**Goal**: use a small set of bundled community links in overview, reveal internal structure on approach/selection, and add GPU star dust following galaxy frames with restrained node glow.
+**Success Criteria**: preserved relations are clear, full-relations mode keeps every edge, stars never count as memories or affect picking, and no new UI text is added.
+**Tests**: relation aggregation/completeness, zoom levels, shader compilation, bounds and pause/background handling.
+**Project Structure Impact**: renderer, worker relation metadata and galaxy dust shader; reuse the existing 2D aggregation idea without copying its visual style. Third focused PR.
+**Status**: Not started
 
-Validation: 136 frontend tests, 17 affected asset/documentation/full-snapshot tests, dashboard build and documentation build pass. The local Chrome 5,000-node/100,000-edge case renders every relation at approximately 26 FPS with three draw calls and unchanged edge indices; gravity takes about 0.52 ms per frame on average (0.9 ms at the 95th percentile). Sparse anonymous topology and dense synthetic scene checks pass. A 17-second browser capture demonstrates the compact layout and motion. VitePress retains its existing large-chunk advisory.
+## Stage 5: Integrated validation and delivery
+**Goal**: verify the final scene against the same anonymous and synthetic datasets, update bilingual docs/screenshots and create stacked PRs.
+**Success Criteria**: 5,000 nodes / 100,000 edges remain responsive, relation indices stay shared during motion, and mobile/sandbox behavior remains correct.
+**Tests**: relevant backend/frontend suites, scoped Ruff, dashboard/doc builds, opaque-origin browser interactions and actual motion capture.
+**Project Structure Impact**: existing tests, docs and built assets; no release or merge until requested.
+**Status**: Not started
 
-References: [REBOUND gravity softening](https://rebound.hanno-rein.de/simulation/variables/), [REBOUND leapfrog integration](https://rebound.hanno-rein.de/integrators/leapfrog/).
-
-Rollback: revert the gravity follow-up and rebuild dashboard assets; the merged orbital and stellar features remain available.
+Rollback: revert the relevant PRs and rebuild dashboard assets, or return to the 2.8.1 tag. Community IDs are display metadata and do not modify stored memories.

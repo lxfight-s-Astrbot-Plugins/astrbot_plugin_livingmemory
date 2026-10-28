@@ -2,8 +2,10 @@
 图谱查询处理模块
 """
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
+import networkx as nx
 from quart import request
 
 from astrbot.api import logger
@@ -23,6 +25,46 @@ class GraphHandler:
             utils: PageApiUtils 工具实例
         """
         self.utils = utils
+
+    @staticmethod
+    def _assign_communities(snapshot: dict[str, Any]) -> None:
+        """Attach weighted Louvain display groups to a scoped snapshot.
+
+        Args:
+            snapshot: Fresh graph snapshot whose node dictionaries are updated.
+        """
+        graph = nx.Graph()
+        graph.add_nodes_from(sorted(node["id"] for node in snapshot["nodes"]))
+        for edge in snapshot["edges"]:
+            source, target = edge["source"], edge["target"]
+            weight = float(edge.get("weight", 1))
+            # Self-relations are evidence, not pre-aggregated communities.
+            if source == target or weight == 0:
+                continue
+            if graph.has_edge(source, target):
+                graph[source][target]["weight"] += weight
+            else:
+                graph.add_edge(source, target, weight=weight)
+        connected = [node for node, degree in graph.degree if degree]
+        communities = (
+            nx.community.louvain_communities(
+                graph.subgraph(connected), weight="weight", seed=0
+            )
+            if connected
+            else []
+        )
+        communities.sort(key=lambda group: (-len(group), min(group)))
+        # One compact island keeps unrelated nodes from dominating the viewport.
+        isolates = set(nx.isolates(graph))
+        if isolates:
+            communities.append(isolates)
+        assignment = {
+            node_id: index
+            for index, community in enumerate(communities)
+            for node_id in community
+        }
+        for node in snapshot["nodes"]:
+            node["community"] = assignment[node["id"]]
 
     @staticmethod
     def _add_memory_id(
@@ -76,9 +118,7 @@ class GraphHandler:
         try:
             graph_store = self.utils.get_graph_store(memory_engine)
             # payload 只消费 graph 计数，无需触发全表统计扫描
-            stats = (
-                await graph_store.get_memory_entry_stats() if graph_store else {}
-            )
+            stats = await graph_store.get_memory_entry_stats() if graph_store else {}
             empty_snapshot = {
                 "nodes": [],
                 "edges": [],
@@ -113,6 +153,7 @@ class GraphHandler:
                     limit_nodes=limit_nodes,
                     limit_edges=limit_edges,
                 )
+            await asyncio.to_thread(self._assign_communities, snapshot)
             return self.utils.ok(
                 self.utils.build_graph_view_payload(
                     snapshot,
@@ -168,9 +209,7 @@ class GraphHandler:
         try:
             graph_store = self.utils.get_graph_store(memory_engine)
             # payload 只消费 graph 计数，无需触发全表统计扫描
-            stats = (
-                await graph_store.get_memory_entry_stats() if graph_store else {}
-            )
+            stats = await graph_store.get_memory_entry_stats() if graph_store else {}
             empty_snapshot = {
                 "nodes": [],
                 "edges": [],
@@ -205,6 +244,7 @@ class GraphHandler:
                     limit_nodes=limit_nodes,
                     limit_edges=limit_edges,
                 )
+                await asyncio.to_thread(self._assign_communities, snapshot)
                 return self.utils.ok(
                     self.utils.build_graph_view_payload(
                         snapshot,
@@ -229,6 +269,7 @@ class GraphHandler:
                     limit_nodes=limit_nodes,
                     limit_edges=limit_edges,
                 )
+                await asyncio.to_thread(self._assign_communities, snapshot)
                 return self.utils.ok(
                     self.utils.build_graph_view_payload(
                         snapshot,
@@ -345,6 +386,7 @@ class GraphHandler:
                 limit_nodes=limit_nodes,
                 limit_edges=limit_edges,
             )
+            await asyncio.to_thread(self._assign_communities, snapshot)
             return self.utils.ok(
                 self.utils.build_graph_view_payload(
                     snapshot,

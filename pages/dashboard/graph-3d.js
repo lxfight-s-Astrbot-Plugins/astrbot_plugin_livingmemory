@@ -203,7 +203,7 @@ export default class Graph3D {
     }
     this.worker.postMessage({
       generation: this._generation,
-      nodes: this.graph.nodes.map(({ id, type, size, weight }) => ({ id, type, size, weight })),
+      nodes: this.graph.nodes.map(({ id, type, size, weight, community }) => ({ id, type, size, weight, community })),
       links: this.graph.links,
       linkOrder: this.graph.linkOrder,
     });

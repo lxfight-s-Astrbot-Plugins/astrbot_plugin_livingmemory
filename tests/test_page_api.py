@@ -1037,6 +1037,7 @@ class TestGraphEndpoints:
 
         assert result["status"] == "ok"
         assert result["data"]["summary"]["visible_node_count"] == 1
+        assert result["data"]["snapshot"]["nodes"][0]["community"] == 0
         graph_store.get_full_graph_snapshot.assert_awaited_once_with(
             session_id="scope-1",
             persona_id="persona-1",

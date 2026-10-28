@@ -201,6 +201,8 @@ flowchart TB
 
 ## Data safety
 
+After session/persona filtering, graph-view endpoints add compact weighted Louvain IDs in `snapshot.nodes[].community`. Parallel and reverse ties contribute their combined weight, self-loops do not affect grouping, and isolates share a separate group; original relations remain intact. Computation runs in a thread, and the 3D Worker uses these IDs and cross-community weights for initial positions. Display communities are never written to the memory database.
+
 | Scenario | Protection |
 | --- | --- |
 | Plugin version change | Startup creates a version-tagged backup kept for a configurable number of days |
