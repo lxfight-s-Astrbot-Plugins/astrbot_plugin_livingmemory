@@ -327,6 +327,7 @@ import {
     if (!canvas || !nodes || !nodes.length) return;
 
     const ctx = canvas.getContext("2d");
+    const palette = getComputedStyle(canvas);
     const W = canvas.width;
     const H = canvas.height;
 
@@ -345,7 +346,7 @@ import {
 
     // 绘制边
     if (edges && edges.length) {
-      ctx.strokeStyle = "rgba(100, 100, 100, 0.3)";
+      ctx.strokeStyle = palette.getPropertyValue("--text-tertiary").trim();
       ctx.lineWidth = 1;
       edges.forEach(edge => {
         const source = positions.find(p => p.node.id === edge.source || p.node.id === edge.from);
@@ -361,7 +362,7 @@ import {
 
     // 绘制节点
     positions.forEach(pos => {
-      ctx.fillStyle = "#4a90e2";
+      ctx.fillStyle = palette.getPropertyValue("--accent").trim();
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
       ctx.fill();
