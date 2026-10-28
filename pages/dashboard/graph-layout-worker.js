@@ -6,7 +6,7 @@
      step  {count}                  → 跑 count 次迭代 → positions
      end                            → 收尾（目标位置 + rings + communities）
    ================================================================ */
-importScripts("graph-layout-core.js");
+importScripts("graph-topology.js", "graph-layout-core.js");
 
 var layout = GraphLayoutCore.createForceLayout();
 var generation = 0;

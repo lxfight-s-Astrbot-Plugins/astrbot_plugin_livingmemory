@@ -73,6 +73,8 @@ Use the selector at the top of the graph page to switch from the default **2D Pl
 
 The 3D overview displays structural links, while selection highlights direct relationships. **All relations** toggles the complete set of links. Nodes and links are rendered in GPU batches, layout runs in a separate Worker, and rendering stops when settled or when leaving the graph page.
 
+3D shares the topology grouping used by 2D, separates communities in space, and arranges members around a representative node. People, topics, summaries and facts have different node sizes. The overview reduces cross-community links; selecting a node or toggling **All relations** still exposes complete connections.
+
 | Observation | Example |
 | --- | --- |
 | High-frequency entities | Users, projects, places, group topics |
