@@ -128,3 +128,28 @@ test("pulsars use source-memory importance only for content nodes", () => {
   });
   assert.deepEqual(graph.nodes.map(node => node.pulsar), [0,0,0.95,0.9,0]);
 });
+
+test("a local community has substantial depth before orbital animation", () => {
+  const graph = prepareGraph({
+    nodes: Array.from({ length: 7 }, (_, id) => ({ id, type: id === 0 ? "person" : "fact" })),
+    edges: Array.from({ length: 6 }, (_, i) => ({ source: 0, target: i + 1 })),
+  });
+  const result = createSimulation(graph);
+  result.simulation.tick(result.iterations);
+  const spans = ["x","y","z"].map(axis => Math.max(...result.nodes.map(node => node[axis])) - Math.min(...result.nodes.map(node => node[axis])));
+  assert.ok(spans[2] > Math.max(spans[0], spans[1]) * 0.45);
+});
+
+test("community representatives occupy three-dimensional space", () => {
+  const graph = prepareGraph({
+    nodes: Array.from({ length: 96 }, (_, id) => ({ id, type: id % 24 === 0 ? "person" : "fact" })),
+    edges: Array.from({ length: 4 }, (_, group) => Array.from({ length: 23 }, (_, i) => ({ source: group * 24, target: group * 24 + i + 1 }))).flat(),
+  });
+  const { communities } = createSimulation(graph);
+  assert.equal(communities.length, 4);
+  const spans = ["x","y","z"].map(axis => Math.max(...communities.map(group => group[axis])) - Math.min(...communities.map(group => group[axis])));
+  assert.ok(spans[2] > Math.max(spans[0], spans[1]) * 0.45);
+  const [a, b, c] = communities.slice(1).map(group => ["x","y","z"].map(axis => group[axis] - communities[0][axis]));
+  const volume = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+  assert.ok(Math.abs(volume) / (Math.hypot(...a) * Math.hypot(...b) * Math.hypot(...c)) > 0.05);
+});

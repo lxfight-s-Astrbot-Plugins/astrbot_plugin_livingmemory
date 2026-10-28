@@ -64,7 +64,8 @@ export class MemoryOrbits {
       const radius = Math.min(maximum, Math.max(minimum, Math.hypot(dx, dy, dz) * 0.6 + spacing * 0.4));
       this.radii[i] = radius;
       envelopes[i] = envelopes[parent] + radius;
-      const rotation = community * 0.719, tilt = ((community % 5) - 2) * 0.18 + ((i % 7) - 3) * 0.035;
+      const rotation = community * 0.719 + parent * 0.37 + i * 0.719;
+      const tilt = (((i * 0.61803398875 + community * 0.17) % 1) - 0.5) * Math.PI;
       const cr = Math.cos(rotation), sr = Math.sin(rotation), ct = Math.cos(tilt), st = Math.sin(tilt);
       const u = [cr, sr, 0], v = [-sr * ct, cr * ct, st];
       for (let axis = 0; axis < 3; axis++) {
