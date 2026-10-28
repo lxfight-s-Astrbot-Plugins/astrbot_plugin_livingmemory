@@ -1,5 +1,35 @@
 # Releases and Upgrades
 
+## 2.8.2 · October 28, 2026
+
+2.8.2 improves the 3D galaxy view with weighted communities, thick spiral arms, stable motion, layered relations and star dust, while fixing precise picking and detail expansion in large graphs. No configuration changes, database migration or new runtime dependencies are required.
+
+[Download 2.8.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.2)
+
+### What changed
+
+- **Communities and shape.** Scoped weighted Louvain groups are positioned using real relationship strength. Large communities form thick arms, while small groups and isolates form clusters; branches and terminals fill continuous radial space.
+- **Stable motion.** Worker geometry is preserved through slow system rotation and bounded local gravity. Hover/focus pauses that system's bulk rotation and resumes its saved state.
+- **Relations and light.** Overview shows community curves, approaching reveals internal structure, and selection highlights direct relations. Full mode retains every edge. Dust is decorative; each valuable source prefers a summary node for its pulsar cue.
+- **Interaction and tooling.** Picking follows screen positions and details follow the inspected center. A manual generator defaults to 10,000 nodes / 200,000 relations / 1,200 archived synthetic memories; repeated runs append more data.
+
+### Verification
+
+- Full CI passed 1,161 backend and 147 frontend tests; feature PR [#366](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/366) passed CI.
+- Dashboard and documentation builds pass. Equivalent sandbox checks cover motion, actual picking, focus, zoom, mobile sizes, pause and visibility; details remain readable across eight appearance/theme combinations. A local synthetic 10,000-node/200,000-relation complete view reaches approximately 25 FPS; results vary by device and data.
+
+### Install and upgrade
+
+1. Keep existing data and configuration, download **Source code (zip)** from the release page, and replace the code.
+2. Reload the plugin and hard-refresh, confirming version `2.8.2`. Backend community fields require the new frontend and backend to load together; select **Resume motion** if reduced motion is enabled.
+3. Release archives contain offline frontend assets. Visual fixtures are appended only by manually running the script; select `livingmemory:visual:galaxy` to view existing fixtures as a full graph.
+4. For a Git installation, switch a clean checkout to the tag:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.8.2
+```
+
 ## 2.8.1 · October 28, 2026
 
 2.8.1 improves the 3D memory graph's spatial layout, motion and reading interactions, adding hierarchical gravity, stellar coronas and high-value pulsars while fixing focus pivots and detail themes. No configuration changes, database migration or new runtime dependencies are required.

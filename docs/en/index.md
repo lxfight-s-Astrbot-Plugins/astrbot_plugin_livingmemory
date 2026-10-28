@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.8.1
+      text: Get 2.8.2
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.8.1 is released
+## 2.8.2 is released
 
-2.8.1 improves 3D community layout and hierarchical gravity, adds stellar coronas and high-value pulsars, opens internal branches and brings outer nodes closer, and fixes focus pivots and detail themes. The minimum supported version remains 4.24.2; see [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.8.2 improves the 3D galaxy view with weighted communities, thick spiral arms, stable motion, layered relations, star dust, precise picking and large visual fixtures. The minimum supported version remains 4.24.2; see [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 
