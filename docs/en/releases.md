@@ -1,5 +1,35 @@
 # Releases and Upgrades
 
+## 2.8.1 · October 28, 2026
+
+2.8.1 improves the 3D memory graph's spatial layout, motion and reading interactions, adding hierarchical gravity, stellar coronas and high-value pulsars while fixing focus pivots and detail themes. No configuration changes, database migration or new runtime dependencies are required.
+
+[Download 2.8.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.1)
+
+### What changed
+
+- **Gravity and hierarchy.** Memory types and real ties choose attractors, with a shared spin direction per system. Interior branches spread out and terminal nodes move closer, retaining depth and radial ordering throughout motion.
+- **Stars and pulsars.** Representative nodes have coronas; facts and summaries associated with memories rated at least 8/10 show pulsing halos and rotating beams.
+- **Focus and themes.** Rotation uses actual selected coordinates, with projection offsets reserving drawer space. Details, edit fields and mini graphs share a dark palette; returning to 2D restores the previous theme. Overview and selected relations are brighter.
+- **Large graphs.** Gravity work grows linearly with node count; relations share positions without rebuilding their indices. Pause, hover/focus holds, reduced motion and background suspension are supported.
+
+### Verification
+
+- All 1,155 backend and 136 frontend tests pass; feature PR [#361](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/361) passed CI.
+- Dashboard and documentation builds pass. Browser sandbox checks cover motion, focus, zoom, mobile sizes and visibility changes. A local synthetic 5,000-node/100,000-relation workload reaches approximately 26 FPS; results vary with real data and devices.
+
+### Install and upgrade
+
+1. Keep your existing data and configuration, download **Source code (zip)** from the release page, and replace the plugin code.
+2. Reload the plugin and hard-refresh the dashboard, confirming version `2.8.1`. If reduced motion is enabled, select **Resume motion** in the 3D graph to enable animation explicitly.
+3. Release archives include all offline frontend assets; using the plugin does not require Node.js. Run `npm ci` and `npm run build:dashboard` only after changing frontend sources.
+4. For a Git installation, switch a clean checkout to the tag:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.8.1
+```
+
 ## 2.8.0 · October 28, 2026
 
 2.8.0 adds an independent warm-lit 3D graph. Clicking a node moves the camera closer and exposes its memories; search, memory focus and selection sharing work across 2D/3D. GPU batches and a separate layout Worker support large graphs, and full requests no longer truncate at fixed counts. No configuration changes or database migration are required.
