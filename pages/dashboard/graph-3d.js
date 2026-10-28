@@ -15,6 +15,8 @@ export default class Graph3D {
     this._motionTimer = null;
     this._lastMotionStamp = null;
     this._orbits = null;
+    this._pulseClock = 0;
+    this._viewOffset = { x: 0, y: 0 };
     this._flight = null;
     this._generation = 0;
     this._listeners = [];
@@ -48,7 +50,15 @@ export default class Graph3D {
     this.controls.minDistance = 20;
     this.controls.maxDistance = 8000;
     this.controls.addEventListener("change", this._schedule);
-    this._onControlStart = () => { this._flight = null; };
+    this._onControlStart = () => {
+      if (this._flight && this.selection) {
+        this.controls.target.copy(this._selectionCenter());
+        const offset = this._focusViewOffset();
+        this._setViewOffset(offset.x, offset.y);
+        this.controls.update();
+      }
+      this._flight = null;
+    };
     this.controls.addEventListener("start", this._onControlStart);
     this.raycaster = new THREE.Raycaster();
     this.graphGroup = new THREE.Group();
@@ -78,12 +88,15 @@ export default class Graph3D {
       this.graph.overviewCount = data.overviewCount;
       const hubs = new Set(data.hubs);
       this.graph.labelOrder = [...hubs, ...this.graph.labelOrder.filter(index => !hubs.has(index))];
-      this.points.geometry.computeBoundingSphere();
-      const bounds = this.points.geometry.boundingSphere;
+      const star = this.points.geometry.attributes.aStar;
+      for (const hub of data.hubs) star.array[hub] = 1;
+      star.needsUpdate = true;
+      const bounds = new THREE.Sphere(new THREE.Vector3().fromArray(this._orbits.center), 0);
       for (let community = 0; community < data.hubs.length; community++) {
         this._scratch.fromBufferAttribute(this.positions, data.hubs[community]);
         bounds.radius = Math.max(bounds.radius, bounds.center.distanceTo(this._scratch) + data.communityRadii[community] + 12);
       }
+      this.points.geometry.boundingSphere = bounds;
       this.edgeGeometry.boundingSphere = this.points.geometry.boundingSphere;
       this.focusEdges.geometry.boundingSphere = this.points.geometry.boundingSphere;
       this.graphGroup.visible = true;
@@ -169,6 +182,7 @@ export default class Graph3D {
     this._payload = payload;
     this._stopFrames();
     this._orbits = null;
+    this._pulseClock = 0;
     this._generation++;
     this._flight = null;
     this._ready = false;
@@ -199,31 +213,49 @@ export default class Graph3D {
     const count = this.graph.nodes.length;
     this.positions = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
     const colors = new Float32Array(count * 3), sizes = new Float32Array(count), indices = new Float32Array(count);
+    const stars = new Float32Array(count), pulsars = new Float32Array(count);
     const color = new THREE.Color();
     this.graph.nodes.forEach((node, i) => {
       color.set(SPACE_COLORS[node.type] || SPACE_COLORS.other).toArray(colors, i * 3);
       sizes[i] = node.size;
       indices[i] = i;
+      stars[i] = node.type === "person" ? 1 : 0;
+      pulsars[i] = node.pulsar;
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", this.positions);
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
     geometry.setAttribute("aIndex", new THREE.BufferAttribute(indices, 1));
+    geometry.setAttribute("aStar", new THREE.BufferAttribute(stars, 1));
+    geometry.setAttribute("aPulsar", new THREE.BufferAttribute(pulsars, 1));
     geometry.setAttribute("aEmphasis", new THREE.BufferAttribute(new Float32Array(count), 1));
-    this.uniforms = { focus: { value: 0 }, hover: { value: -1 }, dpr: { value: this.renderer.getPixelRatio() }, viewDistance: { value: 650 } };
+    this.uniforms = { focus: { value: 0 }, hover: { value: -1 }, dpr: { value: this.renderer.getPixelRatio() }, viewDistance: { value: 650 }, pulseTime: { value: 0 } };
     const material = new THREE.ShaderMaterial({
       uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      vertexShader: `attribute vec3 color; attribute float aSize; attribute float aIndex; attribute float aEmphasis;
-        uniform float focus; uniform float hover; uniform float dpr; uniform float viewDistance; varying vec3 vColor; varying float vAlpha;
+      vertexShader: `attribute vec3 color; attribute float aSize; attribute float aIndex; attribute float aEmphasis; attribute float aStar; attribute float aPulsar;
+        uniform float focus; uniform float hover; uniform float dpr; uniform float viewDistance; uniform float pulseTime;
+        varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
         void main(){vec4 p=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*p;
         float linked=step(.5,aEmphasis);float chosen=step(1.5,aEmphasis);float hovered=1.-step(.5,abs(aIndex-hover));
-        gl_PointSize=clamp(aSize*16.*(viewDistance/-p.z)*(1.+chosen*.55+hovered*.2)*dpr,3.,160.*dpr);
+        gl_PointSize=clamp(aSize*16.*(viewDistance/-p.z)*(1.+chosen*.55+hovered*.2+aPulsar*.45)*dpr,3.,160.*dpr);
         vColor=mix(color,vec3(1.,.8,.48),max(chosen,hovered*.5));
+        vStar=aStar*(.85+.15*sin(pulseTime*.5+aIndex));vPulsar=aPulsar;
+        vEmission=aPulsar*pow(.5+.5*sin(pulseTime*1.3+aIndex*2.399963),5.);
+        vBeam=vec2(cos(pulseTime*.6+aIndex),sin(pulseTime*.6+aIndex));
+        vRing=.18+fract(pulseTime*.23+aIndex*.37)*.75;
         vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1.2,4.,-p.z/viewDistance));}`,
-      fragmentShader: `varying vec3 vColor; varying float vAlpha; void main(){float r=length(gl_PointCoord-.5)*2.;
+      fragmentShader: `varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
+        void main(){vec2 point=gl_PointCoord-.5;float r=length(point)*2.;
         if(r>1.)discard;float core=exp(-r*r*90.);float glow=exp(-r*r*8.)*.24;
-        gl_FragColor=vec4(mix(vColor,vec3(1.,.94,.82),core*.6),(core+glow)*vAlpha);}`,
+        float corona=vStar*exp(-r*r*3.2)*.09;float emission=0.;
+        if(vPulsar>0.){float beam=exp(-abs(dot(point,vec2(-vBeam.y,vBeam.x)))*55.)*exp(-r*2.5);
+          float ring=exp(-pow((r-vRing)*35.,2.))*.12*(1.-vRing);
+          emission=vEmission*(beam*.25+ring)+vPulsar*exp(-r*r*2.8)*.025;}
+        vec3 tint=mix(vColor,vec3(1.,.94,.82),core*.6);tint=mix(tint,vec3(.86,.94,1.),min(.45,emission*.6));
+        gl_FragColor=vec4(tint,(core+glow+corona+emission)*vAlpha);
+        #include <colorspace_fragment>
+        }`,
     });
     this.points = new THREE.Points(geometry, material);
     this.graphGroup.add(this.points);
@@ -246,6 +278,15 @@ export default class Graph3D {
   }
 
   _fitScene() {
+    this._updateHomeFrame();
+    this.camera.position.copy(this._homePosition);
+    this.controls.target.copy(this._center);
+    this._setViewOffset(0, 0);
+    this.controls.update();
+    this._savedCamera = null;
+  }
+
+  _updateHomeFrame() {
     const sphere = this.points.geometry.boundingSphere;
     this._center = sphere.center.clone();
     this._radius = Math.max(sphere.radius, 30);
@@ -256,10 +297,6 @@ export default class Graph3D {
     this.camera.far = Math.max(12000, this._overviewDistance * 5);
     this.camera.updateProjectionMatrix();
     this._homePosition = this._center.clone().addScaledVector(new THREE.Vector3(0.03, 0.14, 1).normalize(), this._overviewDistance);
-    this.camera.position.copy(this._homePosition);
-    this.controls.target.copy(this._center);
-    this.controls.update();
-    this._savedCamera = null;
   }
 
   selectNode(id) {
@@ -278,12 +315,10 @@ export default class Graph3D {
       ? [this.graph.nodeIndex.get(selection.id)]
       : [...(this.graph.memoryNodes.get(selection.id) || [])];
     if (!indices.length || indices[0] === undefined) { this.clearSelection(); return; }
-    if (!this._savedCamera) this._savedCamera = { position: this.camera.position.clone(), target: this.controls.target.clone() };
-    const target = new THREE.Vector3();
-    for (const index of indices) target.add(this._scratch.fromBufferAttribute(this.positions, index));
-    target.divideScalar(indices.length);
+    if (!this._savedCamera) this._savedCamera = { position: this.camera.position.clone(), target: this.controls.target.clone(), offset: { ...this._viewOffset } };
     this._focusNodeIndices = indices;
     this._syncOrbitHold();
+    const target = this._selectionCenter();
     this._updateRelations();
     const lengths = [];
     for (const index of this._highlightNodes) lengths.push(this._scratch.fromBufferAttribute(this.positions, index).distanceTo(target));
@@ -291,10 +326,25 @@ export default class Graph3D {
     const radius = lengths[Math.floor(lengths.length * 0.7)] || this._radius * 0.1;
     const distance = Math.max(65, Math.min(this._overviewDistance * 0.48, radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.25));
     const direction = this.camera.position.clone().sub(this.controls.target).normalize();
-    const offset = new THREE.Vector3(this.width < 600 ? 0 : 1, this.width < 600 ? -1 : 0, 0).applyQuaternion(this.camera.quaternion);
-    target.addScaledVector(offset, distance * 0.23);
-    this._fly(target.clone().addScaledVector(direction, distance), target, 1);
+    this._fly(target.clone().addScaledVector(direction, distance), target, 1, this._focusViewOffset());
     this._buildLabels();
+  }
+
+  _selectionCenter() {
+    const center = new THREE.Vector3();
+    for (const index of this._focusNodeIndices) center.add(this._scratch.fromBufferAttribute(this.positions, index));
+    return center.divideScalar(this._focusNodeIndices.length);
+  }
+
+  _focusViewOffset() {
+    return this.width < 600 ? { x: 0, y: Math.min(150, this.height * 0.18) }
+      : { x: Math.min(165, this.width * 0.2), y: 0 };
+  }
+
+  _setViewOffset(x, y) {
+    this._viewOffset.x = x; this._viewOffset.y = y;
+    if (x === 0 && y === 0) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(this.width, this.height, x, y, this.width, this.height);
   }
 
   _updateRelations() {
@@ -348,9 +398,9 @@ export default class Graph3D {
     this._syncOrbitHold();
     this._updateRelations();
     if (this._savedCamera) {
-      this._fly(this._savedCamera.position, this._savedCamera.target, 0);
+      this._fly(this._savedCamera.position, this._savedCamera.target, 0, this._savedCamera.offset);
       this._savedCamera = null;
-    } else if (this.uniforms) this.uniforms.focus.value = 0;
+    } else if (this.uniforms) { this.uniforms.focus.value = 0; this._setViewOffset(0, 0); }
     this._buildLabels();
     this._schedule();
   }
@@ -361,14 +411,15 @@ export default class Graph3D {
     this._syncOrbitHold();
     this._savedCamera = null;
     this._updateRelations();
-    if (this._ready && this.graph.nodes.length) this._fly(this._homePosition, this._center, 0);
+    if (this._ready && this.graph.nodes.length) { this._updateHomeFrame(); this._fly(this._homePosition, this._center, 0); }
     this._buildLabels();
   }
 
-  _fly(position, target, focus) {
+  _fly(position, target, focus, offset = { x: 0, y: 0 }) {
     this._flight = {
       fromPosition: this.camera.position.clone(), fromTarget: this.controls.target.clone(),
       position: position.clone(), target: target.clone(), fromFocus: this.uniforms.focus.value, focus,
+      fromOffset: { ...this._viewOffset }, offset,
       started: performance.now(), duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1 : 1050,
     };
     this._schedule();
@@ -419,11 +470,16 @@ export default class Graph3D {
   _render(now) {
     this._frame = null;
     if (!this._active || document.hidden) return;
-    const orbiting = this.motionEnabled && this._ready && this._orbits?.movingCount > 0;
+    const orbiting = this.motionEnabled && this._ready && this.graph.nodes.length > 0;
     if (orbiting) {
       if (this._lastMotionStamp !== null) {
-        this._orbits.advance((now - this._lastMotionStamp) / 1000, this.positions.array);
-        this.positions.needsUpdate = true;
+        const seconds = (now - this._lastMotionStamp) / 1000;
+        if (this._orbits.movingCount > 0) {
+          this._orbits.advance(seconds, this.positions.array);
+          this.positions.needsUpdate = true;
+        }
+        this._pulseClock += seconds;
+        this.uniforms.pulseTime.value = this._pulseClock;
       }
       this._lastMotionStamp = now;
     }
@@ -434,6 +490,8 @@ export default class Graph3D {
       this.camera.position.lerpVectors(flight.fromPosition, flight.position, eased);
       this.controls.target.lerpVectors(flight.fromTarget, flight.target, eased);
       this.uniforms.focus.value = THREE.MathUtils.lerp(flight.fromFocus, flight.focus, eased);
+      this._setViewOffset(THREE.MathUtils.lerp(flight.fromOffset.x, flight.offset.x, eased),
+        THREE.MathUtils.lerp(flight.fromOffset.y, flight.offset.y, eased));
       if (t === 1) this._flight = null;
       else this._schedule();
     }
@@ -478,7 +536,17 @@ export default class Graph3D {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
-    if (this._ready && this.graph.nodes.length && !this.selection) this._fitScene();
+    if (this._ready && this.graph.nodes.length) {
+      if (!this.selection) this._fitScene();
+      else {
+        this._updateHomeFrame();
+        this._flight = null;
+        this.controls.target.copy(this._selectionCenter());
+        const offset = this._focusViewOffset();
+        this._setViewOffset(offset.x, offset.y);
+        this.controls.update();
+      }
+    }
     this._schedule();
   }
 

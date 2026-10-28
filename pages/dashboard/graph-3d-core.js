@@ -6,7 +6,7 @@ export const SPACE_COLORS = { person: "#e5bc85", topic: "#98bacd", fact: "#d9d1b
 export function prepareGraph(snapshot) {
   const typeSizes = { person: 3.6, topic: 1.8, summary: 1.2, fact: 0.65, other: 1 };
   const nodes = snapshot.nodes.map(node => ({
-    ...node, id: Number(node.id),
+    ...node, id: Number(node.id), pulsar: 0,
     size: (typeSizes[node.type] || typeSizes.other) *
       (1 + Math.min(0.3, Math.log1p(Number(node.memory_count || 0) + Number(node.degree || 0)) * 0.04)),
   }));
@@ -37,6 +37,15 @@ export function prepareGraph(snapshot) {
     for (const id of entry.node_ids || []) {
       const index = nodeIndex.get(Number(id));
       if (index !== undefined) memoryNodes.get(memoryId).add(index);
+    }
+  }
+  // Value cues belong to memory content, not to frequently mentioned entities.
+  for (const memory of snapshot.memories || []) {
+    const importance = Number(memory.importance || 0) / (memory.importance_scale === "display" ? 10 : 1);
+    if (importance < 0.8) continue;
+    for (const index of memoryNodes.get(Number(memory.memory_id)) || []) {
+      const node = nodes[index];
+      if (node.type === "fact" || node.type === "summary") node.pulsar = Math.max(node.pulsar, Math.min(1, importance));
     }
   }
   const ranked = links.map((_, index) => index).sort((a, b) => links[b].weight - links[a].weight || a - b);

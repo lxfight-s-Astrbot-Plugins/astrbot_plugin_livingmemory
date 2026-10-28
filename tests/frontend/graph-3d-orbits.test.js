@@ -82,3 +82,8 @@ test("orbital extents stay inside their community envelope", () => {
     }
   }
 });
+
+test("overview rotation uses the community-weighted center rather than the bounding-box midpoint", () => {
+  const { orbits } = system();
+  assert.deepEqual([...orbits.center], [250,0,0]);
+});
