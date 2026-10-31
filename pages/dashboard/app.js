@@ -305,7 +305,7 @@ import {
     });
     window.addEventListener("languagechange", refreshDynamicI18n);
 
-    fetchGraphStats();
+    /* switchPage("graph") 自身会刷新统计，这里不再重复请求 stats。 */
     switchPage("graph");
   }
 
