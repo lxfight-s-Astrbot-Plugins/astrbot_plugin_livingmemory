@@ -709,6 +709,7 @@ export default class Graph3D {
     this._disposeGraph();
     this.dust.geometry.dispose(); this.dust.material.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.container.replaceChildren();
   }
 
