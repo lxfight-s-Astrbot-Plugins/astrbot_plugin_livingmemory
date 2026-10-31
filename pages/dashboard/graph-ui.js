@@ -372,8 +372,15 @@
   }
 
   function renderPayload(payload, focusSelection) {
+    var snapshot = payload.snapshot || {};
+    /* 全量图谱 snapshot 的 key/metadata/status 等边字段前端从不消费，
+       却占 payload 体积一半以上；入库时收敛为渲染与详情实际用到的字段，
+       否则这些字符串会跟着 state.payload 一起长期驻留。 */
+    if (snapshot.edges && snapshot.edges.length) {
+      snapshot.edges = compactEdges(snapshot.edges);
+    }
     state.payload = payload;
-    state.graphIndex = buildGraphIndex(payload.snapshot || {});
+    state.graphIndex = buildGraphIndex(snapshot);
 
     if (!payload.enabled) {
       state.selectedNodeId = state.selectedMemoryId = null;
@@ -383,7 +390,6 @@
       return;
     }
 
-    var snapshot = payload.snapshot || {};
     var hasGraphData = Boolean((snapshot.nodes || []).length);
     var shouldFocusSelection = hasGraphData &&
       focusSelection !== false &&
@@ -507,7 +513,7 @@
     var node = state.graphIndex.nodeMap.get(nodeId);
     if (window.lmOpenPeekNode && node) {
       var related = [];
-      var memoryIds = state.graphIndex.nodeToMemories.get(nodeId);
+      var memoryIds = state.graphIndex.getNodeMemories(nodeId);
       if (memoryIds) {
         memoryIds.forEach(function(memoryId) {
           var memory = state.graphIndex.memoryMap.get(memoryId);
@@ -577,55 +583,51 @@
   /* ================================================================
      Graph Index
      ================================================================ */
+
+  /* 前端渲染与详情实际消费的边字段；其余字段（key/metadata/status 等）
+     在全量图里占 payload 一半以上，不参与任何计算。 */
+  var EDGE_FIELDS = ["id", "source", "target", "relation_type", "memory_id", "weight", "confidence"];
+
+  function compactEdges(edges) {
+    var compact = new Array(edges.length);
+    for (var i = 0; i < edges.length; i++) {
+      var edge = edges[i];
+      var item = {};
+      for (var f = 0; f < EDGE_FIELDS.length; f++) item[EDGE_FIELDS[f]] = edge[EDGE_FIELDS[f]];
+      compact[i] = item;
+    }
+    return compact;
+  }
+
+  /* 选中节点时才需要的「节点 → 关联记忆」索引：全量图有 20 万条边，
+     加载时就建一遍会让首屏多耗数百毫秒并常驻更多 Set/Map。 */
   function buildGraphIndex(snapshot) {
     var nodes = snapshot.nodes || [];
     var edges = snapshot.edges || [];
-    var entries = snapshot.entries || [];
     var memories = snapshot.memories || [];
 
     var nodeMap = new Map(nodes.map(function(n) { return [Number(n.id), n]; }));
     var memoryMap = new Map(memories.map(function(m) { return [Number(m.memory_id), m]; }));
-    var memoryToEntries = new Map();
-    var memoryToNodes = new Map();
-    var nodeToMemories = new Map();
-    var nodeToEntries = new Map();
-    var neighborMap = new Map();
-
-    function ensureSet(map, key) {
-      if (!map.has(key)) map.set(key, new Set());
-      return map.get(key);
-    }
-
-    entries.forEach(function(entry) {
-      var mId = Number(entry.memory_id);
-      if (!memoryToEntries.has(mId)) memoryToEntries.set(mId, []);
-      memoryToEntries.get(mId).push(entry);
-      (entry.node_ids || []).forEach(function(nId) {
-        var nodeId = Number(nId);
-        ensureSet(memoryToNodes, mId).add(nodeId);
-        ensureSet(nodeToMemories, nodeId).add(mId);
-        if (!nodeToEntries.has(nodeId)) nodeToEntries.set(nodeId, []);
-        nodeToEntries.get(nodeId).push(entry);
-      });
-    });
-
-    edges.forEach(function(edge) {
-      var s = Number(edge.source);
-      var t = Number(edge.target);
-      var mId = Number(edge.memory_id);
-      ensureSet(memoryToNodes, mId).add(s);
-      ensureSet(memoryToNodes, mId).add(t);
-      ensureSet(nodeToMemories, s).add(mId);
-      ensureSet(nodeToMemories, t).add(mId);
-      ensureSet(neighborMap, s).add(t);
-      ensureSet(neighborMap, t).add(s);
-    });
+    var nodeToMemories = null;
 
     return {
-      nodeMap: nodeMap, memoryMap: memoryMap,
-      memoryToEntries: memoryToEntries, memoryToNodes: memoryToNodes,
-      nodeToMemories: nodeToMemories, nodeToEntries: nodeToEntries,
-      neighborMap: neighborMap, edges: edges, entries: entries,
+      nodeMap: nodeMap,
+      memoryMap: memoryMap,
+      getNodeMemories: function(nodeId) {
+        if (nodeToMemories === null) {
+          nodeToMemories = new Map();
+          edges.forEach(function(edge) {
+            var memoryId = Number(edge.memory_id);
+            var source = Number(edge.source);
+            var target = Number(edge.target);
+            if (!nodeToMemories.has(source)) nodeToMemories.set(source, new Set());
+            if (!nodeToMemories.has(target)) nodeToMemories.set(target, new Set());
+            nodeToMemories.get(source).add(memoryId);
+            nodeToMemories.get(target).add(memoryId);
+          });
+        }
+        return nodeToMemories.get(nodeId);
+      },
     };
   }
 

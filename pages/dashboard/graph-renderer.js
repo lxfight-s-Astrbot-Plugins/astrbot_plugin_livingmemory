@@ -32,9 +32,9 @@
     this._particleOffsets = {};
     this._selection = null;
     this.performanceTier = 0;
-    this._adjacency = {};
-    this._nodeEdges = {};
-    this._memoryEdges = {};
+    this._focusNodes = null;
+    this._focusEdges = null;
+    this._focusIndex = null;
     this._structuralEdges = [];
     this._communityBundles = [];
     this._nodeHitGrid = {};
@@ -47,11 +47,10 @@
   }
 
   Renderer.prototype.configureData = function(nodes, edges) {
-    var self = this;
     this.performanceTier = performanceTier(nodes.length, edges.length);
-    this._adjacency = {};
-    this._nodeEdges = {};
-    this._memoryEdges = {};
+    this._focusNodes = nodes;
+    this._focusEdges = edges;
+    this._focusIndex = null;
     this._structuralEdges = [];
     this._communityBundles = [];
     this._labelWidthCache = {};
@@ -59,19 +58,33 @@
     this._communityCache = null;
     // 粒子相位按边 id 累积，换图后旧 id 永不复用，需随数据一并重置
     this._particleOffsets = {};
-    nodes.forEach(function(node) {
-      self._adjacency[node.id] = [];
-      self._nodeEdges[node.id] = [];
-    });
-    edges.forEach(function(edge) {
-      if (self._adjacency[edge.source]) self._adjacency[edge.source].push(edge.target);
-      if (self._adjacency[edge.target]) self._adjacency[edge.target].push(edge.source);
-      if (self._nodeEdges[edge.source]) self._nodeEdges[edge.source].push(edge);
-      if (self._nodeEdges[edge.target]) self._nodeEdges[edge.target].push(edge);
-      if (!self._memoryEdges[edge.memory_id]) self._memoryEdges[edge.memory_id] = [];
-      self._memoryEdges[edge.memory_id].push(edge);
-    });
     return this.performanceTier;
+  };
+
+  /* 邻接 / 关联边索引只在有选中对象时参与高亮绘制，
+     全量图（20 万边）没必要在每次加载时就建一遍。 */
+  Renderer.prototype._ensureFocusIndex = function() {
+    if (this._focusIndex) return this._focusIndex;
+    var adjacency = {};
+    var nodeEdges = {};
+    var memoryEdges = {};
+    var nodes = this._focusNodes || [];
+    var edges = this._focusEdges || [];
+    for (var n = 0; n < nodes.length; n++) {
+      adjacency[nodes[n].id] = [];
+      nodeEdges[nodes[n].id] = [];
+    }
+    for (var i = 0; i < edges.length; i++) {
+      var edge = edges[i];
+      if (adjacency[edge.source]) adjacency[edge.source].push(edge.target);
+      if (adjacency[edge.target]) adjacency[edge.target].push(edge.source);
+      if (nodeEdges[edge.source]) nodeEdges[edge.source].push(edge);
+      if (nodeEdges[edge.target]) nodeEdges[edge.target].push(edge);
+      if (!memoryEdges[edge.memory_id]) memoryEdges[edge.memory_id] = [];
+      memoryEdges[edge.memory_id].push(edge);
+    }
+    this._focusIndex = { adjacency: adjacency, nodeEdges: nodeEdges, memoryEdges: memoryEdges };
+    return this._focusIndex;
   };
 
   Renderer.prototype.prepareGraph = function(nodes, edges, layout) {
@@ -264,18 +277,21 @@
     var highlightEdges = new Set();
     var focusEdges = null;
 
-    if (selNodeId !== null) {
-      highlightNodes.add(selNodeId);
-      (this._adjacency[selNodeId] || []).forEach(function(nid) { highlightNodes.add(nid); });
-      focusEdges = this._nodeEdges[selNodeId] || [];
-    }
-    if (selMemId !== null) {
-      focusEdges = this._memoryEdges[selMemId] || [];
-      focusEdges.forEach(function(edge) {
-        highlightNodes.add(edge.source);
-        highlightNodes.add(edge.target);
-        highlightEdges.add(edge.id);
-      });
+    if (selNodeId !== null || selMemId !== null) {
+      var focus = this._ensureFocusIndex();
+      if (selNodeId !== null) {
+        highlightNodes.add(selNodeId);
+        (focus.adjacency[selNodeId] || []).forEach(function(nid) { highlightNodes.add(nid); });
+        focusEdges = focus.nodeEdges[selNodeId] || [];
+      }
+      if (selMemId !== null) {
+        focusEdges = focus.memoryEdges[selMemId] || [];
+        focusEdges.forEach(function(edge) {
+          highlightNodes.add(edge.source);
+          highlightNodes.add(edge.target);
+          highlightEdges.add(edge.id);
+        });
+      }
     }
     var hasFocus = highlightNodes.size > 0 || highlightEdges.size > 0;
     var visibleEdges = focusEdges || (this.performanceTier > 0 ? this._structuralEdges : edges);
