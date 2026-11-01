@@ -48,11 +48,48 @@ class _TestEvent:
 
 async def _build_plugin(monkeypatch, tmp_path, config: dict | None = None):
     monkeypatch.setattr(plugin_main, "PluginInitializer", _FakeInitializer)
-    monkeypatch.setattr(plugin_main.StarTools, "get_data_dir", lambda plugin_name: tmp_path)
+    monkeypatch.setattr(
+        plugin_main.StarTools, "get_data_dir", lambda plugin_name: tmp_path
+    )
     plugin = plugin_main.LivingMemoryPlugin(context=Mock(), config=config or {})
     # Flush startup task callback queue to keep task set stable in assertions.
     await asyncio.sleep(0)
     return plugin
+
+
+@pytest.mark.asyncio
+async def test_page_routes_are_registered_while_providers_are_pending(
+    monkeypatch, tmp_path
+):
+    plugin = await _build_plugin(monkeypatch, tmp_path)
+    try:
+        assert plugin.initializer.is_initialized is False
+        routes = {
+            call.args[0]: call.args[1]
+            for call in plugin.context.register_web_api.call_args_list
+        }
+        response = await routes["/astrbot_plugin_livingmemory/page/stats"]()
+        assert response["status"] == "error"
+        assert "插件" in response["message"]
+    finally:
+        await plugin.terminate()
+
+
+@pytest.mark.asyncio
+async def test_page_route_registration_errors_propagate(monkeypatch, tmp_path):
+    monkeypatch.setattr(plugin_main, "PluginInitializer", _FakeInitializer)
+    monkeypatch.setattr(
+        plugin_main.StarTools, "get_data_dir", lambda plugin_name: tmp_path
+    )
+    context = Mock()
+    context.register_web_api.side_effect = RuntimeError("route registration failed")
+    plugin = None
+    try:
+        with pytest.raises(RuntimeError, match="route registration failed"):
+            plugin = plugin_main.LivingMemoryPlugin(context=context, config={})
+    finally:
+        if plugin is not None:
+            await plugin.terminate()
 
 
 @pytest.mark.asyncio

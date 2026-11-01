@@ -21,11 +21,14 @@ from .core.event_handler import EventHandler
 from .core.i18n_backend import init as i18n_init
 from .core.i18n_backend import t
 from .core.managers.backup_manager import BackupManager
-from .core.passive_group_capture import PassiveGroupCaptureFilter
-from .core.passive_group_capture import get_active_plugin
-from .core.passive_group_capture import is_plugin_enabled_for_session
-from .core.passive_group_capture import is_session_enabled
-from .core.passive_group_capture import set_active_plugin
+from .core.page_api import PluginPageApi
+from .core.passive_group_capture import (
+    PassiveGroupCaptureFilter,
+    get_active_plugin,
+    is_plugin_enabled_for_session,
+    is_session_enabled,
+    set_active_plugin,
+)
 from .core.plugin_initializer import PluginInitializer
 from .core.tools import (
     AgenticMemorySearchTool,
@@ -124,36 +127,12 @@ class LivingMemoryPlugin(Star):
         self._llm_tools_registered = False
         self._terminating = False
 
-        self.page_api = None
+        self.page_api = PluginPageApi(self)
+        self.page_api.register_routes()
         set_active_plugin(self)
-
-        self._register_official_page_api_if_available()
 
         # 启动非阻塞的初始化任务
         self._create_tracked_task(self._initialize_plugin())
-
-    def _register_official_page_api_if_available(self) -> None:
-        """按需注册官方插件页面 API，避免旧版 AstrBot 因导入失败而无法加载插件。"""
-        if not hasattr(self.context, "register_web_api"):
-            return
-
-        try:
-            from .core.page_api import PluginPageApi
-        except Exception as exc:
-            logger.warning(
-                f"官方插件页面 API 不可用，已跳过注册并保留旧版兼容模式: {exc}"
-            )
-            return
-
-        try:
-            self.page_api = PluginPageApi(self)
-            self.page_api.register_routes()
-        except Exception as exc:
-            self.page_api = None
-            logger.warning(
-                f"官方插件页面 API 注册失败，已跳过并保留旧版兼容模式: {exc}",
-                exc_info=True,
-            )
 
     def _create_tracked_task(self, coro) -> asyncio.Task:
         """创建并跟踪后台任务"""
@@ -299,8 +278,7 @@ class LivingMemoryPlugin(Star):
         try:
             if not await is_session_enabled(event.unified_msg_origin):
                 logger.debug(
-                    f"[{event.unified_msg_origin}] 当前会话已关闭，"
-                    "跳过被动群聊消息捕获"
+                    f"[{event.unified_msg_origin}] 当前会话已关闭，跳过被动群聊消息捕获"
                 )
                 return
             if not await is_plugin_enabled_for_session(event.unified_msg_origin):
@@ -506,7 +484,9 @@ class LivingMemoryPlugin(Star):
         source: str = "",
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Migrate existing memories to the given memory scope"""
-        async for message in self._run_command(event, "handle_migrate_scope", target, action, source):
+        async for message in self._run_command(
+            event, "handle_migrate_scope", target, action, source
+        ):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -524,7 +504,9 @@ class LivingMemoryPlugin(Star):
         self, event: AstrMessageEvent, message_count: int | None = None
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Immediately trigger memory summarization for current session"""
-        async for message in self._run_command(event, "handle_summarize", message_count):
+        async for message in self._run_command(
+            event, "handle_summarize", message_count
+        ):
             yield message
 
     @permission_type(PermissionType.ADMIN)
@@ -549,7 +531,9 @@ class LivingMemoryPlugin(Star):
         # 判断是否为执行模式
         dry_run = mode.lower() != "exec"
 
-        async for message in self._run_command(event, "handle_cleanup", dry_run=dry_run):
+        async for message in self._run_command(
+            event, "handle_cleanup", dry_run=dry_run
+        ):
             yield message
 
     @permission_type(PermissionType.ADMIN)
