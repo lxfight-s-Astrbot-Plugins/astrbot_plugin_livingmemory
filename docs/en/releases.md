@@ -1,5 +1,37 @@
 # Releases and Upgrades
 
+## 2.8.3 · November 1, 2026
+
+2.8.3 is a maintenance release that fixes missing dashboard routes when dependencies are absent, prevents stale parent summaries from reintroducing expired atoms, and reduces browser memory use for large graphs. No configuration changes or database migration are required.
+
+[Download 2.8.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.3)
+
+### What changed
+
+- **Dependencies and APIs**: declare direct Python dependencies, let AstrBot handle Page API import failures, and remove the branch that skipped failed route registration. See [#376](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/376), contributed by [@lxfight](https://github.com/lxfight).
+- **Lifecycle**: ordinary and Agent recall inject the resolved live atoms, preventing parent summaries and key facts from reintroducing expired, forgotten or superseded content. See [#369](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/369), contributed by [@Ichooooooo](https://github.com/Ichooooooo).
+- **Graph performance**: retain fewer edge fields, build indexes on demand, release GPU and Worker resources when leaving 3D, and remove a duplicate statistics request. Nodes without relation edges retain their source memories. See [#372](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/372), contributed by [@lxfight](https://github.com/lxfight).
+
+### Validation
+
+Merge validation passed in CI: 1,173 backend and 149 frontend tests. The original performance PR measured 2D JS heap after loading the same 10,068-node / 200,068-edge snapshot on one machine, decreasing from 144.1 MB to 47.0 MB. Results vary with hardware and data.
+
+### Install and upgrade
+
+1. Retain plugin data and configuration, update the code, restart AstrBot, then hard-refresh the dashboard and confirm version `2.8.3`.
+2. If Python packages are still missing, run the following from the AstrBot root using the same Python environment that runs AstrBot, then restart:
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
+3. The release includes offline frontend assets and does not require regenerating embeddings. Returning to a large 3D graph reruns its layout. For Git installations, use a clean working directory:
+
+```bash
+git fetch origin --tags
+git switch --detach 2.8.3
+```
+
 ## 2.8.2 · October 28, 2026
 
 2.8.2 improves the 3D galaxy view with weighted communities, thick spiral arms, stable motion, layered relations and star dust, while fixing precise picking and detail expansion in large graphs. No configuration changes, database migration or new runtime dependencies are required.

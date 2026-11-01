@@ -5,6 +5,39 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.8.3] - 2026-11-01
+
+本次维护版本修复插件依赖缺失时管理接口未注册的问题，防止失效记忆通过旧摘要重新进入提示词，并降低大规模图谱的浏览器内存占用。无需修改配置或迁移数据库。
+
+### 修复
+
+- **依赖安装与管理接口**：补齐 NumPy、Pydantic、Quart 和 SQLAlchemy 的直接依赖声明；页面 API 在插件导入时加载，使缺库异常交由 AstrBot 处理。移除导入或注册失败后跳过页面 API 的兼容分支，避免插件显示已加载但全部管理接口提示“未找到该路由”。FAISS 继续使用宿主提供的版本。修复 [#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)，见 [#376](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/376)，贡献者 [@lxfight](https://github.com/lxfight)。
+- **记忆生命周期**：普通召回与 Agent 召回注入提示词时，优先使用已按生命周期筛选的原子内容，不再混入父记忆旧摘要和旧关键事实。覆盖过期、遗忘、被替代以及缓存后状态发生变化的记忆；保留有效事实和无原子记忆的原有摘要行为。见 [#369](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/369)，贡献者 [@Ichooooooo](https://github.com/Ichooooooo)。
+
+### 性能与交互
+
+- **大图内存**：移除常驻的未使用边字段，按需构建选择索引，并取消每次布局对全图排序生成签名的开销。
+- **3D 资源释放**：离开图谱页后释放 WebGL 上下文、图形缓冲和布局 Worker；返回时按需重建。移除启动时重复的统计请求。
+- **来源记忆关联**：延迟索引保留条目及记忆自身的节点关联，无关系边的节点也能在详情中显示来源记忆。
+
+以上图谱改动见 [#372](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/372)，贡献者 [@lxfight](https://github.com/lxfight)。原 PR 在同一台设备、10,068 节点 / 200,068 条关系快照上的测量中，2D 加载后 JS 堆内存由 144.1 MB 降至 47.0 MB；离开 3D 图谱后的保留内存由 163.8 MB 降至 49.1 MB。实际效果取决于设备和数据规模。
+
+### 验证
+
+- 合并验证 CI：后端 1,173 项、前端 149 项测试通过。
+- Dashboard 产物检查、文档构建及依赖修复相关 Python 文件的 Ruff 检查通过。
+
+### 升级
+
+1. 保留现有插件数据和配置，更新至 `2.8.3` 后重新启动 AstrBot，再强制刷新管理页面。发布包已包含构建好的离线前端资源。
+2. 若仍报告缺少 Python 库，在 AstrBot 根目录使用运行 AstrBot 的同一 Python 环境执行以下命令，再重新启动：
+
+   ```bash
+   python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+   ```
+
+3. 无需重新生成嵌入或迁移数据库。返回大型 3D 图谱时会重新执行布局，这是释放离页资源的开销。
+
 ## [2.8.2] - 2026-10-28
 
 2.8.2 将 3D 记忆图谱完善为具有社区层次、厚旋臂和星尘的星系视图，保留真实关联与稳定运动，并修复大图中的选点和细节展开。无需数据库迁移、配置变更或新增运行时依赖。([#363](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/363), [#364](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/364), [#365](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/365), [#366](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/366), [@lxfight](https://github.com/lxfight))
