@@ -4,6 +4,7 @@ Tests for MemoryEngine with a fake in-memory FaissDB.
 
 import asyncio
 import json
+import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +14,6 @@ import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.memory_atom import MemoryAtom
-from astrbot_plugin_livingmemory.storage.atom_store import AtomStore
 
 
 @dataclass
@@ -255,6 +255,39 @@ async def test_swallowed_access_update_error_releases_other_connections(
         await other.commit()
 
     await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_access_update_open_error_logs_sqlite_code_and_database(
+    tmp_path: Path, monkeypatch
+):
+    db_path = tmp_path / "access_diagnostics.db"
+    engine = MemoryEngine(
+        db_path=str(db_path),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "rrf_k": 60},
+    )
+    await engine.initialize()
+    with pytest.raises(sqlite3.OperationalError) as failure:
+        sqlite3.connect(tmp_path / "missing" / "unavailable.db")
+    warning = Mock()
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                engine.db_connection, "execute", AsyncMock(side_effect=failure.value)
+            )
+            patch.setattr(
+                "astrbot_plugin_livingmemory.core.managers.memory_engine_crud.logger.warning",
+                warning,
+            )
+            written = await engine._write_access_updates([1], [])
+        assert written is False
+        message = warning.call_args.args[0]
+        assert str(db_path) in message
+        assert "sqlite_errorcode=14" in message
+        assert "sqlite_errorname=SQLITE_CANTOPEN" in message
+    finally:
+        await engine.close()
 
 
 @pytest.mark.asyncio

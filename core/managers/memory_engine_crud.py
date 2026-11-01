@@ -9,18 +9,17 @@ import time
 from dataclasses import replace
 from typing import Any
 
+import aiosqlite
+
 from astrbot.api import logger
 
+from ...storage.atom_store import AtomStore
 from ..memory_transfer import memory_import_key
 from ..processors.atom_classifier import classify_atoms
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.route_execution import search_route
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
-from ...storage.atom_store import AtomStore
-
-import aiosqlite
-
 from .agentic_recall_types import AgenticRecallOutcome as AgenticRecallOutcome
 
 
@@ -1531,9 +1530,13 @@ class MemoryEngineCrudMixin:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            # 记录错误但不影响查询流程
+            # Access statistics are best effort; retain SQLite details for diagnosis.
             logger.warning(
-                f"批量更新访问时间失败 (doc_ids={unique_ids}): {e}",
+                f"Failed to update memory access statistics "
+                f"(db_path={self.db_path}, "
+                f"sqlite_errorcode={getattr(e, 'sqlite_errorcode', None)}, "
+                f"sqlite_errorname={getattr(e, 'sqlite_errorname', None)}, "
+                f"doc_ids={unique_ids}): {e}",
                 exc_info=True,
             )
             return False
