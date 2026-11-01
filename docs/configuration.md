@@ -172,6 +172,12 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 
 记忆整合从源头控制记忆库规模：把零散的低价值记忆聚合、整理、总结为更精炼的一条，避免注入时硬截断带来的信息损失。整合结果写入新记忆，旧记忆按 `keep_original` 归档或删除。`trigger=reflection` 时带 6 小时冷却，不会每条消息都触发。
 
+## 数据库打开错误
+
+`unable to open database file` 对应 `SQLITE_CANTOPEN`，与 `database is locked` 的 `SQLITE_BUSY` 分开排查（[#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345)）。访问统计写入失败时，日志会包含主数据库的 `db_path`、底层 `sqlite_errorcode`、`sqlite_errorname` 和完整堆栈；支持扩展错误码的环境会保留其原值。
+
+请按日志中的路径确认数据库父目录可用、运行 AstrBot 的账户具有写权限，并在反馈时提供这条日志和完整堆栈。2.7.3 已修复异常、取消或提交失败后残留写事务的问题；仍出现打开失败时，需要依据实际错误码继续定位。
+
 ## 索引重建调优
 
 | 配置项 | 默认 | 说明 |

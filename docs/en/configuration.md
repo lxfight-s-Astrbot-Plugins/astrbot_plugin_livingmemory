@@ -172,6 +172,12 @@ With automatic archiving enabled, source documents remain visible and restorable
 
 Memory consolidation controls the memory-store size at the source: scattered low-value memories are aggregated, organized, and summarized into a single concise memory, avoiding information loss from hard truncation at injection time. The merged result is written as a new memory and the originals are archived or deleted according to `keep_original`. With `trigger=reflection`, a 6-hour cooldown prevents per-message triggering.
 
+## Database open errors
+
+`unable to open database file` is `SQLITE_CANTOPEN`, which must be investigated separately from `database is locked` / `SQLITE_BUSY` ([#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345)). Failed access-statistics writes now log the main database `db_path`, underlying `sqlite_errorcode`, `sqlite_errorname` and full traceback. Extended error codes are retained when the runtime exposes them.
+
+Use that path to check that the database parent directory is available and writable by the account running AstrBot. Include the diagnostic log and full traceback when reporting the error. Version 2.7.3 already fixed transactions retaining locks after exceptions, cancellation or commit failure; remaining open failures need the actual SQLite error code to identify their cause.
+
 ## Index rebuild tuning
 
 | Key | Default | Description |
