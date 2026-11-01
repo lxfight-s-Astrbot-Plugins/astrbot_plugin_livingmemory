@@ -93,6 +93,9 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         """
         query = request.args
         session_id = self.utils.optional_text(query.get("session_id"))
+        persona_id = self.utils.optional_text(query.get("persona_id"))
+        if persona_id and persona_id.lower() == "all":
+            persona_id = None
         keyword = str(query.get("keyword", "")).strip()
         status_filter = str(query.get("status", "all")).strip().lower() or "all"
         type_filter = self.utils.optional_text(query.get("type"))
@@ -109,6 +112,7 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         try:
             page_data = await memory_engine.list_memories_page(
                 session_id=session_id,
+                persona_id=persona_id,
                 keyword=keyword,
                 status=status_filter,
                 memory_type=type_filter,
@@ -119,6 +123,13 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         except Exception as exc:
             logger.error(f"[PageAPI] 获取记忆列表失败: {exc}", exc_info=True)
             return self.utils.error(str(exc))
+
+        personas: list[str] = []
+        if hasattr(memory_engine, "list_available_personas"):
+            try:
+                personas = await memory_engine.list_available_personas()
+            except Exception:
+                personas = []
 
         items: list[dict[str, Any]] = []
         for row in page_data["items"]:
@@ -140,8 +151,10 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
                 "page": page,
                 "page_size": page_size,
                 "has_more": page_data["has_more"],
+                "personas": personas,
                 "filters": {
                     "session_id": session_id,
+                    "persona_id": persona_id,
                     "keyword": keyword,
                     "status": status_filter,
                     "type": type_filter,

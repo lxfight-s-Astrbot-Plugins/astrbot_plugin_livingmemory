@@ -631,6 +631,7 @@ class MemoryEngineCrudMixin:
         self,
         *,
         session_id: str | None = None,
+        persona_id: str | None = None,
         keyword: str = "",
         status: str = "all",
         memory_type: str | None = None,
@@ -673,6 +674,12 @@ class MemoryEngineCrudMixin:
         if session_id:
             where_clauses.append("json_extract(metadata, '$.session_id') = ?")
             params.append(session_id)
+
+        if persona_id and persona_id.lower() != "all":
+            where_clauses.append(
+                "COALESCE(json_extract(metadata, '$.persona_id'), 'default') = ?"
+            )
+            params.append(persona_id)
 
         if status and status != "all":
             where_clauses.append(
@@ -773,6 +780,30 @@ class MemoryEngineCrudMixin:
             "has_more": (offset + page_size) < total,
             "sort": sort_key,
         }
+
+    async def list_available_personas(self) -> list[str]:
+        """获取数据库中所有存在的 persona_id 列表。"""
+        if self.db_connection is None:
+            return []
+        try:
+            cursor = await self.db_connection.execute(
+                """
+                SELECT DISTINCT COALESCE(json_extract(metadata, '$.persona_id'), 'default') AS persona_id
+                FROM documents
+                WHERE COALESCE(json_extract(metadata, '$.status'), 'active') != 'deleted'
+                """
+            )
+            rows = await cursor.fetchall()
+            personas = sorted(
+                {
+                    str(row["persona_id"]).strip()
+                    for row in rows
+                    if row["persona_id"] and str(row["persona_id"]).strip()
+                }
+            )
+            return personas
+        except Exception:
+            return []
 
     async def find_similar_pairs(
         self, memory_ids: list[int], threshold: float
