@@ -19,6 +19,12 @@ python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.t
 
 插件直接使用的 Python 库由 `requirements.txt` 声明；`faiss-cpu` 沿用 AstrBot 提供的版本，避免覆盖宿主的运行时。
 
+## 写入时间戳错误
+
+若写入记忆时出现 `Datetime values must have timezone information`（[#370](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/370)），请升级 **AstrBot 至 4.29.0 或更高版本**，然后重新启动。升级前保留 AstrBot 配置与插件数据备份。
+
+SQLModel 从 0.0.45 起将默认的 `datetime` 字段改为 UTC 时区类型；AstrBot 4.24.2 等旧版本的文档模型仍写入无时区时间，因此会拒绝写入。AstrBot [#10211](https://github.com/AstrBotDevs/AstrBot/pull/10211) 已明确声明原有本地时间类型，并随 4.29.0 发布。修复位于宿主，单独更新 LivingMemory 无法替换该模型；升级后保留历史时间戳语义，无需重建嵌入。
+
 ## 必需配置
 
 > 高级配置（召回、反思、图谱、原子、整合、备份等）已迁移到 Dashboard 的「设置」页；AstrBot 插件配置页只保留 Provider 与语言。
