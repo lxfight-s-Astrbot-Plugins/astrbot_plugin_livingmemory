@@ -11,6 +11,14 @@ The current stable version is **2.7.3** (previous version: 2.7.2). See [Releases
 3. AstrBot will install Python dependencies from `requirements.txt`.
 4. Open the AstrBot plugin configuration page and select `LivingMemory`.
 
+If every dashboard API reports a missing route after an upgrade ([#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)), update the plugin and restart AstrBot. If Python packages are still missing, run the following from the AstrBot root directory using the same Python environment that runs AstrBot, then restart again:
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
+The plugin declares its direct Python dependencies in `requirements.txt`. It uses the `faiss-cpu` version provided by AstrBot to avoid replacing the host runtime.
+
 ## Required configuration
 
 > Advanced options (recall, reflection, graph, atoms, consolidation, backups and more) now live on the dashboard Settings page; the AstrBot plugin config page keeps only providers and language.
