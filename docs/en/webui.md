@@ -10,6 +10,8 @@ Open AstrBot WebUI:
 
 AstrBot `4.24.2` or later is recommended. Older versions can still run the plugin, but the dashboard may be unavailable.
 
+The 3D module is preloaded when the page opens; its scene is created only when switching to 3D. AstrBot rewrites the asset URL with its access credentials. Reopen the view after updating the plugin so an old page does not retain an expired asset URL ([#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)).
+
 ## Settings
 
 - The page opens with eight common settings; the rest is folded into five categories (memory generation and lifecycle, recall and tools, graph and atoms, access and isolation, system and maintenance) that can be searched, expanded or collapsed all at once. Field labels and hints come from the plugin schema and follow the dashboard language.
