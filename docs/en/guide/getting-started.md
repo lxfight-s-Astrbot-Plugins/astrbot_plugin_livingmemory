@@ -19,6 +19,12 @@ python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.t
 
 The plugin declares its direct Python dependencies in `requirements.txt`. It uses the `faiss-cpu` version provided by AstrBot to avoid replacing the host runtime.
 
+## Timestamp write errors
+
+If memory writes report `Datetime values must have timezone information` ([#370](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/370)), upgrade **AstrBot to 4.29.0 or later**, then restart it. Retain backups of AstrBot configuration and plugin data before upgrading.
+
+Since 0.0.45, SQLModel infers UTC-aware types for ordinary `datetime` fields. Older AstrBot versions such as 4.24.2 still insert naive timestamps into their document models, causing writes to fail. AstrBot [#10211](https://github.com/AstrBotDevs/AstrBot/pull/10211) explicitly preserves the existing local-time type and was released in 4.29.0. Updating LivingMemory alone cannot replace the host model. The host fix preserves historical timestamp semantics and does not require regenerating embeddings.
+
 ## Required configuration
 
 > Advanced options (recall, reflection, graph, atoms, consolidation, backups and more) now live on the dashboard Settings page; the AstrBot plugin config page keeps only providers and language.
