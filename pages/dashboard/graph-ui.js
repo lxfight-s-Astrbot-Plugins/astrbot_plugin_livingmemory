@@ -665,6 +665,13 @@
       getNodeMemories: function(nodeId) {
         if (nodeToMemories === null) {
           nodeToMemories = new Map();
+          (snapshot.entries || []).concat(memories).forEach(function(item) {
+            (item.node_ids || []).forEach(function(id) {
+              var nodeId = Number(id);
+              if (!nodeToMemories.has(nodeId)) nodeToMemories.set(nodeId, new Set());
+              nodeToMemories.get(nodeId).add(Number(item.memory_id));
+            });
+          });
           edges.forEach(function(edge) {
             var memoryId = Number(edge.memory_id);
             var source = Number(edge.source);
