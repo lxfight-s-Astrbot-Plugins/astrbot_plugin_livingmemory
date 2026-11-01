@@ -1,5 +1,29 @@
 # Releases and Upgrades
 
+## 2.8.4 · November 1, 2026
+
+2.8.4 fixes authenticated 3D graph loading, improves SQLite open-error diagnostics and explains the host upgrade for timestamp write failures. No plugin configuration changes or database migration are required.
+
+[Download 2.8.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.4)
+
+### What changed
+
+- **3D loading**: preload the module using the host-rewritten authenticated URL when the page opens. Create scenes on demand and release them on navigation. Fixes [#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371); see [#378](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/378).
+- **SQLite diagnostics**: failed access-statistics writes log the database path, native and extended error codes, error name and full traceback. See [#380](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/380). The remaining open failure in [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) still needs the new logs to establish its cause.
+- **Timestamp guidance**: upgrade AstrBot to 4.29.0 or later if an older host fails to write after SQLModel's datetime type change. See [#379](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/379) and upstream [#10211](https://github.com/AstrBotDevs/AstrBot/pull/10211).
+
+These changes were contributed by [@lxfight](https://github.com/lxfight). Full feature PR CI passed, with the latest run covering 1,174 backend and 149 frontend tests. Chrome sandbox checks covered switching to 3D after token expiry, resource release and recreation.
+
+### Install and upgrade
+
+1. Retain data and configuration, update to `2.8.4`, restart AstrBot, then close and reopen the plugin view.
+2. For timestamp write failures, upgrade the host to 4.29.0 or later as well. Regenerating embeddings is not required.
+3. If all dashboard APIs report missing routes, confirm that `networkx` is installed in the runtime environment. The requirements already declare `networkx>=3.0`. From the AstrBot root, use the Python environment running AstrBot:
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
 ## 2.8.3 · November 1, 2026
 
 2.8.3 is a maintenance release that fixes missing dashboard routes when dependencies are absent, prevents stale parent summaries from reintroducing expired atoms, and reduces browser memory use for large graphs. No configuration changes or database migration are required.

@@ -4,14 +4,14 @@ LivingMemory 是一个 AstrBot 长期记忆插件。它会在普通对话之外�
 
 ## 安装
 
-当前稳定版为 **2.8.3**（上一版本 2.8.2）。指定标签下载、升级和回退步骤见[版本与升级](/releases)。
+当前稳定版为 **2.8.4**（上一版本 2.8.3）。指定标签下载、升级和回退步骤见[版本与升级](/releases)。
 
 1. 将插件目录放到 AstrBot 的 `data/plugins/` 目录下。
 2. 重启或重载 AstrBot。
 3. AstrBot 会根据 `requirements.txt` 自动安装 Python 依赖。
 4. 打开 AstrBot 插件配置页面，找到 `LivingMemory`。
 
-若升级后管理页面的接口均提示“未找到该路由”（[#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)），更新插件后重启 AstrBot。若仍提示缺少 Python 库，在 AstrBot 根目录使用运行 AstrBot 的 Python 环境执行以下命令，然后再次重启：
+若管理页面的接口均提示“未找到该路由”（[#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)），请确认运行 AstrBot 的环境已安装 `networkx`：该问题的报告环境安装此库后恢复正常，依赖文件已包含 `networkx>=3.0`。可在 AstrBot 根目录使用运行 AstrBot 的 Python 环境执行以下命令安装完整依赖，然后重新启动：
 
 ```bash
 python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt

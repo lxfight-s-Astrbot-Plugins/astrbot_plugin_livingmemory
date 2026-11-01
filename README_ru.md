@@ -21,9 +21,9 @@
 
 LivingMemory хранит для AstrBot предпочтения, отношения, ход проектов и прежние договорённости. Плагин создаёт сводки диалогов, находит нужный контекст с помощью ключевых слов, векторов и графа, а также управляет памятью через архивирование, затухание и усиление при обращении.
 
-> **Последняя стабильная версия: 2.8.3**<br>
-> Исправлены зависимости панели и возврат устаревших фактов в контекст; снижено потребление памяти больших графов и освобождаются ресурсы 3D при выходе.<br>
-> [Скачать 2.8.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.3) · [Обновление · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Прежние версии](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
+> **Последняя стабильная версия: 2.8.4**<br>
+> Исправлена загрузка 3D с авторизацией, улучшена диагностика SQLite и добавлены инструкции по обновлению AstrBot при ошибках времени.<br>
+> [Скачать 2.8.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.4) · [Обновление · EN](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Прежние версии](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
 
 ## От сохранения к воспоминанию
 

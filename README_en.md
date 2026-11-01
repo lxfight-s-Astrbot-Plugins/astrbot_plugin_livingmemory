@@ -21,9 +21,9 @@
 
 LivingMemory gives AstrBot a durable store of preferences, relationships, project progress and past agreements. It summarizes conversations, recalls relevant context through keywords, vectors and a graph, and manages memory through archiving, decay and access reinforcement.
 
-> **Latest stable: 2.8.3**<br>
-> Fixes missing dashboard dependencies and stale memory injection, reduces large-graph memory use, and releases 3D resources when leaving the view.<br>
-> [Download 2.8.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.3) · [Releases and upgrades](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Earlier releases](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
+> **Latest stable: 2.8.4**<br>
+> Fixes authenticated 3D loading, adds native SQLite diagnostics, and documents the host upgrade for timestamp write failures.<br>
+> [Download 2.8.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.4) · [Releases and upgrades](https://lxfight-s-astrbot-plugins.github.io/astrbot_plugin_livingmemory/en/releases) · [Earlier releases](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases)
 
 ## From remembering to recalling
 

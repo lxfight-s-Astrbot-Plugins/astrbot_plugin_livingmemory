@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.8.3
+      text: Get 2.8.4
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.8.3 is released
+## 2.8.4 is released
 
-2.8.3 fixes dashboard API registration when plugin dependencies are missing, prevents stale summaries from reintroducing expired memory content, and reduces memory use for large graphs while releasing resources when leaving 3D. The minimum supported version remains 4.24.2; see [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.8.4 fixes authenticated 3D graph loading, adds native SQLite error codes and database paths, and explains the host upgrade for timestamp write failures. Plugin Views require AstrBot 4.24.2 or later; the timestamp fix requires host version 4.29.0 or later. See [Releases and Upgrades](/en/releases) for downloads and instructions.
 
 ## Who is this for?
 

@@ -4,14 +4,14 @@ LivingMemory is a long-term memory plugin for AstrBot. It maintains a searchable
 
 ## Install
 
-The current stable version is **2.8.3** (previous version: 2.8.2). See [Releases and Upgrades](/en/releases) for tagged downloads, upgrade and rollback steps.
+The current stable version is **2.8.4** (previous version: 2.8.3). See [Releases and Upgrades](/en/releases) for tagged downloads, upgrade and rollback steps.
 
 1. Put the plugin directory under AstrBot's `data/plugins/` directory.
 2. Restart or reload AstrBot.
 3. AstrBot will install Python dependencies from `requirements.txt`.
 4. Open the AstrBot plugin configuration page and select `LivingMemory`.
 
-If every dashboard API reports a missing route after an upgrade ([#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)), update the plugin and restart AstrBot. If Python packages are still missing, run the following from the AstrBot root directory using the same Python environment that runs AstrBot, then restart again:
+If every dashboard API reports a missing route ([#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374)), confirm that `networkx` is installed in the environment running AstrBot. Installing it resolved the reported failure; `networkx>=3.0` is already declared in the requirements. Run the following from the AstrBot root using the same Python environment to install all dependencies, then restart:
 
 ```bash
 python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
