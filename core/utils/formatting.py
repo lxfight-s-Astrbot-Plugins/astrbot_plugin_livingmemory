@@ -14,9 +14,13 @@ _MAX_INJECTION_ENTRY_CHARS = 800
 
 
 def _memory_injection_content(content: Any, metadata: Any) -> str:
-    """Use the personality channel for injection while preserving legacy data."""
+    """Prefer resolved live facts, otherwise retain the personality channel."""
     raw_content = str(content or "").strip()
     if isinstance(metadata, dict):
+        # Atom policies already resolved content against the current lifecycle.
+        # Parent summaries can still contain expired/forgotten facts.
+        if metadata.get("retrieved_atom_ids"):
+            return raw_content
         persona_summary = metadata.get("persona_summary")
         if isinstance(persona_summary, str) and persona_summary.strip():
             return persona_summary.strip()
@@ -55,7 +59,11 @@ def _memory_metadata_rows(metadata: dict) -> list[str]:
         if participants_str:
             rows.append(f"Participants: {participants_str}")
 
-    key_facts = metadata.get("key_facts", [])
+    # Resolved atom content already lists the live facts. Parent key_facts have
+    # not been lifecycle-filtered, so emitting them would reintroduce old facts.
+    key_facts = (
+        [] if metadata.get("retrieved_atom_ids") else metadata.get("key_facts", [])
+    )
     if key_facts and isinstance(key_facts, list) and len(key_facts) > 0:
         facts_str = "; ".join(str(f) for f in key_facts if f)
         if facts_str:
@@ -159,8 +167,8 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 6000) -> s
             if metadata_parts:
                 entry_parts.append(" | ".join(metadata_parts))
 
-            # Retrieval uses canonical content; prompt injection uses the
-            # personality channel. Legacy rows fall back to content.
+            # Resolved atoms take precedence over parent summaries; other
+            # memories retain the personality channel and legacy fallback.
             display_content = _memory_injection_content(content, metadata)
             # 单条记忆也截断：导入的长记忆可能上千字符，避免单条挤占全部预算。
             if len(display_content) > _MAX_INJECTION_ENTRY_CHARS:
