@@ -1,5 +1,37 @@
 # 版本与升级
 
+## 2.8.3 · 2026-11-01
+
+2.8.3 是维护版本，修复依赖缺失导致管理接口未注册、失效原子内容经旧摘要重新注入的问题，并降低大规模图谱的浏览器内存占用。无需修改配置或迁移数据库。
+
+[下载 2.8.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.3)
+
+### 本次更新
+
+- **依赖与接口**：补齐直接使用的 Python 依赖，让页面 API 导入异常交由 AstrBot 处理，移除失败后跳过注册的分支。见 [#376](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/376)，由 [@lxfight](https://github.com/lxfight) 贡献。
+- **生命周期**：普通召回和 Agent 召回注入时使用已筛选的有效原子内容，避免父记忆旧摘要和关键事实重新带入过期、遗忘或被替代的内容。见 [#369](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/369)，由 [@Ichooooooo](https://github.com/Ichooooooo) 贡献。
+- **图谱性能**：收敛常驻边字段、按需构建索引，离开 3D 图谱时释放 GPU 与 Worker 资源，移除重复统计请求；无关系边节点仍保留来源记忆。见 [#372](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/372)，由 [@lxfight](https://github.com/lxfight) 贡献。
+
+### 验证
+
+合并验证的 CI 通过：后端 1,173 项、前端 149 项测试。原性能 PR 在同一台设备的 10,068 节点 / 200,068 条关系快照上，测得 2D 加载后 JS 堆内存从 144.1 MB 降至 47.0 MB；实际效果随设备和数据变化。
+
+### 安装与升级
+
+1. 保留插件数据和配置，更新代码后重新启动 AstrBot，再强制刷新管理页面，确认版本为 `2.8.3`。
+2. 若仍提示缺少 Python 库，在 AstrBot 根目录使用运行 AstrBot 的同一 Python 环境执行以下命令，再重新启动：
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
+3. 发布包包含离线前端资源，无需重新生成嵌入；返回大型 3D 图谱时会重新执行布局。使用 Git 安装时，在干净工作目录执行：
+
+```bash
+git fetch origin --tags
+git switch --detach 2.8.3
+```
+
 ## 2.8.2 · 2026-10-28
 
 2.8.2 完善 3D 星系视图：加权社区、有厚度的旋臂、稳定运动、分层关系与星尘，并修复大图中的精准选点和细节展开。无需配置变更、数据库迁移或新增运行时依赖。
