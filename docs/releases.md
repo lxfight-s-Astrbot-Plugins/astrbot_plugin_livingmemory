@@ -1,5 +1,29 @@
 # 版本与升级
 
+## 2.8.4 · 2026-11-01
+
+2.8.4 修复 3D 图谱加载，完善 SQLite 打开错误的诊断信息，并明确时间戳写入错误的宿主升级方法。无需修改插件配置或迁移数据库。
+
+[下载 2.8.4](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.8.4)
+
+### 本次更新
+
+- **3D 加载**：沿用宿主改写后的鉴权地址并在打开页面时预加载模块；场景按需创建，离页时释放资源。修复 [#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)，见 [#378](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/378)。
+- **SQLite 诊断**：访问统计写入失败时记录数据库路径、原生及扩展错误码、错误名称和完整堆栈。见 [#380](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/380)；[#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的打开失败根因仍需新增日志确认。
+- **时间戳指引**：旧版宿主遇到 SQLModel 时间类型变更导致写入失败时，升级 AstrBot 至 4.29.0 或更高版本。见 [#379](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/379) 和上游 [#10211](https://github.com/AstrBotDevs/AstrBot/pull/10211)。
+
+以上改动由 [@lxfight](https://github.com/lxfight) 贡献。功能 PR 的完整 CI 已通过，最新后端 1,174 项、前端 149 项测试通过；Chrome 沙盒已验证令牌过期后切换 3D、资源释放和重建。
+
+### 安装与升级
+
+1. 保留数据和配置，更新至 `2.8.4` 后重新启动 AstrBot，关闭并重新打开插件视图。
+2. 出现时间戳写入错误时，同时升级宿主至 4.29.0 或更高版本；无需重新生成嵌入。
+3. 若管理接口均提示“未找到该路由”，请确认运行环境已安装 `networkx`。依赖清单已声明 `networkx>=3.0`；可在 AstrBot 根目录使用运行 AstrBot 的 Python 环境执行：
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
 ## 2.8.3 · 2026-11-01
 
 2.8.3 是维护版本，修复依赖缺失导致管理接口未注册、失效原子内容经旧摘要重新注入的问题，并降低大规模图谱的浏览器内存占用。无需修改配置或迁移数据库。

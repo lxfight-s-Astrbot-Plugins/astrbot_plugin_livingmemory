@@ -5,6 +5,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.8.4] - 2026-11-01
+
+本次维护版本修复官方插件视图中的 3D 加载失败，完善 SQLite 打开错误的诊断信息，并明确时间戳写入错误的宿主升级路径。无需修改插件配置或迁移数据库。
+
+### 修复与诊断
+
+- **3D 图谱加载**：使用 AstrBot 改写后的资源地址，保留访问令牌；页面打开时预加载模块，切换到 3D 时才创建场景，避免页面停留后令牌过期影响加载。离页仍释放 WebGL 与 Worker 资源；导入期间离页也不会创建闲置场景。修复 [#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)，见 [#378](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/378)。
+- **SQLite 故障诊断**：访问统计写入失败时，日志增加数据库路径、原生错误码及错误名称，保留扩展错误码与完整堆栈，便于区分写锁和文件打开失败。访问统计失败继续保留正常读取能力。见 [#380](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/380)。[#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的打开失败根因仍需结合新增日志确认，该 Issue 保持开放。
+- **时间戳兼容性指引**：明确 SQLModel 0.0.45 起的时间类型变化与旧版 AstrBot 文档模型不兼容。宿主修复已随 AstrBot 4.29.0 发布；出现 `Datetime values must have timezone information` 时，需要升级 AstrBot。见 [#379](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/379)、上游 [#10211](https://github.com/AstrBotDevs/AstrBot/pull/10211)。
+
+以上改动由 [@lxfight](https://github.com/lxfight) 贡献。
+
+### 依赖安装说明
+
+补充确认：[#374](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/374) 的报告环境安装 `networkx` 后恢复路由注册。`networkx>=3.0` 已在插件依赖清单中；若运行环境仍缺少它，请使用运行 AstrBot 的同一 Python 环境，在 AstrBot 根目录执行：
+
+```bash
+python -m pip install -r data/plugins/astrbot_plugin_livingmemory/requirements.txt
+```
+
+### 验证
+
+- 功能 PR 的完整 CI 通过，最新后端 1,174 项、前端 149 项测试通过。
+- Chrome 沙盒验证覆盖旧版资源鉴权失败复现、令牌过期后切换 3D、离页释放及返回重建；隔离 SQLite 验证了时间戳错误及上游修复。
+- 发布相关测试、Dashboard 产物检查和文档构建通过。
+
+### 升级
+
+1. 保留现有数据和配置，更新至 `2.8.4` 后重新启动 AstrBot，并关闭后重新打开插件视图，使页面重新获得有效资源地址。
+2. 若遇到时间戳写入错误，升级 **AstrBot 至 4.29.0 或更高版本**；宿主修复保留已有本地时间戳语义，无需重新生成嵌入。
+3. 若仍出现数据库打开错误，请提供日志中的数据库路径、SQLite 错误码与完整堆栈，以便继续定位 #345。
+
 ## [2.8.3] - 2026-11-01
 
 本次维护版本修复插件依赖缺失时管理接口未注册的问题，防止失效记忆通过旧摘要重新进入提示词，并降低大规模图谱的浏览器内存占用。无需修改配置或迁移数据库。
