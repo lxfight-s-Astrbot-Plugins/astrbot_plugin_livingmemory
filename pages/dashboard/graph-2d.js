@@ -16,6 +16,20 @@
      事实节点标签通常是「人物名 + 日期 + 内容」的完整句子，画布上
      只保留内容短摘要，完整标签仍由 payload / 详情面板提供。
      ================================================================ */
+  /* 布局缓存键：同一份 payload 对象始终复用同一个键。
+     之前每次布局都对全部节点 id 和边做排序拼接（全量图 O(N log N)，
+     还会产生数 MB 临时字符串），现在按对象身份 O(1) 取键。 */
+  var payloadKeys = new WeakMap();
+  var nextPayloadKey = 1;
+  function graphKey(payload) {
+    var key = payloadKeys.get(payload);
+    if (key === undefined) {
+      key = nextPayloadKey++;
+      payloadKeys.set(payload, key);
+    }
+    return key;
+  }
+
   var FACT_DATE_PREFIX_RE = new RegExp(
     "^(?:" +
       "\\d{4}[-年/.]\\d{1,2}[-月/.日]\\d{1,2}日?" + // 2026-08-14 / 2026年8月14日 / 2026/8/14
@@ -173,7 +187,6 @@
     this._nodes = [];
     this._edges = [];
     this._nodeMap = {};
-    this._mem2node = {};
     this._layout = this._createLayout();
     this._animProgress = 1; // 0→1 for position transitions
     this._needsRender = true;
@@ -279,10 +292,11 @@
     }
   };
 
-  Animator.prototype.setData = function(nodes, edges) {
+  Animator.prototype.setData = function(nodes, edges, signature) {
     var self = this;
     this._nodes = nodes;
     this._edges = edges;
+    this._dataSignature = signature;
     this._nodeMap = {};
     nodes.forEach(function(n) { self._nodeMap[n.id] = n; });
     this.renderer._nodesMap = this._nodeMap;
@@ -302,9 +316,9 @@
       n._prevY = n.y;
     });
     /* 布局缓存：结构未变且上次布局已完成时复用结果，跳过整轮 compute()。
-       多槽记忆（按图签名）——受限概览 ↔ 全量图来回切换时，已算过的图
+       多槽记忆（按图身份）——受限概览 ↔ 全量图来回切换时，已算过的图
        直接应用上次布局，不需要重新布局（#248 演示反馈）。 */
-    var signature = this._graphSignature();
+    var signature = this._dataSignature;
     var cached = this._layoutCache[signature];
     if (cached) {
       /* 丢弃 Worker 在途消息，避免旧链路回包覆盖刚注入的缓存位置。 */
@@ -450,15 +464,6 @@
     this._needsRender = true;
     this.start();
     if (this._onLayoutDone) this._onLayoutDone();
-  };
-
-  Animator.prototype._graphSignature = function() {
-    /* 轻量签名：排序后的节点 id + 边 key。O(N log N)，远低于力布局成本。 */
-    var nodeIds = this._nodes.map(function(n) { return String(n.id); }).sort().join(",");
-    var edgeKeys = this._edges.map(function(e) {
-      return e.source + ">" + e.target;
-    }).sort().join(",");
-    return nodeIds + "|" + edgeKeys;
   };
 
   Animator.prototype.recenter = function(centerId) {
@@ -714,17 +719,8 @@
       });
     });
 
-    /* Build memory→node index */
-    var mem2node = {};
-    edges.forEach(function(edge) {
-      if (!mem2node[edge.memory_id]) mem2node[edge.memory_id] = new Set();
-      mem2node[edge.memory_id].add(edge.source);
-      mem2node[edge.memory_id].add(edge.target);
-    });
-
-    this.animator.setData(nodes, edges);
-    this._mem2node = mem2node;
-    this.animator._mem2node = mem2node;
+    this.animator.setData(nodes, edges, graphKey(payload));
+    this._mem2node = null;
     this._nodes = nodes;
     this._edges = edges;
 
@@ -737,8 +733,8 @@
     var centerId = null;
     if (this.selection && this.selection.type === "node") {
       centerId = this.selection.id;
-    } else if (this.selection && this.selection.type === "memory" && mem2node[this.selection.id]) {
-      var mids = Array.from(mem2node[this.selection.id]);
+    } else if (this.selection && this.selection.type === "memory" && this._ensureMem2Node()[this.selection.id]) {
+      var mids = Array.from(this._ensureMem2Node()[this.selection.id]);
       if (mids.length > 0) centerId = mids[0];
     }
 
@@ -747,6 +743,20 @@
     this.animator.layoutGraph(centerId);
 
     this.animator.wake();
+  };
+
+  /* 记忆 → 节点索引只在按记忆定位/居中时用得到；全量图边多，
+     加载时就建会额外扫一遍 20 万条边，改为首次使用时再建。 */
+  Graph2D.prototype._ensureMem2Node = function() {
+    if (this._mem2node) return this._mem2node;
+    var mem2node = {};
+    (this._edges || []).forEach(function(edge) {
+      if (!mem2node[edge.memory_id]) mem2node[edge.memory_id] = new Set();
+      mem2node[edge.memory_id].add(edge.source);
+      mem2node[edge.memory_id].add(edge.target);
+    });
+    this._mem2node = mem2node;
+    return mem2node;
   };
 
   Graph2D.prototype.selectNode = function(nodeId) {
@@ -759,8 +769,9 @@
   Graph2D.prototype.selectMemory = function(memoryId) {
     this.selection = { type: "memory", id: memoryId };
     this.renderer._selection = this.selection;
-    if (this._mem2node && this._mem2node[memoryId]) {
-      var nodes = Array.from(this._mem2node[memoryId]);
+    var memoryNodes = this._ensureMem2Node()[memoryId];
+    if (memoryNodes) {
+      var nodes = Array.from(memoryNodes);
       if (nodes.length) this.animator.recenter(nodes[0]);
     }
     this.animator.wake();

@@ -43,6 +43,7 @@ function loadGraphUi(withGraph2D) {
   const elements = {};
   const docListeners = {};
   const g2dCalls = [];
+  let graphHandlers;
   const viewCalls = [];
   let lastHandler = null;
 
@@ -73,11 +74,12 @@ function loadGraphUi(withGraph2D) {
   };
   if (withGraph2D) {
     global.window.Graph2D = {
-      init() {},
+      init(container, handlers) { graphHandlers = handlers; },
       loadData(payload, options) { g2dCalls.push({ payload, options }); },
       selection: null,
       renderer: { _selection: null },
       resetView() { viewCalls.push("reset"); },
+      selectNode(id) { this.selection = { type: "node", id }; },
     };
   }
   global.document = {
@@ -98,11 +100,34 @@ function loadGraphUi(withGraph2D) {
 
   /* 手动触发 DOMContentLoaded，让 graph-ui init() 挂载事件监听。 */
   if (lastHandler) lastHandler();
-  return { calls, posts, elements, g2dCalls, viewCalls };
+  return { calls, posts, elements, g2dCalls, viewCalls, graphHandlers };
 }
 
 async function flushMicrotasks() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
+for (const association of ["entries", "memories"]) {
+  test(`node details retain memories linked through ${association} without edges`, async () => {
+    const { graphHandlers } = loadGraphUi(true);
+    const memory = { memory_id: 4, summary: "A standalone fact" };
+    const snapshot = {
+      nodes: [{ id: 7, type: "fact", label: "Standalone", weight: 1 }],
+      edges: [],
+      memories: [memory],
+    };
+    if (association === "entries") snapshot.entries = [{ memory_id: 4, node_ids: [7] }];
+    else memory.node_ids = [7];
+    window.AstrBotPluginPage.apiGet = async () => ({
+      status: "ok", data: { enabled: true, mode: "overview", summary: {}, snapshot },
+    });
+    let selected;
+    window.lmOpenPeekNode = node => { selected = node; };
+    window.ensureGraphScene();
+    await flushMicrotasks();
+    graphHandlers.onNodeClick(7);
+    assert.deepEqual(selected.memories, [memory]);
+  });
 }
 
 test("ensureGraphScene loads the constrained overview without full_graph", async () => {
