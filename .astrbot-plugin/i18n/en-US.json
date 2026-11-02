@@ -5,6 +5,22 @@
     "desc": "An intelligent long-term memory plugin with hybrid retrieval (BM25 + vector + graph), WebUI management, and dynamic lifecycle. Supports session/persona isolation, importance decay, and auto-cleanup."
   },
   "config": {
+    "shared_embedding_cache": {
+      "description": "Shared embedding cache",
+      "hint": "Share vectors for the same DashScope v4 provider. Cache is separate from memories; the authenticated endpoint listens on localhost.",
+      "enabled": {
+        "description": "Enable shared cache",
+        "hint": "Disabled by default. Requires a native DashScope text-embedding-v4 provider. Reload the plugin after changing this setting."
+      },
+      "port": {"description": "Local endpoint port"},
+      "ttl_days": {"description": "Cache lifetime in days"},
+      "max_entries": {"description": "Maximum cached vectors"},
+      "concurrency": {"description": "Maximum upstream concurrency"},
+      "revision": {
+        "description": "Embedding space revision",
+        "hint": "Change after confirming an upstream embedding-space change, then reload. This does not rebuild existing memory indexes."
+      }
+    },
     "bot_language": {
       "description": "Bot Response Language",
       "hint": "Set the language for plugin commands and status replies. zh=Chinese (default), en=English, ru=Russian, ja=Japanese.",

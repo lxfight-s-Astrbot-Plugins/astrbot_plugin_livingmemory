@@ -68,6 +68,45 @@
             }
         }
     },
+    "shared_embedding_cache": {
+        "description": "统一向量缓存",
+        "hint": "复用同一百炼 v4 提供商的向量结果。缓存与长期记忆独立；只监听本机，令牌保存在插件数据目录。",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "启用统一缓存",
+                "hint": "默认关闭。需显式选择 DashScope 原生 text-embedding-v4 提供商；开启后重载插件。",
+                "type": "bool",
+                "default": false
+            },
+            "port": {
+                "description": "本机接口端口",
+                "type": "int",
+                "default": 17695
+            },
+            "ttl_days": {
+                "description": "缓存有效天数",
+                "type": "int",
+                "default": 90
+            },
+            "max_entries": {
+                "description": "最多缓存条数",
+                "type": "int",
+                "default": 10000
+            },
+            "concurrency": {
+                "description": "上游最大并发",
+                "type": "int",
+                "default": 2
+            },
+            "revision": {
+                "description": "模型空间版本标识",
+                "hint": "确认上游模型空间变化后修改并重载；不会主动重建现有记忆索引。",
+                "type": "string",
+                "default": "v4-cache-1"
+            }
+        }
+    },
     "session_manager": {
         "invisible": true,
         "description": "会话管理",

@@ -5,6 +5,22 @@
     "desc": "AstrBot 向けに作られた、完全な記憶ライフサイクルを持つインテリジェント長期記憶プラグイン（v2.0 リファクタリング版）。"
   },
   "config": {
+    "shared_embedding_cache": {
+      "description": "共有埋め込みキャッシュ",
+      "hint": "同じ DashScope v4 プロバイダーのベクトルを共有します。記憶とは別に保存し、ローカル API は認証を必要とします。",
+      "enabled": {
+        "description": "共有キャッシュを有効化",
+        "hint": "初期状態は無効です。ネイティブ DashScope text-embedding-v4 が必要です。変更後はプラグインを再読み込みしてください。"
+      },
+      "port": {"description": "ローカル API ポート"},
+      "ttl_days": {"description": "キャッシュ有効日数"},
+      "max_entries": {"description": "最大キャッシュ件数"},
+      "concurrency": {"description": "上流への最大同時接続数"},
+      "revision": {
+        "description": "埋め込み空間のバージョン",
+        "hint": "上流の埋め込み空間の変更を確認後に変更して再読み込みします。既存の記憶インデックスは再構築しません。"
+      }
+    },
     "bot_language": {
       "description": "ボットの応答言語",
       "hint": "プラグインのコマンドおよびステータス応答の言語を設定します。zh=中国語（デフォルト）、en=English、ru=Русский、ja=日本語。",

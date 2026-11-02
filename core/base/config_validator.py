@@ -437,6 +437,17 @@ class MemoryDedupConfig(BaseModel):
     )
 
 
+class SharedEmbeddingCacheConfig(BaseModel):
+    """公共向量缓存配置；默认关闭，升级本身不会改变现有向量调用。"""
+
+    enabled: bool = False
+    port: int = Field(default=17695, ge=1024, le=65535)
+    ttl_days: int = Field(default=90, ge=1, le=3650)
+    max_entries: int = Field(default=10000, ge=100, le=100000)
+    concurrency: int = Field(default=2, ge=1, le=8)
+    revision: str = Field(default="v4-cache-1", min_length=1, max_length=64)
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -452,6 +463,9 @@ class LivingMemoryConfig(BaseModel):
     access_control: AccessControlConfig = Field(default_factory=AccessControlConfig)
     filtering_settings: FilteringConfig = Field(default_factory=FilteringConfig)
     provider_settings: ProviderConfig = Field(default_factory=ProviderConfig)
+    shared_embedding_cache: SharedEmbeddingCacheConfig = Field(
+        default_factory=SharedEmbeddingCacheConfig
+    )
     migration_settings: MigrationSettings = Field(default_factory=MigrationSettings)
     index_rebuild_settings: IndexRebuildSettings = Field(
         default_factory=IndexRebuildSettings
@@ -726,5 +740,4 @@ def normalize_config(
                 )
 
     return config, corrections
-
 

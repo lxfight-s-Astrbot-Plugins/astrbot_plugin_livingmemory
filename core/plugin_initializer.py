@@ -55,6 +55,12 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
         self.context = context
         self.config_manager = config_manager
         self.data_dir = data_dir
+        self.embedding_cache = None
+        cache_config = config_manager.get("shared_embedding_cache", {}) or {}
+        if cache_config.get("enabled", False):
+            from .embedding_gateway import SharedEmbeddingGateway
+
+            self.embedding_cache = SharedEmbeddingGateway(context, cache_config, data_dir)
 
         # 组件实例
         self.embedding_provider: EmbeddingProvider | None = None
@@ -299,6 +305,10 @@ class PluginInitializer(InitializerFaissMixin, InitializerFinalizeMixin):
                 self.embedding_provider = None
                 if not silent:
                     logger.debug("没有可用的 Embedding Provider")
+
+        # 向量服务只依赖 Embedding Provider，不等待 LLM/FAISS/记忆库就绪。
+        if self.embedding_provider and self.embedding_cache is not None:
+            await self.embedding_cache.start_for(self.embedding_provider)
 
         # 初始化 LLM Provider
         self.llm_provider = None

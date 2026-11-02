@@ -5,6 +5,22 @@
     "desc": "为 AstrBot 打造的、拥有完整记忆生命周期的智能长期记忆插件（v2.0 重构版）。"
   },
   "config": {
+    "shared_embedding_cache": {
+      "description": "统一向量缓存",
+      "hint": "复用同一百炼 v4 提供商的向量结果。缓存与长期记忆独立；本机接口需要令牌。",
+      "enabled": {
+        "description": "启用统一缓存",
+        "hint": "默认关闭，需要 DashScope 原生 text-embedding-v4 提供商。修改后重载插件。"
+      },
+      "port": {"description": "本机接口端口"},
+      "ttl_days": {"description": "缓存有效天数"},
+      "max_entries": {"description": "最多缓存条数"},
+      "concurrency": {"description": "上游最大并发"},
+      "revision": {
+        "description": "模型空间版本标识",
+        "hint": "确认上游模型空间变化后修改并重载；不会主动重建现有记忆索引。"
+      }
+    },
     "bot_language": {
       "description": "机器人回复语言",
       "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский，ja=日本語。",
