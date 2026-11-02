@@ -594,4 +594,7 @@ class LivingMemoryPlugin(Star):
             await self.initializer.db.close()
             logger.info("FaissVecDB 已关闭")
 
+        if getattr(self.initializer, "embedding_cache", None) is not None:
+            await self.initializer.embedding_cache.close()
+
         logger.info("LivingMemory 插件已成功停止。")

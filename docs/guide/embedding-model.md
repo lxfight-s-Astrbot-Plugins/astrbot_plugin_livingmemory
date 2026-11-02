@@ -42,7 +42,7 @@ LivingMemory 用关键词和向量两套线索找回记忆。向量由嵌入模�
 | API Base URL | `https://api.siliconflow.cn/v1` |
 | 嵌入模型 | `BAAI/bge-m3` |
 | 嵌入维度 | `1024` |
-| 嵌入维度参数发送模式 | `auto` |
+| 嵌入维度参数发送模式 | `never`（BGE-M3 固定维度，不向上游发送可选 dimensions） |
 
 Provider ID 由 AstrBot 生成并在提供商列表或配置标题中显示。同名时可能自动变成 `openai_embedding_1` 等值，保持默认即可，不要把它和模型 ID `BAAI/bge-m3` 混为一谈。
 
@@ -60,6 +60,27 @@ Provider ID 由 AstrBot 生成并在提供商列表或配置标题中显示。�
 ```
 
 状态正常且搜索能返回记忆，说明向量链路已经工作。
+
+### 4. 可选：让其他插件共享向量缓存
+
+在 LivingMemory 的「统一向量缓存」中启用缓存。使用 BGE-M3 时，必须手动填写：
+
+| 配置 | 值 |
+| --- | --- |
+| 上游真实模型名 `model_name` | `BAAI/bge-m3` |
+| 实际输出维度 `dimensions` | `1024` |
+| 上游每批文本数 `upstream_batch_size` | 先填 `1`，确认服务商限制后可增大 |
+
+保存并重载插件。其他插件支持选择 AstrBot 提供商时，选择同一 Provider ID；
+自行调用 OpenAI 接口的插件填写 `http://127.0.0.1:17695/v1`、实际模型名及插件
+数据目录 `embedding_gateway.token` 中的本机令牌。上游提供商仍保留硅基流动
+地址和真实 API Key，不要把它也改成本机入口。
+
+其他模型同样要核实模型名和输出维度。例如 OpenAI 官方
+`text-embedding-3-small` 默认输出 1536 维，缓存填写该模型名和 `1536`，
+AstrBot 维度发送模式使用 `auto`。如果申请了自定义维度，则两处都填实际值。
+原生 DashScope `text-embedding-v4` 可以继续留空模型名、填写 0 自动读取维度。
+完整接入步骤、填写示例和错误排查见[统一向量缓存](../shared-embedding-cache.md)。
 
 ## 常见问题
 

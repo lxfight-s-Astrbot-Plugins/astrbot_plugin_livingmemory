@@ -92,6 +92,7 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 
 data/
+*.token
 .claude/
 pyproject.toml
 

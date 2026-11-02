@@ -42,7 +42,7 @@ Open AstrBot's "Model Providers" page (called "LLM Configuration" in older versi
 | API Base URL | `https://api.siliconflow.cn/v1` |
 | Embedding Model | `BAAI/bge-m3` |
 | Embedding Dimensions | `1024` |
-| Embedding Dimensions Mode | `auto` |
+| Embedding Dimensions Mode | `never` (BGE-M3 has fixed dimensions; omit the optional dimensions parameter upstream) |
 
 AstrBot generates the Provider ID and shows it in the provider list or configuration header. If the name already exists, AstrBot may generate `openai_embedding_1` or another suffix. Keep the generated value and do not confuse it with the model ID `BAAI/bge-m3`.
 
@@ -60,6 +60,28 @@ After a few conversation turns, run:
 ```
 
 If status is healthy and search returns memories, the vector pipeline is working.
+
+### 4. Optional: share embeddings with other plugins
+
+Enable the shared embedding cache in LivingMemory. For BGE-M3, enter these fields manually:
+
+| Setting | Value |
+| --- | --- |
+| Actual upstream model name `model_name` | `BAAI/bge-m3` |
+| Actual output dimensions `dimensions` | `1024` |
+| Texts per upstream batch `upstream_batch_size` | Start with `1`, then increase after checking the service limit |
+
+Save and reload the plugin. Plugins that select an AstrBot provider should use the same Provider ID.
+Plugins calling OpenAI directly should use `http://127.0.0.1:17695/v1`, the actual model name,
+and the local token in `embedding_gateway.token` in the plugin data directory. Keep the original
+upstream provider pointed at SiliconFlow with the real API key; do not point it at the cache itself.
+
+For other models, verify both the name and output dimensions. For example, official OpenAI
+`text-embedding-3-small` defaults to 1536 dimensions: enter that model name and `1536` in the
+cache, using AstrBot's `auto` dimensions mode. If you requested custom dimensions, use the
+actual value in both places. Native DashScope `text-embedding-v4` can leave the name blank
+and use 0 for automatic dimension detection. See the [shared embedding cache guide](../../shared-embedding-cache.md)
+for complete setup steps, examples and troubleshooting.
 
 ## Troubleshooting
 
