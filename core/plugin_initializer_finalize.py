@@ -23,6 +23,7 @@ import time
 
 class InitializerFinalizeMixin:
     """PluginInitializer 拆分模块：InitializerFinalizeMixin"""
+
     async def _complete_initialization(self):
         """完成完整的初始化流程"""
         if self._initialization_complete:
@@ -91,7 +92,22 @@ class InitializerFinalizeMixin:
             stopwords_dir = data_dir_path / "stopwords"
             stopwords_dir.mkdir(parents=True, exist_ok=True)
 
+            adapter_instances = {
+                item["id"]: item["type"]
+                for item in self.context.get_config().get("platform", [])
+                if item.get("id")
+            }
+            adapter_instances.update(
+                {
+                    item.meta().id: item.meta().name
+                    for item in self.context.platform_manager.get_insts()
+                }
+            )
             memory_engine_config = {
+                "graph_document_path": str(graph_doc_path)
+                if graph_memory_enabled
+                else None,
+                "adapter_instances": adapter_instances,
                 "rrf_k": self.config_manager.get("fusion_strategy.rrf_k", 60),
                 "decay_rate": self.config_manager.get(
                     "importance_decay.decay_rate", 0.01
@@ -331,9 +347,7 @@ class InitializerFinalizeMixin:
             )
             consolidation_daily = (
                 self.config_manager.get("memory_consolidation.enabled", False)
-                and self.config_manager.get(
-                    "memory_consolidation.trigger", "daily"
-                )
+                and self.config_manager.get("memory_consolidation.trigger", "daily")
                 == "daily"
             )
             if self.memory_engine and (

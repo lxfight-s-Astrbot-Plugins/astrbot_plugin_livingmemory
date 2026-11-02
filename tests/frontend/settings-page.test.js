@@ -95,3 +95,17 @@ test("search filters fields and expands matching categories", () => {
   assert.match(container.innerHTML, /<details[^>]* data-category="recall"[^>]* open/);
   assert.match(container.innerHTML, /recall_engine\.max_k/);
 });
+
+
+test("adapter selection shows shared members and preserves an untouched legacy policy", () => {
+  global.window = { t: key => key };
+  const page = new SettingsPage({}, {});
+  const html = page.renderField({path: "filtering_settings.shared_adapter_ids", type: "adapter-list", value: ["qq-a"], label: "Shared adapters", options: ["qq-a", "wechat-a"], option_labels: ["QQ", "WeChat"]});
+  assert.match(html, /value="qq-a" checked/);
+  assert.doesNotMatch(html, /value="wechat-a" checked/);
+  const element = {dataset: {settingPath: "filtering_settings.shared_adapter_ids", type: "adapter-list", original: "null"}, querySelectorAll: () => [{value: "qq-a"}]};
+  global.document = {querySelectorAll: () => [element]};
+  assert.equal(page.collectValues()[element.dataset.settingPath], null);
+  element.dataset.edited = "1";
+  assert.deepEqual(page.collectValues()[element.dataset.settingPath], ["qq-a"]);
+});

@@ -30,9 +30,14 @@ class GraphExtractor:
         When atoms are provided, each atom independently contributes nodes
         and edges with per-atom confidence scores instead of hardcoded values.
         """
-        if atoms:
-            return self._extract_from_atoms(source_memory_id, atoms, metadata)
-        return self._extract_legacy(source_memory_id, content, metadata)
+        graph = (
+            self._extract_from_atoms(source_memory_id, atoms, metadata)
+            if atoms
+            else self._extract_legacy(source_memory_id, content, metadata)
+        )
+        for entry in graph.entries:
+            entry.metadata["adapter_id"] = (metadata or {}).get("adapter_id")
+        return graph
 
     def _participant_nodes(
         self, metadata: dict[str, Any]

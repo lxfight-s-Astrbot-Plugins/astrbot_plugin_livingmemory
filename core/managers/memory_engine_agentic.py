@@ -8,7 +8,7 @@ from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.recall_diagnostics import all_routes_failed, merge_route
 from ..retrieval.route_execution import search_route
 from ..retrieval.rrf_fusion import BM25Result, VectorResult
-from ..retrieval.vector_search import query_embeddings
+from ..retrieval.vector_search import query_embeddings, retrieve_documents
 from ..utils.json_utils import safe_json_dict
 from .agentic_recall_types import (
     AgenticRecallOutcome,
@@ -228,8 +228,8 @@ class MemoryEngineAgenticMixin(MemoryEngineEvidenceMixin, MemoryEngineParticipan
         documents = {r.doc_id: r for r in results}
         missing = [doc_id for doc_id in scores if doc_id not in documents]
         if missing:
-            loaded = await self.faiss_db.document_storage.get_documents(
-                metadata_filters={}, ids=missing, limit=len(missing)
+            loaded = await retrieve_documents(
+                self.faiss_db, metadata_filters={}, ids=missing, limit=len(missing)
             )
             for document in loaded:
                 metadata = safe_json_dict(document.get("metadata"))

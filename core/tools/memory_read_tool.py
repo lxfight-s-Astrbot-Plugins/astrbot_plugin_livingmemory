@@ -5,6 +5,7 @@
 通过 cursor 支持任意位置续读；不做语义搜索，不触发新的 LLM。
 """
 
+from ..memory_scope import adapter_access
 import asyncio
 from dataclasses import field
 from typing import Any
@@ -108,71 +109,72 @@ class MemoryReadTool(FunctionTool[AstrAgentContext]):
             recall_persona_id,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
-        if access_error is not None:
-            return bounded_status(
-                {
-                    "memory_id": memory_id,
-                    "status": "error",
-                    **access_error,
-                }
-            )
+        with adapter_access(self.config_manager, event):
+            if access_error is not None:
+                return bounded_status(
+                    {
+                        "memory_id": memory_id,
+                        "status": "error",
+                        **access_error,
+                    }
+                )
 
-        budget = get_or_create_budget(event, self.config_manager)
-        if not try_consume_call(budget):
-            return bounded_status(
-                {
-                    "memory_id": memory_id,
-                    "status": "budget_exhausted",
-                    "message": "memory tool call budget is used up; answer with evidence already gathered",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
+            budget = get_or_create_budget(event, self.config_manager)
+            if not try_consume_call(budget):
+                return bounded_status(
+                    {
+                        "memory_id": memory_id,
+                        "status": "budget_exhausted",
+                        "message": "memory tool call budget is used up; answer with evidence already gathered",
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
 
-        try:
-            result, _, timed_out = await run_within_budget(
-                budget,
-                lambda: read_memory_evidence_core(
-                    memory_engine=self.memory_engine,
-                    recall_session_id=recall_session_id,
-                    recall_persona_id=recall_persona_id,
-                    memory_id=memory_id,
-                    include_source=include_source,
-                ),
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            return bounded_status(
-                {
-                    "memory_id": memory_id,
-                    "status": "error",
-                    "error": "memory read failed",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-        if timed_out or result is None:
-            return bounded_status(
-                {
-                    "memory_id": memory_id,
-                    "status": "budget_exhausted",
-                    "message": "memory tool time budget is used up; answer with evidence already gathered",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-        result["remaining_budget"] = budget.to_status()
-        try:
-            page = paginate_evidence(
-                result,
-                cursor or "",
-                lambda value: len(json_result(value)) <= budget.max_result_chars,
-            )
-        except ValueError as exc:
-            return bounded_status(
-                {
-                    "memory_id": memory_id,
-                    "status": "invalid_query",
-                    "error": str(exc),
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-        return json_result(page)
+            try:
+                result, _, timed_out = await run_within_budget(
+                    budget,
+                    lambda: read_memory_evidence_core(
+                        memory_engine=self.memory_engine,
+                        recall_session_id=recall_session_id,
+                        recall_persona_id=recall_persona_id,
+                        memory_id=memory_id,
+                        include_source=include_source,
+                    ),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return bounded_status(
+                    {
+                        "memory_id": memory_id,
+                        "status": "error",
+                        "error": "memory read failed",
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
+            if timed_out or result is None:
+                return bounded_status(
+                    {
+                        "memory_id": memory_id,
+                        "status": "budget_exhausted",
+                        "message": "memory tool time budget is used up; answer with evidence already gathered",
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
+            result["remaining_budget"] = budget.to_status()
+            try:
+                page = paginate_evidence(
+                    result,
+                    cursor or "",
+                    lambda value: len(json_result(value)) <= budget.max_result_chars,
+                )
+            except ValueError as exc:
+                return bounded_status(
+                    {
+                        "memory_id": memory_id,
+                        "status": "invalid_query",
+                        "error": str(exc),
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
+            return json_result(page)

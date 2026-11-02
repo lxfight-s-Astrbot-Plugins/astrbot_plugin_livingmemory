@@ -101,8 +101,7 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
     memory_engine.search_memories.assert_awaited_once_with(
         query="项目约定",
         k=5,
-        # 作用域解析失败时回退到原始会话（与写入侧语义一致）
-        session_id=_make_run_context().context.event.unified_msg_origin,
+        session_id=None,
         persona_id=None,
     )
     get_persona.assert_not_awaited()
@@ -142,8 +141,8 @@ async def test_memory_search_tool_uses_user_scope(memory_engine, astr_context):
     [
         # legacy 默认：作用域即当前会话，属于会话级过滤
         ({"use_session_filtering": True}, SESSION_ID, True),
-        # legacy 关闭会话过滤：作用域为 None，回退会话查询但不算会话过滤
-        ({"use_session_filtering": False}, SESSION_ID, False),
+        # Disabled session filtering leaves only adapter and persona restrictions.
+        ({"use_session_filtering": False}, None, False),
         ({"memory_scope_mode": "session"}, SESSION_ID, True),
         ({"memory_scope_mode": "global"}, GLOBAL_MEMORY_SCOPE, False),
         ({"memory_scope_mode": "user"}, "livingmemory:user:test:user-1", False),
@@ -298,9 +297,7 @@ async def test_memory_search_tool_includes_retained_source_on_request(
         new=AsyncMock(return_value="persona_a"),
     ):
         result = json.loads(
-            await tool.call(
-                _make_run_context(), query="details", include_source=True
-            )
+            await tool.call(_make_run_context(), query="details", include_source=True)
         )
 
     assert result["results"][0]["source_messages"][0]["content"] == "exact detail"

@@ -1,5 +1,7 @@
 """Beta 人物回忆：SQL 前置身份/主题条件，按来源时间稳定续查。"""
 
+from ..memory_scope import adapter_sql
+
 import time
 from typing import Any
 
@@ -64,6 +66,9 @@ class MemoryEngineParticipantMixin:
             if value is not None:
                 conditions.append(f"json_extract(metadata, '$.{key}') = ?")
                 params.append(value)
+        ownership, ownership_params = adapter_sql("metadata")
+        conditions.append(ownership)
+        params.extend(ownership_params)
         person_conditions, person_params = self._participant_conditions(
             identity_key, identity_candidates
         )

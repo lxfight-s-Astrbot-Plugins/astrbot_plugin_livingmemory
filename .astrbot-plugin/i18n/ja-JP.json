@@ -254,6 +254,10 @@
       "isolated_sessions": {
         "description": "セッションを強制分離",
         "hint": "1 行に 1 つずつ完全なセッション ID を入力します。これらのセッションは常に独立したメモリスコープを使用し、user、global、または旧版のセッションフィルター無効設定の影響を受けません。"
+      },
+      "shared_adapter_ids": {
+        "description": "記憶を共有するアダプター",
+        "hint": ""
       }
     },
     "reflection_engine": {

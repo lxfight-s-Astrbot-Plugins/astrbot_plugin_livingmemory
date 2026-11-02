@@ -254,6 +254,10 @@
       "isolated_sessions": {
         "description": "Forced Isolated Sessions",
         "hint": "Enter one full session ID per line. These sessions always use their own memory scope, overriding Per User, Global, and disabled legacy session filtering."
+      },
+      "shared_adapter_ids": {
+        "description": "Adapters sharing memory",
+        "hint": ""
       }
     },
     "reflection_engine": {

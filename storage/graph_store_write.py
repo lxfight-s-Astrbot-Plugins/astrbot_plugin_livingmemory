@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.memory_scope import adapter_sql
+
 import aiosqlite
 
 from astrbot.api import logger
@@ -672,6 +674,9 @@ class GraphStoreWriteMixin:
         if persona_id is not None:
             filters.append("persona_id = ?")
             params.append(persona_id)
+        ownership, ownership_params = adapter_sql("metadata")
+        filters.append(ownership)
+        params.extend(ownership_params)
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 

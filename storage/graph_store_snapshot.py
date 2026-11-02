@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.memory_scope import adapter_sql
+
 import aiosqlite
 
 from ..core.utils.json_utils import safe_json_dict
@@ -99,6 +101,7 @@ class GraphStoreSnapshotMixin:
         limit_edges: int,
     ) -> tuple[list[aiosqlite.Row], list[aiosqlite.Row], list[aiosqlite.Row]]:
         """一次连接内读取 entry / node / edge 三批快照行。"""
+        ownership, ownership_params = adapter_sql("metadata")
         memory_placeholders = ",".join("?" * len(normalized_memory_ids))
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
@@ -107,11 +110,11 @@ class GraphStoreSnapshotMixin:
                 SELECT id, source_memory_id, session_id, persona_id,
                        entry_type, relation_type, content, metadata, edge_id
                 FROM graph_entries
-                WHERE source_memory_id IN ({memory_placeholders})
+                WHERE source_memory_id IN ({memory_placeholders}) AND {ownership}
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (*normalized_memory_ids, limit_entries),
+                (*normalized_memory_ids, *ownership_params, limit_entries),
             )
             entry_rows = await entry_cursor.fetchall()
 
@@ -432,6 +435,9 @@ class GraphStoreSnapshotMixin:
         if persona_id is not None:
             filters.append("ge.persona_id = ?")
             params.append(persona_id)
+        ownership, ownership_params = adapter_sql("ge.metadata")
+        filters.append(ownership)
+        params.extend(ownership_params)
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         async with self._connect() as db:

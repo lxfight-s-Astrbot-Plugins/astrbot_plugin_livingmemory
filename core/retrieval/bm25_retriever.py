@@ -14,6 +14,7 @@ import aiosqlite
 from astrbot.api import logger
 
 from ..processors.text_processor import TextProcessor
+from ..memory_scope import adapter_sql
 
 
 _CJK_RUN = re.compile(r"[一-鿿]+")
@@ -211,6 +212,9 @@ class BM25Retriever:
             f"COALESCE(json_extract({metadata_sql}, '$.status'), 'active') = 'active'"
         ]
         params = [fts_query]
+        adapter_filter, adapter_params = adapter_sql(metadata_sql)
+        filters.append(adapter_filter)
+        params.extend(adapter_params)
         if session_id is not None:
             filters.append(f"json_extract({metadata_sql}, '$.session_id') = ?")
             params.append(session_id)

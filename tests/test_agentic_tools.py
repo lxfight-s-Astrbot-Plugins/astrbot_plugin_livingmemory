@@ -60,9 +60,7 @@ def _plugin_context(persona_id=None):
     )
     conversation = Mock()
     conversation.persona_id = persona_id
-    context.conversation_manager.get_conversation = AsyncMock(
-        return_value=conversation
-    )
+    context.conversation_manager.get_conversation = AsyncMock(return_value=conversation)
     context.persona_manager = Mock()
     context.persona_manager.get_default_persona_v3 = AsyncMock(return_value=None)
     return context
@@ -143,9 +141,7 @@ class TestPersonaIsolation:
             plugin_context=_plugin_context(persona_id="personaA"),
         )
         with _patched_host_sp():
-            out = _loads(
-                await read.call(_context(_event()), memory_id=persona_b_id)
-            )
+            out = _loads(await read.call(_context(_event()), memory_id=persona_b_id))
         assert out["status"] == "not_found"
 
     @pytest.mark.asyncio
@@ -168,11 +164,11 @@ class TestPersonaIsolation:
 class TestAgenticSearchTool:
     @pytest.mark.asyncio
     async def test_legacy_style_query_call_still_works(self, engine):
-        await engine.add_memory(content="我们都喜欢周末打羽毛球的约定", session_id="test:private:s1")
-        search, _ = _tools(engine)
-        out = _loads(
-            await search.call(_context(_event()), query="羽毛球 约定", k=3)
+        await engine.add_memory(
+            content="我们都喜欢周末打羽毛球的约定", session_id="test:private:s1"
         )
+        search, _ = _tools(engine)
+        out = _loads(await search.call(_context(_event()), query="羽毛球 约定", k=3))
         assert out["status"] == "success"
         assert out["count"] == 1
         item = out["results"][0]
@@ -196,7 +192,7 @@ class TestAgenticSearchTool:
                 "test:private:s1",
                 True,
             ),
-            # legacy 关闭会话过滤：作用域为 None，回退会话查询但不算会话过滤
+            # Disabled session filtering preserves adapter and persona boundaries.
             (
                 {"use_persona_filtering": False, "use_session_filtering": False},
                 "test:private:s1",
@@ -359,7 +355,12 @@ class TestMemoryReadTool:
     @pytest.mark.asyncio
     async def test_read_facts_and_source_pages_with_cursor(self, engine):
         source = [
-            {"role": "user", "sender_id": "1001", "timestamp": 100.0, "content": f"原文{i}"}
+            {
+                "role": "user",
+                "sender_id": "1001",
+                "timestamp": 100.0,
+                "content": f"原文{i}",
+            }
             for i in range(5)
         ]
         mid = await engine.add_memory(
@@ -480,7 +481,9 @@ class TestMemoryReadTool:
             MemoryAtom(parent_memory_id=0, content="有效事实"),
             MemoryAtom(parent_memory_id=0, content="被遗忘的事实"),
         ]
-        source = [{"role": "user", "sender_id": "1001", "timestamp": 1.0, "content": "原文"}]
+        source = [
+            {"role": "user", "sender_id": "1001", "timestamp": 1.0, "content": "原文"}
+        ]
         mid = await engine.add_memory(
             content="混合生命周期记忆",
             session_id="test:private:s1",
@@ -574,9 +577,7 @@ class TestAgenticIntegrationChain:
 
         memory_id = step1["results"][0]["id"]
         step2 = _loads(
-            await read.call(
-                _context(event), memory_id=memory_id, include_source=True
-            )
+            await read.call(_context(event), memory_id=memory_id, include_source=True)
         )
         assert step2["status"] == "success"
         assert step2["source_status"] in ("ok", "source_unavailable")

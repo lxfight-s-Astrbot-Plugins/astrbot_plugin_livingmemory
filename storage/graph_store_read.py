@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.memory_scope import adapter_sql
+
 import aiosqlite
 
 from astrbot.api import logger
@@ -110,6 +112,9 @@ class GraphStoreReadMixin:
         if persona_id is not None:
             filters.append("ge.persona_id = ?")
             params.append(persona_id)
+        ownership, ownership_params = adapter_sql("ge.metadata")
+        filters.append(ownership)
+        params.extend(ownership_params)
 
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
@@ -171,6 +176,12 @@ class GraphStoreReadMixin:
         if not normalized_tokens:
             return []
 
+        ownership, ownership_params = adapter_sql("ge.metadata")
+        node_filter = (
+            f"id IN (SELECT gen.node_id FROM graph_entry_nodes gen JOIN graph_entries ge ON ge.id=gen.entry_id WHERE {ownership})"
+            if ownership_params
+            else "1"
+        )
         rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
@@ -193,11 +204,11 @@ class GraphStoreReadMixin:
                     f"""
                     SELECT id, node_key, node_type, node_value, canonical_value, metadata
                     FROM graph_nodes
-                    WHERE {" OR ".join(clauses)}
+                    WHERE ({" OR ".join(clauses)}) AND {node_filter}
                     ORDER BY LENGTH(canonical_value) ASC
                     LIMIT ?
                     """,
-                    (*params, limit),
+                    (*params, *ownership_params, limit),
                 )
                 batch_rows = await cursor.fetchall()
                 for row in batch_rows:
@@ -241,6 +252,9 @@ class GraphStoreReadMixin:
         if persona_id is not None:
             filters.append("ge.persona_id = ?")
             params.append(persona_id)
+        ownership, ownership_params = adapter_sql("ge.metadata")
+        filters.append(ownership)
+        params.extend(ownership_params)
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
         async with self._read_connect() as db:
@@ -290,6 +304,12 @@ class GraphStoreReadMixin:
         placeholders = ",".join("?" * len(normalized_ids))
         limit = max(1, min(limit, 500))
 
+        ownership, ownership_params = adapter_sql("metadata")
+        owner_filter = (
+            f"AND source_memory_id IN (SELECT source_memory_id FROM graph_entries WHERE {ownership})"
+            if ownership_params
+            else ""
+        )
         async with self._read_connect() as db:
             cursor = await db.execute(
                 f"""
@@ -298,19 +318,26 @@ class GraphStoreReadMixin:
                     SELECT target_node_id AS neighbor_id, weight AS edge_weight
                     FROM graph_edges
                     WHERE source_node_id IN ({placeholders})
-                      AND status = 'active'
+                      AND status = 'active' {owner_filter}
                     UNION ALL
                     SELECT source_node_id AS neighbor_id, weight AS edge_weight
                     FROM graph_edges
                     WHERE target_node_id IN ({placeholders})
-                      AND status = 'active'
+                      AND status = 'active' {owner_filter}
                 )
                 WHERE neighbor_id NOT IN ({placeholders})
                 GROUP BY neighbor_id
                 ORDER BY total_weight DESC, neighbor_id ASC
                 LIMIT ?
                 """,
-                (*normalized_ids, *normalized_ids, *normalized_ids, limit),
+                (
+                    *normalized_ids,
+                    *ownership_params,
+                    *normalized_ids,
+                    *ownership_params,
+                    *normalized_ids,
+                    limit,
+                ),
             )
             rows = await cursor.fetchall()
 
@@ -318,6 +345,30 @@ class GraphStoreReadMixin:
 
     async def get_memory_entry_stats(self) -> dict[str, int]:
         """Return graph storage counts for status reporting."""
+        ownership, ownership_params = adapter_sql("ge.metadata")
+        if ownership_params:
+            async with self._read_connect() as db:
+                entries = await (
+                    await db.execute(
+                        f"SELECT COUNT(*) FROM graph_entries ge WHERE {ownership}",
+                        ownership_params,
+                    )
+                ).fetchone()
+                nodes = await (
+                    await db.execute(
+                        f"SELECT COUNT(DISTINCT gen.node_id) FROM graph_entry_nodes gen JOIN graph_entries ge ON ge.id=gen.entry_id WHERE {ownership}",
+                        ownership_params,
+                    )
+                ).fetchone()
+                edges = await (
+                    await db.execute(
+                        f"SELECT COUNT(DISTINCT ge.edge_id) FROM graph_entries ge WHERE {ownership}",
+                        ownership_params,
+                    )
+                ).fetchone()
+            return dict(
+                graph_nodes=nodes[0], graph_edges=edges[0], graph_entries=entries[0]
+            )
         async with self._read_connect() as db:
             node_cursor = await db.execute("SELECT COUNT(*) FROM graph_nodes")
             edge_cursor = await db.execute("SELECT COUNT(*) FROM graph_edges")

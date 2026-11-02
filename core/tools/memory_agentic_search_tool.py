@@ -5,6 +5,7 @@ recall_long_term_memory，与基线工具在注册时二选一，不会并存。
 旧参数组合（query/k/include_source）在 Beta 下继续可用。
 """
 
+from ..memory_scope import adapter_access
 import asyncio
 from dataclasses import field
 from typing import Any
@@ -162,184 +163,187 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             recall_persona_id,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
-        if access_error is not None:
-            return bounded_status(
-                {
-                    "query": query or "",
-                    "count": 0,
-                    "results": [],
-                    "status": "error",
-                    **access_error,
-                }
-            )
-
-        # session_filtered 只表示本次查询是否真的按会话隔离：global / user
-        # 作用域跨会话共享，legacy 未启用会话过滤（scope 为 None）也不是会话
-        # 过滤；只有解析出的作用域就是当前会话 ID 时才为 True，避免误报
-        # “会话隔离仍然生效”而干扰排查。recall_session_id 仍保留回退语义。
-        recall_scope = resolve_memory_scope(self.config_manager, event)
-        session_filtered = (
-            recall_scope is not None and recall_scope == event.unified_msg_origin
-        )
-
-        budget = get_or_create_budget(event, self.config_manager)
-        if not try_consume_call(budget):
-            return bounded_status(
-                {
-                    "query": query or "",
-                    "count": 0,
-                    "results": [],
-                    "status": "budget_exhausted",
-                    "message": "memory tool call budget is used up; answer with evidence already gathered",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-
-        cleaned_query = (query or "").strip()
-        normalized_target = target or "conversation"
-        if normalized_target not in ("conversation", "current_speaker"):
-            return bounded_status(
-                {
-                    "status": "invalid_query",
-                    "error": "unsupported target",
-                    "count": 0,
-                    "results": [],
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-        if normalized_target == "conversation" and not cleaned_query:
-            return bounded_status(
-                {
-                    "query": "",
-                    "count": 0,
-                    "results": [],
-                    "status": "invalid_query",
-                    "error": "query is empty",
-                }
-            )
-
-        try:
-            start_ts = parse_time_bound(start_time, is_end=False)
-            end_ts = parse_time_bound(end_time, is_end=True)
-        except ValueError as exc:
-            return bounded_status(
-                {
-                    "query": cleaned_query,
-                    "count": 0,
-                    "results": [],
-                    "status": "invalid_query",
-                    "error": str(exc),
-                }
-            )
-
-        identity_key = None
-        identity_candidates: list[str] = []
-        if normalized_target == "current_speaker":
-            identity_key, identity_candidates, identity_status = (
-                derive_speaker_identity(self.config_manager, event)
-            )
-            if identity_status != "ok":
+        with adapter_access(self.config_manager, event):
+            if access_error is not None:
                 return bounded_status(
                     {
-                        "query": "",
-                        "target": normalized_target,
+                        "query": query or "",
                         "count": 0,
                         "results": [],
-                        "status": "identity_unavailable",
-                        "message": "current speaker identity is unavailable",
+                        "status": "error",
+                        **access_error,
+                    }
+                )
+
+            # session_filtered 只表示本次查询是否真的按会话隔离：global / user
+            # 作用域跨会话共享，legacy 未启用会话过滤（scope 为 None）也不是会话
+            # 过滤；只有解析出的作用域就是当前会话 ID 时才为 True，避免误报
+            # “会话隔离仍然生效”而干扰排查。recall_session_id 仍保留回退语义。
+            recall_scope = resolve_memory_scope(self.config_manager, event)
+            session_filtered = (
+                recall_scope is not None and recall_scope == event.unified_msg_origin
+            )
+
+            budget = get_or_create_budget(event, self.config_manager)
+            if not try_consume_call(budget):
+                return bounded_status(
+                    {
+                        "query": query or "",
+                        "count": 0,
+                        "results": [],
+                        "status": "budget_exhausted",
+                        "message": "memory tool call budget is used up; answer with evidence already gathered",
                         "remaining_budget": budget.to_status(),
                     }
                 )
 
-        default_k = int(self.config_manager.get("recall_engine.top_k", 5))
-        max_k = int(self.config_manager.get("recall_engine.max_k", 10))
-        try:
-            requested_k = default_k if k is None else int(k)
-        except (TypeError, ValueError):
-            requested_k = default_k
-        limited_k = max(1, min(requested_k, max_k))
+            cleaned_query = (query or "").strip()
+            normalized_target = target or "conversation"
+            if normalized_target not in ("conversation", "current_speaker"):
+                return bounded_status(
+                    {
+                        "status": "invalid_query",
+                        "error": "unsupported target",
+                        "count": 0,
+                        "results": [],
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
+            if normalized_target == "conversation" and not cleaned_query:
+                return bounded_status(
+                    {
+                        "query": "",
+                        "count": 0,
+                        "results": [],
+                        "status": "invalid_query",
+                        "error": "query is empty",
+                    }
+                )
 
-        try:
-            outcome, _, timed_out = await run_within_budget(
-                budget,
-                lambda: self.memory_engine.search_memories_agentic(
-                    target=normalized_target,
-                    query=cleaned_query,
-                    k=limited_k,
-                    session_id=recall_session_id,
-                    persona_id=recall_persona_id,
-                    identity_key=identity_key,
-                    identity_candidates=identity_candidates,
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                    exclude_ids=exclude_ids or [],
-                    cursor=search_offset or "",
-                ),
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            return bounded_status(
-                {
-                    "query": cleaned_query,
-                    "target": normalized_target,
-                    "count": 0,
-                    "results": [],
-                    "status": "error",
-                    "error": "memory recall failed",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
-        if timed_out or outcome is None:
-            return bounded_status(
-                {
-                    "query": cleaned_query,
-                    "target": normalized_target,
-                    "count": 0,
-                    "results": [],
-                    "status": "budget_exhausted",
-                    "message": "memory tool time budget is used up; answer with evidence already gathered",
-                    "remaining_budget": budget.to_status(),
-                }
-            )
+            try:
+                start_ts = parse_time_bound(start_time, is_end=False)
+                end_ts = parse_time_bound(end_time, is_end=True)
+            except ValueError as exc:
+                return bounded_status(
+                    {
+                        "query": cleaned_query,
+                        "count": 0,
+                        "results": [],
+                        "status": "invalid_query",
+                        "error": str(exc),
+                    }
+                )
 
-        evidence_by_id: dict[int, dict[str, Any]] = {}
-
-        if include_source and outcome.results:
-
-            async def read_one(memory):
-                try:
-                    evidence_by_id[memory.doc_id] = await read_memory_evidence_core(
-                        memory_engine=self.memory_engine,
-                        recall_session_id=recall_session_id,
-                        recall_persona_id=recall_persona_id,
-                        memory_id=memory.doc_id,
-                        include_source=True,
+            identity_key = None
+            identity_candidates: list[str] = []
+            if normalized_target == "current_speaker":
+                identity_key, identity_candidates, identity_status = (
+                    derive_speaker_identity(self.config_manager, event)
+                )
+                if identity_status != "ok":
+                    return bounded_status(
+                        {
+                            "query": "",
+                            "target": normalized_target,
+                            "count": 0,
+                            "results": [],
+                            "status": "identity_unavailable",
+                            "message": "current speaker identity is unavailable",
+                            "remaining_budget": budget.to_status(),
+                        }
                     )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    evidence_by_id[memory.doc_id] = {"status": "error"}
 
-            async def read_sources():
-                # 子协程也在预算工厂内创建，超时取消会等待全部子任务收尾。
-                await asyncio.gather(*(read_one(memory) for memory in outcome.results))
+            default_k = int(self.config_manager.get("recall_engine.top_k", 5))
+            max_k = int(self.config_manager.get("recall_engine.max_k", 10))
+            try:
+                requested_k = default_k if k is None else int(k)
+            except (TypeError, ValueError):
+                requested_k = default_k
+            limited_k = max(1, min(requested_k, max_k))
 
-            _, _, source_timed_out = await run_within_budget(budget, read_sources)
-            if source_timed_out:
-                for memory in outcome.results:
-                    evidence_by_id.setdefault(memory.doc_id, {"status": "timeout"})
+            try:
+                outcome, _, timed_out = await run_within_budget(
+                    budget,
+                    lambda: self.memory_engine.search_memories_agentic(
+                        target=normalized_target,
+                        query=cleaned_query,
+                        k=limited_k,
+                        session_id=recall_session_id,
+                        persona_id=recall_persona_id,
+                        identity_key=identity_key,
+                        identity_candidates=identity_candidates,
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                        exclude_ids=exclude_ids or [],
+                        cursor=search_offset or "",
+                    ),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return bounded_status(
+                    {
+                        "query": cleaned_query,
+                        "target": normalized_target,
+                        "count": 0,
+                        "results": [],
+                        "status": "error",
+                        "error": "memory recall failed",
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
+            if timed_out or outcome is None:
+                return bounded_status(
+                    {
+                        "query": cleaned_query,
+                        "target": normalized_target,
+                        "count": 0,
+                        "results": [],
+                        "status": "budget_exhausted",
+                        "message": "memory tool time budget is used up; answer with evidence already gathered",
+                        "remaining_budget": budget.to_status(),
+                    }
+                )
 
-        return format_search_result(
-            outcome,
-            query=cleaned_query,
-            target=normalized_target,
-            filters={
-                "session_filtered": session_filtered,
-                "persona_filtered": recall_persona_id is not None,
-                "identity_status": outcome.identity_status,
-            },
-            budget=budget,
-            evidence_by_id=evidence_by_id,
-            include_source=include_source,
-        )
+            evidence_by_id: dict[int, dict[str, Any]] = {}
+
+            if include_source and outcome.results:
+
+                async def read_one(memory):
+                    try:
+                        evidence_by_id[memory.doc_id] = await read_memory_evidence_core(
+                            memory_engine=self.memory_engine,
+                            recall_session_id=recall_session_id,
+                            recall_persona_id=recall_persona_id,
+                            memory_id=memory.doc_id,
+                            include_source=True,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        evidence_by_id[memory.doc_id] = {"status": "error"}
+
+                async def read_sources():
+                    # 子协程也在预算工厂内创建，超时取消会等待全部子任务收尾。
+                    await asyncio.gather(
+                        *(read_one(memory) for memory in outcome.results)
+                    )
+
+                _, _, source_timed_out = await run_within_budget(budget, read_sources)
+                if source_timed_out:
+                    for memory in outcome.results:
+                        evidence_by_id.setdefault(memory.doc_id, {"status": "timeout"})
+
+            return format_search_result(
+                outcome,
+                query=cleaned_query,
+                target=normalized_target,
+                filters={
+                    "session_filtered": session_filtered,
+                    "persona_filtered": recall_persona_id is not None,
+                    "identity_status": outcome.identity_status,
+                },
+                budget=budget,
+                evidence_by_id=evidence_by_id,
+                include_source=include_source,
+            )

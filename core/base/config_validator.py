@@ -6,7 +6,7 @@ config_validator.py - 配置验证模块
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from astrbot.api import logger
 
@@ -75,7 +75,8 @@ class RecallEngineConfig(BaseModel):
     )
     fallback_to_vector: bool = Field(default=True, description="是否启用向量检索回退")
     rerank_enabled: bool = Field(
-        default=False, description="是否启用 Rerank 重排序（需在 AstrBot 中配置 Rerank 提供商）"
+        default=False,
+        description="是否启用 Rerank 重排序（需在 AstrBot 中配置 Rerank 提供商）",
     )
     rerank_provider_id: str = Field(
         default="", description="AstrBot 中 Rerank 提供商的 ID，留空则不重排序"
@@ -241,6 +242,9 @@ class FilteringConfig(BaseModel):
         default="legacy", pattern="^(legacy|session|user|global)$"
     )
     isolated_sessions: str = Field(default="", description="强制隔离的会话列表")
+    shared_adapter_ids: list[str] | None = Field(
+        default=None, description="Adapter instances sharing long-term memory"
+    )
 
 
 class AccessControlConfig(BaseModel):
@@ -429,9 +433,7 @@ class MemoryDedupConfig(BaseModel):
     max_candidates: int = Field(
         default=3, ge=1, le=20, description="每次检测比较的候选记忆数量"
     )
-    merge_sources: bool = Field(
-        default=True, description="合并时是否保留新的来源消息"
-    )
+    merge_sources: bool = Field(default=True, description="合并时是否保留新的来源消息")
     max_source_messages: int = Field(
         default=50, ge=1, le=500, description="合并后最多保留的来源消息条数"
     )
@@ -726,5 +728,3 @@ def normalize_config(
                 )
 
     return config, corrections
-
-
