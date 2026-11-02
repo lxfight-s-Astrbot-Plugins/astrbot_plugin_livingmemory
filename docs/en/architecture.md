@@ -190,7 +190,9 @@ flowchart TB
 - Scope modes are legacy, session, user and global (`filtering_settings.memory_scope_mode`); recall, writes and migration all use the same scope resolution.
 - The whitelist decides which users or sessions may capture, summarize and recall; when it rejects an event, no memory is written.
 - Session, persona and status filters run inside BM25 and SQL queries before candidate truncation, so filtering cannot lose matches after limiting.
-- Graph entries and atoms also carry session_id and persona_id; cross-session sharing happens only in user or global mode.
+- Graph entries and atoms also carry session_id and persona_id; cross-session sharing is available in user/global mode or with legacy session filtering disabled, within the adapter range.
+
+An immutable request-local `ContextVar` carries adapter access, resets after event/tool/management requests and participates in retrieval cache keys. Keyword, atom and graph-entry SQL applies ownership before candidate limits. Vector retrieval builds a FAISS selector from SQL-eligible document IDs so other adapters cannot exhaust candidate expansion. New memories retain their instance `adapter_id`, while original session and user IDs are preserved.
 
 ## Budgets and known limits
 

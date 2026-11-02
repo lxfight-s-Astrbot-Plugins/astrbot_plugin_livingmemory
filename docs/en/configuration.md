@@ -19,6 +19,33 @@ LivingMemory defaults work for most users. The settings you usually need to touc
 | Higher recall quality | Keep graph memory and atomization enabled; set `recall_engine.top_k` to 5-8 |
 | Cost-sensitive setup | Lower `top_k`, disable recent-context expansion, and increase summary trigger rounds |
 
+## Adapter sharing and existing memories
+
+Select “Adapters sharing memory” (`filtering_settings.shared_adapter_ids`) in the settings access/isolation group. Selected instances share memory candidates; other instances are isolated. Two bots using the same adapter type still have separate instance IDs. An unset field adds no adapter restriction: session and persona settings determine visibility. Saving unrelated settings does not activate the new policy. After configuring the list, newly added instances are isolated until selected.
+
+| Adapter policy | Session isolation | Visibility |
+| --- | --- | --- |
+| Shared | Enabled | Each complete session ID remains isolated |
+| Shared | Disabled | Candidates from the sharing instances |
+| Isolated | Enabled | Current instance and session |
+| Isolated | Disabled | Multiple sessions of the current instance |
+
+Persona filtering continues to follow its existing setting. The `user` mode retains the original platform/user scope and does not identify different platform user IDs as one person. Source conversations and recent-message buffers remain attached to actual sessions.
+
+For existing memories stored under actual sessions, keep `legacy` mode and disable session filtering to share reads within the adapter list without rewriting old scopes. For example:
+
+```json
+{"filtering_settings":{"memory_scope_mode":"legacy","use_session_filtering":false,"use_persona_filtering":true,"shared_adapter_ids":["qq-main","wechat-main"]}}
+```
+
+The first startup recovers ownership from source sessions, retained messages and old scopes, then synchronizes metadata in parent documents, atoms, graph entries and the separate graph-vector document database. Ambiguous, mixed or missing provenance remains unassigned; after enabling the list, these records need explicit ownership before adapter recall can include them. In settings, “Memory ownership” assigns unowned records by their old scope or transfers an old instance's records to another instance.
+
+Affected SQLite databases are backed up under the plugin data directory at `backups/adapter_ownership_*` before ownership changes; a failed update rolls back its transaction. Migration retains text, source sessions, personas and document IDs without regenerating embeddings or rebuilding FAISS/FTS. Consolidation and write-time deduplication preserve adapter ownership rather than mixing records from different sources.
+
+Before manually transferring a batch, pause the affected adapters and wait for running summaries to finish, then resume after the transfer. Configured offline adapters remain selectable. Assignment changes ownership, not `session_id`; with session isolation enabled, an old session does not automatically become the new adapter's session.
+
+Management APIs accept an `adapter_id` query parameter to select the configured range; `page/memories?adapter_id=qq-main` still intersects existing session filters. `POST page/adapters/assign` accepts the target `adapter_id`, old `source_adapter_id` and `session_id`: a null source adapter assigns unowned records for that old scope; a specified source transfers that instance's records. The endpoint uses AstrBot Plugin Views authentication.
+
 ## Model providers
 
 | Key | Default | Description |

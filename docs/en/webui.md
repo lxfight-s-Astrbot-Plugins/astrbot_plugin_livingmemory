@@ -18,6 +18,8 @@ The 3D module is preloaded when the page opens; its scene is created only when s
 - Saving writes to the plugin configuration. Options used during initialization take full effect after reloading the plugin, while some (such as write-time duplicate merging) apply immediately.
 - The AstrBot plugin config page keeps the model providers, reply language and the required Embedding Provider field.
 
+Select sharing adapter instances under Settings → Access and isolation; session and persona filtering still applies. “Memory ownership” assigns legacy records or transfers an old instance’s records. Ambiguous provenance stays intact until an administrator selects its destination; see [Adapter sharing and existing memories](/en/configuration#adapter-sharing-and-existing-memories).
+
 ## Dashboard areas
 
 | Area | Purpose |
