@@ -2,12 +2,15 @@
 
 import asyncio
 import base64
+import hashlib
+import json
 import sqlite3
 import struct
 from types import SimpleNamespace
 
 import aiohttp
 import pytest
+from aiohttp import web
 
 from astrbot_plugin_livingmemory.core.embedding_cache import EmbeddingCache
 from astrbot_plugin_livingmemory.core.embedding_gateway import (
@@ -316,3 +319,256 @@ async def test_provider_mutation_cannot_reuse_old_space(tmp_path):
             await provider.get_embedding("cached")
     finally:
         await gateway.close()
+
+
+def custom_provider(model="BAAI/bge-m3", dimension=1024, base="https://api.siliconflow.cn/v1"):
+    provider = Provider()
+    provider.provider_config = dict(
+        Provider.provider_config, type="openai_embedding",
+        embedding_model=model, embedding_dimensions=dimension,
+        embedding_api_base=base, embedding_dimensions_mode="never",
+    )
+    provider.client = SimpleNamespace(base_url=base, api_key=Provider.api_key)
+    return provider
+
+
+def test_native_v4_namespace_is_unchanged(tmp_path):
+    provider = Provider()
+    gateway = SharedEmbeddingGateway(None, {}, str(tmp_path))
+    identity = [
+        provider.provider_config["embedding_api_base"].rstrip("/"),
+        "text-embedding-v4", 64, hashlib.sha256(provider.api_key.encode()).hexdigest(),
+        "v4-cache-1", "native-default-input",
+    ]
+    expected = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    assert gateway.fingerprint(provider) == expected
+    gateway.config.update(model_name="text-embedding-v4", dimensions=64, upstream_batch_size=1)
+    assert gateway.fingerprint(provider) == expected
+
+
+@pytest.mark.parametrize("settings", [{}, {"model_name": "BAAI/bge-m3"}, {"dimensions": 1024}])
+def test_custom_model_requires_explicit_model_and_dimensions(tmp_path, settings):
+    gateway = SharedEmbeddingGateway(None, settings, str(tmp_path))
+    with pytest.raises(ValueError, match="fill shared_embedding_cache"):
+        gateway.fingerprint(custom_provider())
+
+
+@pytest.mark.parametrize("settings,match", [
+    ({"model_name": "openai_embedding_1", "dimensions": 1024}, "not Provider ID"),
+    ({"model_name": "BAAI/bge-m3", "dimensions": 1536}, "actual output dimensions"),
+    ({"model_name": "BAAI/bge-m3", "dimensions": True}, "integer"),
+    ({"model_name": "BAAI/bge-m3", "dimensions": 1024, "upstream_batch_size": 0}, "batch_size"),
+])
+def test_custom_configuration_mismatch_is_actionable(tmp_path, settings, match):
+    with pytest.raises(ValueError, match=match):
+        SharedEmbeddingGateway(None, settings, str(tmp_path)).fingerprint(custom_provider())
+
+
+def test_openai_namespace_isolates_endpoint_key_model_dimension_options(tmp_path):
+    settings = {"model_name": "BAAI/bge-m3", "dimensions": 1024}
+    gateway = SharedEmbeddingGateway(None, settings, str(tmp_path))
+    first = gateway.fingerprint(custom_provider())
+    provider = custom_provider(base="https://other.example/v1")
+    assert gateway.fingerprint(provider) != first
+    provider = custom_provider()
+    provider.client.api_key = "another-test-key"
+    assert gateway.fingerprint(provider) != first
+    provider = custom_provider()
+    provider.provider_config["embedding_dimensions_mode"] = "always"
+    assert gateway.fingerprint(provider) != first
+    gateway.config = {"model_name": "text-embedding-3-small", "dimensions": 1536}
+    assert gateway.fingerprint(custom_provider("text-embedding-3-small", 1536)) != first
+    gateway.config = {"model_name": "BAAI/bge-m3", "dimensions": 3072}
+    assert gateway.fingerprint(custom_provider(dimension=3072)) != first
+
+
+def test_gateway_upstream_loop_is_rejected(tmp_path):
+    gateway = SharedEmbeddingGateway(
+        None, {"model_name": "BAAI/bge-m3", "dimensions": 1024}, str(tmp_path)
+    )
+    with pytest.raises(ValueError, match="own cache endpoint"):
+        gateway.fingerprint(custom_provider(base="http://127.0.0.1:17695/v1"))
+
+
+@pytest.mark.asyncio
+async def test_custom_batch_size_and_unknown_usage_survive_restart(tmp_path):
+    # 创建旧版四列计量表，验证新增字段的原位迁移。
+    with sqlite3.connect(tmp_path / "cache.db") as db:
+        db.execute("CREATE TABLE usage_totals (namespace TEXT PRIMARY KEY, requests INTEGER, inputs INTEGER, tokens INTEGER)")
+        db.execute("INSERT INTO usage_totals VALUES ('model-v4',2,2,14)")
+    cache, calls = await make_cache(tmp_path, batch_size=1)
+    async def fetch(texts):
+        calls.append(texts)
+        return [[1.0, 2.0] for _ in texts], None
+    cache.fetch = fetch
+    try:
+        assert (await cache.get(["a", "b"]))[1] is None
+        assert calls == [["a"], ["b"]]
+        assert cache.stats["unknown_upstream_requests"] == 2
+        assert (await cache.get(["a", "b"]))[1] == 0
+    finally:
+        await cache.close()
+    with sqlite3.connect(tmp_path / "cache.db") as db:
+        assert db.execute("SELECT requests,inputs,tokens,unknown_requests FROM usage_totals").fetchone() == (4, 4, 14, 2)
+    cache, calls = await make_cache(tmp_path)
+    try:
+        assert (await cache.get(["a", "b"]))[1] == 0
+        assert calls == []
+    finally:
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_unknown_usage_coalesced_waiters_do_not_claim_a_paid_request(tmp_path):
+    cache, calls = await make_cache(tmp_path)
+    async def fetch(texts):
+        calls.append(texts)
+        await asyncio.sleep(0)
+        return [[1.0, 2.0] for _ in texts], None
+    cache.fetch = fetch
+    try:
+        outputs = await asyncio.gather(*(cache.get(["same"]) for _ in range(20)))
+        assert sum(output[1] is None for output in outputs) == 1
+        assert sum(output[1] == 0 for output in outputs) == 19
+        assert len(calls) == 1
+    finally:
+        await cache.close()
+
+
+async def fake_upstream(handler, path):
+    app = web.Application()
+    app.router.add_post(path, handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", 0).start()
+    return runner, f"http://127.0.0.1:{runner.addresses[0][1]}"
+
+
+@pytest.mark.asyncio
+async def test_native_non_v4_raw_request_and_batch_clamp(tmp_path):
+    calls = []
+    async def handler(request):
+        body = await request.json()
+        assert body["model"] == "text-embedding-v3"
+        assert body["parameters"]["dimension"] == 1024
+        texts = body["input"]["texts"]
+        calls.append(texts)
+        return web.json_response({
+            "output": {"embeddings": [
+                {"text_index": i, "embedding": [0.25] * 1024}
+                for i in reversed(range(len(texts)))
+            ]}, "usage": {"total_tokens": 3 * len(texts)},
+        })
+    runner, base = await fake_upstream(handler, "/services/embeddings/text-embedding/text-embedding")
+    provider = Provider()
+    provider.provider_config = dict(
+        Provider.provider_config, embedding_model="text-embedding-v3",
+        embedding_api_base=base, embedding_dimensions=1024,
+    )
+    gateway = SharedEmbeddingGateway(
+        SimpleNamespace(get_all_embedding_providers=lambda: [provider]),
+        {"port": 0, "model_name": "text-embedding-v3", "dimensions": 1024, "upstream_batch_size": 128},
+        str(tmp_path),
+    )
+    try:
+        await gateway.start_for(provider)
+        assert len(await provider.get_embeddings([str(i) for i in range(11)])) == 11
+        assert [len(batch) for batch in calls] == [10, 1]
+        assert gateway.cache.stats["upstream_tokens"] == 33
+    finally:
+        await gateway.close()
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model,dimension,mode,known", [
+    ("BAAI/bge-m3", 1024, "never", False),
+    ("text-embedding-3-small", 1536, "always", True),
+    ("text-embedding-3-large", 3072, "always", True),
+])
+async def test_openai_real_sdk_custom_models_and_http_contract(tmp_path, model, dimension, mode, known):
+    openai = pytest.importorskip("openai")
+    calls = []
+    async def handler(request):
+        body = await request.json()
+        assert body["model"] == model
+        assert body["encoding_format"] == "float"
+        assert body.get("dimensions") == (dimension if mode == "always" else None)
+        calls.append(body["input"])
+        result = {
+            "object": "list", "model": model,
+            "data": [{"index": i, "object": "embedding", "embedding": [float(i + 1)] * dimension}
+                     for i in reversed(range(len(body["input"])))],
+        }
+        if known:
+            result["usage"] = {"prompt_tokens": 6, "total_tokens": 6}
+        return web.json_response(result)
+    runner, base = await fake_upstream(handler, "/v1/embeddings")
+    provider = custom_provider(model, dimension, base + "/v1")
+    provider.provider_config["embedding_dimensions_mode"] = mode
+    provider.client = openai.AsyncOpenAI(base_url=base + "/v1", api_key=Provider.api_key)
+    gateway = SharedEmbeddingGateway(
+        SimpleNamespace(get_all_embedding_providers=lambda: [provider]),
+        {"port": 0, "model_name": model, "dimensions": dimension}, str(tmp_path),
+    )
+    try:
+        await gateway.start_for(provider)
+        url = f"http://127.0.0.1:{gateway.runner.addresses[0][1]}"
+        async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {gateway.token}"}) as client:
+            async with client.get(url + "/v1/models") as response:
+                assert (await response.json())["data"][0]["id"] == model
+            async with client.get(url + "/health") as response:
+                assert await response.json() == {"ready": True, "model": model, "dimensions": dimension}
+            async with client.post(url + "/v1/embeddings", json={"model": "wrong", "input": "a"}) as response:
+                assert response.status == 400
+                assert model in (await response.json())["error"]["message"]
+            async with client.post(url + "/v1/embeddings", json={"model": model, "input": ["a", "b"]}) as response:
+                assert response.status == 200
+                body = await response.json()
+                assert body["model"] == model
+                assert body["usage"]["total_tokens"] == (6 if known else None)
+                assert body["data"][0]["embedding"] == [1.0] * dimension
+                assert body["data"][1]["embedding"] == [2.0] * dimension
+            assert await provider.get_embedding("a") == [1.0] * dimension
+            async with client.post(url + "/v1/embeddings", json={"model": model, "input": "a"}) as response:
+                assert (await response.json())["usage"]["total_tokens"] == 0
+        assert calls == [["a", "b"]]
+        assert gateway.cache.stats["unknown_upstream_requests"] == int(not known)
+        assert gateway.callers["http-client"]["unknown_requests"] == int(not known)
+    finally:
+        await gateway.close()
+        await provider.client.close()
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_openai_upstream_errors_hide_secrets_and_do_not_retry(tmp_path):
+    openai = pytest.importorskip("openai")
+    calls = []
+    async def handler(request):
+        calls.append(1)
+        return web.json_response({"error": {"message": "secret-test-upstream-key"}}, status=429)
+    runner, base = await fake_upstream(handler, "/v1/embeddings")
+    provider = custom_provider(base=base + "/v1")
+    provider.client = openai.AsyncOpenAI(base_url=base + "/v1", api_key=Provider.api_key)
+    gateway = SharedEmbeddingGateway(
+        SimpleNamespace(get_all_embedding_providers=lambda: [provider]),
+        {"port": 0, "model_name": "BAAI/bge-m3", "dimensions": 1024}, str(tmp_path),
+    )
+    try:
+        await gateway.start_for(provider)
+        url = f"http://127.0.0.1:{gateway.runner.addresses[0][1]}"
+        async with aiohttp.ClientSession() as client:
+            async with client.get(url + "/v1/models") as response:
+                assert response.status == 401
+            async with client.post(
+                url + "/v1/embeddings", json={"model": "BAAI/bge-m3", "input": "a"},
+                headers={"Authorization": f"Bearer {gateway.token}"},
+            ) as response:
+                assert response.status == 429
+                assert "secret" not in await response.text()
+        assert len(calls) == 1
+    finally:
+        await gateway.close()
+        await provider.client.close()
+        await runner.cleanup()

@@ -43,9 +43,10 @@
         "type": "object",
         "items": {
             "embedding_provider_id": {
-                "description": "Embedding 模型 ID",
-                "hint": "必填：AstrBot 中已启用的 Embedding Provider ID（如 openai_embedding）。留空只在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败，建议始终显式填写。",
+                "description": "Embedding 提供商 ID",
+                "hint": "选择 AstrBot 中已启用并测试成功的 Embedding 提供商，如 openai_embedding_1。这是提供商 ID，不是 BAAI/bge-m3 等模型名。上游 API 地址、密钥和维度先在该提供商中配置。",
                 "type": "string",
+                "_special": "select_provider_embedding",
                 "default": ""
             },
             "llm_provider_id": {
@@ -70,14 +71,32 @@
     },
     "shared_embedding_cache": {
         "description": "统一向量缓存",
-        "hint": "复用同一百炼 v4 提供商的向量结果。缓存与长期记忆独立；只监听本机，令牌保存在插件数据目录。",
+        "hint": "共享上面所选 Embedding 提供商的向量。支持 DashScope 文本模型、OpenAI 兼容文本模型；其他模型需填写真实模型名和输出维度。填写示例见 docs/shared-embedding-cache.md。缓存独立于记忆，只监听本机。",
         "type": "object",
         "items": {
             "enabled": {
                 "description": "启用统一缓存",
-                "hint": "默认关闭。需显式选择 DashScope 原生 text-embedding-v4 提供商；开启后重载插件。",
+                "hint": "先在 AstrBot 添加并测试 Embedding 提供商，再在上方选择其 ID。非原生 v4 必填下方模型名和维度；保存后重载插件。已有原生 v4 配置可继续沿用。",
                 "type": "bool",
                 "default": false
+            },
+            "model_name": {
+                "description": "上游真实模型名",
+                "hint": "其他模型必填，与 AstrBot 提供商的「嵌入模型」完全一致，不填 Provider ID。例如 text-embedding-3-small 或 BAAI/bge-m3。原生 DashScope text-embedding-v4 可留空自动读取。",
+                "type": "string",
+                "default": ""
+            },
+            "dimensions": {
+                "description": "实际输出维度",
+                "hint": "其他模型必填，与 AstrBot 的「嵌入维度」和实际 API 输出一致。例：text-embedding-3-small 默认 1536，BAAI/bge-m3 固定 1024。查官方文档并测试，不按模型名猜测；原生 v4 填 0 自动读取。更换模型需处理旧索引重建。",
+                "type": "int",
+                "default": 0
+            },
+            "upstream_batch_size": {
+                "description": "上游每批文本数",
+                "hint": "按服务商单次输入数量限制填写，范围 1–128，默认 10。不确定先填 1；DashScope 原生最多按 10 条拆批。不能突破模型的单条文本 Token 上限。",
+                "type": "int",
+                "default": 10
             },
             "port": {
                 "description": "本机接口端口",

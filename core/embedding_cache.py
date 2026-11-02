@@ -23,19 +23,23 @@ class EmbeddingCache:
         path: str,
         namespace: str,
         dimension: int,
-        fetch: Callable[[list[str]], Awaitable[tuple[list[list[float]], int]]],
+        fetch: Callable[[list[str]], Awaitable[tuple[list[list[float]], int | None]]],
         *,
         ttl_days: int = 90,
         max_entries: int = 10000,
         concurrency: int = 2,
         max_pending: int = 256,
+        batch_size: int = 10,
     ):
+        if type(batch_size) is not int or not 1 <= batch_size <= 128:
+            raise ValueError("Embedding batch size must be between 1 and 128")
         self.namespace = namespace
         self.dimension = dimension
         self.fetch = fetch
         self.ttl_seconds = ttl_days * 86400
         self.max_entries = max_entries
         self.max_pending = max_pending
+        self.batch_size = batch_size
         self._lock = asyncio.Lock()
         self._db_lock = threading.Lock()
         self._semaphore = asyncio.Semaphore(concurrency)
@@ -48,6 +52,7 @@ class EmbeddingCache:
         self.stats = dict(
             requests=0, inputs=0, cache_hits=0, coalesced=0,
             upstream_requests=0, upstream_inputs=0, upstream_tokens=0, failures=0,
+            unknown_upstream_requests=0,
         )
 
     async def start(self):
@@ -67,6 +72,12 @@ class EmbeddingCache:
             "namespace TEXT PRIMARY KEY, requests INTEGER NOT NULL DEFAULT 0,"
             "inputs INTEGER NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0)"
         )
+        # 为旧缓存原位添加未知用量计数，不删除已付费向量或历史已知用量。
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(usage_totals)")}
+        if "unknown_requests" not in columns:
+            self._db.execute(
+                "ALTER TABLE usage_totals ADD COLUMN unknown_requests INTEGER NOT NULL DEFAULT 0"
+            )
         self._db.commit()
 
     def key(self, text: str) -> str:
@@ -105,7 +116,7 @@ class EmbeddingCache:
                     continue
         return result
 
-    def _write(self, items: list[tuple[str, list[float]]], tokens: int):
+    def _write(self, items: list[tuple[str, list[float]]], tokens: int | None):
         assert self._db is not None
         timestamp = time.time()
         with self._db_lock, self._db:
@@ -118,10 +129,12 @@ class EmbeddingCache:
                 ],
             )
             self._db.execute(
-                "INSERT INTO usage_totals VALUES (?,1,?,?) ON CONFLICT(namespace) "
+                "INSERT INTO usage_totals (namespace,requests,inputs,tokens,unknown_requests) "
+                "VALUES (?,1,?,?,?) ON CONFLICT(namespace) "
                 "DO UPDATE SET requests=requests+1,inputs=inputs+excluded.inputs,"
-                "tokens=tokens+excluded.tokens",
-                (self.namespace, len(items), tokens),
+                "tokens=tokens+excluded.tokens,"
+                "unknown_requests=unknown_requests+excluded.unknown_requests",
+                (self.namespace, len(items), tokens or 0, int(tokens is None)),
             )
             self._db.execute(
                 "DELETE FROM embeddings WHERE created_at < ?", (timestamp - self.ttl_seconds,)
@@ -132,7 +145,7 @@ class EmbeddingCache:
                 (self.max_entries,),
             )
 
-    async def get(self, texts: list[str]) -> tuple[list[list[float]], int, dict]:
+    async def get(self, texts: list[str]) -> tuple[list[list[float]], int | None, dict]:
         if self._closed or self._db is None:
             raise RuntimeError("Embedding cache unavailable")
         if not isinstance(texts, list) or any(not isinstance(t, str) or not t for t in texts):
@@ -183,13 +196,17 @@ class EmbeddingCache:
             self.stats["cache_hits"] += local["hits"]
             self.stats["coalesced"] += local["coalesced"]
         actual_tokens = 0
+        unknown_usage = False
         for key, future in waiting.items():
             vector, tokens = await asyncio.shield(future)
             cached[key] = vector
             # 只由发起 miss 的请求计实际消耗；等待同一结果者不会重复计费。
             if key in new:
-                actual_tokens += tokens
-        return [list(cached[key]) for key in keys], actual_tokens, local
+                if tokens is None:
+                    unknown_usage = True
+                else:
+                    actual_tokens += tokens
+        return [list(cached[key]) for key in keys], None if unknown_usage else actual_tokens, local
 
     @staticmethod
     def _consume_exception(future):
@@ -199,12 +216,15 @@ class EmbeddingCache:
     async def _populate(self, items: list[tuple[str, str]]):
         try:
             async with self._semaphore:
-                for start in range(0, len(items), 10):
-                    chunk = items[start:start + 10]
+                for start in range(0, len(items), self.batch_size):
+                    chunk = items[start:start + self.batch_size]
                     self.stats["upstream_requests"] += 1
                     self.stats["upstream_inputs"] += len(chunk)
                     vectors, tokens = await self.fetch([text for _, text in chunk])
-                    self.stats["upstream_tokens"] += tokens
+                    if tokens is None:
+                        self.stats["unknown_upstream_requests"] += 1
+                    else:
+                        self.stats["upstream_tokens"] += tokens
                     if len(vectors) != len(chunk):
                         raise ValueError("Incomplete embedding batch")
                     validated = [

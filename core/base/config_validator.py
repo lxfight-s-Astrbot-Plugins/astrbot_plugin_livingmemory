@@ -441,6 +441,9 @@ class SharedEmbeddingCacheConfig(BaseModel):
     """公共向量缓存配置；默认关闭，升级本身不会改变现有向量调用。"""
 
     enabled: bool = False
+    model_name: str = Field(default="", max_length=256)
+    dimensions: int = Field(default=0, ge=0, le=16384)
+    upstream_batch_size: int = Field(default=10, ge=1, le=128)
     port: int = Field(default=17695, ge=1024, le=65535)
     ttl_days: int = Field(default=90, ge=1, le=3650)
     max_entries: int = Field(default=10000, ge=100, le=100000)
@@ -740,4 +743,3 @@ def normalize_config(
                 )
 
     return config, corrections
-

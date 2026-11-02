@@ -7,10 +7,22 @@
   "config": {
     "shared_embedding_cache": {
       "description": "共有埋め込みキャッシュ",
-      "hint": "同じ DashScope v4 プロバイダーのベクトルを共有します。記憶とは別に保存し、ローカル API は認証を必要とします。",
+      "hint": "選択したプロバイダーのベクトルを共有します。DashScope テキストモデルと OpenAI 互換テキストモデルに対応。他のモデルは実際のモデル名と次元数を入力してください。例: docs/shared-embedding-cache.md。記憶とは別に保存します。",
       "enabled": {
         "description": "共有キャッシュを有効化",
-        "hint": "初期状態は無効です。ネイティブ DashScope text-embedding-v4 が必要です。変更後はプラグインを再読み込みしてください。"
+        "hint": "AstrBot で埋め込みプロバイダーを作成・テストして上で ID を選択します。ネイティブ DashScope v4 以外は下のモデル名と次元数が必須です。保存後に再読み込みしてください。"
+      },
+      "model_name": {
+        "description": "上流の実際のモデル名",
+        "hint": "他のモデルでは必須。AstrBot の埋め込みモデル名をコピーします。Provider ID ではありません。例: text-embedding-3-small、BAAI/bge-m3。ネイティブ v4 は空欄で自動取得します。"
+      },
+      "dimensions": {
+        "description": "実際の出力次元数",
+        "hint": "他のモデルでは必須。AstrBot と API の出力に合わせます。OpenAI text-embedding-3-small は既定 1536、BAAI/bge-m3 は 1024。公式資料とテストで確認してください。ネイティブ v4 は 0 で自動取得。モデル変更時は索引移行が必要です。"
+      },
+      "upstream_batch_size": {
+        "description": "上流へのバッチ件数",
+        "hint": "サービスの上限に合わせて 1–128、既定 10。不明なら 1。ネイティブ DashScope は最大 10。各テキストの Token 上限も守ってください。"
       },
       "port": {"description": "ローカル API ポート"},
       "ttl_days": {"description": "キャッシュ有効日数"},
@@ -57,8 +69,8 @@
       "description": "モデルプロバイダー",
       "hint": "記憶システムが使用する AI モデルを設定します",
       "embedding_provider_id": {
-        "description": "Embedding モデル ID",
-        "hint": "必須：AstrBot で有効な Embedding Provider の ID（例: openai_embedding）。空欄にすると利用可能な最初の Embedding Provider にフォールバックするため、意図しないモデルが選ばれたり、ベクトル/グラフインデックスの初期化に失敗することがあります。先に AstrBot の LLM 設定で Embedding Provider を作成・有効化し、その ID をここに入力してください。"
+        "description": "Embedding プロバイダー ID",
+        "hint": "AstrBot で有効・テスト済みのプロバイダーを選択します（例: openai_embedding_1）。BAAI/bge-m3 等のモデル名とは異なります。上流 URL、API キー、次元数は先にプロバイダーで設定してください。"
       },
       "llm_provider_id": {
         "description": "LLM モデル ID",

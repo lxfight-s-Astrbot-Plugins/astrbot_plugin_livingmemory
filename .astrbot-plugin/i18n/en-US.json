@@ -7,10 +7,22 @@
   "config": {
     "shared_embedding_cache": {
       "description": "Shared embedding cache",
-      "hint": "Share vectors for the same DashScope v4 provider. Cache is separate from memories; the authenticated endpoint listens on localhost.",
+      "hint": "Share vectors from the selected provider. Supports DashScope text models and OpenAI-compatible text models. Enter the real model name and dimensions for other models; see docs/shared-embedding-cache.md. Cache is separate from memories.",
       "enabled": {
         "description": "Enable shared cache",
-        "hint": "Disabled by default. Requires a native DashScope text-embedding-v4 provider. Reload the plugin after changing this setting."
+        "hint": "First create and test an embedding provider in AstrBot, then select its ID above. Other than native DashScope v4, model name and dimensions below are required. Save and reload the plugin."
+      },
+      "model_name": {
+        "description": "Actual upstream model name",
+        "hint": "Required for other models. Copy AstrBot's embedding model, not Provider ID. Examples: text-embedding-3-small or BAAI/bge-m3. Native DashScope v4 can leave this blank."
+      },
+      "dimensions": {
+        "description": "Actual output dimensions",
+        "hint": "Required for other models; match AstrBot and the API output. OpenAI text-embedding-3-small defaults to 1536; BAAI/bge-m3 uses 1024. Check model documentation and test. Native v4 can use 0 for automatic detection. Model changes require index migration."
+      },
+      "upstream_batch_size": {
+        "description": "Texts per upstream batch",
+        "hint": "Set 1–128 according to the service limit; default 10. Start with 1 if unsure. Native DashScope batches are capped at 10. Each text must still fit the model's token limit."
       },
       "port": {"description": "Local endpoint port"},
       "ttl_days": {"description": "Cache lifetime in days"},
@@ -57,8 +69,8 @@
       "description": "Model Provider",
       "hint": "Configure the AI models used by the memory system",
       "embedding_provider_id": {
-        "description": "Embedding Model ID",
-        "hint": "Required: ID of an enabled Embedding Provider in AstrBot (for example openai_embedding). Leaving it empty only falls back to the first available Embedding Provider and may pick the wrong model or break vector/graph index initialization. Create and enable an Embedding Provider in the AstrBot LLM settings first, then fill in its ID here."
+        "description": "Embedding Provider ID",
+        "hint": "Select an enabled, tested AstrBot embedding provider, e.g. openai_embedding_1. This is a provider ID, not a model name such as BAAI/bge-m3. Configure the upstream URL, API key and dimensions in that provider first."
       },
       "llm_provider_id": {
         "description": "LLM Model ID",
