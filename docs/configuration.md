@@ -67,9 +67,9 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `session_manager.enable_full_group_capture` | `true` | 捕获群聊中未直接 @Bot 的消息，用于建立完整群聊背景 |
 | `session_manager.context_window_size` | `50` | 传给总结与上下文分析的历史消息窗口 |
 | `session_manager.max_messages_per_session` | `1000` | 单会话数据库保留消息上限 |
-| `session_manager.cleanup_batch_size` | `50` | 超限后每批清理的已总结旧消息数量 |
+| `session_manager.cleanup_batch_size` | `50` | 优先批量清理已总结消息；仍超上限时只额外删除达到上限所需的最旧消息 |
 
-群聊消息量很大时，可以适当降低 `context_window_size` 或关闭全量群聊捕获。
+群聊消息量很大时，可以适当降低 `context_window_size` 或关闭全量群聊捕获。超过 `max_messages_per_session` 时会优先删除已总结消息；已总结消息不足时，也会淘汰最旧的未总结缓存并警告，尚未形成记忆的内容可能丢失。正在处理的消息快照按消息 ID 和时间戳定位提交游标，不会因头部清理跳过剩余消息。
 
 ## 召回与注入
 
@@ -118,6 +118,7 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | 达到多少轮对话后触发总结 |
+| `reflection_engine.max_messages_per_segment` | `120` | 每段总结的消息条数上限；同一天连续对话也按此分段 |
 | `reflection_engine.max_segments_per_run` | `10` | 单次触发最多连续总结的切分片段数；达到上限后剩余积压留到下次触发 |
 | `reflection_engine.window_split_by_day` | `true` | 跨天时只总结最老的一天，避免跨天对话合并进同一条记忆 |
 | `reflection_engine.window_split_gap_minutes` | `180` | 相邻消息空闲间隔超过该分钟数时只总结最老片段；`0` 关闭空闲间隔切分 |
@@ -153,6 +154,8 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 主动遗忘工具默认关闭，开启后也只对管理员生效：模型只能把记忆归档（从检索中移除，documents 记录保留），不会物理删除；管理员可在 Dashboard 记忆页用 `archived` 状态筛选后改回 `active` 恢复。单次调用条数受限，并有按会话的冷却时间。
 
 自主回忆为 Beta 功能，默认关闭。开启后 `recall_long_term_memory` 支持按当前发言人检索、事件时间范围过滤、排除已看候选与游标分页，并注册 `read_memory_evidence`，按记忆 ID 读取有效事实与（可验证时）保留原文。工具调用次数、累计耗时与单次返回长度共享单次请求预算；回忆规则以临时片段追加注入。开关与三项预算始终显示在设置页，保存并成功重载插件后对新请求生效。
+
+每段输入最多 `max_messages_per_segment` 条，跨天或空闲边界更早时先在边界切分；同一任务继续处理后续片段，直到达到 `max_segments_per_run`。失败重试从仍未总结的位置开始，放弃连续失败片段也只跳过当前片段。反思触发的整合在积压任务结束后调度，整合与反思持有同一写入锁，LLM 推理仍并行执行。
 
 ## 图记忆与原子化
 

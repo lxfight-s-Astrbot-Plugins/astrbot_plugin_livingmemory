@@ -71,6 +71,8 @@ Providers that only accept streaming requests (`stream=true`) are switched to st
 
 For very busy group chats, lower `context_window_size` or disable full group capture.
 
+History above `max_messages_per_session` first discards summarized messages. If insufficient, the oldest unsummarized buffered messages are also removed with a warning; content not yet stored in memory may be lost. Active snapshots commit their cursor by message ID and timestamp so trimming does not skip retained messages.
+
 ## Recall and injection
 
 | Key | Default | Description |
@@ -118,6 +120,7 @@ Aliases are matched in this order: `platform:user ID`, user ID, then current use
 | Key | Default | Description |
 | --- | --- | --- |
 | `reflection_engine.summary_trigger_rounds` | `10` | Number of conversation rounds before summarization |
+| `reflection_engine.max_messages_per_segment` | `120` | Maximum messages per summary segment, including uninterrupted same-day chats |
 | `reflection_engine.max_segments_per_run` | `10` | Maximum split segments summarized by one trigger; remaining backlog waits for the next trigger |
 | `reflection_engine.window_split_by_day` | `true` | Summarizes only the oldest day when a window crosses midnight, so multi-day chats are not merged into one memory |
 | `reflection_engine.window_split_gap_minutes` | `180` | Summarizes only the oldest segment when the idle gap between messages exceeds this many minutes; `0` disables gap splitting |
@@ -133,6 +136,9 @@ Lower `summary_trigger_rounds` if you want the bot to remember faster. Raise it 
 Summary windows are still triggered by unsummarized rounds, but they no longer merge across days or long idle gaps: when a boundary exists, coherent segments are summarized oldest-first and the same background task keeps consuming the backlog until it is empty or `max_segments_per_run` is reached. Any remaining backlog is consumed by a later trigger. Stored message time prefers the platform message timestamp and falls back to the receipt time when it is missing or implausible (for example millisecond timestamps or a clock clearly ahead), so window boundaries follow when messages actually happened.
 
 Retained source is written only to the SQLite `memory_sources` table, not to vector, BM25, graph, or atom indexes, so it does not increase vector count. It does increase database disk usage. Re-summarizing from Dashboard calls the LLM once, replaces the old memory, and regenerates its embedding and all derived indexes.
+
+Each input contains at most `max_messages_per_segment` messages; earlier day/idle boundaries still split first. The same task continues up to `max_segments_per_run`. Retries start at the retained unsummarized cursor; abandoning a repeatedly failed segment skips only that segment. Reflection-triggered consolidation is scheduled after backlog processing, and its persistence shares a lock with reflection while LLM inference remains concurrent.
+
 
 ## Agent tools
 
