@@ -1,5 +1,26 @@
 # Releases and Upgrades
 
+## 2.9.0 · November 3, 2026
+
+2.9.0 adds adapter sharing and legacy ownership migration, with fixes for reflection backlog, history trimming and consolidation isolation. Existing vectors and document IDs are retained without regenerating embeddings.
+
+[Download 2.9.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.9.0)
+
+### What changed
+
+- **Adapter sharing**: select sharing instances while retaining session, user-scope and persona restrictions. Recover identifiable legacy ownership; assign ambiguous records or transfer an old instance in settings, with SQLite backups before changes. See [#384](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/384).
+- **Bounded reflection and retention**: each input has at most `max_messages_per_segment` messages, default 120, with continuous backlog processing within the existing segment budget. Enforce the `max_messages_per_session` hard cap even at cursor zero: remove summarized messages first, then the oldest unsummarized buffered messages if necessary, with a warning.
+- **Cursors and consolidation**: coordinate snapshot reads with head trimming and commit by message ID/time so retries do not skip later segments. Consolidation and reflection persist mutually exclusively while LLM inference stays concurrent; session grouping also preserves personas and adapter ownership. See [#386](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/386).
+
+Contributed by [@lxfight](https://github.com/lxfight). The latest complete suite passed 1,203 backend and 150 frontend tests. Validation covers adapter migration, real SQLite/FAISS, concurrent trimming and multiple Chrome viewport sizes.
+
+### Install and upgrade
+
+1. Stop the plugin and back up its full data directory. Raise `max_messages_per_session` or export history first if all unsummarized source messages must be retained; the hard cap can discard content not yet stored as memory.
+2. Update to `2.9.0`, restart AstrBot and reopen Plugin Views. After configuring a sharing list, unselected and newly added instances are isolated; session isolation still separates actual sessions.
+3. Ownership changes preserve `session_id`. Before a manual bulk transfer, pause affected adapters and wait for summaries to finish. Ambiguous legacy records need explicit assignment.
+4. The database file-open failure in [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) remains open pending new diagnostic logs.
+
 ## 2.8.4 · November 1, 2026
 
 2.8.4 fixes authenticated 3D graph loading, improves SQLite open-error diagnostics and explains the host upgrade for timestamp write failures. No plugin configuration changes or database migration are required.

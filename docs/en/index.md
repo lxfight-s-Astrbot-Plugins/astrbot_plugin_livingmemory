@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.8.4
+      text: Get 2.9.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.8.4 is released
+## 2.9.0 is released
 
-2.8.4 fixes authenticated 3D graph loading, adds native SQLite error codes and database paths, and explains the host upgrade for timestamp write failures. Plugin Views require AstrBot 4.24.2 or later; the timestamp fix requires host version 4.29.0 or later. See [Releases and Upgrades](/en/releases) for downloads and instructions.
+2.9.0 adds adapter-instance sharing and legacy ownership migration, with fixes for oversized summaries, history retention and consolidation isolation. Session and persona settings still apply. Back up source conversations before upgrading and review the hard retention cap. See [Releases and Upgrades](/en/releases) for downloads, migration and configuration.
 
 ## Who is this for?
 
