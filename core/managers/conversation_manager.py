@@ -363,7 +363,9 @@ class ConversationManager:
         platform_id = cls._normalize_sender_name(
             cls._call_event_getter(event, "get_platform_id")
         )
-        fallback_scope = platform_id or cls._normalize_sender_name(platform) or "unknown"
+        fallback_scope = (
+            platform_id or cls._normalize_sender_name(platform) or "unknown"
+        )
         return f"bot:{fallback_scope}", bot_name or "Bot"
 
     @classmethod
@@ -721,32 +723,52 @@ class ConversationManager:
                 self._session_locks.pop(session_id, None)
             self._session_revisions.pop(session_id, None)
 
-    async def trim_session_messages(self, session_id: str, delete_count: int) -> int:
-        """清理已总结的旧消息（滑动窗口），并在锁内钳制总结游标。
+    async def get_summary_window(
+        self, session_id: str, limit: int
+    ) -> tuple[int, list[Message]]:
+        """Read a cursor and its bounded snapshot without an intervening head trim."""
+        async with self._session_lock(session_id):
+            session = await self.store.get_session(session_id)
+            metadata = session.metadata
+            start = int(metadata.get("last_summarized_index", 0) or 0)
+            pending = metadata.get("pending_summary")
+            if pending:
+                start = min(start, int(pending.get("start_index", start)))
+            messages = await self.store.get_messages_range(
+                session_id, offset=start, limit=limit
+            )
+            return start, messages
 
-        **刻意不推进会话修订号**：滑动窗口只删除**已总结**的消息，被删内容不在任何
-        在途总结任务的范围内；而任务提交的 ``end_index`` 是"触发时的消息总数"，经
-        store 的原子钳制后恰好等于清理后的总数，本来就是正确游标。若在此推进修订号，
-        在途任务的合法提交会被判废并触发补偿删除，把刚写完的合法记忆删掉（记忆空洞
-        且浪费一次 LLM 总结）。
+    async def commit_summary_cursor(
+        self, session_id: str, last_message: Message, expected_revision: int | None
+    ) -> bool:
+        """Atomically locate a completed snapshot in the retained history."""
+        async with self._session_lock(session_id):
+            if (
+                expected_revision is not None
+                and self._session_revisions.get(session_id, 0) != expected_revision
+            ):
+                return False
+            await self.store.commit_summary_cursor(
+                session_id, last_message.timestamp, last_message.id
+            )
+            await self.invalidate_cache(session_id)
+            return True
 
-        这里只做两件事：持会话锁（避免与条件写入交错产生倒挂）+ 钳制游标
-        （``pending_summary`` 的绝对下标由 store 在删除时同步前移）。
-        """
+    async def trim_session_messages(
+        self, session_id: str, delete_count: int, *, delete_unsummarized: bool = False
+    ) -> int:
+        """Trim buffered history; completed snapshots commit using stable message anchors."""
         if delete_count <= 0:
             return 0
         async with self._session_lock(session_id):
-            deleted = await self.store.trim_session_messages(session_id, delete_count)
-            repaired = (
-                await self._repair_summary_state_locked(session_id)
-                if deleted > 0
-                else {}
+            deleted = await self.store.trim_session_messages(
+                session_id, delete_count, delete_unsummarized=delete_unsummarized
             )
         if deleted > 0:
             await self.invalidate_cache(session_id)
             logger.info(
-                f"[ConversationManager] 滑动窗口清理 {deleted} 条已总结消息: {session_id}"
-                + (f"，已钳制 {repaired}" if repaired else "")
+                f"[ConversationManager] Trimmed {deleted} oldest messages: {session_id}"
             )
         return deleted
 
@@ -886,9 +908,7 @@ class ConversationManager:
             清理的会话数量
         """
         ttl_seconds = max(60, int(self.session_ttl))
-        deleted_sessions = await self.store.delete_old_sessions(
-            ttl_seconds=ttl_seconds
-        )
+        deleted_sessions = await self.store.delete_old_sessions(ttl_seconds=ttl_seconds)
         deleted_count = len(deleted_sessions)
 
         # 会话已从库中删除，回收其内存状态，避免长期运行后字典无限增长（#289）

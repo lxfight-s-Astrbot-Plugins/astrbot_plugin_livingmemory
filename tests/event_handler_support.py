@@ -1,19 +1,12 @@
 """Shared fixtures and helpers for the event handler test modules."""
 
-import asyncio
-import json
-import logging
-import time
-from datetime import datetime
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.event_handler import EventHandler
 
 from astrbot.api.platform import MessageType
-
 
 
 @pytest.fixture
@@ -49,9 +42,38 @@ def conversation_manager():
 
     manager.get_session_metadata = AsyncMock(side_effect=_get_session_metadata)
     manager.get_messages_range = AsyncMock(
-        return_value=[Mock(group_id=None), Mock(group_id=None)]
+        return_value=[Mock(id=i + 1, group_id=None) for i in range(12)]
     )
     manager.update_session_metadata = AsyncMock(side_effect=_update_session_metadata)
+
+    async def _commit_summary_cursor(session_id, last_message, expected_revision):
+        request = manager.get_messages_range.await_args
+        position = request.kwargs.get("end_index", 12) if request else 12
+        await manager.update_session_metadata(
+            session_id, "last_summarized_index", position
+        )
+        await manager.update_session_metadata(session_id, "pending_summary", None)
+        return True
+
+    manager.commit_summary_cursor = AsyncMock(side_effect=_commit_summary_cursor)
+
+    async def _get_summary_window(session_id, limit):
+        start = await manager.get_session_metadata(
+            session_id, "last_summarized_index", 0
+        )
+        pending = await manager.get_session_metadata(
+            session_id, "pending_summary", None
+        )
+        if pending:
+            start = min(start, pending.get("start_index", start))
+        end = min(await manager.store.get_message_count(session_id), start + limit)
+        rows = await manager.get_messages_range(
+            session_id=session_id, start_index=start, end_index=end
+        )
+        return start, rows
+
+    manager.get_summary_window = AsyncMock(side_effect=_get_summary_window)
+
     manager.invalidate_cache = AsyncMock()
     manager.reconcile_session_tail = AsyncMock(return_value=0)
     manager.get_last_message = AsyncMock(return_value=None)
@@ -117,8 +139,6 @@ def _make_event(group: bool = False, checkpoint: str | None = None):
     return event
 
 
-
-
 async def _make_real_handler(tmp_path, memory_engine=None):
     """构建使用真实 SQLite 的 EventHandler（memory_engine 用 mock）。"""
     from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
@@ -158,6 +178,8 @@ async def _make_real_handler(tmp_path, memory_engine=None):
         conversation_manager=manager,
     )
     return handler, manager, store
+
+
 async def _seed_turns(manager, sid: str, checkpoints: tuple[str, ...]) -> None:
     """写入若干完整轮次（user + assistant，均带 checkpoint）。"""
     for checkpoint in checkpoints:

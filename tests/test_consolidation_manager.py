@@ -43,7 +43,7 @@ class TestGroupBySession:
             {"id": 2, "metadata": {"session_id": "s1"}},
             {"id": 3, "metadata": {"session_id": "s2"}},
         ]
-        groups = mgr._group_by_session(candidates)
+        groups = mgr._split_by_scope(candidates)
         by_size = sorted([len(g) for g in groups], reverse=True)
         assert by_size == [2, 1]
 
@@ -54,7 +54,7 @@ class TestGroupBySession:
             {"id": 2, "metadata": {"session_id": None}},
             {"id": 3, "metadata": {"session_id": "s1"}},
         ]
-        groups = mgr._group_by_session(candidates)
+        groups = mgr._split_by_scope(candidates)
         assert len(groups) == 1
         assert len(groups[0]) == 1
 
@@ -400,3 +400,41 @@ class TestMemoryProcessorMerge:
 
         with pytest.raises(RuntimeError):
             await processor.merge_memories([{"content": "x", "metadata": {}}])
+
+
+@pytest.mark.asyncio
+async def test_session_consolidation_keeps_personas_and_adapter_owners_separate():
+    manager = _make_manager(_make_cfg(min_memories_per_group=2))
+    records = [
+        {
+            "id": i,
+            "metadata": {
+                "session_id": "livingmemory:global",
+                "persona_id": persona,
+                "adapter_id": adapter,
+            },
+        }
+        for i, (adapter, persona) in enumerate(
+            [
+                ("qq-a", "p1"),
+                ("qq-a", "p1"),
+                ("qq-a", "p2"),
+                ("qq-a", "p2"),
+                ("wechat-a", "p1"),
+                ("wechat-a", "p1"),
+            ],
+            1,
+        )
+    ]
+    groups = await manager._build_groups(records, manager.config)
+    assert len(groups) == 3
+    assert all(
+        len(
+            {
+                (row["metadata"]["adapter_id"], row["metadata"]["persona_id"])
+                for row in group
+            }
+        )
+        == 1
+        for group in groups
+    )

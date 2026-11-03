@@ -2,33 +2,23 @@
 Event handler tests: message capture, recall injection and storage basics.
 """
 
-import asyncio
-import json
-import logging
-import time
-from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from tests.event_handler_support import conversation_manager as conversation_manager
+from tests.event_handler_support import handler as handler
+from tests.event_handler_support import memory_engine as memory_engine
+from tests.event_handler_support import memory_processor as memory_processor
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.event_handler import EventHandler
-
-from astrbot.api.platform import MessageType
-
 
 
 from tests.event_handler_support import (
     _make_event,
-    _make_real_handler,
     _make_req,
     _make_resp,
-    _seed_turns,
-    conversation_manager,
-    handler,
-    memory_engine,
-    memory_processor,
 )
+
 
 @pytest.mark.asyncio
 async def test_message_dedup_cache_works(handler):
@@ -143,8 +133,8 @@ async def test_enforce_message_limit_uses_cleanup_batch_size(
     conversation_manager.trim_session_messages.assert_awaited_once_with(
         "test:private:sid-1", 20
     )
-    conversation_manager.get_session_metadata.assert_any_await(
-        "test:private:sid-1", "last_summarized_index", 60
+    conversation_manager.get_session_metadata.assert_awaited_once_with(
+        "test:private:sid-1", "last_summarized_index", 0
     )
     conversation_manager.update_session_metadata.assert_not_awaited()
     conversation_manager.invalidate_cache.assert_awaited_once_with("test:private:sid-1")
@@ -548,6 +538,14 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
 
     conversation_manager.get_session_metadata = AsyncMock(side_effect=_get_meta)
     conversation_manager.update_session_metadata = AsyncMock(side_effect=_update_meta)
+
+    async def _commit(session_id, last_message, expected_revision):
+        session_metadata["pending_summary"] = None
+        session_metadata["last_summarized_index"] = 4
+        return True
+
+    conversation_manager.commit_summary_cursor = AsyncMock(side_effect=_commit)
+
     conversation_manager.store.get_message_count = AsyncMock(return_value=4)
 
     with patch(
@@ -561,5 +559,3 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
     assert session_metadata.get("pending_summary") is None
     # add_memory 不应被调用（放弃了该范围）
     memory_engine.add_memory.assert_not_awaited()
-
-

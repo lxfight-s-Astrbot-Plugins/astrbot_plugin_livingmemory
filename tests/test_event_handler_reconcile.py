@@ -3,19 +3,14 @@ Event handler tests: WebUI edit/retry reconciliation and reflection guards.
 """
 
 import asyncio
-import json
 import logging
-import time
-from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
-from astrbot_plugin_livingmemory.core.event_handler import EventHandler
-
-from astrbot.api.platform import MessageType
-
+from tests.event_handler_support import conversation_manager as conversation_manager
+from tests.event_handler_support import handler as handler
+from tests.event_handler_support import memory_engine as memory_engine
+from tests.event_handler_support import memory_processor as memory_processor
 
 
 from tests.event_handler_support import (
@@ -24,10 +19,6 @@ from tests.event_handler_support import (
     _make_req,
     _make_resp,
     _seed_turns,
-    conversation_manager,
-    handler,
-    memory_engine,
-    memory_processor,
 )
 
 # ==================== WebUI 编辑/重试历史对账测试 ====================
@@ -288,9 +279,7 @@ async def test_reflection_guard_stores_matching_assistant(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_gated_on_checkpoint_extra(
-    handler, conversation_manager
-):
+async def test_reconcile_gated_on_checkpoint_extra(handler, conversation_manager):
     """非 webchat（事件无 llm_checkpoint_id extra）不触发对账，避免每次读库。"""
     # 无 checkpoint extra（Mock 自动返回 Mock，非 str）→ 不调用对账
     event = _make_event(group=False)
@@ -533,19 +522,18 @@ async def test_failed_summary_does_not_record_pending_after_rollback(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_summary_cursor_commit_is_rejected_after_revision_change(
-    handler, conversation_manager
-):
-    """游标写入必须原子校验修订号：回滚后拒绝把 last_summarized_index 写回旧位置。"""
-    conversation_manager.update_session_metadata_if_revision = AsyncMock(
-        return_value=False
-    )
-    conversation_manager.update_session_metadata = AsyncMock()
-
-    committed = await handler._memory_reflection._commit_summary_cursor("s1", 12, 3)
-
-    assert committed is False
-    conversation_manager.update_session_metadata.assert_not_awaited()
+async def test_summary_cursor_commit_is_rejected_after_revision_change(tmp_path):
+    handler, manager, store = await _make_real_handler(tmp_path)
+    sid = "test:private:stale-summary"
+    try:
+        await _seed_turns(manager, sid, ("C1",))
+        messages = await manager.get_messages_range(sid, 0, 2)
+        await manager.bump_session_revision(sid)
+        assert await manager.commit_summary_cursor(sid, messages[-1], 0) is False
+        assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 0
+    finally:
+        await handler.shutdown()
+        await store.close()
 
 
 @pytest.mark.asyncio
