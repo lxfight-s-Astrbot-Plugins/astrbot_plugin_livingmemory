@@ -68,7 +68,10 @@ async def test_page_routes_are_registered_while_providers_are_pending(
             call.args[0]: call.args[1]
             for call in plugin.context.register_web_api.call_args_list
         }
-        response = await routes["/astrbot_plugin_livingmemory/page/stats"]()
+        from quart import Quart
+
+        async with Quart(__name__).test_request_context("/"):
+            response = await routes["/astrbot_plugin_livingmemory/page/stats"]()
         assert response["status"] == "error"
         assert "插件" in response["message"]
     finally:
@@ -188,3 +191,36 @@ async def test_terminate_cleans_background_tasks_and_resources(monkeypatch, tmp_
     plugin.initializer.db.close.assert_awaited_once()
     assert running_task.cancelled() or running_task.done()
     assert len(plugin._background_tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_command_adapter_context_is_reset_between_yielded_messages():
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.memory_scope import current_adapter_access
+
+    seen = []
+
+    async def command(event):
+        try:
+            seen.append(current_adapter_access.get().adapter_id)
+            yield "first"
+            seen.append(current_adapter_access.get().adapter_id)
+            yield "second"
+        finally:
+            seen.append(current_adapter_access.get().adapter_id)
+
+    plugin = plugin_main.LivingMemoryPlugin.__new__(plugin_main.LivingMemoryPlugin)
+    plugin.config_manager = ConfigManager(
+        {"filtering_settings": {"shared_adapter_ids": []}}
+    )
+    plugin.command_handler = SimpleNamespace(handle_search=command)
+    plugin._ensure_plugin_ready = AsyncMock(return_value=(True, ""))
+    event = SimpleNamespace(get_platform_id=lambda: "qq-a")
+    messages = plugin._run_command(event, "handle_search")
+    assert await anext(messages) == "first"
+    assert current_adapter_access.get() is None
+    assert await anext(messages) == "second"
+    assert current_adapter_access.get() is None
+    await messages.aclose()
+    assert seen == ["qq-a", "qq-a", "qq-a"]
+    assert current_adapter_access.get() is None

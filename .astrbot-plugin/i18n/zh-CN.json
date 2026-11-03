@@ -254,6 +254,10 @@
       "isolated_sessions": {
         "description": "强制隔离会话",
         "hint": "每行填写一个完整会话 ID。这些会话始终使用独立记忆作用域，不受 user、global 或旧版关闭会话过滤设置影响。"
+      },
+      "shared_adapter_ids": {
+        "description": "互通的适配器",
+        "hint": ""
       }
     },
     "reflection_engine": {

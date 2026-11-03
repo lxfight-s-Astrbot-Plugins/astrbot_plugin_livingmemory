@@ -102,9 +102,7 @@ def test_whitelist_accepts_supported_identifiers(allowed_ids):
 
 
 def test_enabled_empty_whitelist_denies_access():
-    config = _config(
-        access_control={"whitelist_enabled": True, "allowed_ids": ""}
-    )
+    config = _config(access_control={"whitelist_enabled": True, "allowed_ids": ""})
     assert is_event_memory_allowed(config, _Event()) is False
 
 
@@ -136,12 +134,18 @@ def test_scope_modes_and_isolated_override():
         user_config, second
     )
 
-    assert resolve_memory_scope(
-        _config(filtering_settings={"memory_scope_mode": "global"}), first
-    ) == GLOBAL_MEMORY_SCOPE
-    assert resolve_memory_scope(
-        _config(filtering_settings={"memory_scope_mode": "session"}), first
-    ) == first.unified_msg_origin
+    assert (
+        resolve_memory_scope(
+            _config(filtering_settings={"memory_scope_mode": "global"}), first
+        )
+        == GLOBAL_MEMORY_SCOPE
+    )
+    assert (
+        resolve_memory_scope(
+            _config(filtering_settings={"memory_scope_mode": "session"}), first
+        )
+        == first.unified_msg_origin
+    )
     assert (
         resolve_memory_scope(
             _config(
@@ -206,3 +210,65 @@ def test_is_suspicious_session_id_detects_leaked_errors():
     assert is_suspicious_session_id("test:private:session-1") is False
     assert is_suspicious_session_id("") is False
     assert is_suspicious_session_id(None) is False
+
+
+def test_shared_adapters_and_isolated_instance_scope():
+    from astrbot_plugin_livingmemory.core.memory_scope import (
+        adapter_access,
+        adapter_sql,
+        current_adapter_access,
+    )
+
+    config = _config(
+        filtering_settings={"shared_adapter_ids": ["qq-instance", "wechat-instance"]}
+    )
+    with adapter_access(config, _Event(platform="qq")):
+        access = current_adapter_access.get()
+        assert access.adapter_id == "qq-instance"
+        assert access.adapter_ids == ("qq-instance", "wechat-instance")
+        sql, params = adapter_sql("metadata")
+        assert "IN (?,?)" in sql
+        assert params == ["qq-instance", "wechat-instance"]
+    with adapter_access(config, _Event(platform="telegram")):
+        assert current_adapter_access.get().adapter_ids == ("telegram-instance",)
+    assert current_adapter_access.get() is None
+
+
+def test_adapter_scope_preserves_existing_session_and_persona_settings():
+    from astrbot_plugin_livingmemory.core.memory_scope import (
+        adapter_access,
+        adapter_sql,
+    )
+
+    event = _Event()
+    legacy = _config()
+    with adapter_access(legacy, event):
+        assert adapter_sql("metadata") == ("1", [])
+        assert resolve_memory_scope(legacy, event) == event.unified_msg_origin
+    config = _config(
+        filtering_settings={"shared_adapter_ids": [], "memory_scope_mode": "global"}
+    )
+    with adapter_access(config, event):
+        assert adapter_sql("metadata")[1] == ["test-instance"]
+        assert resolve_memory_scope(config, event) == GLOBAL_MEMORY_SCOPE
+
+
+@pytest.mark.asyncio
+async def test_adapter_access_is_task_local():
+    import asyncio
+    from astrbot_plugin_livingmemory.core.memory_scope import (
+        adapter_access,
+        current_adapter_access,
+    )
+
+    config = _config(filtering_settings={"shared_adapter_ids": []})
+
+    async def read(platform):
+        with adapter_access(config, _Event(platform=platform)):
+            await asyncio.sleep(0)
+            return current_adapter_access.get().adapter_ids
+
+    assert await asyncio.gather(read("qq"), read("wechat")) == [
+        ("qq-instance",),
+        ("wechat-instance",),
+    ]

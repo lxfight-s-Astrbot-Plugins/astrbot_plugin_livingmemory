@@ -140,7 +140,11 @@ class MemoryConsolidationManager:
             session_id = metadata.get("session_id")
             if not session_id:
                 continue
-            key = (str(session_id), metadata.get("persona_id"))
+            key = (
+                str(session_id),
+                metadata.get("persona_id"),
+                metadata.get("adapter_id"),
+            )
             buckets.setdefault(key, []).append(mem)
         return list(buckets.values())
 
@@ -152,7 +156,9 @@ class MemoryConsolidationManager:
             session_id = mem["metadata"].get("session_id")
             if not session_id:
                 continue
-            grouped.setdefault(str(session_id), []).append(mem)
+            grouped.setdefault(
+                (str(session_id), mem["metadata"].get("adapter_id")), []
+            ).append(mem)
         return list(grouped.values())
 
     async def _group_semantic(
@@ -217,6 +223,7 @@ class MemoryConsolidationManager:
             raise RuntimeError("整合组缺少会话作用域，无法写出可召回的合并记忆")
 
         metadata = {
+            "adapter_id": group[0]["metadata"].get("adapter_id"),
             "topics": merged["topics"],
             "key_facts": key_facts,
             "persona_summary": summary,

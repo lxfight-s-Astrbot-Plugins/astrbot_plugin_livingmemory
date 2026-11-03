@@ -639,7 +639,9 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_importance_valid_range(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
+            return_value=True
+        )
         req = _mock_page_request(
             get_json={
                 "memory_id": 1,
@@ -666,7 +668,9 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_importance_display_scale_preserves_one_point_zero(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
+            return_value=True
+        )
         req = _mock_page_request(
             get_json={
                 "memory_id": 1,
@@ -689,7 +693,9 @@ class TestUpdateMemory:
 
     @pytest.mark.asyncio
     async def test_importance_auto_scale_keeps_legacy_normalized_value(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(return_value=True)
+        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
+            return_value=True
+        )
         req = _mock_page_request(
             get_json={
                 "memory_id": 1,
@@ -1241,7 +1247,7 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 22
+        assert len(plugin._api_routes) == 23
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1369,9 +1375,7 @@ async def test_export_memories_returns_native_json_content():
         ]
     )
     api = PluginPageApi(FakePlugin(memory_engine=engine))
-    req = _mock_page_request(
-        get_json={"format": "json", "memory_ids": [7]}
-    )
+    req = _mock_page_request(get_json={"format": "json", "memory_ids": [7]})
 
     with _patch_page_request(req):
         result = await api.export_memories()
@@ -1522,9 +1526,7 @@ async def test_import_failure_does_not_stop_later_entries():
     engine.get_memory_import_keys = AsyncMock(return_value=set())
     engine.add_memory = AsyncMock(side_effect=[RuntimeError("write failed"), 52])
     api = PluginPageApi(FakePlugin(memory_engine=engine))
-    content = json.dumps(
-        [{"summary": "first"}, {"summary": "second"}]
-    )
+    content = json.dumps([{"summary": "first"}, {"summary": "second"}])
     req = _mock_page_request(
         get_json={"format": "json", "content": content, "dry_run": False}
     )
@@ -1535,9 +1537,7 @@ async def test_import_failure_does_not_stop_later_entries():
     assert result["status"] == "ok"
     assert result["data"]["imported_ids"] == [52]
     assert result["data"]["failed_count"] == 1
-    assert result["data"]["errors"] == [
-        {"index": 0, "error": "write failed"}
-    ]
+    assert result["data"]["errors"] == [{"index": 0, "error": "write failed"}]
     assert engine.add_memory.await_count == 2
 
 

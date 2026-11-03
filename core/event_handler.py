@@ -3,6 +3,7 @@
 负责处理AstrBot事件钩子
 """
 
+from .memory_scope import adapter_access
 import asyncio
 from typing import Any
 
@@ -98,13 +99,15 @@ class EventHandler:
 
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """Query and inject long-term memory before LLM request"""
-        await self._memory_recall.handle_memory_recall(event, req)
+        with adapter_access(self.config_manager, event):
+            await self._memory_recall.handle_memory_recall(event, req)
 
     async def handle_memory_reflection(
         self, event: AstrMessageEvent, resp: LLMResponse
     ):
         """Check if reflection and memory storage is needed after LLM response"""
-        await self._memory_reflection.handle_memory_reflection(event, resp)
+        with adapter_access(self.config_manager, event, write=True):
+            await self._memory_reflection.handle_memory_reflection(event, resp)
 
     async def handle_session_reset(self, event: AstrMessageEvent) -> None:
         """处理 /reset 或 /new 触发的会话清空，同步清除插件侧的消息历史和总结计数器"""

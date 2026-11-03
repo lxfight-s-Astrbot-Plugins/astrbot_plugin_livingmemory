@@ -19,6 +19,8 @@ from astrbot_plugin_livingmemory.core.plugin_initializer import PluginInitialize
 @pytest.fixture
 def mock_context():
     context = Mock()
+    context.platform_manager.get_insts.return_value = []
+    context.get_config.return_value = {"platform": []}
     context.get_provider_by_id = Mock(return_value=None)
     context.get_all_embedding_providers = Mock(return_value=[])
     context.get_using_provider = Mock(return_value=None)
@@ -85,9 +87,7 @@ def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
         stdout="",
         stderr="Illegal instruction",
     )
-    monkeypatch.setattr(
-        faiss_mod.subprocess, "run", Mock(return_value=result)
-    )
+    monkeypatch.setattr(faiss_mod.subprocess, "run", Mock(return_value=result))
 
     with pytest.raises(InitializationError, match="CPU 或运行环境可能不兼容"):
         initializer._check_faiss_runtime()
@@ -99,15 +99,12 @@ def test_check_faiss_runtime_reports_binding_mismatch(monkeypatch, initializer):
         returncode=1,
         stdout="",
         stderr=(
-            "NameError: name 'SuperKMeans' is not defined. "
-            "Did you mean: 'SuperKmeans'?"
+            "NameError: name 'SuperKMeans' is not defined. Did you mean: 'SuperKmeans'?"
         ),
     )
     run = Mock(return_value=result)
     monkeypatch.setattr(faiss_mod.subprocess, "run", run)
-    monkeypatch.setattr(
-        faiss_mod.metadata, "version", Mock(return_value="1.14.2")
-    )
+    monkeypatch.setattr(faiss_mod.metadata, "version", Mock(return_value="1.14.2"))
 
     with pytest.raises(InitializationError) as exc_info:
         initializer._check_faiss_runtime()

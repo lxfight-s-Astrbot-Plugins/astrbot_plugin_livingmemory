@@ -236,7 +236,7 @@ class AsyncIndexPersister:
         if pending is not None:
             await pending
 
-    async def search(self, vector, k):
+    async def search(self, vector, k, *, params=None):
         """Search off the event loop; only index mutations exclude it.
 
         Args:
@@ -248,8 +248,13 @@ class AsyncIndexPersister:
         """
         # 读者锁：只与增删互斥；与落盘可并发（两者都只读索引）
         async with self._index_lock.read():
+            search = self._storage.index.search
+            if params is not None:
+                from functools import partial
+
+                search = partial(search, params=params)
             future = asyncio.get_running_loop().run_in_executor(
-                None, self._storage.index.search, vector.reshape(1, -1), k
+                None, search, vector.reshape(1, -1), k
             )
             try:
                 return await asyncio.shield(future)

@@ -3,9 +3,103 @@
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 GLOBAL_MEMORY_SCOPE = "livingmemory:global"
+
+
+@dataclass(frozen=True)
+class AdapterAccess:
+    """Adapter ownership and allowed instances for one request."""
+
+    adapter_id: str
+    adapter_ids: tuple[str, ...] | None
+
+
+current_adapter_access: ContextVar[AdapterAccess | None] = ContextVar(
+    "livingmemory_adapter_access", default=None
+)
+
+
+@contextmanager
+def adapter_access(config: Any, event: Any, *, write: bool = False):
+    """Apply adapter policy to this task and reset it when the request finishes."""
+    adapter_id = (
+        event if isinstance(event, str) else _event_value(event, "get_platform_id")
+    )
+    if not adapter_id:
+        adapter_id = _event_value(event, "unified_msg_origin").partition(":")[0]
+    shared = _config_get(config, "filtering_settings.shared_adapter_ids")
+    allowed = None
+    if write:
+        allowed = (adapter_id,)
+    elif shared is not None:
+        members = parse_value_list(shared)
+        allowed = tuple(sorted(members)) if adapter_id in members else (adapter_id,)
+    token = current_adapter_access.set(AdapterAccess(adapter_id, allowed))
+    try:
+        yield
+    finally:
+        current_adapter_access.reset(token)
+
+
+def adapter_sql(metadata: str) -> tuple[str, list[str]]:
+    """Build a parameterized ownership predicate for an internal SQL expression."""
+    access = current_adapter_access.get()
+    if access is None or access.adapter_ids is None:
+        return "1", []
+    values = list(access.adapter_ids)
+    return (
+        f"json_extract({metadata}, '$.adapter_id') IN ({','.join('?' for _ in values)})",
+        values,
+    )
+
+
+def adapter_visible(metadata: dict[str, Any]) -> bool:
+    """Apply the current adapter boundary to a loaded memory."""
+    access = current_adapter_access.get()
+    return (
+        access is None
+        or access.adapter_ids is None
+        or metadata.get("adapter_id") in access.adapter_ids
+    )
+
+
+def adapter_cache_key() -> tuple[str, ...] | None:
+    """Return the adapter dimension for request-independent retrieval caches."""
+    access = current_adapter_access.get()
+    return access.adapter_ids if access is not None else None
+
+
+def infer_adapter_id(
+    metadata: dict[str, Any], sources=(), instances=None
+) -> str | None:
+    """Recover ownership from structured provenance without matching user IDs."""
+    if metadata.get("adapter_id"):
+        return str(metadata["adapter_id"])
+    raw_sources = [item.get("session_id") for item in sources if isinstance(item, dict)]
+    if not raw_sources:
+        window = metadata.get("source_window") or {}
+        raw_sources = [metadata.get("source_session_id") or window.get("session_id")]
+    if not any(raw_sources):
+        raw_sources = [metadata.get("old_session_id") or metadata.get("session_id")]
+    owners = set()
+    for value in raw_sources:
+        parts = str(value or "").split(":", 2)
+        if len(parts) != 3 or parts[0] == "livingmemory":
+            continue
+        prefix = parts[0]
+        if instances and prefix not in instances:
+            matching = [key for key, kind in instances.items() if kind == prefix]
+            if len(matching) > 1:
+                return None
+            if matching:
+                prefix = matching[0]
+        owners.add(prefix)
+    return owners.pop() if len(owners) == 1 else None
 
 
 def _config_get(config: Any, key: str, default: Any = None) -> Any:
@@ -77,8 +171,10 @@ def resolve_event_identity(config: Any, event: Any) -> str:
     for candidate in candidates:
         if candidate and candidate.casefold() in aliases:
             return aliases[candidate.casefold()]
-    return sender_id or sender_name or _event_value(
-        event, "unified_msg_origin", "unified_msg_origin"
+    return (
+        sender_id
+        or sender_name
+        or _event_value(event, "unified_msg_origin", "unified_msg_origin")
     )
 
 

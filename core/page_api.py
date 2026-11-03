@@ -10,6 +10,11 @@
 from __future__ import annotations
 
 from typing import Any
+from functools import wraps
+
+from quart import request
+
+from .memory_scope import adapter_access
 
 from .page_api_modules import (
     BackupHandler,
@@ -60,12 +65,31 @@ class PluginPageApi:
 
     def register_routes(self) -> None:
         """注册官方插件页面所需的原生 API。"""
-        register = self.plugin.context.register_web_api
+
+        def register(route, handler, methods, description):
+            @wraps(handler)
+            async def scoped_handler(*args, **kwargs):
+                adapter_id = request.args.get("adapter_id")
+                if not adapter_id:
+                    return await handler(*args, **kwargs)
+                with adapter_access(self.plugin.config_manager, adapter_id):
+                    return await handler(*args, **kwargs)
+
+            self.plugin.context.register_web_api(
+                route, scoped_handler, methods, description
+            )
+
         register(
             f"{PAGE_API_PREFIX}/stats",
             self.get_stats,
             ["GET"],
             "LivingMemory Page stats",
+        )
+        register(
+            f"{PAGE_API_PREFIX}/adapters/assign",
+            self.settings_handler.assign_adapter,
+            ["POST"],
+            "Assign adapter ownership to legacy memories",
         )
         register(
             f"{PAGE_API_PREFIX}/memories",

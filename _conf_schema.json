@@ -485,6 +485,12 @@
                 "hint": "每行填写一个完整会话 ID。这些会话始终使用独立记忆作用域，不受 user、global 或旧版关闭会话过滤设置影响。",
                 "type": "text",
                 "default": ""
+            },
+            "shared_adapter_ids": {
+                "description": "互通的适配器",
+                "hint": "",
+                "type": "list",
+                "default": null
             }
         }
     },
@@ -984,7 +990,6 @@
         "invisible": true,
         "description": "写入时近重复合并",
         "type": "object",
-        "invisible": true,
         "items": {
             "enabled": {
                 "description": "启用近重复检测",

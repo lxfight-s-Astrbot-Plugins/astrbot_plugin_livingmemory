@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+from ..core.memory_scope import adapter_sql
+
 import aiosqlite
 
 from astrbot.api import logger
@@ -277,6 +279,9 @@ class AtomStore:
         if persona_id is not None:
             filters.append("ma.persona_id = ?")
             params.append(persona_id)
+        ownership, ownership_params = adapter_sql("ma.metadata")
+        filters.append(ownership)
+        params.extend(ownership_params)
 
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
@@ -320,11 +325,12 @@ class AtomStore:
                     like_params_full.append(session_id)
                 if persona_id is not None:
                     like_params_full.append(persona_id)
+                like_params_full.extend(ownership_params)
                 cursor = await db.execute(
                     f"""
                     SELECT ma.*, 0.5 AS bm25_score
                     FROM memory_atoms ma
-                    WHERE ({like_clauses}) {status_filter} {session_filter} {persona_filter}
+                    WHERE ({like_clauses}) {status_filter} {session_filter} {persona_filter} AND {ownership}
                     ORDER BY ma.id DESC
                     LIMIT ?
                     """,
@@ -548,10 +554,12 @@ class AtomStore:
 
     async def get_stats(self) -> dict[str, int]:
         """Return per-status atom counts."""
+        ownership, ownership_params = adapter_sql("metadata")
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT status, COUNT(*) AS cnt FROM memory_atoms GROUP BY status"
+                f"SELECT status, COUNT(*) AS cnt FROM memory_atoms WHERE {ownership} GROUP BY status",
+                ownership_params,
             )
             rows = await cursor.fetchall()
         stats: dict[str, int] = {s.value: 0 for s in AtomStatus}
@@ -561,17 +569,22 @@ class AtomStore:
 
     async def count_atoms(self) -> int:
         """Return the total number of atoms."""
+        ownership, ownership_params = adapter_sql("metadata")
         async with self._connect() as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms")
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM memory_atoms WHERE {ownership}", ownership_params
+            )
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
     async def count_by_type(self) -> dict[str, int]:
         """Return per-type atom counts for frontend display."""
+        ownership, ownership_params = adapter_sql("metadata")
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT atom_type, COUNT(*) AS cnt FROM memory_atoms GROUP BY atom_type"
+                f"SELECT atom_type, COUNT(*) AS cnt FROM memory_atoms WHERE {ownership} GROUP BY atom_type",
+                ownership_params,
             )
             rows = await cursor.fetchall()
         breakdown: dict[str, int] = {}

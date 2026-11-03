@@ -15,6 +15,13 @@ from astrbot.api import logger
 
 from ...storage.atom_store import AtomStore
 from ..memory_transfer import memory_import_key
+from ..memory_scope import (
+    adapter_sql,
+    adapter_visible,
+    current_adapter_access,
+    infer_adapter_id,
+)
+from ..retrieval.vector_search import retrieve_documents
 from ..processors.atom_classifier import classify_atoms
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.route_execution import search_route
@@ -94,8 +101,20 @@ class MemoryEngineCrudMixin:
             preserve_create_time=preserve_create_time,
             source_messages=source_messages,
         )
+        access = current_adapter_access.get()
+        full_metadata["adapter_id"] = full_metadata.get("adapter_id") or (
+            access.adapter_id
+            if access is not None
+            else infer_adapter_id(
+                full_metadata,
+                source_messages or [],
+                self.config.get("adapter_instances"),
+            )
+        )
         doc_id = await self.index_writer.add_memory(content, full_metadata)
-        await self._write_memory_atoms(doc_id, session_id, persona_id, atoms)
+        await self._write_memory_atoms(
+            doc_id, session_id, persona_id, atoms, full_metadata.get("adapter_id")
+        )
         await self._index_memory_graph(doc_id, content, full_metadata, atoms)
         await self._persist_memory_source(doc_id, source_messages)
         self._invalidate_search_cache()
@@ -156,37 +175,19 @@ class MemoryEngineCrudMixin:
         session_id: str | None,
         persona_id: str | None,
         atoms: list | None,
+        adapter_id: str | None = None,
     ) -> None:
-        """写入记忆原子：批量失败时逐条重试，仍失败的留给启动时对账。"""
+        """Insert owned atoms once and propagate storage failures to the caller."""
         if not atoms or self.atom_store is None or not self.atom_enabled:
             return
         prepared_atoms = []
         for atom in atoms:
             atom.session_id = atom.session_id or session_id
             atom.persona_id = atom.persona_id or persona_id
+            atom.metadata["adapter_id"] = adapter_id
             atom.parent_memory_id = doc_id
             prepared_atoms.append(atom)
-        try:
-            await self.atom_store.insert_many(prepared_atoms)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.error(
-                "[MemoryEngine] 批量写入记忆原子失败，改为逐条重试",
-                exc_info=True,
-            )
-            for atom in prepared_atoms:
-                if getattr(atom, "atom_id", 0):
-                    continue
-                try:
-                    await self.atom_store.insert(atom)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.error(
-                        f"[MemoryEngine] 写入记忆原子失败: {atom.content[:80]}",
-                        exc_info=True,
-                    )
+        await self.atom_store.insert_many(prepared_atoms)
 
     async def _index_memory_graph(
         self,
@@ -256,6 +257,11 @@ class MemoryEngineCrudMixin:
 
     async def get_memory_source(self, memory_id: int) -> list[dict[str, Any]]:
         """Return structured source messages for one memory."""
+        if (
+            current_adapter_access.get() is not None
+            and await self.get_memory(memory_id) is None
+        ):
+            return []
         if self.db_connection is None:
             return []
         cursor = await self.db_connection.execute(
@@ -286,10 +292,12 @@ class MemoryEngineCrudMixin:
 
         async def _fetch_rows(batch: list[int] | None):
             params: list[Any] = []
-            where_clause = ""
+            ownership, ownership_params = adapter_sql("d.metadata")
+            where_clause = f"WHERE {ownership}"
+            params.extend(ownership_params)
             if batch is not None:
                 placeholders = ",".join("?" * len(batch))
-                where_clause = f"WHERE d.id IN ({placeholders})"
+                where_clause += f" AND d.id IN ({placeholders})"
                 params.extend(batch)
             cursor = await self.db_connection.execute(
                 f"""
@@ -449,8 +457,11 @@ class MemoryEngineCrudMixin:
                         scores.get(atom.parent_memory_id, 0), atom.final_score
                     )
             if scores:
-                documents = await self.faiss_db.document_storage.get_documents(
-                    metadata_filters={}, ids=list(scores), limit=len(scores)
+                documents = await retrieve_documents(
+                    self.faiss_db,
+                    metadata_filters={},
+                    ids=list(scores),
+                    limit=len(scores),
                 )
                 for document in documents:
                     metadata = safe_json_dict(document.get("metadata"))
@@ -523,9 +534,7 @@ class MemoryEngineCrudMixin:
             return results
         skip = skip_doc_ids or set()
         pending = [result for result in results if result.doc_id not in skip]
-        grouped = await self._agentic_atom_rows(
-            [result.doc_id for result in pending]
-        )
+        grouped = await self._agentic_atom_rows([result.doc_id for result in pending])
         filtered = []
         for result in results:
             if result.doc_id in skip:
@@ -541,9 +550,7 @@ class MemoryEngineCrudMixin:
             filtered.append(
                 replace(
                     result,
-                    content="\n".join(
-                        dict.fromkeys(str(row[2]) for row in active)
-                    ),
+                    content="\n".join(dict.fromkeys(str(row[2]) for row in active)),
                     metadata={
                         **result.metadata,
                         "retrieved_atom_ids": [int(row[0]) for row in active],
@@ -565,8 +572,8 @@ class MemoryEngineCrudMixin:
         # 从faiss_db的document_storage获取文档
         try:
             # 使用 get_documents (复数) 并传入 ids 参数
-            docs = await self.faiss_db.document_storage.get_documents(
-                metadata_filters={}, ids=[memory_id], limit=1
+            docs = await retrieve_documents(
+                self.faiss_db, metadata_filters={}, ids=[memory_id], limit=1
             )
 
             if not docs or len(docs) == 0:
@@ -610,7 +617,7 @@ class MemoryEngineCrudMixin:
                 (memory_id,),
             )
             row = await cursor.fetchone()
-            if not row:
+            if not row or not adapter_visible(safe_json_dict(row["metadata"])):
                 return None
             return {
                 "id": row["id"],
@@ -663,8 +670,9 @@ class MemoryEngineCrudMixin:
             raise RuntimeError("数据库连接未初始化")
 
         offset = (max(1, page) - 1) * page_size
-        where_clauses: list[str] = []
-        params: list[Any] = []
+        ownership, ownership_params = adapter_sql("metadata")
+        where_clauses: list[str] = [ownership]
+        params: list[Any] = list(ownership_params)
         type_expr = (
             "UPPER(COALESCE(json_extract(metadata, '$.memory_type'), 'GENERAL'))"
         )
@@ -896,8 +904,12 @@ class MemoryEngineCrudMixin:
         )
         patch["dedup_last_merged_at"] = now
 
-        current_importance = clamp_float(current_metadata.get("importance"), default=0.5)
-        merged_importance = max(current_importance, clamp_float(importance, default=0.5))
+        current_importance = clamp_float(
+            current_metadata.get("importance"), default=0.5
+        )
+        merged_importance = max(
+            current_importance, clamp_float(importance, default=0.5)
+        )
         try:
             success = await self.update_memory(
                 memory_id,
@@ -980,6 +992,7 @@ class MemoryEngineCrudMixin:
             content = str(getattr(atom, "content", "") or "").strip()
             if not content or content in existing_contents:
                 continue
+            atom.metadata["adapter_id"] = metadata.get("adapter_id")
             atom.parent_memory_id = memory_id
             atom.session_id = atom.session_id or session_id
             atom.persona_id = atom.persona_id or persona_id
@@ -1229,6 +1242,12 @@ class MemoryEngineCrudMixin:
             bool: 是否删除成功
         """
 
+        if (
+            current_adapter_access.get() is not None
+            and await self.get_memory(memory_id) is None
+        ):
+            return False
+
         # index_writer.delete_memory() 内部已按顺序删除 BM25、向量索引和 documents 表
         if self.index_writer is None:
             logger.error("索引写入器未初始化")
@@ -1460,7 +1479,9 @@ class MemoryEngineCrudMixin:
             return False
         self._access_update_pending.update(int(doc_id) for doc_id in doc_ids)
         if atom_ids:
-            self._access_atom_update_pending.update(int(atom_id) for atom_id in atom_ids)
+            self._access_atom_update_pending.update(
+                int(atom_id) for atom_id in atom_ids
+            )
         if not self._access_update_pending:
             return False
         if self._access_flush_task is None or self._access_flush_task.done():
@@ -1484,7 +1505,9 @@ class MemoryEngineCrudMixin:
             self._access_update_pending.difference_update(doc_ids)
             self._access_atom_update_pending.difference_update(atom_ids)
 
-    async def _write_access_updates(self, doc_ids: list[int], atom_ids: list[int]) -> bool:
+    async def _write_access_updates(
+        self, doc_ids: list[int], atom_ids: list[int]
+    ) -> bool:
         """单条原子 SQL 批量递增访问时间与次数。"""
         unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in doc_ids))
         if not unique_ids or self.db_connection is None:
@@ -1560,19 +1583,20 @@ class MemoryEngineCrudMixin:
         # 因为现在数据库中存储的就是完整的unified_msg_origin格式
 
         # 使用数据库层面的过滤、排序和分页，避免加载所有数据
+        ownership, ownership_params = adapter_sql("metadata")
         try:
             if self.db_connection is None:
                 return []
 
             cursor = await self.db_connection.execute(
-                """
+                f"""
                 SELECT id, text, metadata
                 FROM documents
-                WHERE json_extract(metadata, '$.session_id') = ?
+                WHERE json_extract(metadata, '$.session_id') = ? AND {ownership}
                 ORDER BY CAST(json_extract(metadata, '$.create_time') AS REAL) DESC
                 LIMIT ?
                 """,
-                (session_id, limit),
+                (session_id, *ownership_params, limit),
             )
             rows = await cursor.fetchall()
 

@@ -190,7 +190,9 @@ flowchart TB
 - 作用域模式有 legacy、session、user、global 四种（`filtering_settings.memory_scope_mode`）；召回、写入与迁移使用同一套作用域解析。
 - 白名单控制哪些用户或会话可以捕获、总结与召回；不通过时不会写入记忆。
 - 会话、人格与状态过滤在 BM25 与 SQL 查询中完成，并在截断候选前执行，避免先截断再过滤造成漏召回。
-- 图条目与原子同样携带 session_id 与 persona_id，跨会话共享只会在 user 或 global 模式下发生。
+- 图条目与原子同样携带 session_id 与 persona_id，user、global 或 legacy 关闭会话过滤时可跨会话共享，并受适配器范围约束。
+
+适配器访问范围由请求局部的 `ContextVar` 传递，在事件、工具和管理 API 结束时复位，并进入检索缓存键。关键词、原子与图条目在 SQL 候选阶段应用归属条件；向量路线使用 SQL 允许的文档 ID 构造 FAISS 选择器，避免其他适配器的大量近邻挤占候选上限。新记忆保存适配器实例 `adapter_id`，原始会话及用户 ID 保留不变。
 
 ## 性能预算与已知限制
 

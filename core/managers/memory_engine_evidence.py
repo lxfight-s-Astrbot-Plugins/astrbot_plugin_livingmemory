@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import Any
 
 from ..retrieval.hybrid_retriever import HybridResult
+from ..retrieval.vector_search import retrieve_documents
 from ..utils.json_utils import safe_json_dict
 
 
@@ -99,8 +100,8 @@ class MemoryEngineEvidenceMixin:
 
     async def get_memory_for_recall(self, memory_id: int) -> dict | None:
         """Beta 严格读取，普通存储异常不转换为不存在；旧 get_memory 不变。"""
-        documents = await self.faiss_db.document_storage.get_documents(
-            metadata_filters={}, ids=[int(memory_id)], limit=1
+        documents = await retrieve_documents(
+            self.faiss_db, metadata_filters={}, ids=[int(memory_id)], limit=1
         )
         if not documents:
             return None

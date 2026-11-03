@@ -60,9 +60,7 @@ async def resolve_tool_access(
     persona_id = (
         await get_persona_id(plugin_context, event) if use_persona_filtering else None
     )
-    recall_session_id = (
-        resolve_memory_scope(config_manager, event) or event.unified_msg_origin
-    )
+    recall_session_id = resolve_memory_scope(config_manager, event)
     return event, recall_session_id, persona_id, None
 
 

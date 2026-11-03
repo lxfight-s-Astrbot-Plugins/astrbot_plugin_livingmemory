@@ -4,6 +4,7 @@
 仍保留在 documents 表中，管理员可从 WebUI 记忆页把状态改回 active 恢复。
 """
 
+from ..memory_scope import adapter_access
 import asyncio
 import json
 import math
@@ -90,9 +91,7 @@ class MemoryForgetTool(FunctionTool[AstrAgentContext]):
         """同一会话两次成功归档之间的最小间隔（秒，0 表示不限制）。"""
         try:
             value = int(
-                self.config_manager.get(
-                    "agent_tools.forget_tool_cooldown_seconds", 60
-                )
+                self.config_manager.get("agent_tools.forget_tool_cooldown_seconds", 60)
             )
         except (TypeError, ValueError):
             value = 60
@@ -115,129 +114,139 @@ class MemoryForgetTool(FunctionTool[AstrAgentContext]):
             )
 
         try:
-            event, recall_session_id, recall_persona_id, access_error = (
-                await resolve_tool_access(self.config_manager, self.context, context)
-            )
-            if access_error is not None:
-                return _json_result({"forgotten": False, **access_error})
+            (
+                event,
+                recall_session_id,
+                recall_persona_id,
+                access_error,
+            ) = await resolve_tool_access(self.config_manager, self.context, context)
+            with adapter_access(self.config_manager, event):
+                if access_error is not None:
+                    return _json_result({"forgotten": False, **access_error})
 
-            # 管理员闸门：遗忘属于破坏性操作，非管理员一律拒绝
-            is_admin = getattr(event, "is_admin", None)
-            try:
-                admin_allowed = bool(is_admin()) if callable(is_admin) else False
-            except Exception:
-                admin_allowed = False
-            if not admin_allowed:
-                return _json_result(
-                    {"forgotten": False, "error": "admin permission required"}
-                )
+                # 管理员闸门：遗忘属于破坏性操作，非管理员一律拒绝
+                is_admin = getattr(event, "is_admin", None)
+                try:
+                    admin_allowed = bool(is_admin()) if callable(is_admin) else False
+                except Exception:
+                    admin_allowed = False
+                if not admin_allowed:
+                    return _json_result(
+                        {"forgotten": False, "error": "admin permission required"}
+                    )
 
-            # 参数校验：必须是非空整数列表，去重后不超过配置上限
-            if not isinstance(memory_ids, list) or not memory_ids:
-                return _json_result(
-                    {
-                        "forgotten": False,
-                        "error": "memory_ids must be a non-empty list of integers",
-                    }
-                )
-            unique_ids: list[int] = []
-            for item in memory_ids:
-                if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                # 参数校验：必须是非空整数列表，去重后不超过配置上限
+                if not isinstance(memory_ids, list) or not memory_ids:
                     return _json_result(
                         {
                             "forgotten": False,
                             "error": "memory_ids must be a non-empty list of integers",
                         }
                     )
-                if item not in unique_ids:
-                    unique_ids.append(item)
-            max_memories = self._max_memories()
-            if len(unique_ids) > max_memories:
-                return _json_result(
-                    {
-                        "forgotten": False,
-                        "error": "too many memory_ids",
-                        "max_memories": max_memories,
-                    }
-                )
-
-            # 限流：同一会话冷却期内拒绝，且只在归档成功后才刷新时间戳
-            cooldown = self._cooldown_seconds()
-            now = time.time()
-            if cooldown > 0 and recall_session_id is not None:
-                last_archive_ts = self.rate_limit_state.get(recall_session_id)
-                if last_archive_ts is not None and now - last_archive_ts < cooldown:
-                    retry_after = max(
-                        1, int(math.ceil(cooldown - (now - last_archive_ts)))
-                    )
+                unique_ids: list[int] = []
+                for item in memory_ids:
+                    if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                        return _json_result(
+                            {
+                                "forgotten": False,
+                                "error": "memory_ids must be a non-empty list of integers",
+                            }
+                        )
+                    if item not in unique_ids:
+                        unique_ids.append(item)
+                max_memories = self._max_memories()
+                if len(unique_ids) > max_memories:
                     return _json_result(
                         {
                             "forgotten": False,
-                            "error": "rate limited",
-                            "retry_after_seconds": retry_after,
+                            "error": "too many memory_ids",
+                            "max_memories": max_memories,
                         }
                     )
 
-            # 作用域校验（与检索可见性一致）：任一 id 不合法则整批拒绝，绝不部分归档
-            invalid_ids: list[int] = []
-            for memory_id in unique_ids:
-                memory = await self.memory_engine.get_memory(memory_id)
-                if not memory:
-                    invalid_ids.append(memory_id)
-                    continue
-                metadata = _document_metadata(memory)
-                if str(metadata.get("status") or "active") != "active":
-                    invalid_ids.append(memory_id)
-                    continue
-                if metadata.get("session_id") != recall_session_id:
-                    invalid_ids.append(memory_id)
-                    continue
-                if (
-                    recall_persona_id is not None
-                    and metadata.get("persona_id") != recall_persona_id
-                ):
-                    invalid_ids.append(memory_id)
-                    continue
-            if invalid_ids:
+                # 限流：同一会话冷却期内拒绝，且只在归档成功后才刷新时间戳
+                cooldown_scope = recall_session_id or event.unified_msg_origin
+                cooldown = self._cooldown_seconds()
+                now = time.time()
+                if cooldown > 0 and cooldown_scope is not None:
+                    last_archive_ts = self.rate_limit_state.get(cooldown_scope)
+                    if last_archive_ts is not None and now - last_archive_ts < cooldown:
+                        retry_after = max(
+                            1, int(math.ceil(cooldown - (now - last_archive_ts)))
+                        )
+                        return _json_result(
+                            {
+                                "forgotten": False,
+                                "error": "rate limited",
+                                "retry_after_seconds": retry_after,
+                            }
+                        )
+
+                # 作用域校验（与检索可见性一致）：任一 id 不合法则整批拒绝，绝不部分归档
+                invalid_ids: list[int] = []
+                for memory_id in unique_ids:
+                    memory = await self.memory_engine.get_memory(memory_id)
+                    if not memory:
+                        invalid_ids.append(memory_id)
+                        continue
+                    metadata = _document_metadata(memory)
+                    if str(metadata.get("status") or "active") != "active":
+                        invalid_ids.append(memory_id)
+                        continue
+                    if (
+                        recall_session_id is not None
+                        and metadata.get("session_id") != recall_session_id
+                    ):
+                        invalid_ids.append(memory_id)
+                        continue
+                    if (
+                        recall_persona_id is not None
+                        and metadata.get("persona_id") != recall_persona_id
+                    ):
+                        invalid_ids.append(memory_id)
+                        continue
+                if invalid_ids:
+                    return _json_result(
+                        {
+                            "forgotten": False,
+                            "error": "some memory ids are not visible in this scope",
+                            "invalid_ids": invalid_ids,
+                        }
+                    )
+
+                cleaned_reason = (
+                    (reason or "").strip() if isinstance(reason, str) else ""
+                )
+                archived_count = await self.memory_engine.archive_memories(
+                    unique_ids,
+                    audit={
+                        "archived_by": "llm_tool",
+                        "archive_reason": cleaned_reason,
+                        "archive_session_id": recall_session_id,
+                    },
+                )
+                if not archived_count:
+                    return _json_result(
+                        {
+                            "forgotten": False,
+                            "error": "no active memories were archived",
+                        }
+                    )
+
+                if cooldown_scope is not None:
+                    self.rate_limit_state[cooldown_scope] = time.time()
                 return _json_result(
                     {
-                        "forgotten": False,
-                        "error": "some memory ids are not visible in this scope",
-                        "invalid_ids": invalid_ids,
+                        "forgotten": True,
+                        "memory_ids": unique_ids,
+                        "archived_count": archived_count,
+                        "reversible": True,
+                        "note": (
+                            "Archived (soft-deleted). An admin can restore them from the "
+                            "WebUI memory page (status filter: archived -> set active)."
+                        ),
                     }
                 )
-
-            cleaned_reason = (reason or "").strip() if isinstance(reason, str) else ""
-            archived_count = await self.memory_engine.archive_memories(
-                unique_ids,
-                audit={
-                    "archived_by": "llm_tool",
-                    "archive_reason": cleaned_reason,
-                    "archive_session_id": recall_session_id,
-                },
-            )
-            if not archived_count:
-                return _json_result(
-                    {
-                        "forgotten": False,
-                        "error": "no active memories were archived",
-                    }
-                )
-
-            if recall_session_id is not None:
-                self.rate_limit_state[recall_session_id] = time.time()
-            return _json_result(
-                {
-                    "forgotten": True,
-                    "memory_ids": unique_ids,
-                    "archived_count": archived_count,
-                    "reversible": True,
-                    "note": (
-                        "Archived (soft-deleted). An admin can restore them from the "
-                        "WebUI memory page (status filter: archived -> set active)."
-                    ),
-                }
-            )
         except asyncio.CancelledError:
             raise
         except Exception as e:

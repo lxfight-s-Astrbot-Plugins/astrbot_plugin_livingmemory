@@ -187,7 +187,9 @@ async def test_failed_shared_write_rolls_back_and_releases_other_connections(
 
 
 @pytest.mark.asyncio
-async def test_write_transaction_clears_stale_transaction_before_writing(tmp_path: Path):
+async def test_write_transaction_clears_stale_transaction_before_writing(
+    tmp_path: Path,
+):
     db_path = tmp_path / "stale_write.db"
     engine = MemoryEngine(
         db_path=str(db_path),
@@ -251,7 +253,9 @@ async def test_swallowed_access_update_error_releases_other_connections(
         cursor = await other.execute("SELECT metadata FROM documents WHERE id = 1")
         metadata = json.loads((await cursor.fetchone())[0])
         assert metadata == {"access_count": 0}
-        await other.execute("UPDATE documents SET text = ? WHERE id = 1", ("recovered",))
+        await other.execute(
+            "UPDATE documents SET text = ? WHERE id = 1", ("recovered",)
+        )
         await other.commit()
 
     await engine.close()
@@ -474,8 +478,6 @@ async def test_memory_source_write_failure_rolls_back_indexed_memory(tmp_path: P
 
     assert await engine.get_memory(1) is None
     await engine.close()
-
-
 
 
 @pytest.mark.asyncio
@@ -842,12 +844,11 @@ async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_writ
     await engine.close()
 
 
-
 @pytest.mark.asyncio
-async def test_memory_engine_atom_fallback_skips_previously_inserted_atoms(
+async def test_memory_engine_propagates_atom_storage_failure(
     tmp_path: Path,
 ):
-    db_path = tmp_path / "atom_partial_fallback.db"
+    db_path = tmp_path / "atom_failure.db"
     engine = MemoryEngine(
         db_path=str(db_path),
         faiss_db=_FakeFaissDB(),
@@ -858,22 +859,14 @@ async def test_memory_engine_atom_fallback_skips_previously_inserted_atoms(
     engine.atom_store.insert_many = AsyncMock(side_effect=RuntimeError("batch failed"))
     engine.atom_store.insert = AsyncMock()
 
-    inserted_atom = MemoryAtom(parent_memory_id=0, content="already inserted")
-    inserted_atom.atom_id = 42
-    pending_atom = MemoryAtom(parent_memory_id=0, content="pending insert")
-
-    memory_id = await engine.add_memory(
-        content="fallback atom test",
-        session_id="s1",
-        persona_id="p1",
-        atoms=[inserted_atom, pending_atom],
-    )
-
-    assert memory_id > 0
-    engine.atom_store.insert.assert_awaited_once_with(pending_atom)
+    atom = MemoryAtom(parent_memory_id=0, content="pending insert")
+    with pytest.raises(RuntimeError, match="batch failed"):
+        await engine.add_memory(
+            content="atom write failure", session_id="s1", persona_id="p1", atoms=[atom]
+        )
+    engine.atom_store.insert.assert_not_awaited()
 
     await engine.close()
-
 
 
 @pytest.mark.asyncio
@@ -1152,9 +1145,7 @@ async def test_daily_decay_preserves_concurrent_access_updates(
             memory_id,
             f"uuid-{memory_id}",
             "race",
-            json.dumps(
-                {"importance": 0.5, "access_count": 0, "last_access_time": 1.0}
-            ),
+            json.dumps({"importance": 0.5, "access_count": 0, "last_access_time": 1.0}),
         ),
     )
     await engine.db_connection.commit()
@@ -1504,7 +1495,6 @@ async def test_batch_delete_memories_nonexistent_ids_are_noop(tmp_path: Path):
     await engine.close()
 
 
-
 @pytest.mark.asyncio
 async def test_cleanup_old_memories_uses_batch_delete(tmp_path: Path):
     """cleanup_old_memories 应通过 batch_delete_memories 高效清理多条候选记忆。"""
@@ -1677,8 +1667,7 @@ async def test_replace_memory_rebuilds_atoms_and_preserves_create_time(tmp_path:
     new_graph = await engine.graph_store.get_subgraph_for_memories([new_id])
     assert old_graph["entries"] == []
     assert any(
-        "Release is Friday" in entry["content"]
-        for entry in new_graph["entries"]
+        "Release is Friday" in entry["content"] for entry in new_graph["entries"]
     )
 
     await engine.close()
@@ -1836,7 +1825,6 @@ async def test_batch_delete_clears_fts_index(tmp_path: Path):
             assert row[0] == 0
 
     await engine.close()
-
 
 
 @pytest.mark.asyncio

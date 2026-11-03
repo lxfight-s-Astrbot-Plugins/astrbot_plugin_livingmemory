@@ -94,9 +94,7 @@ class MemoryRecall:
             timestamp /= 1000.0
         return timestamp if timestamp > 0 else None
 
-    async def handle_memory_recall(
-        self, event: AstrMessageEvent, req: ProviderRequest
-    ):
+    async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """Query and inject long-term memory before LLM request"""
         try:
             if not is_event_memory_allowed(self.config_manager, event):
@@ -199,11 +197,7 @@ class MemoryRecall:
                 # 因此不能直接依赖 req.system_prompt 已注入人格，需自行走完整优先级。
                 persona_id = await get_persona_id(self.context, event)
 
-                # 作用域解析失败时回退到原始会话，与写入侧（反思/总结/工具）
-                # 保持一致，确保召回与写入面向同一批会话标记的数据
-                recall_session_id = resolve_memory_scope(
-                    self.config_manager, event
-                ) or session_id
+                recall_session_id = resolve_memory_scope(self.config_manager, event)
                 recall_persona_id = persona_id if use_persona_filtering else None
 
                 # 使用原始用户输入作为召回关键字
@@ -214,12 +208,10 @@ class MemoryRecall:
                     "recall_engine.inject_with_recent_context", False
                 ):
                     try:
-                        recent_messages = (
-                            await self.conversation_manager.get_context(
-                                session_id,
-                                max_messages=5,
-                                format_for_llm=False,
-                            )
+                        recent_messages = await self.conversation_manager.get_context(
+                            session_id,
+                            max_messages=5,
+                            format_for_llm=False,
                         )
                         if recent_messages and len(recent_messages) > 1:
                             # recent_messages 按 timestamp DESC 排列（最新在前）
@@ -297,8 +289,8 @@ class MemoryRecall:
                     configured_method = self.config_manager.get(
                         "recall_engine.injection_method", "extra_user_content"
                     )
-                    injection_method, fallback_reason = (
-                        self.injection_adapter.resolve(configured_method)
+                    injection_method, fallback_reason = self.injection_adapter.resolve(
+                        configured_method
                     )
                     if fallback_reason:
                         logger.warning(
@@ -354,9 +346,7 @@ class MemoryRecall:
         return removed
 
     @staticmethod
-    def _is_agent_recall_policy_part(
-        part, header: str, footer: str
-    ) -> bool:
+    def _is_agent_recall_policy_part(part, header: str, footer: str) -> bool:
         text = getattr(part, "text", "")
         return (
             getattr(part, "_no_save", False)
@@ -430,8 +420,8 @@ class MemoryRecall:
             if not policy:
                 return
             available = [
-                '- recall_long_term_memory: search long-term memory by topic '
-                'keywords, or browse the current speaker\'s past experiences with '
+                "- recall_long_term_memory: search long-term memory by topic "
+                "keywords, or browse the current speaker's past experiences with "
                 'target="current_speaker" (query may be empty) when the question '
                 "has no usable keywords; refine follow-up searches with "
                 "exclude_ids / start_time / end_time / search_offset."
@@ -450,9 +440,7 @@ class MemoryRecall:
                 f"{policy_text.strip()}\n"
                 f"{AGENT_RECALL_POLICY_FOOTER}"
             )
-            req.extra_user_content_parts.append(
-                TextPart(text=wrapped).mark_as_temp()
-            )
+            req.extra_user_content_parts.append(TextPart(text=wrapped).mark_as_temp())
             logger.info(f"[{session_id}] 已注入自主回忆规则（Beta）")
         except asyncio.CancelledError:
             raise

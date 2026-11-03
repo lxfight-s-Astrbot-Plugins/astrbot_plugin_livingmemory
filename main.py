@@ -3,6 +3,7 @@ main.py - LivingMemory 插件主文件
 负责插件注册、初始化和生命周期管理
 """
 
+from .core.memory_scope import adapter_access
 import asyncio
 import re
 from collections.abc import AsyncGenerator
@@ -364,8 +365,22 @@ class LivingMemoryPlugin(Star):
             yield event.plain_result(self._command_handler_not_ready_message())
             return
         handler = getattr(self.command_handler, handler_name)
-        async for item in handler(event, *args, **kwargs):
-            yield item
+        messages = handler(event, *args, **kwargs)
+        try:
+            while True:
+                with adapter_access(
+                    self.config_manager, event, write=handler_name == "handle_summarize"
+                ):
+                    try:
+                        item = await anext(messages)
+                    except StopAsyncIteration:
+                        return
+                yield item
+        finally:
+            with adapter_access(
+                self.config_manager, event, write=handler_name == "handle_summarize"
+            ):
+                await messages.aclose()
 
     # ==================== 事件钩子 ====================
 

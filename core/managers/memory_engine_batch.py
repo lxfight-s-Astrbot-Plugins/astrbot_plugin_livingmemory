@@ -8,6 +8,9 @@ import asyncio
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 from ..processors.atom_classifier import classify_atoms
+from ..memory_scope import adapter_sql, current_adapter_access
+from ..retrieval.vector_search import retrieve_documents
+
 import json
 from astrbot.api import logger
 from pathlib import Path
@@ -36,6 +39,7 @@ class MemoryEngineBatchMixin:
     graph_memory_manager: Any | None
     graph_store: Any | None
     index_maintenance_status: dict[str, Any]
+
     async def batch_delete_memories(self, memory_ids: list[int]) -> int:
         """Batch delete multiple memories using bulk SQL operations."""
         if not memory_ids:
@@ -45,6 +49,14 @@ class MemoryEngineBatchMixin:
             logger.error("[批量删除] 数据库连接未初始化")
             return 0
 
+        if current_adapter_access.get() is not None:
+            ownership, ownership_params = adapter_sql("metadata")
+            slots = ",".join("?" for _ in memory_ids)
+            cursor = await self.db_connection.execute(
+                f"SELECT id FROM documents WHERE id IN ({slots}) AND {ownership}",
+                (*memory_ids, *ownership_params),
+            )
+            memory_ids = [int(row[0]) for row in await cursor.fetchall()]
         self._invalidate_search_cache()
         total_deleted = 0
         sql_batch_size = 200
@@ -94,7 +106,7 @@ class MemoryEngineBatchMixin:
                 await self._delete_graph_and_atoms_for_batch(batch)
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
+            except Exception:
                 logger.error(
                     f"[批量删除] 批次删除失败 (offset={i}, size={len(batch)})",
                     exc_info=True,
@@ -135,6 +147,7 @@ class MemoryEngineBatchMixin:
             if importance_threshold is None
             else importance_threshold
         )
+        ownership, ownership_params = adapter_sql("metadata")
         try:
             days = int(days)
             importance = float(importance)
@@ -161,8 +174,8 @@ class MemoryEngineBatchMixin:
             # 使用主键 keyset 分页流式读取，避免 OFFSET 分页的 O(N²) 开销。
             while True:
                 cursor = await self.db_connection.execute(
-                    "SELECT id, metadata FROM documents WHERE id > ? ORDER BY id LIMIT ?",
-                    (last_id, batch_size),
+                    f"SELECT id, metadata FROM documents WHERE id > ? AND {ownership} ORDER BY id LIMIT ?",
+                    (last_id, *ownership_params, batch_size),
                 )
                 rows = await cursor.fetchall()
                 if not rows:
@@ -224,7 +237,8 @@ class MemoryEngineBatchMixin:
         }
 
         unique_ids = list(dict.fromkeys(int(memory_id) for memory_id in memory_ids))
-        documents = await self.faiss_db.document_storage.get_documents(
+        documents = await retrieve_documents(
+            self.faiss_db,
             metadata_filters={},
             ids=unique_ids,
             offset=0,
@@ -324,13 +338,12 @@ class MemoryEngineBatchMixin:
                 key_facts=list(metadata.get("key_facts") or []),
                 topics=list(metadata.get("topics") or []),
                 participants=list(metadata.get("participants") or []),
-                parent_importance=clamp_float(
-                    metadata.get("importance"), default=0.5
-                ),
+                parent_importance=clamp_float(metadata.get("importance"), default=0.5),
                 session_id=metadata.get("session_id"),
                 persona_id=metadata.get("persona_id"),
             )
             for atom in atoms:
+                atom.metadata["adapter_id"] = metadata.get("adapter_id")
                 atom.parent_memory_id = memory_id
             if atoms and self.atom_store is not None:
                 await self.atom_store.insert_many(atoms)
@@ -505,7 +518,10 @@ class MemoryEngineBatchMixin:
             if self.db_connection is None:
                 raise RuntimeError("数据库连接未初始化")
 
-            cursor = await self.db_connection.execute("SELECT COUNT(*) FROM documents")
+            ownership, ownership_params = adapter_sql("metadata")
+            cursor = await self.db_connection.execute(
+                f"SELECT COUNT(*) FROM documents WHERE {ownership}", ownership_params
+            )
             row = await cursor.fetchone()
             total_count = int(row[0]) if row and row[0] is not None else 0
 
@@ -518,12 +534,28 @@ class MemoryEngineBatchMixin:
             importance_sum = 0
             importance_count = 0
             importance_distribution = {
-                "0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0,
-                "5-6": 0, "6-7": 0, "7-8": 0, "8-9": 0, "9-10": 0,
+                "0-1": 0,
+                "1-2": 0,
+                "2-3": 0,
+                "3-4": 0,
+                "4-5": 0,
+                "5-6": 0,
+                "6-7": 0,
+                "7-8": 0,
+                "8-9": 0,
+                "9-10": 0,
             }
             bucket_keys = [
-                "0-1", "1-2", "2-3", "3-4", "4-5",
-                "5-6", "6-7", "7-8", "8-9", "9-10",
+                "0-1",
+                "1-2",
+                "2-3",
+                "3-4",
+                "4-5",
+                "5-6",
+                "6-7",
+                "7-8",
+                "8-9",
+                "9-10",
             ]
             oldest_time = None
             newest_time = None
@@ -534,8 +566,8 @@ class MemoryEngineBatchMixin:
 
             while True:
                 cursor = await self.db_connection.execute(
-                    "SELECT id, metadata FROM documents WHERE id > ? ORDER BY id LIMIT ?",
-                    (last_id, batch_size),
+                    f"SELECT id, metadata FROM documents WHERE id > ? AND {ownership} ORDER BY id LIMIT ?",
+                    (last_id, *ownership_params, batch_size),
                 )
                 rows = await cursor.fetchall()
                 if not rows:
@@ -633,16 +665,17 @@ class MemoryEngineBatchMixin:
         if self.db_connection is None:
             raise RuntimeError("数据库连接未初始化")
 
+        ownership, ownership_params = adapter_sql("metadata")
         cursor = await self.db_connection.execute(
-            """
+            f"""
             SELECT id, text, metadata
             FROM documents
-            WHERE COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'
+            WHERE {ownership} AND COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'
               AND CAST(COALESCE(json_extract(metadata, '$.importance'), '0.5') AS REAL) < ?
               AND CAST(COALESCE(json_extract(metadata, '$.create_time'), '0') AS REAL) < ?
             ORDER BY id
             """,
-            (max_importance, cutoff),
+            (*ownership_params, max_importance, cutoff),
         )
         rows = await cursor.fetchall()
 
@@ -670,11 +703,16 @@ class MemoryEngineBatchMixin:
         if self.db_connection is None:
             raise RuntimeError("数据库连接未初始化")
 
+        ownership, ownership_params = adapter_sql(
+            "CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END"
+        )
         cursor = await self.db_connection.execute(
             "SELECT COUNT(*) FROM documents WHERE json_valid(metadata) "
             "AND json_array_length("
             "COALESCE(json_extract(metadata, '$.consolidated_from'), '[]')"
             ") > 0"
+            f" AND {ownership}",
+            ownership_params,
         )
         row = await cursor.fetchone()
         consolidated_count = int(row[0]) if row else 0
@@ -686,6 +724,8 @@ class MemoryEngineBatchMixin:
             "THEN json_extract(metadata, '$.status') END,"
             "'active'"
             ") = 'archived'"
+            f" AND {ownership}",
+            ownership_params,
         )
         row = await cursor.fetchone()
         archived_count = int(row[0]) if row else 0

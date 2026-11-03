@@ -1,5 +1,6 @@
 """供 Agent 主动调用的长期记忆写入工具。"""
 
+from ..memory_scope import adapter_access
 import asyncio
 import json
 from dataclasses import field
@@ -120,61 +121,62 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
 
         try:
             event = context.context.event
-            if not is_event_memory_allowed(self.config_manager, event):
-                return _json_result(
-                    {"memorized": False, "error": "memory access is not allowed"}
+            with adapter_access(self.config_manager, event, write=True):
+                if not is_event_memory_allowed(self.config_manager, event):
+                    return _json_result(
+                        {"memorized": False, "error": "memory access is not allowed"}
+                    )
+                session_id = event.unified_msg_origin
+                memory_scope = (
+                    resolve_memory_scope(self.config_manager, event) or session_id
                 )
-            session_id = event.unified_msg_origin
-            memory_scope = (
-                resolve_memory_scope(self.config_manager, event) or session_id
-            )
-            persona_id = await get_persona_id(self.context, event)
-            is_group_chat = event.get_message_type() == MessageType.GROUP_MESSAGE
+                persona_id = await get_persona_id(self.context, event)
+                is_group_chat = event.get_message_type() == MessageType.GROUP_MESSAGE
 
-            structured_data = {
-                "summary": cleaned_memory,
-                "topics": _normalize_list(topics),
-                "key_facts": _normalize_list(key_facts),
-                "sentiment": normalized_sentiment,
-                "importance": importance,
-            }
-
-            content, metadata, normalized_importance = (
-                self.memory_processor.build_memory_from_structured_data(
-                    structured_data=structured_data,
-                    is_group_chat=is_group_chat,
-                    fallback_excerpt=cleaned_memory,
-                )
-            )
-            metadata["source_window"] = {
-                "session_id": session_id,
-                "triggered_by": "agent_tool",
-                "tool_name": self.name,
-            }
-            metadata["memory_origin"] = "agent_memorize_tool"
-            metadata["source_session_id"] = session_id
-            cleaned_reason = (reason or "").strip()
-            if cleaned_reason:
-                metadata["memorize_reason"] = cleaned_reason
-
-            memory_id = await self.memory_engine.add_memory(
-                content=content,
-                session_id=memory_scope,
-                persona_id=persona_id,
-                importance=normalized_importance,
-                metadata=metadata,
-            )
-
-            return _json_result(
-                {
-                    "memorized": True,
-                    "id": memory_id,
-                    "content": content,
-                    "importance": normalized_importance,
-                    "session_id": memory_scope,
-                    "persona_id": persona_id,
+                structured_data = {
+                    "summary": cleaned_memory,
+                    "topics": _normalize_list(topics),
+                    "key_facts": _normalize_list(key_facts),
+                    "sentiment": normalized_sentiment,
+                    "importance": importance,
                 }
-            )
+
+                content, metadata, normalized_importance = (
+                    self.memory_processor.build_memory_from_structured_data(
+                        structured_data=structured_data,
+                        is_group_chat=is_group_chat,
+                        fallback_excerpt=cleaned_memory,
+                    )
+                )
+                metadata["source_window"] = {
+                    "session_id": session_id,
+                    "triggered_by": "agent_tool",
+                    "tool_name": self.name,
+                }
+                metadata["memory_origin"] = "agent_memorize_tool"
+                metadata["source_session_id"] = session_id
+                cleaned_reason = (reason or "").strip()
+                if cleaned_reason:
+                    metadata["memorize_reason"] = cleaned_reason
+
+                memory_id = await self.memory_engine.add_memory(
+                    content=content,
+                    session_id=memory_scope,
+                    persona_id=persona_id,
+                    importance=normalized_importance,
+                    metadata=metadata,
+                )
+
+                return _json_result(
+                    {
+                        "memorized": True,
+                        "id": memory_id,
+                        "content": content,
+                        "importance": normalized_importance,
+                        "session_id": memory_scope,
+                        "persona_id": persona_id,
+                    }
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
