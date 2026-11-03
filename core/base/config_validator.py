@@ -148,6 +148,12 @@ class ReflectionEngineConfig(BaseModel):
     summary_trigger_rounds: int = Field(
         default=10, ge=1, le=100, description="触发反思的对话轮次"
     )
+    max_messages_per_segment: int = Field(
+        default=120,
+        ge=2,
+        le=1000,
+        description="Maximum messages per reflection segment",
+    )
     max_segments_per_run: int = Field(
         default=10,
         ge=1,

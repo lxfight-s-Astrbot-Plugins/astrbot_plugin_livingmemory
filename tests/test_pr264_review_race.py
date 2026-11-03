@@ -115,9 +115,7 @@ async def test_rollback_atomic_with_cursor_commit(tmp_path):
         tasks.append(rollback)
         await asyncio.wait_for(deleted.wait(), 2)
         release.set()
-        committed, removed = await asyncio.wait_for(
-            asyncio.gather(writer, rollback), 2
-        )
+        committed, removed = await asyncio.wait_for(asyncio.gather(writer, rollback), 2)
         count = await store.get_message_count(sid)
         cursor = await manager.get_session_metadata(sid, "last_summarized_index", 0)
         assert removed == 2
@@ -392,9 +390,7 @@ async def test_concurrent_new_message_survives_rollback(tmp_path):
         assert removed == 2  # 只删除被撤销的 C2 两条
 
         refs = await store.get_session_message_refs_asc(sid)
-        checkpoints = [
-            (row["metadata"] or {}).get("llm_checkpoint_id") for row in refs
-        ]
+        checkpoints = [(row["metadata"] or {}).get("llm_checkpoint_id") for row in refs]
         assert checkpoints == ["C1", "C1", "C3"], checkpoints
     finally:
         store.delete_messages_from_position = original_delete
@@ -521,19 +517,19 @@ async def test_cancel_after_memory_write_compensates(tmp_path):
     handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
     sid = SID_PREFIX + "cancel-compensate"
     committing = asyncio.Event()
-    original_conditional = manager.update_session_metadata_if_revision
+    original_conditional = manager.commit_summary_cursor
     task = None
     try:
         await _seed_turns(manager, sid, ("C1", "C2"))
 
-        async def slow_conditional(session_id, key, value, expected_revision):
+        async def slow_conditional(session_id, last_message, expected_revision):
             committing.set()
             await asyncio.sleep(30)  # 停在游标提交处，等待被取消
             return await original_conditional(
-                session_id, key, value, expected_revision
+                session_id, last_message, expected_revision
             )
 
-        manager.update_session_metadata_if_revision = slow_conditional
+        manager.commit_summary_cursor = slow_conditional
         handler._memory_reflection.memory_processor.process_conversation = AsyncMock(
             return_value=("summary", {"topics": []}, 0.5)
         )
@@ -578,7 +574,7 @@ async def test_cancel_after_memory_write_compensates(tmp_path):
 
         engine.delete_memory.assert_awaited_once_with(4242)
     finally:
-        manager.update_session_metadata_if_revision = original_conditional
+        manager.commit_summary_cursor = original_conditional
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -720,9 +716,12 @@ async def test_interleavings_keep_invariant(tmp_path):
                 assert removed == 2
                 assert await _cursor(manager, sid) == 2
             else:
-                assert await asyncio.wait_for(
-                    manager.reconcile_session_tail(sid, ["C1"]), 2
-                ) == 2
+                assert (
+                    await asyncio.wait_for(
+                        manager.reconcile_session_tail(sid, ["C1"]), 2
+                    )
+                    == 2
+                )
                 committed = await manager.update_session_metadata_if_revision(
                     sid, "last_summarized_index", 4, 0
                 )
@@ -730,9 +729,7 @@ async def test_interleavings_keep_invariant(tmp_path):
                 assert await _cursor(manager, sid) == 0
 
             count = await store.get_message_count(sid)
-            cursor = await manager.get_session_metadata(
-                sid, "last_summarized_index", 0
-            )
+            cursor = await manager.get_session_metadata(sid, "last_summarized_index", 0)
             assert count == 2
             assert cursor <= count, (round_index, cursor, count)
             manager._update_session_metadata_locked = original_update

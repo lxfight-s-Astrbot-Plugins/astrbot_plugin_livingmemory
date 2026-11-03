@@ -282,6 +282,9 @@
       "source_retention_importance_threshold": {
         "description": "Source Retention Importance Threshold",
         "hint": "Store original messages separately when summary importance reaches this value, enabling verification, detailed Agent recall, and re-summarization. Range 0-1; 1 keeps only maximum-importance memories."
+      },
+      "max_messages_per_segment": {
+        "description": "Messages per summary segment"
       }
     },
     "agent_tools": {

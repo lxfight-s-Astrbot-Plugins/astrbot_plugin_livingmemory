@@ -185,7 +185,7 @@ class MessageUtils:
         return raw_message.strip()
 
     async def enforce_message_limit(self, session_id: str):
-        """执行消息数量上限控制，只删除已被总结的消息"""
+        """Enforce the configured history cap, preferring summarized messages."""
         if not self.conversation_manager:
             return
 
@@ -226,46 +226,37 @@ class MessageUtils:
             overflow_count = actual_count - max_messages
             target_delete = max(overflow_count, cleanup_batch_size)
 
-            # 只能删除已总结的消息，不能删除未总结的
-            safe_to_delete = min(target_delete, last_summarized_index)
-
-            if safe_to_delete <= 0:
-                logger.debug(
-                    f"[{session_id}] 无可删除消息: "
-                    f"溢出={overflow_count}, 批量={cleanup_batch_size}, "
-                    f"目标删除={target_delete}, 已总结={last_summarized_index}"
-                )
-                return
-
-            logger.info(
-                f"[{session_id}] 开始清理已总结消息: "
-                f"总数={actual_count}, 上限={max_messages}, "
-                f"溢出={overflow_count}, 批量={cleanup_batch_size}, "
-                f"目标删除={target_delete}, 已总结={last_summarized_index}, "
-                f"实际删除={safe_to_delete}"
+            # Keep the configured hard cap even when no summary has committed.
+            safe_to_delete = max(
+                overflow_count, min(target_delete, last_summarized_index)
             )
+            delete_unsummarized = safe_to_delete > last_summarized_index
 
-            actually_deleted = (
-                await self.conversation_manager.trim_session_messages(
-                    session_id,
-                    safe_to_delete,
+            if delete_unsummarized:
+                logger.warning(
+                    f"[{session_id}] History cap requires dropping "
+                    f"{safe_to_delete - last_summarized_index} unsummarized oldest messages"
                 )
-            )
+            if delete_unsummarized:
+                actually_deleted = (
+                    await self.conversation_manager.trim_session_messages(
+                        session_id, safe_to_delete, delete_unsummarized=True
+                    )
+                )
+            else:
+                actually_deleted = (
+                    await self.conversation_manager.trim_session_messages(
+                        session_id, safe_to_delete
+                    )
+                )
 
             new_actual_count = max(0, actual_count - actually_deleted)
-            new_summarized_index = await self.conversation_manager.get_session_metadata(
-                session_id,
-                "last_summarized_index",
-                max(0, last_summarized_index - actually_deleted),
-            )
-
             # 清除缓存（使用公共接口）
             await self.conversation_manager.invalidate_cache(session_id)
 
             logger.info(
-                f"[{session_id}] 消息清理完成: "
-                f"删除={actually_deleted}条, 剩余={new_actual_count}条, "
-                f"总结索引: {last_summarized_index} -> {new_summarized_index}"
+                f"[{session_id}] History trimmed: deleted={actually_deleted}, "
+                f"retained={new_actual_count}, previous_summary_cursor={last_summarized_index}"
             )
 
         except Exception as e:

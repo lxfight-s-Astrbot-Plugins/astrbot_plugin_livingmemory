@@ -555,6 +555,16 @@
                     "max": 1.0,
                     "step": 0.01
                 }
+            },
+            "max_messages_per_segment": {
+                "description": "单段总结消息上限",
+                "type": "int",
+                "default": 120,
+                "slider": {
+                    "min": 2,
+                    "max": 1000,
+                    "step": 1
+                }
             }
         }
     },

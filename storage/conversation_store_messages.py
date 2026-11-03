@@ -13,6 +13,7 @@ from ..core.models.conversation_models import Message, serialize_to_json
 
 class ConversationStoreMessagesMixin:
     """ConversationStore 拆分模块：ConversationStoreMessagesMixin"""
+
     async def add_message(self, message: Message) -> int:
         """
         添加消息到数据库
@@ -198,12 +199,42 @@ class ConversationStoreMessagesMixin:
                 return int(count_value) if count_value is not None else 0
             return 0
 
+    async def commit_summary_cursor(
+        self, session_id: str, timestamp: float, message_id: int
+    ) -> None:
+        """Commit a completed snapshot by its stable last-message position."""
+        async with self._write_lock:
+            row = await (
+                await self.connection.execute(
+                    "SELECT s.metadata, COUNT(CASE WHEN m.timestamp < ? OR (m.timestamp = ? AND m.id <= ?) THEN m.id END) "
+                    "FROM sessions s LEFT JOIN messages m ON m.session_id = s.session_id "
+                    "WHERE s.session_id = ? GROUP BY s.session_id",
+                    (timestamp, timestamp, message_id, session_id),
+                )
+            ).fetchone()
+            metadata = json.loads(row[0] or "{}")
+            metadata["last_summarized_index"] = max(
+                int(metadata.get("last_summarized_index", 0) or 0), int(row[1])
+            )
+            metadata["pending_summary"] = None
+            try:
+                await self.connection.execute(
+                    "UPDATE sessions SET metadata = ? WHERE session_id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), session_id),
+                )
+                await self.connection.commit()
+            except BaseException:
+                await self.connection.rollback()
+                raise
+
     async def trim_session_messages(
         self,
         session_id: str,
         delete_count: int,
+        *,
+        delete_unsummarized: bool = False,
     ) -> int:
-        """Delete only summarized oldest messages and refresh the session count."""
+        """Trim oldest messages, optionally including unprocessed history at the hard cap."""
         if self.connection is None or delete_count <= 0:
             return 0
 
@@ -244,7 +275,7 @@ class ConversationStoreMessagesMixin:
 
             actual_count = int(row["actual_count"] or 0)
 
-            if last_summarized_index > actual_count:
+            if last_summarized_index > actual_count and not delete_unsummarized:
                 metadata["last_summarized_index"] = 0
                 await self.connection.execute(
                     """
@@ -266,7 +297,12 @@ class ConversationStoreMessagesMixin:
                 )
                 return 0
 
-            safe_delete_count = min(delete_count, last_summarized_index)
+            if last_summarized_index > actual_count:
+                last_summarized_index = 0
+            safe_delete_count = min(
+                delete_count,
+                actual_count if delete_unsummarized else last_summarized_index,
+            )
             if safe_delete_count <= 0:
                 return 0
 
@@ -513,7 +549,10 @@ class ConversationStoreMessagesMixin:
         Returns:
             dict: 实际被修正的键（被清除的键值为 ``None``）
         """
-        if "last_summarized_index" not in metadata and "pending_summary" not in metadata:
+        if (
+            "last_summarized_index" not in metadata
+            and "pending_summary" not in metadata
+        ):
             return {}
         repaired: dict = {}
         try:
@@ -942,4 +981,3 @@ class ConversationStoreMessagesMixin:
         except Exception as e:
             logger.error(f"同步 message_count 失败: {e}", exc_info=True)
             return {}
-

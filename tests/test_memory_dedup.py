@@ -20,6 +20,7 @@ def _vector_result(doc_id: int, score: float) -> VectorResult:
 def _reflection_with_engine(engine: SimpleNamespace) -> MemoryReflection:
     reflection = MemoryReflection.__new__(MemoryReflection)
     reflection.memory_engine = engine
+    reflection.consolidation_manager = None
     reflection.config_manager = SimpleNamespace(
         get=lambda key, default=None: {
             "memory_dedup.enabled": True,

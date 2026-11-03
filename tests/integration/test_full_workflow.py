@@ -63,6 +63,16 @@ def setup_bundle():
     conversation_manager.update_session_metadata = AsyncMock(
         side_effect=_update_session_metadata
     )
+    conversation_manager.get_summary_window = AsyncMock(
+        return_value=(0, conversation_manager.get_messages_range.return_value)
+    )
+
+    async def _commit_cursor(session_id, last_message, expected_revision):
+        session_metadata["last_summarized_index"] = 2
+        session_metadata["pending_summary"] = None
+        return True
+
+    conversation_manager.commit_summary_cursor = AsyncMock(side_effect=_commit_cursor)
     conversation_manager.clear_session = AsyncMock()
     conversation_manager.store = Mock()
     conversation_manager.store.get_message_count = AsyncMock(return_value=2)
@@ -125,7 +135,12 @@ async def test_recall_reflection_and_search_workflow(setup_bundle):
 
     assert memory_engine.search_memories.await_count == 1
 
-    resp = Mock(role="assistant", completion_text="助手回复", tools_call_name=None, tools_call_extra_content=None)
+    resp = Mock(
+        role="assistant",
+        completion_text="助手回复",
+        tools_call_name=None,
+        tools_call_extra_content=None,
+    )
     with patch(
         "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
         new_callable=AsyncMock,
