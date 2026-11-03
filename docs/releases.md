@@ -1,5 +1,26 @@
 # 版本与升级
 
+## 2.9.0 · 2026-11-03
+
+2.9.0 新增适配器互通与旧记忆归属迁移，并修复反思积压、消息裁剪和整合隔离问题。已有向量与文档 ID 保留，无需重新生成 Embedding。
+
+[下载 2.9.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.9.0)
+
+### 本次更新
+
+- **适配器互通**：按实例选择共享范围，继续叠加会话、用户作用域和人格过滤。旧数据自动恢复可识别的归属，来源不明的记录可在设置页分配或整体转交；迁移前备份 SQLite 库。见 [#384](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/384)。
+- **有界总结与保留**：每段最多 `max_messages_per_segment` 条消息，默认 120；按原有片段预算连续消费积压。总结游标为 0 时仍执行 `max_messages_per_session` 硬上限，先清理已总结消息，不足时淘汰最旧未总结缓存并警告。
+- **游标和整合**：读取快照时协调头部裁剪，按消息 ID 与时间戳提交游标；重试不越过后续片段。整合与反思的写入互斥，LLM 推理保持并行；会话整合也保留人格与适配器归属。见 [#386](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/386)。
+
+以上改动由 [@lxfight](https://github.com/lxfight) 贡献。最新完整测试：后端 1,203 项、前端 150 项通过；适配器迁移、真实 SQLite/FAISS、裁剪并发和 Chrome 多尺寸操作均有验证。
+
+### 安装与升级
+
+1. 停止插件并备份完整数据目录。若要保留全部未总结原文，先提高 `max_messages_per_session` 或导出历史；硬上限可能淘汰尚未形成记忆的内容。
+2. 更新至 `2.9.0`，重新启动 AstrBot 并重新打开插件视图。设置互通名单后，未选中和新加入的实例各自隔离；会话隔离开启时，不同实际会话仍然隔离。
+3. 旧记录归属变更不改写 `session_id`。手动批量转交前，暂停相关适配器并等待总结结束；无法唯一恢复来源的旧记录需要显式分配。
+4. [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的数据库文件打开失败仍需新日志定位，保持开放。
+
 ## 2.8.4 · 2026-11-01
 
 2.8.4 修复 3D 图谱加载，完善 SQLite 打开错误的诊断信息，并明确时间戳写入错误的宿主升级方法。无需修改插件配置或迁移数据库。
