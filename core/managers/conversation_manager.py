@@ -99,7 +99,7 @@ class ConversationManager:
         event: Any,  # AstrBot MessageEvent
         role: str,
         content: str,
-    ) -> Message:
+    ) -> Message | None:
         """
         从AstrBot事件添加消息(自动提取发送者信息)
 
@@ -109,7 +109,7 @@ class ConversationManager:
             content: 消息内容
 
         Returns:
-            创建的Message对象
+            创建的Message对象；框架合成的唤醒事件返回 None（不写入）
         """
         # 使用 unified_msg_origin 作为会话ID，确保多Bot场景下的唯一性
         session_id = event.unified_msg_origin
@@ -118,6 +118,17 @@ class ConversationManager:
             if hasattr(event, "get_platform_name")
             else "unknown"
         )
+
+        # 定时任务、后台任务与插件唤醒不是用户对话轮次。新版 AstrBot 用
+        # agent_wakeup 事件承载这类唤醒（platform 为目标会话平台），4.29.4 及
+        # 更早的定时任务事件平台为 cron。写入会让反思窗口混入机器人的自主行动
+        # 内容，并改变真实对话的总结节奏（#389）。
+        if getattr(event, "event_kind", "") == "agent_wakeup" or platform == "cron":
+            logger.debug(
+                f"[add_message_from_event] 跳过合成唤醒事件消息: "
+                f"session={session_id}, platform={platform}"
+            )
+            return None
 
         # 提取发送者信息
         sender_id = None
