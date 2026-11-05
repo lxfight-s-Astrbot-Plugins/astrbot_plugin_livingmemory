@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.9.0
+      text: Get 2.9.1
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.9.0 is released
+## 2.9.1 is released
 
-2.9.0 adds adapter-instance sharing and legacy ownership migration, with fixes for oversized summaries, history retention and consolidation isolation. Session and persona settings still apply. Back up source conversations before upgrading and review the hard retention cap. See [Releases and Upgrades](/en/releases) for downloads, migration and configuration.
+2.9.1 restores stable participant identities in memory injection and keeps synthetic cron and background-task wakeups out of real conversation memory. No database migration or configuration change is required. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 
