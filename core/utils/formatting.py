@@ -40,6 +40,25 @@ def _memory_injection_content(content: Any, metadata: Any) -> str:
                         return raw_content[: -len(suffix)].strip()
     return raw_content
 
+def _participant_identity_label(identity: Any) -> str:
+    """把存储的身份渲染成“昵称#ID后四位”，使同名与改名用户仍可区分。
+
+    注入文本会交给模型，完整账号 ID 按隐私取舍只保留尾四位；机器人自身按
+    记忆的第一人称语境渲染为“我”。
+    """
+    if not isinstance(identity, dict):
+        return ""
+    sender_id = str(identity.get("sender_id") or "").strip()
+    display_name = str(identity.get("display_name") or "").strip() or sender_id
+    if not display_name:
+        return ""
+    if identity.get("is_bot"):
+        return "我"
+    if not sender_id or display_name == sender_id:
+        return display_name
+    return f"{display_name}#{sender_id[-4:]}"
+
+
 def _memory_metadata_rows(metadata: dict) -> list[str]:
     """构建记忆条目的元数据描述行（Topics/Participants/Key facts/Source time）。
 
@@ -53,11 +72,22 @@ def _memory_metadata_rows(metadata: dict) -> list[str]:
         if topics_str:
             rows.append(f"Topics: {topics_str}")
 
-    participants = metadata.get("participants", [])
-    if participants and isinstance(participants, list) and len(participants) > 0:
-        participants_str = "、".join(str(p) for p in participants if p)
-        if participants_str:
-            rows.append(f"Participants: {participants_str}")
+    # 稳定身份优先：participants 是模型写的昵称，同名/改名后无法区分；
+    # participant_identities 记录各发送者的平台账号，用它补上可区分的后缀。
+    identities = metadata.get("participant_identities")
+    if isinstance(identities, list) and identities:
+        participants_str = "、".join(
+            label for label in map(_participant_identity_label, identities) if label
+        )
+    else:
+        participants = metadata.get("participants", [])
+        participants_str = (
+            "、".join(str(p) for p in participants if p)
+            if isinstance(participants, list)
+            else ""
+        )
+    if participants_str:
+        rows.append(f"Participants: {participants_str}")
 
     # Resolved atom content already lists the live facts. Parent key_facts have
     # not been lifecycle-filtered, so emitting them would reintroduce old facts.
