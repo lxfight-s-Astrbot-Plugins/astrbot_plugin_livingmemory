@@ -58,12 +58,6 @@ def main() -> None:
             0,
         ),
         (
-            ROOT / "package-lock.json",
-            rf'("version":\s*"){escaped_old}(")',
-            rf"\g<1>{new}\g<2>",
-            0,
-        ),
-        (
             ROOT / "core" / "managers" / "backup_manager.py",
             rf'(PLUGIN_VERSION = "){escaped_old}(")',
             rf"\g<1>{new}\g<2>",
@@ -79,8 +73,18 @@ def main() -> None:
         else:
             raise SystemExit(f"未在 {path.relative_to(ROOT)} 找到版本号 {old}")
 
+    # 锁文件只改根版本字段：全局替换会把恰好等于旧插件版本的依赖版本一并
+    # 改掉，使 resolved/integrity 与 version 不一致。
+    lock_path = ROOT / "package-lock.json"
+    lock = json.loads(lock_path.read_text("utf-8"))
+    lock["version"] = new
+    lock["packages"][""]["version"] = new
+    lock_path.write_text(
+        json.dumps(lock, ensure_ascii=False, indent=2) + "\n", "utf-8"
+    )
+    changed.append("package-lock.json (2 处)")
+
     json.loads((ROOT / "package.json").read_text("utf-8"))
-    json.loads((ROOT / "package-lock.json").read_text("utf-8"))
     print(f"版本已更新: {old} -> {new}")
     for item in changed:
         print("  " + item)
