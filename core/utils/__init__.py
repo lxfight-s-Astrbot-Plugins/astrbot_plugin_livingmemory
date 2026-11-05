@@ -46,63 +46,80 @@ class OperationContext:
 
 async def get_persona_id(context: Context, event: AstrMessageEvent) -> str | None:
     """
-    获取当前会话的人格 ID，与 AstrBot 主流程保持完全一致的三级优先级：
-      1. session_service_config（最高，由 /persona 等命令写入）
+    获取当前会话的人格 ID，确保每个人格拥有严格隔离的专属记忆：
+      0. 优先从 event extra 中获取 AstrBot 主流程设定的当前执行人格（_trace_persona_id）
+      1. session_service_config（由 /persona 等命令写入）
       2. conversation.persona_id（会话级绑定）
-      3. 全局默认人格（最低）
+      3. AstrBot agent_runner 实际配置的人格 (local runner persona_id)
+      4. 全局默认人格 (default_persona_v3)
     """
     try:
-        umo = event.unified_msg_origin
+        # 优先级 0：最准确的执行期追踪人格
+        if hasattr(event, "get_extra"):
+            trace_persona = event.get_extra("_trace_persona_id")
+            if trace_persona and trace_persona != "[%None]":
+                logger.info(f"[get_persona_id] 从 event trace 识别当前人格: {trace_persona}")
+                return str(trace_persona)
 
-        # 优先级 1：session_service_config（与 _ensure_persona_and_skills 一致）
-        session_persona_id: str | None = (
-            await sp.get_async(
-                scope="umo",
-                scope_id=umo,
-                key="session_service_config",
-                default={},
-            )
-        ).get("persona_id")
+        umo = getattr(event, "unified_msg_origin", None)
+        if not umo:
+            return None
 
-        if session_persona_id:
-            logger.debug(
+        # 优先级 1：session_service_config
+        session_service_conf = await sp.get_async(
+            scope="umo",
+            scope_id=umo,
+            key="session_service_config",
+            default={},
+        )
+        session_persona_id: str | None = session_service_conf.get("persona_id") if isinstance(session_service_conf, dict) else None
+
+        if session_persona_id and session_persona_id != "[%None]":
+            logger.info(
                 f"[get_persona_id] [{umo}] 使用 session_service_config 人格: {session_persona_id}"
             )
-            return session_persona_id
+            return str(session_persona_id)
 
         # 优先级 2：conversation.persona_id
-        session_id = await context.conversation_manager.get_curr_conversation_id(umo)
-        if session_id is None:
-            logger.debug(f"[get_persona_id] [{umo}] 无当前会话，跳至默认人格")
-        else:
-            conversation = await context.conversation_manager.get_conversation(
-                umo, session_id
-            )
-            persona_id = conversation.persona_id if conversation else None
+        if hasattr(context, "conversation_manager"):
+            session_id = await context.conversation_manager.get_curr_conversation_id(umo)
+            if session_id:
+                conversation = await context.conversation_manager.get_conversation(
+                    umo, session_id
+                )
+                persona_id = conversation.persona_id if conversation else None
+                if persona_id == "[%None]":
+                    logger.debug(f"[get_persona_id] [{umo}] 会话明确设置为无人格")
+                    return None
+                if persona_id:
+                    logger.info(f"[get_persona_id] [{umo}] 使用会话人格: {persona_id}")
+                    return str(persona_id)
 
-            logger.debug(
-                f"[get_persona_id] [{umo}] 会话={session_id}, "
-                f"会话人格={persona_id or '未设置'}"
-            )
+        # 优先级 3：AstrBot agent_runner 实际配置人格
+        cfg = context.get_config(umo=umo) if hasattr(context, "get_config") else {}
+        agent_runner = cfg.get("agent_runner", {}) if isinstance(cfg, dict) else {}
+        runner_cfg = agent_runner.get("config", {}) if isinstance(agent_runner, dict) else {}
+        runner_persona = (
+            runner_cfg.get("persona", {}).get("persona_id")
+            if agent_runner.get("runner_type") == "local"
+            else runner_cfg.get("persona_id")
+        )
+        if runner_persona and runner_persona != "[%None]":
+            logger.info(f"[get_persona_id] [{umo}] 使用 agent_runner 配置人格: {runner_persona}")
+            return str(runner_persona)
 
-            if persona_id == "[%None]":
-                # 明确设置为无人格
-                logger.debug(f"[get_persona_id] [{umo}] 会话明确设置为无人格")
-                return None
-
+        # 优先级 4：全局默认人格
+        if hasattr(context, "persona_manager"):
+            default_persona = await context.persona_manager.get_default_persona_v3(umo=umo)
+            persona_id = default_persona["name"] if default_persona else None
             if persona_id:
-                logger.info(f"[get_persona_id] [{umo}] 最终使用人格: {persona_id}")
-                return persona_id
+                logger.info(f"[get_persona_id] [{umo}] 使用全局默认人格: {persona_id}")
+                return str(persona_id)
 
-        # 优先级 3：全局默认人格
-        default_persona = await context.persona_manager.get_default_persona_v3(umo=umo)
-        persona_id = default_persona["name"] if default_persona else None
-        logger.debug(f"[get_persona_id] [{umo}] 使用默认人格: {persona_id or '未设置'}")
-        logger.info(f"[get_persona_id] [{umo}] 最终使用人格: {persona_id or '无'}")
-        return persona_id
+        return "default"
     except Exception as e:
-        logger.debug(f"获取人格ID失败: {e}")
-        return None
+        logger.warning(f"[get_persona_id] 获取人格ID异常: {e}")
+        return "default"
 
 
 def extract_json_from_response(text: str) -> str:
