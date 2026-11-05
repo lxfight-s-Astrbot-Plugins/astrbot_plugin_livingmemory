@@ -1,5 +1,24 @@
 # Releases and Upgrades
 
+## 2.9.1 · November 5, 2026
+
+2.9.1 fixes missing stable participant identities in memory injection and keeps synthetic cron and background-task wakeups out of real conversation memory. No database migration or configuration change is required.
+
+[Download 2.9.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.9.1)
+
+### What changed
+
+- **Stable participant identities**: the injected `Participants` line now reads `participant_identities` and renders nickname#last4, so users sharing a nickname can be told apart and renamed users keep the same suffix. Only the last four characters of an account ID are exposed; bot identities render as “我” and memories without identity records keep the nickname list. Fixes [#388](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/388), see [#391](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/391).
+- **Reflection source**: cron, background-task and plugin wakeups are no longer written to conversation history, so they do not enter the reflection window or change message counts, summary cursors and unsummarized rounds. Both newer `agent_wakeup` events and the `cron` platform used by 4.29.4 and earlier are skipped. Fixes [#389](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/389), see [#392](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/392).
+
+Contributed by [@lxfight](https://github.com/lxfight). The latest complete suite passed 1,211 backend and 150 frontend tests. New regressions cover same-name and renamed participants plus both synthetic wakeup sources.
+
+### Install and upgrade
+
+1. Stop the plugin, back up its data directory and update to `2.9.1`, then restart AstrBot and reopen Plugin Views. No database migration or configuration change is required.
+2. The fix applies to messages created after the upgrade; cron and background-task records already written to conversation history remain and can be cleaned up or re-summarized as needed.
+3. The database file-open failure in [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) remains open pending new diagnostic logs.
+
 ## 2.9.0 · November 3, 2026
 
 2.9.0 adds adapter sharing and legacy ownership migration, with fixes for reflection backlog, history trimming and consolidation isolation. Existing vectors and document IDs are retained without regenerating embeddings.

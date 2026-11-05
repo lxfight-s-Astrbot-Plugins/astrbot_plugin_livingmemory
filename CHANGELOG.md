@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.9.1] - 2026-11-05
+
+2.9.1 修复记忆注入缺少参与者稳定标识，以及定时任务、后台任务等框架合成唤醒混入真实对话记忆的问题。无需调整配置或迁移数据库。
+
+### 记忆注入
+
+- **参与者稳定标识**：注入文本的 `Participants` 行优先读取 `participant_identities`，按“昵称#账号后四位”渲染。同名用户可以直接区分，用户改名后仍能凭稳定后缀认出是同一人；账号只保留尾四位，不向模型暴露完整用户 ID。机器人自身按第一人称语境显示为“我”；没有身份记录的历史记忆继续使用原有昵称列表。
+
+修复 [#388](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/388)，见 [#391](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/391)，贡献者 [@lxfight](https://github.com/lxfight)。
+
+### 反思窗口
+
+- **排除合成唤醒轮次**：定时任务、后台任务与插件唤醒不再写入会话历史。新版 AstrBot 以 `agent_wakeup` 事件承载这些轮次（`platform` 为目标会话平台），4.29.4 及更早版本则表现为平台为 `cron` 的定时任务事件；两种来源都会被识别并跳过。合成轮次不再进入反思窗口，也不改变消息总数、总结游标和未总结轮数，真实对话的总结时机不再受定时任务频率影响。
+
+修复 [#389](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/389)，见 [#392](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/392)，贡献者 [@lxfight](https://github.com/lxfight)。
+
+### 验证
+
+- 完整后端测试 1,211 项、前端测试 150 项通过；文档检查、VitePress 构建及 Dashboard 产物检查通过。
+- 新增回归覆盖同名与改名参与者的注入标识、`agent_wakeup` 与 `cron` 两种合成来源的过滤，以及真实消息仍正常写入。
+
+### 升级说明
+
+1. 更新至 `2.9.1` 后重新启动 AstrBot 并重新打开插件视图，无需数据库迁移或配置调整。
+2. 修复仅作用于升级后新产生的消息；升级前已经写入会话历史的定时任务/后台任务记录会保留，可继续通过既有清理或重新总结流程处理。
+3. [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的数据库文件打开失败仍需新增诊断日志定位，保持开放。
+
 ## [2.9.0] - 2026-11-03
 
 2.9.0 新增按适配器实例配置记忆互通及旧数据归属迁移，并修复反思积压、历史清理和记忆整合中的问题。原有会话、用户作用域和人格过滤继续生效，平台用户 ID 保留原值。
