@@ -304,16 +304,11 @@
             },
             "injection_method": {
                 "description": "记忆注入位置",
-                "hint": "记忆注入到 LLM 请求的位置。extra_user_content(唯一支持)：以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、完全不写入对话历史。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️均已废弃（会改写用户消息或向对话历史写入消息），选择后自动回退至 extra_user_content。",
+                "hint": "记忆以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、不写入对话历史。",
                 "type": "string",
                 "default": "extra_user_content",
                 "options": [
-                    "extra_user_content",
-                    "user_message_before",
-                    "user_message_after",
-                    "fake_tool_call",
-                    "fake_tool_call_deepseek_v4",
-                    "system_prompt"
+                    "extra_user_content"
                 ]
             },
             "auto_remove_injected": {

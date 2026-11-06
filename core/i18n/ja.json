@@ -13,7 +13,6 @@
       "suggestions": "確認事項:",
       "suggestion_item": "{index}. {suggestion}"
     },
-    "component_not_ready": "{command} の実行に失敗しました：{component}が初期化されていません。\nまず /lmem status でプラグインの状態を確認してください。異常がある場合は起動ログを確認してください。",
     "suggestions": {
       "status": [
         "データベースファイルの読み書き権限を確認",
@@ -76,7 +75,8 @@
       "score": "{index}. [スコア:{score:.2f}] {content}\n",
       "id": "   ID: {id}\n\n",
       "breakdown": "   一致: 文書キーワード={doc_kw:.2f}, 文書ベクトル={doc_vec:.2f}, グラフキーワード={graph_kw:.2f}, グラフベクトル={graph_vec:.2f}\n\n"
-    }
+    },
+    "access_denied": "現在のユーザーまたはセッションは長期記憶の許可リストに含まれていません。"
   },
   "forget": {
     "action_name": "記憶削除",
@@ -87,8 +87,6 @@
   "rebuild_index": {
     "action_name": "インデックス再構築",
     "checking": "インデックスの状態を確認しています...",
-    "ok": "インデックスの状態は正常です: {reason}",
-    "status_template": "現在のインデックス状態:\n• Documents テーブル: {doc_count} 件\n• BM25 インデックス: {bm25_count} 件\n• ベクトルインデックス: {vec_count} 件\n• 問題: {reason}\n\nインデックス再構築を開始します...",
     "partial_notice": "\n注意: 今回の再構築で一部失敗がありました。失敗率 {ratio:.2%} は安全しきい値を超えていません。後ほど /lmem rebuild-index を再実行して補完できます。",
     "result_template": "インデックス再構築が完了しました。\n\n処理結果:\n• 成功: {success} 件\n• 失敗: {failed} 件\n• 合計: {total} 件\n• ベクトル処理モード: {vector_mode}\n• 新インデックス切り替え: {switched}\n{partial_notice}\n\n検索機能を引き続き利用できます。",
     "failed": "インデックス再構築に失敗しました。\nエラー詳細: {message}\nログで失敗理由を確認してから /lmem rebuild-index を再試行してください。"

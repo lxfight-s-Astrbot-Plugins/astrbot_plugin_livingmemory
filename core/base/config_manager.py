@@ -1,6 +1,6 @@
 """
 配置管理器
-集中管理插件配置的加载、验证、修正和访问
+集中管理插件配置的加载、验证与访问
 """
 
 import copy
@@ -8,23 +8,8 @@ from typing import Any
 
 from astrbot.api import logger
 
-from .config_validator import (
-    get_default_config,
-    merge_config_with_defaults,
-    normalize_config,
-    validate_config,
-)
+from .config_validator import validate_config
 from .exceptions import ConfigurationError
-
-
-def _get_normalized_value(config: dict[str, Any], path: str) -> Any:
-    """Read a dotted path from a normalized config dict."""
-    current: Any = config
-    for part in str(path).split("."):
-        if not isinstance(current, dict):
-            return None
-        current = current.get(part)
-    return current
 
 
 class ConfigManager:
@@ -41,68 +26,36 @@ class ConfigManager:
         # save_config hook used by the dashboard settings page.
         self._raw_config = user_config if user_config is not None else {}
         self._config: dict[str, Any] = {}
-        self._config_obj = None
+        self._legacy_injection_warned = False
         self._load_config()
 
     def _load_config(self) -> None:
-        """加载、修正并验证配置"""
-        corrections: list[dict[str, Any]] = []
+        """按 Pydantic 模型校验配置；非法配置直接抛出 ConfigurationError。"""
         try:
-            # 合并默认配置
-            merged_config = merge_config_with_defaults(self._raw_config)
-            # 逐项修正超出允许范围的值（AstrBot 保存时只校验类型不校验范围）
-            merged_config, corrections = normalize_config(merged_config)
-            # 验证配置
-            self._config_obj = validate_config(merged_config)
-            self._config = self._config_obj.model_dump()
-        except Exception:
-            logger.warning("配置验证失败，已降级为默认配置", exc_info=True)
-            # 配置验证失败，使用默认配置
-            try:
-                self._config = get_default_config()
-                self._config_obj = validate_config(self._config)
-            except Exception as e2:
-                raise ConfigurationError(f"加载默认配置失败: {e2}") from e2
-
-        if corrections:
-            for item in corrections:
-                logger.warning(
-                    "配置项已自动修正 %s: %r -> %r (%s)",
-                    item["path"],
-                    item["old"],
-                    item["new"],
-                    item.get("reason", ""),
-                )
-            self._persist_normalized_config(corrections)
-
-    def _persist_normalized_config(self, corrections: list[dict[str, Any]]) -> None:
-        """把修正后的值写回 AstrBot 配置，使配置页显示修正后的数值。"""
-        save_config = getattr(self._raw_config, "save_config", None)
-        if not callable(save_config) or not isinstance(self._raw_config, dict):
-            return
-        try:
-            for item in corrections:
-                parts = item["path"].split(".")
-                target: dict[str, Any] = self._raw_config
-                for part in parts[:-1]:
-                    child = target.get(part)
-                    if not isinstance(child, dict):
-                        break
-                    target = child
-                else:
-                    target[parts[-1]] = item["new"]
-            save_config()
-            logger.info("已把 %d 项配置修正写回配置文件", len(corrections))
+            config = validate_config(self._raw_config)
         except Exception as exc:
-            logger.warning("配置修正写回失败，仅保留内存内修正: %s", exc)
+            raise ConfigurationError(f"插件配置无效: {exc}") from exc
+        self._config = config.model_dump()
+
+        # 旧注入方式仅为配置兼容保留：运行时统一按 extra_user_content 处理，
+        # 只在首次载入时提示一次，避免每次请求刷日志。
+        injection_method = self._config["recall_engine"]["injection_method"]
+        if injection_method != "extra_user_content":
+            if not self._legacy_injection_warned:
+                logger.warning(
+                    "记忆注入方式 %s 已废弃，运行时按 extra_user_content 处理",
+                    injection_method,
+                )
+                self._legacy_injection_warned = True
+            self._config["recall_engine"]["injection_method"] = "extra_user_content"
 
     def apply_updates(self, updates: dict[str, Any]) -> dict[str, Any]:
         """Validate and persist flat dotted-path config updates.
 
-        The candidate config is merged with defaults, normalized and validated
-        before anything is written, so an invalid value cannot wipe the rest of
-        the configuration. Values are then deep-set into the host plugin config,
-        saved with its ``save_config`` hook and reloaded.
+        The candidate config is validated against the Pydantic model before
+        anything is written, so an invalid value is rejected instead of being
+        clamped or silently discarded. Values are then deep-set into the host
+        plugin config, saved with its ``save_config`` hook and reloaded.
 
         Args:
             updates: Mapping of dotted path (e.g. ``recall_engine.top_k``) to value.
@@ -132,12 +85,14 @@ class ConfigManager:
                 target = child
             target[parts[-1]] = value
 
-        merged = merge_config_with_defaults(candidate)
-        normalized, _ = normalize_config(merged)
-        validate_config(normalized)
+        # 非法值在这里抛出 ValidationError（ValueError 子类），不写入宿主配置
+        validated = validate_config(candidate).model_dump()
 
         for path in updates:
             parts = str(path).split(".")
+            value: Any = validated
+            for part in parts:
+                value = value.get(part) if isinstance(value, dict) else None
             target = raw_config
             for part in parts[:-1]:
                 child = target.get(part)
@@ -145,7 +100,7 @@ class ConfigManager:
                     child = {}
                     target[part] = child
                 target = child
-            target[parts[-1]] = _get_normalized_value(normalized, path)
+            target[parts[-1]] = value
 
         save_config = getattr(raw_config, "save_config", None)
         if not callable(save_config):

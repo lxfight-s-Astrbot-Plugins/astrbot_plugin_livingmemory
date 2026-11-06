@@ -9,8 +9,7 @@ from astrbot.api import logger, sp
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
-from ..processors.text_processor import TextProcessor
-from .stopwords_manager import StopwordsManager, get_stopwords_manager
+from .formatting import format_memories_for_injection
 
 
 class OperationContext:
@@ -120,23 +119,8 @@ def extract_json_from_response(text: str) -> str:
 
 
 __all__ = [
-    "StopwordsManager",
-    "get_stopwords_manager",
-    "TextProcessor",
-    "safe_parse_metadata",
-    "validate_timestamp",
     "OperationContext",
     "get_persona_id",
     "extract_json_from_response",
     "format_memories_for_injection",
 ]
-
-
-# ---- 记忆注入默认文本（后备） ----
-
-# 自 formatting.py 拆分模块导出（保持向后兼容）
-from .formatting import (
-    format_memories_for_injection,
-    safe_parse_metadata,
-    validate_timestamp,
-)
