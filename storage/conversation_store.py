@@ -290,6 +290,12 @@ class ConversationStore:
             }
         )
 
+    async def list_session_ids(self) -> list[str]:
+        """Return every known session id for import session-id remapping."""
+        async with self.connection.execute("SELECT session_id FROM sessions") as cursor:
+            rows = await cursor.fetchall()
+        return [str(row["session_id"]) for row in rows if row["session_id"]]
+
     async def add_message(self, message: Message) -> int:
         """
         添加消息到数据库

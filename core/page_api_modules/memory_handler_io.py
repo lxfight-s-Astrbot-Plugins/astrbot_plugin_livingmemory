@@ -17,6 +17,7 @@ from ..memory_transfer import (
     MAX_IMPORT_ENTRIES,
     memory_import_key,
     parse_transfer_content,
+    plan_session_id_remap,
     serialize_transfer_csv,
     serialize_transfer_json,
 )
@@ -66,8 +67,22 @@ class MemoryHandlerIoMixin:
             }
         )
 
-    async def import_memories(self, memory_engine, memory_processor) -> dict[str, Any]:
-        """Preview or import native and common external JSON/CSV memories."""
+    async def import_memories(
+        self,
+        memory_engine,
+        memory_processor,
+        *,
+        current_platforms: Any = (),
+        existing_session_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Preview or import native and common external JSON/CSV memories.
+
+        Imported exports retain the platform segment of the deployment they were
+        written in (``platform:message_type:session`` or a user memory scope).
+        When that platform no longer exists, session filtering would never match
+        the imported memories, so unambiguous platform segments are rewritten to
+        the current deployment before duplicate detection and writing.
+        """
         payload = await request.get_json(silent=True) or {}
         import_format = str(payload.get("format", "json")).strip().lower()
         content = payload.get("content")
@@ -89,6 +104,20 @@ class MemoryHandlerIoMixin:
             )
         except ValueError as exc:
             return self.utils.error(str(exc))
+
+        session_remap = plan_session_id_remap(
+            [entry.session_id for entry in entries if entry.session_id],
+            current_platforms,
+            existing_session_ids or [],
+        )
+        remapped_count = 0
+        for entry in entries:
+            target = session_remap.get(entry.session_id) if entry.session_id else None
+            if target:
+                entry.session_id = target
+                # 旧平台推导出的 adapter_id 同样失效，写入时按新会话前缀重新推导。
+                entry.metadata.pop("adapter_id", None)
+                remapped_count += 1
 
         existing_keys = await memory_engine.get_memory_import_keys()
         detected_keys = set(existing_keys)
@@ -115,6 +144,7 @@ class MemoryHandlerIoMixin:
                     "duplicate_count": duplicate_count,
                     "summary_required_count": summary_required,
                     "planned_import_count": max(0, planned_count),
+                    "remapped_session_count": remapped_count,
                     "errors": parse_errors[:50],
                 }
             )
@@ -127,6 +157,10 @@ class MemoryHandlerIoMixin:
             try:
                 content_text = entry.content
                 metadata = dict(entry.metadata)
+                # add_memory 会用 metadata 覆盖入参 session_id/persona_id，
+                # 这里显式写回导入解析后的目标值，避免旧平台前缀残留在检索过滤字段里。
+                metadata["session_id"] = entry.session_id
+                metadata["persona_id"] = entry.persona_id
                 importance = entry.importance
                 if entry.requires_summary:
                     if memory_processor is None:
@@ -197,6 +231,7 @@ class MemoryHandlerIoMixin:
                 "skipped_duplicate_count": skipped_duplicates,
                 "failed_count": len(import_errors),
                 "imported_ids": imported_ids,
+                "remapped_session_count": remapped_count,
                 "errors": import_errors[:50],
             }
         )

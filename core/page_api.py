@@ -253,7 +253,12 @@ class PluginPageApi:
         if error:
             return error
         return await self.memory_handler.import_memories(
-            ready["memory_engine"], ready["memory_processor"]
+            ready["memory_engine"],
+            ready["memory_processor"],
+            current_platforms=self._current_platform_names(),
+            existing_session_ids=await self._existing_session_ids(
+                ready["conversation_manager"]
+            ),
         )
 
     async def batch_delete_memories(self):
@@ -343,6 +348,30 @@ class PluginPageApi:
         return await self.settings_handler.update_config()
 
     # ==================== 辅助方法 ====================
+
+    def _current_platform_names(self) -> set[str]:
+        """Collect platform names used as the first segment of unified_msg_origin."""
+        names: set[str] = set()
+        context = getattr(self.plugin, "context", None)
+        platform_manager = getattr(context, "platform_manager", None)
+        get_insts = getattr(platform_manager, "get_insts", None)
+        if not callable(get_insts):
+            return names
+        for instance in get_insts() or []:
+            meta = getattr(instance, "meta", None)
+            metadata = meta() if callable(meta) else None
+            name = getattr(metadata, "name", None)
+            if isinstance(name, str) and name.strip():
+                names.add(name.strip())
+        return names
+
+    async def _existing_session_ids(self, conversation_manager: Any) -> list[str]:
+        """List known conversation sessions for import session-id remapping."""
+        store = getattr(conversation_manager, "store", None)
+        list_session_ids = getattr(store, "list_session_ids", None)
+        if not callable(list_session_ids):
+            return []
+        return list(await list_session_ids())
 
     async def _ensure_plugin_ready(self) -> tuple[dict[str, Any] | None, dict | None]:
         """

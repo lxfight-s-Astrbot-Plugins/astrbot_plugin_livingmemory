@@ -515,13 +515,15 @@ export class MemoryPage {
       );
       this.peek.close();
       const failed = Number(result.failed_count || 0);
+      const remapped = Number(result.remapped_session_count || 0);
+      const importedText = window.t(
+        "transfer.importSuccess",
+        Number(result.imported_count || 0),
+        Number(result.skipped_duplicate_count || 0),
+        failed
+      );
       this.setTransferStatus(
-        window.t(
-          "transfer.importSuccess",
-          Number(result.imported_count || 0),
-          Number(result.skipped_duplicate_count || 0),
-          failed
-        ),
+        importedText + (remapped > 0 ? window.t("transfer.sessionRemapped", remapped) : ""),
         failed > 0
       );
       await this.fetch();

@@ -1413,6 +1413,71 @@ async def test_import_preview_reports_duplicates_and_invalid_items():
 
 
 @pytest.mark.asyncio
+async def test_import_remaps_retired_platform_in_session_id():
+    """导入的旧平台会话 ID 应映射到当前平台，否则按会话过滤永远召回不到。"""
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(return_value=set())
+    engine.add_memory = AsyncMock(return_value=11)
+    plugin = FakePlugin(memory_engine=engine)
+    plugin.initializer.conversation_manager = SimpleNamespace(
+        store=SimpleNamespace(
+            list_session_ids=AsyncMock(
+                return_value=["default:FriendMessage:1163018485"]
+            )
+        )
+    )
+    api = PluginPageApi(plugin)
+    content = json.dumps(
+        [{"summary": "旧平台记忆", "session_id": "了了:FriendMessage:1163018485"}]
+    )
+    req = _mock_page_request(
+        get_json={
+            "format": "json",
+            "content": content,
+            "dry_run": False,
+            "duplicate_strategy": "skip",
+        }
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["status"] == "ok"
+    assert result["data"]["imported_count"] == 1
+    assert result["data"]["remapped_session_count"] == 1
+    add_kwargs = engine.add_memory.await_args.kwargs
+    assert add_kwargs["session_id"] == "default:FriendMessage:1163018485"
+    assert add_kwargs["metadata"]["session_id"] == "default:FriendMessage:1163018485"
+
+
+@pytest.mark.asyncio
+async def test_import_preview_reports_remapped_session_count():
+    engine = FakeMemoryEngine()
+    engine.get_memory_import_keys = AsyncMock(return_value=set())
+    plugin = FakePlugin(memory_engine=engine)
+    plugin.initializer.conversation_manager = SimpleNamespace(
+        store=SimpleNamespace(
+            list_session_ids=AsyncMock(
+                return_value=["default:FriendMessage:1163018485"]
+            )
+        )
+    )
+    api = PluginPageApi(plugin)
+    content = json.dumps(
+        [{"summary": "旧平台记忆", "session_id": "了了:FriendMessage:1163018485"}]
+    )
+    req = _mock_page_request(
+        get_json={"format": "json", "content": content, "dry_run": True}
+    )
+
+    with _patch_page_request(req):
+        result = await api.import_memories()
+
+    assert result["data"]["planned_import_count"] == 1
+    assert result["data"]["remapped_session_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_import_source_only_conversation_uses_processor_and_retains_source():
     engine = FakeMemoryEngine()
     engine.get_memory_import_keys = AsyncMock(return_value=set())
