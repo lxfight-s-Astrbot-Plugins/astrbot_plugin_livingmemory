@@ -20,7 +20,7 @@ INVALID_IDS_ERROR = "memory_ids must be a non-empty list of integers"
 def _patch_persona_id():
     """默认人格过滤开启；统一把 get_persona_id 桩成 persona_a。"""
     with patch(
-        "astrbot_plugin_livingmemory.core.tools.agentic_recall_common.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_a"

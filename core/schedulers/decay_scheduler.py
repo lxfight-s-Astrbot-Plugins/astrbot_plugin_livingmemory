@@ -152,10 +152,6 @@ class DecayScheduler:
                 affected = await self.memory_engine.apply_daily_decay(
                     self.decay_rate, days
                 )
-                if affected < 0:
-                    # 衰减失败：不能标记“今日已衰减”，否则当天不会再重试
-                    logger.error("[衰减调度] 衰减执行失败，今日状态保持未完成")
-                    return False
                 logger.info(
                     f"[衰减调度] 衰减完成，影响 {affected} 条记忆，衰减天数: {days}"
                 )
@@ -177,14 +173,10 @@ class DecayScheduler:
                     )
                     action = (
                         "归档"
-                        if self.memory_engine.config.get(
-                            "auto_archived_enabled", False
-                        )
+                        if self.memory_engine.config.get("auto_archived_enabled", False)
                         else "删除"
                     )
-                    logger.info(
-                        f"[衰减调度] 自动清理完成，{action} {deleted} 条旧记忆"
-                    )
+                    logger.info(f"[衰减调度] 自动清理完成，{action} {deleted} 条旧记忆")
                 except Exception as cleanup_err:
                     logger.error(
                         f"[衰减调度] 自动清理失败: {cleanup_err}", exc_info=True

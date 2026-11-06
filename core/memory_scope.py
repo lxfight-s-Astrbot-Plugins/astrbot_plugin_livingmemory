@@ -191,6 +191,42 @@ def resolve_sender_alias(
     return sender_name
 
 
+@dataclass(frozen=True, slots=True)
+class EventMemoryAccess:
+    """一次事件请求内解析出的白名单、人格与记忆作用域。"""
+
+    allowed: bool
+    persona_id: str | None
+    scope: str | None
+
+
+async def resolve_event_memory_access(
+    config: Any, context: Any, event: Any
+) -> EventMemoryAccess:
+    """一次解析事件的白名单、人格过滤与记忆作用域。
+
+    Args:
+        config: ConfigManager 或宿主配置。
+        context: 插件 Context；人格解析依赖其 conversation/persona manager。
+        event: 当前消息事件。
+
+    Returns:
+        白名单不通过时 ``allowed=False``，其余字段为 None。
+    """
+    if not is_event_memory_allowed(config, event):
+        return EventMemoryAccess(allowed=False, persona_id=None, scope=None)
+    persona_id = None
+    if _config_get(config, "filtering_settings.use_persona_filtering", True):
+        from .utils import get_persona_id
+
+        persona_id = await get_persona_id(context, event)
+    return EventMemoryAccess(
+        allowed=True,
+        persona_id=persona_id,
+        scope=resolve_memory_scope(config, event),
+    )
+
+
 def is_event_memory_allowed(config: Any, event: Any) -> bool:
     """Apply the plugin-level allowlist consistently to every entry point."""
     if not _config_get(config, "access_control.whitelist_enabled", False):
@@ -221,6 +257,13 @@ def is_event_memory_allowed(config: Any, event: Any) -> bool:
     )
 
 
+def resolve_user_memory_scope(config: Any, event: Any) -> str:
+    """构造用户级作用域；身份别名与运行时读写共用同一份配置。"""
+    platform = _event_value(event, "get_platform_name", "platform").casefold()
+    identity = resolve_event_identity(config, event).casefold()
+    return f"livingmemory:user:{platform or 'unknown'}:{identity}"
+
+
 def resolve_memory_scope(config: Any, event: Any) -> str | None:
     """Resolve the retrieval/storage scope while preserving legacy defaults."""
     session_id = _event_value(event, "unified_msg_origin", "unified_msg_origin")
@@ -240,9 +283,7 @@ def resolve_memory_scope(config: Any, event: Any) -> str | None:
     if mode == "global":
         return GLOBAL_MEMORY_SCOPE
     if mode == "user":
-        platform = _event_value(event, "get_platform_name", "platform").casefold()
-        identity = resolve_event_identity(config, event).casefold()
-        return f"livingmemory:user:{platform or 'unknown'}:{identity}"
+        return resolve_user_memory_scope(config, event)
 
     use_session = bool(
         _config_get(config, "filtering_settings.use_session_filtering", True)
@@ -269,12 +310,15 @@ def is_suspicious_session_id(session_id: str | None) -> bool:
 
 
 __all__ = [
+    "EventMemoryAccess",
     "GLOBAL_MEMORY_SCOPE",
+    "resolve_event_memory_access",
     "is_event_memory_allowed",
     "is_suspicious_session_id",
     "parse_identity_aliases",
     "parse_value_list",
     "resolve_event_identity",
     "resolve_memory_scope",
+    "resolve_user_memory_scope",
     "resolve_sender_alias",
 ]

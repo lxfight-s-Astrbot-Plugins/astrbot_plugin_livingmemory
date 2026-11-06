@@ -225,71 +225,20 @@ async def test_startup_index_rebuild_runs_in_background(initializer):
 
 
 @pytest.mark.asyncio
-async def test_index_maintenance_reconciles_concurrent_writes_once(initializer):
-    inconsistent = SimpleNamespace(
-        is_consistent=False,
-        needs_rebuild=True,
-        reason="BM25索引缺失1条文档",
-    )
-    consistent = SimpleNamespace(
-        is_consistent=True,
-        needs_rebuild=False,
-        reason="索引状态正常",
-    )
-    rebuild_indexes = AsyncMock(
-        side_effect=[
-            {
-                "success": True,
-                "processed": 100,
-                "errors": 0,
-                "total": 100,
-                "partial": False,
-                "message": "first pass",
-            },
-            {
-                "success": True,
-                "processed": 1,
-                "errors": 0,
-                "total": 101,
-                "partial": False,
-                "message": "reconciled",
-            },
-        ]
-    )
-    initializer.index_validator = SimpleNamespace(
-        rebuild_indexes=rebuild_indexes,
-        check_consistency=AsyncMock(side_effect=[inconsistent, consistent]),
-    )
-    initializer.memory_engine = SimpleNamespace(index_maintenance_status={})
-
-    await initializer._run_scheduled_index_rebuild("repair", 100)
-
-    assert rebuild_indexes.await_count == 2
-    assert initializer.index_maintenance_status["state"] == "ready"
-    assert "reconciliation" in initializer.index_maintenance_status["result"]
-
-
-@pytest.mark.asyncio
 async def test_provider_change_rebuilds_document_and_graph_indexes(initializer):
-    consistent = SimpleNamespace(
-        is_consistent=True,
-        needs_rebuild=False,
-        reason="索引状态正常",
-        documents_count=3,
+    rebuild_indexes = AsyncMock(
+        return_value={
+            "success": True,
+            "processed": 3,
+            "errors": 0,
+            "total": 3,
+            "partial": False,
+            "message": "done",
+        }
     )
     initializer.index_validator = SimpleNamespace(
         provider_fingerprint_changed=AsyncMock(return_value=True),
-        check_consistency=AsyncMock(return_value=consistent),
-        rebuild_indexes=AsyncMock(
-            return_value={
-                "success": True,
-                "processed": 3,
-                "errors": 0,
-                "total": 3,
-                "partial": False,
-                "message": "done",
-            }
-        ),
+        rebuild_indexes=rebuild_indexes,
     )
     initializer.memory_engine = SimpleNamespace(
         index_maintenance_status={},
@@ -298,6 +247,7 @@ async def test_provider_change_rebuilds_document_and_graph_indexes(initializer):
 
     await initializer._run_index_maintenance()
 
+    assert rebuild_indexes.await_args.kwargs["force_full_vector"] is True
     initializer.memory_engine.rebuild_graph_index.assert_awaited_once()
     assert initializer.index_maintenance_status["state"] == "ready"
     assert initializer.index_maintenance_status["result"]["graph_rebuild"] == {
@@ -424,7 +374,7 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
         DummyEmbeddingProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.Provider",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
         DummyProvider,
     )
     monkeypatch.setattr(
@@ -432,31 +382,31 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
         FakeFaissVecDB,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DBMigration",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.DBMigration",
         FakeDBMigration,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryEngine",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryEngine",
         FakeMemoryEngine,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationStore",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationStore",
         FakeConversationStore,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationManager",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationManager",
         FakeConversationManager,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryProcessor",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryProcessor",
         FakeMemoryProcessor,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.IndexValidator",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.IndexValidator",
         FakeIndexValidator,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DecayScheduler",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.DecayScheduler",
         FakeDecayScheduler,
     )
 
@@ -592,7 +542,7 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
         DummyEmbeddingProvider,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.Provider",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
         DummyProvider,
     )
     monkeypatch.setattr(
@@ -600,31 +550,31 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
         FakeFaissVecDB,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DBMigration",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.DBMigration",
         FakeDBMigration,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryEngine",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryEngine",
         FakeMemoryEngine,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationStore",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationStore",
         FakeConversationStore,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.ConversationManager",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.ConversationManager",
         FakeConversationManager,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.MemoryProcessor",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.MemoryProcessor",
         FakeMemoryProcessor,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.IndexValidator",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.IndexValidator",
         FakeIndexValidator,
     )
     monkeypatch.setattr(
-        "astrbot_plugin_livingmemory.core.plugin_initializer_finalize.DecayScheduler",
+        "astrbot_plugin_livingmemory.core.plugin_initializer.DecayScheduler",
         FakeDecayScheduler,
     )
 

@@ -9,13 +9,12 @@
 
 from __future__ import annotations
 
-from typing import Any
 from functools import wraps
+from typing import Any
 
 from quart import request
 
 from .memory_scope import adapter_access
-
 from .page_api_modules import (
     BackupHandler,
     ConsolidationHandler,
@@ -63,160 +62,143 @@ class PluginPageApi:
             self._backup_handler = BackupHandler(self.utils, data_dir)
         return self._backup_handler
 
-    def register_routes(self) -> None:
-        """注册官方插件页面所需的原生 API。"""
-
-        def register(route, handler, methods, description):
-            @wraps(handler)
-            async def scoped_handler(*args, **kwargs):
-                adapter_id = request.args.get("adapter_id")
-                if not adapter_id:
-                    return await handler(*args, **kwargs)
-                with adapter_access(self.plugin.config_manager, adapter_id):
-                    return await handler(*args, **kwargs)
-
-            self.plugin.context.register_web_api(
-                route, scoped_handler, methods, description
-            )
-
-        register(
-            f"{PAGE_API_PREFIX}/stats",
-            self.get_stats,
-            ["GET"],
-            "LivingMemory Page stats",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/adapters/assign",
-            self.settings_handler.assign_adapter,
+    # (路径后缀, 处理方法, HTTP 方法, 描述)；按声明顺序注册
+    _ROUTES = (
+        ("stats", "get_stats", ["GET"], "LivingMemory Page stats"),
+        (
+            "adapters/assign",
+            "settings_handler.assign_adapter",
             ["POST"],
             "Assign adapter ownership to legacy memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories",
-            self.list_memories,
-            ["GET"],
-            "LivingMemory Page memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/detail",
-            self.get_memory_detail,
+        ),
+        ("memories", "list_memories", ["GET"], "LivingMemory Page memories"),
+        (
+            "memories/detail",
+            "get_memory_detail",
             ["GET"],
             "LivingMemory Page memory detail",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/update",
-            self.update_memory,
+        ),
+        (
+            "memories/update",
+            "update_memory",
             ["POST"],
             "LivingMemory Page update memory",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/resummarize",
-            self.resummarize_memory,
+        ),
+        (
+            "memories/resummarize",
+            "resummarize_memory",
             ["POST"],
             "LivingMemory Page resummarize memory source",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/export",
-            self.export_memories,
+        ),
+        (
+            "memories/export",
+            "export_memories",
             ["POST"],
             "LivingMemory Page export memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/import",
-            self.import_memories,
+        ),
+        (
+            "memories/import",
+            "import_memories",
             ["POST"],
             "LivingMemory Page import memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/batch-delete",
-            self.batch_delete_memories,
+        ),
+        (
+            "memories/batch-delete",
+            "batch_delete_memories",
             ["POST"],
             "LivingMemory Page batch delete memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/memories/batch-update",
-            self.batch_update_memories,
+        ),
+        (
+            "memories/batch-update",
+            "batch_update_memories",
             ["POST"],
             "LivingMemory Page batch update memories",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/recall/test",
-            self.test_recall,
-            ["POST"],
-            "LivingMemory Page recall test",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/graph/overview",
-            self.get_graph_overview,
+        ),
+        ("recall/test", "test_recall", ["POST"], "LivingMemory Page recall test"),
+        (
+            "graph/overview",
+            "get_graph_overview",
             ["GET"],
             "LivingMemory Page graph overview",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/graph/query",
-            self.query_graph,
-            ["POST"],
-            "LivingMemory Page graph query",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/backups",
-            self.list_backups,
-            ["GET"],
-            "LivingMemory Page backup list",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/prompts",
-            self.list_prompts,
-            ["GET"],
-            "LivingMemory Page prompt list",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/prompts/detail",
-            self.get_prompt_detail,
+        ),
+        ("graph/query", "query_graph", ["POST"], "LivingMemory Page graph query"),
+        ("backups", "list_backups", ["GET"], "LivingMemory Page backup list"),
+        ("prompts", "list_prompts", ["GET"], "LivingMemory Page prompt list"),
+        (
+            "prompts/detail",
+            "get_prompt_detail",
             ["GET"],
             "LivingMemory Page prompt detail",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/prompts/update",
-            self.update_prompt,
+        ),
+        (
+            "prompts/update",
+            "update_prompt",
             ["POST"],
             "LivingMemory Page update prompt",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/prompts/reset",
-            self.reset_prompt,
+        ),
+        (
+            "prompts/reset",
+            "reset_prompt",
             ["POST"],
             "LivingMemory Page reset prompt",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/prompts/default",
-            self.get_prompt_default,
+        ),
+        (
+            "prompts/default",
+            "get_prompt_default",
             ["GET"],
             "LivingMemory Page get prompt default content",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/config",
-            self.get_settings_config,
-            ["GET"],
-            "LivingMemory Page advanced config",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/config/update",
-            self.update_settings_config,
+        ),
+        ("config", "get_settings_config", ["GET"], "LivingMemory Page advanced config"),
+        (
+            "config/update",
+            "update_settings_config",
             ["POST"],
             "LivingMemory Page update advanced config",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/consolidation/status",
-            self.get_consolidation_status,
+        ),
+        (
+            "consolidation/status",
+            "get_consolidation_status",
             ["GET"],
             "LivingMemory Page consolidation status",
-        )
-        register(
-            f"{PAGE_API_PREFIX}/consolidation/run",
-            self.run_consolidation,
+        ),
+        (
+            "consolidation/run",
+            "run_consolidation",
             ["POST"],
             "LivingMemory Page run consolidation",
-        )
+        ),
+    )
+
+    def register_routes(self) -> None:
+        """注册官方插件页面所需的原生 API。"""
+        for suffix, handler_path, methods, description in self._ROUTES:
+            handler = self._resolve_handler(handler_path)
+            self.plugin.context.register_web_api(
+                f"{PAGE_API_PREFIX}/{suffix}",
+                self._scoped(handler),
+                methods,
+                description,
+            )
+
+    def _resolve_handler(self, path: str):
+        """解析 ``方法`` 或 ``属性.方法`` 形式的处理函数。"""
+        target = self
+        for part in path.split("."):
+            target = getattr(target, part)
+        return target
+
+    def _scoped(self, handler):
+        """把页面请求的 adapter_id 映射为一次请求局部的访问范围。"""
+
+        @wraps(handler)
+        async def scoped_handler(*args, **kwargs):
+            adapter_id = request.args.get("adapter_id")
+            if not adapter_id:
+                return await handler(*args, **kwargs)
+            with adapter_access(self.plugin.config_manager, adapter_id):
+                return await handler(*args, **kwargs)
+
+        return scoped_handler
 
     # ==================== 路由处理方法 ====================
     # 所有方法都委托给相应的处理器
@@ -375,12 +357,8 @@ class PluginPageApi:
         if not ready:
             return None, self.utils.error(message or "插件尚未就绪")
 
-        memory_engine = self.plugin.initializer.memory_engine
-        if memory_engine is None:
-            return None, self.utils.error("记忆引擎未初始化")
-
         return {
-            "memory_engine": memory_engine,
+            "memory_engine": self.plugin.initializer.memory_engine,
             "conversation_manager": self.plugin.initializer.conversation_manager,
             "index_validator": self.plugin.initializer.index_validator,
             "memory_processor": getattr(

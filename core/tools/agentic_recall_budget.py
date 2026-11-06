@@ -7,8 +7,9 @@
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 # 事件对象上承载预算的私有属性名
 _BUDGET_ATTR = "_livingmemory_agentic_recall_budget"
@@ -66,7 +67,9 @@ def get_or_create_budget(event: Any, config: Any) -> RecallBudget:
     budget = RecallBudget(
         max_calls=max(
             1,
-            _read_int(config, "agent_tools.agentic_recall_max_calls", DEFAULT_MAX_CALLS),
+            _read_int(
+                config, "agent_tools.agentic_recall_max_calls", DEFAULT_MAX_CALLS
+            ),
         ),
         time_budget_seconds=float(
             max(

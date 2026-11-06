@@ -14,8 +14,8 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 if TYPE_CHECKING:
-    from ..managers.conversation_manager import ConversationManager
     from ..base.config_manager import ConfigManager
+    from ..managers.conversation_manager import ConversationManager
 
 
 class MessageUtils:

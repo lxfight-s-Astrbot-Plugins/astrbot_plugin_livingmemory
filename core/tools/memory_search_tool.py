@@ -1,8 +1,6 @@
 """供 Agent 主动调用的长期记忆回忆工具。"""
 
-from ..memory_scope import adapter_access
 import asyncio
-import json
 from dataclasses import field
 from typing import Any
 
@@ -14,13 +12,8 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
-from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
-from ..utils import get_persona_id
-
-
-def _json_result(data: dict[str, Any]) -> str:
-    """将工具结果稳定序列化为 JSON 文本。"""
-    return json.dumps(data, ensure_ascii=False, default=str)
+from ..memory_scope import adapter_access, resolve_event_memory_access
+from .agentic_recall_common import json_result as _json_result
 
 
 @dataclass
@@ -101,7 +94,10 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
         try:
             event = context.context.event
             with adapter_access(self.config_manager, event):
-                if not is_event_memory_allowed(self.config_manager, event):
+                access = await resolve_event_memory_access(
+                    self.config_manager, self.context, event
+                )
+                if not access.allowed:
                     return _json_result(
                         {
                             "query": cleaned_query,
@@ -110,18 +106,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                             "error": "memory access is not allowed",
                         }
                     )
-                filtering_config = self.config_manager.filtering_settings
-                use_persona_filtering = filtering_config.get(
-                    "use_persona_filtering", True
-                )
-
-                persona_id = (
-                    await get_persona_id(self.context, event)
-                    if use_persona_filtering
-                    else None
-                )
-
-                recall_scope = resolve_memory_scope(self.config_manager, event)
+                recall_scope = access.scope
                 recall_session_id = recall_scope
                 # session_filtered 只表示本次查询是否真的按会话隔离：global / user
                 # 作用域跨会话共享，legacy 未启用会话过滤（scope 为 None）也不是会话
@@ -131,7 +116,12 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     recall_scope is not None
                     and recall_scope == event.unified_msg_origin
                 )
-                recall_persona_id = persona_id if use_persona_filtering else None
+                recall_persona_id = access.persona_id
+                use_persona_filtering = bool(
+                    self.config_manager.filtering_settings.get(
+                        "use_persona_filtering", True
+                    )
+                )
 
                 default_k = int(self.config_manager.get("recall_engine.top_k", 5))
                 max_k = int(self.config_manager.get("recall_engine.max_k", 10))

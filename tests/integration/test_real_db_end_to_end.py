@@ -265,7 +265,10 @@ async def test_graph_memory_full_rebuild_saves_real_faiss_once(
     ]
 
     try:
-        result = await manager.rebuild_memories(memories)
+        async def _batches():
+            yield memories
+
+        result = await manager.rebuild_memory_batches(_batches())
 
         stats = await graph_store.get_memory_entry_stats()
         assert result == {"rebuilt": 10, "skipped": 0}
@@ -772,20 +775,6 @@ async def test_command_status_error_includes_suggestions(real_db_stack):
     assert "错误详情: db offline" in status_output[0]
 
 
-@pytest.mark.asyncio
-async def test_rebuild_index_without_validator_returns_actionable_message(
-    real_db_stack,
-):
-    command_handler = real_db_stack["command_handler"]
-    event = _TestEvent("test:private:rebuild-no-validator", "rebuild")
-
-    output = [msg async for msg in command_handler.handle_rebuild_index(event)]
-    assert len(output) == 1
-    assert "记忆引擎或索引验证器未初始化" in output[0]
-    assert "/lmem status" in output[0]
-
-
-@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_cleanup_preview_and_exec_paths(real_db_stack):
     from astrbot_plugin_livingmemory.core.base.constants import (

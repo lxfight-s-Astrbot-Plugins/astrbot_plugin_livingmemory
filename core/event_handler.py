@@ -3,7 +3,6 @@
 负责处理AstrBot事件钩子
 """
 
-from .memory_scope import adapter_access
 import asyncio
 from typing import Any
 
@@ -20,8 +19,8 @@ from .event_handler_modules import (
 )
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
+from .memory_scope import adapter_access
 from .processors.memory_processor import MemoryProcessor
-from .utils.injection_adapter import InjectionAdapter
 
 
 class EventHandler:
@@ -68,14 +67,12 @@ class EventHandler:
         self._storage_session_tasks: dict[str, asyncio.Task] = {}
         self._shutting_down = False
 
-        self._injection_adapter = InjectionAdapter()
         self._memory_recall = MemoryRecall(
             context,
             config_manager,
             memory_engine,
             conversation_manager,
             self._message_utils,
-            self._injection_adapter,
             storage_session_tasks=self._storage_session_tasks,
         )
 

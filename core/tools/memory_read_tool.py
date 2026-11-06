@@ -5,7 +5,6 @@
 通过 cursor 支持任意位置续读；不做语义搜索，不触发新的 LLM。
 """
 
-from ..memory_scope import adapter_access
 import asyncio
 from dataclasses import field
 from typing import Any
@@ -17,6 +16,7 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
+from ..memory_scope import adapter_access
 from .agentic_recall_budget import (
     get_or_create_budget,
     run_within_budget,

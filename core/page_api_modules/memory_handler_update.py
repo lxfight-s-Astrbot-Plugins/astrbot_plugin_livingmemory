@@ -3,14 +3,17 @@ MemoryHandler 的 MemoryHandlerUpdateMixin 拆分模块
 自动从 core/page_api_modules/memory_handler.py 拆分，保持行为不变
 """
 
-from typing import Any
-from astrbot.api import logger
-from quart import request
 import time
+from typing import Any
+
+from quart import request
+
+from astrbot.api import logger
 
 
 class MemoryHandlerUpdateMixin:
     """MemoryHandler 拆分模块：MemoryHandlerUpdateMixin"""
+
     async def update_memory(self, memory_engine) -> dict[str, Any]:
         """
         更新单个记忆的字段
@@ -64,9 +67,7 @@ class MemoryHandlerUpdateMixin:
             else:
                 structured = {field: value}
 
-            new_content = str(
-                structured.get("content", memory.get("text", ""))
-            ).strip()
+            new_content = str(structured.get("content", memory.get("text", ""))).strip()
             if not new_content:
                 return self.utils.error("记忆内容不能为空")
 
@@ -76,9 +77,7 @@ class MemoryHandlerUpdateMixin:
                     "topics",
                 )
                 key_facts = self._normalize_edit_list(
-                    structured.get(
-                        "key_facts", current_metadata.get("key_facts", [])
-                    ),
+                    structured.get("key_facts", current_metadata.get("key_facts", [])),
                     "key_facts",
                 )
                 importance = (
@@ -86,9 +85,7 @@ class MemoryHandlerUpdateMixin:
                         structured["importance"], value_scale
                     )
                     if "importance" in structured
-                    else clamp_float(
-                        current_metadata.get("importance"), default=0.5
-                    )
+                    else clamp_float(current_metadata.get("importance"), default=0.5)
                 )
             except ValueError as exc:
                 return self.utils.error(str(exc))
@@ -99,9 +96,7 @@ class MemoryHandlerUpdateMixin:
             if status_value not in {"active", "archived", "deleted"}:
                 return self.utils.error("状态必须是 active、archived 或 deleted")
             type_value = str(
-                structured.get(
-                    "type", current_metadata.get("memory_type", "GENERAL")
-                )
+                structured.get("type", current_metadata.get("memory_type", "GENERAL"))
             ).strip()
             if not type_value:
                 return self.utils.error("类型不能为空")
@@ -161,9 +156,9 @@ class MemoryHandlerUpdateMixin:
                 }
             )
             if "content" in changed_fields:
-                replacement_metadata["previous_content"] = str(
-                    memory.get("text", "")
-                )[:100]
+                replacement_metadata["previous_content"] = str(memory.get("text", ""))[
+                    :100
+                ]
                 replacement_metadata["canonical_summary"] = new_content
                 replacement_metadata["persona_summary"] = new_content
 

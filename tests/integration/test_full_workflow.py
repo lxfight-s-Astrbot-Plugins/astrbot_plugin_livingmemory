@@ -127,7 +127,7 @@ async def test_recall_reflection_and_search_workflow(setup_bundle):
     req.extra_user_content_parts = []
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_a"
@@ -142,7 +142,7 @@ async def test_recall_reflection_and_search_workflow(setup_bundle):
         tools_call_extra_content=None,
     )
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_a"

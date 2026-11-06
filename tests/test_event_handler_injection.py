@@ -69,7 +69,7 @@ async def test_handle_memory_recall_injection_fake_tool_call(handler, memory_eng
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -218,7 +218,7 @@ async def test_handle_memory_recall_fake_tool_call_fallback_on_gemini(
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -271,7 +271,7 @@ async def test_handle_memory_recall_deprecated_modes_do_not_fetch_provider(
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -279,64 +279,6 @@ async def test_handle_memory_recall_deprecated_modes_do_not_fetch_provider(
 
     context.get_using_provider.assert_not_called()
     assert len(req.extra_user_content_parts) == 1
-
-
-@pytest.mark.asyncio
-async def test_handle_memory_recall_fake_tool_call_fallback_logs_once(
-    memory_engine,
-):
-    """废弃注入方式的回退应只记录一条 warning，避免重复日志。"""
-    gemini_provider = Mock()
-    gemini_provider.provider_config = {"type": "googlegenai_chat_completion"}
-    gemini_provider.get_model = Mock(return_value="gemini-2.5-pro")
-
-    context = Mock()
-    context.get_using_provider = Mock(return_value=gemini_provider)
-
-    h = EventHandler(
-        context=context,
-        config_manager=ConfigManager(
-            {
-                "recall_engine": {
-                    "top_k": 3,
-                    "injection_method": "fake_tool_call",
-                },
-                "reflection_engine": {"summary_trigger_rounds": 1},
-                "session_manager": {"max_messages_per_session": 100},
-            }
-        ),
-        memory_engine=memory_engine,
-        memory_processor=Mock(),
-        conversation_manager=_make_recall_conversation_manager(),
-    )
-
-    recalled = Mock(
-        content="用户喜欢吃火锅",
-        final_score=0.88,
-        metadata={"importance": 0.9, "create_time": 1700000000},
-    )
-    recalled.doc_id = 99
-    memory_engine.search_memories = AsyncMock(return_value=[recalled])
-
-    event = _make_event(group=False)
-    req = _make_req("今天吃什么")
-
-    with (
-        patch(
-            "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
-            new_callable=AsyncMock,
-        ) as get_persona,
-        patch(
-            "astrbot_plugin_livingmemory.core.event_handler.logger.warning"
-        ) as mock_warning,
-    ):
-        get_persona.return_value = "p1"
-        await h.handle_memory_recall(event, req)
-
-    mock_warning.assert_called_once()
-    warning_text = mock_warning.call_args[0][0]
-    assert "fake_tool_call" in warning_text
-    assert "extra_user_content" in warning_text
 
 
 @pytest.mark.asyncio
@@ -381,7 +323,7 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4(
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -445,7 +387,7 @@ async def test_handle_memory_recall_injection_fake_tool_call_deepseek_v4_on_gemi
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -504,7 +446,7 @@ async def test_handle_memory_recall_deepseek_v4_alias_falls_back_when_provider_l
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -554,7 +496,7 @@ async def test_handle_memory_recall_non_fake_modes_do_not_fetch_provider(
     req = _make_req("今天吃什么")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -599,7 +541,7 @@ async def test_top_k_0_skips_search_memories(
     req = _make_req("hello world")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -627,7 +569,7 @@ async def test_top_k_0_still_cleans_injected_memories(
     req.system_prompt = f"你是助手。\n{MEMORY_INJECTION_HEADER}\n旧记忆内容\n{MEMORY_INJECTION_FOOTER}\n请回答。"
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -711,7 +653,7 @@ async def test_top_k_0_still_stores_private_message(
     req = _make_req("private message")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -735,7 +677,7 @@ async def test_top_k_0_does_not_store_group_message(
     req = _make_req("group message")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"

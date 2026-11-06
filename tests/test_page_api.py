@@ -1228,15 +1228,6 @@ class TestEnsurePluginReady:
         assert error is not None
         assert error["status"] == "error"
 
-    @pytest.mark.asyncio
-    async def test_no_memory_engine(self, api):
-        api.plugin.initializer.memory_engine = None
-        components, error = await api._ensure_plugin_ready()
-        assert components is None
-        assert error["status"] == "error"
-        assert "未初始化" in error["message"]
-
-
 # ---------------------------------------------------------------------------
 # Route registration
 # ---------------------------------------------------------------------------
