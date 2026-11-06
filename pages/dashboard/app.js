@@ -12,6 +12,7 @@ import {
   PromptPage,
   SettingsPage,
   esc,
+  unwrapResponse,
 } from "./modules/index.js";
 
 (() => {
@@ -314,6 +315,7 @@ import {
      ================================================================ */
   window.lmState = state;
   window.lmShowToast = showToast;
+  window.lmUnwrapResponse = unwrapResponse;
   window.lmSwitchPage = (name) => switchPage(name);
   window.lmOpenPeekNode = (nodeData) => peekPanel.renderNode(nodeData);
   window.lmOpenPeekMemory = (memory) => peekPanel.renderMemory(memory);
@@ -321,53 +323,6 @@ import {
   window.lmFetchGraphStats = fetchGraphStats;
   window.lmRefreshMemories = () => memoryPage.fetch();
   window.lmHydrateIcons = hydrateIcons;
-
-  // 图谱小视图绘制函数（如果需要）
-  window.lmDrawMiniGraph = (canvas, nodes, edges) => {
-    if (!canvas || !nodes || !nodes.length) return;
-
-    const ctx = canvas.getContext("2d");
-    const palette = getComputedStyle(canvas);
-    const W = canvas.width;
-    const H = canvas.height;
-
-    ctx.clearRect(0, 0, W, H);
-
-    // 简单布局算法
-    const positions = nodes.map((node, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      const r = Math.min(W, H) * 0.3;
-      return {
-        x: W / 2 + r * Math.cos(angle),
-        y: H / 2 + r * Math.sin(angle),
-        node
-      };
-    });
-
-    // 绘制边
-    if (edges && edges.length) {
-      ctx.strokeStyle = palette.getPropertyValue("--text-tertiary").trim();
-      ctx.lineWidth = 1;
-      edges.forEach(edge => {
-        const source = positions.find(p => p.node.id === edge.source || p.node.id === edge.from);
-        const target = positions.find(p => p.node.id === edge.target || p.node.id === edge.to);
-        if (source && target) {
-          ctx.beginPath();
-          ctx.moveTo(source.x, source.y);
-          ctx.lineTo(target.x, target.y);
-          ctx.stroke();
-        }
-      });
-    }
-
-    // 绘制节点
-    positions.forEach(pos => {
-      ctx.fillStyle = palette.getPropertyValue("--accent").trim();
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  };
 
   // Graph UI registers its DOMContentLoaded initializer before this module.
   // A cached Bridge can resolve immediately, so wait for the canvas to be ready.

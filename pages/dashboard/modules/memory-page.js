@@ -3,7 +3,7 @@
  * 负责记忆列表展示、虚拟滚动、筛选和排序
  */
 
-import { normalizeImportance, esc, statusPill, typeLabel, originLabel } from "./utils.js";
+import { normalizeImportance, esc, statusPill, typeLabel, originLabel, showToast } from "./utils.js";
 
 export class MemoryPage {
   constructor(state, apiClient, peekPanel) {
@@ -369,16 +369,16 @@ export class MemoryPage {
       if (deleted !== ids.length) {
         const failedIds = Array.isArray(result.failed_ids) ? result.failed_ids : [];
         const failed = ids.length - deleted;
-        this.showToast(window.t("delete.partialFailed", deleted, failed, failedIds.join(", ") || "--"), true);
+        showToast(window.t("delete.partialFailed", deleted, failed, failedIds.join(", ") || "--"), true);
       } else {
-        this.showToast(window.t("delete.success", deleted));
+        showToast(window.t("delete.success", deleted));
       }
       this.state.memory.selectedIds.clear();
       this.peek.close();
       await this.fetch();
     } catch (error) {
       this.peek.close();
-      this.showToast(error.message || window.t("delete.error"), true);
+      showToast(error.message || window.t("delete.error"), true);
       this.updateSelectionControls();
     } finally {
       this._bulkBusy = false;
@@ -413,16 +413,16 @@ export class MemoryPage {
       const updated = Number(result.updated_count || 0);
       const failed = Number(result.failed_count || 0);
       if (failed > 0) {
-        this.showToast(window.t("batchEdit.partialFailed", updated, failed), true);
+        showToast(window.t("batchEdit.partialFailed", updated, failed), true);
       } else {
-        this.showToast(window.t("batchEdit.success", updated));
+        showToast(window.t("batchEdit.success", updated));
       }
       this.state.memory.selectedIds.clear();
       this.peek.close();
       await this.fetch();
     } catch (error) {
       this.peek.close();
-      this.showToast(error.message || window.t("batchEdit.error"), true);
+      showToast(error.message || window.t("batchEdit.error"), true);
       this.updateSelectionControls();
     } finally {
       this._bulkBusy = false;
@@ -693,16 +693,5 @@ export class MemoryPage {
         this.fetch();
       }
     });
-  }
-
-  /**
-   * 显示 Toast 提示
-   * @param {string} message - 提示消息
-   * @param {boolean} isError - 是否为错误
-   */
-  showToast(message, isError = false) {
-    if (window.lmShowToast) {
-      window.lmShowToast(message, isError);
-    }
   }
 }

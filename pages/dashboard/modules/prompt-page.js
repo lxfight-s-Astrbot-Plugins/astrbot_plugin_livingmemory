@@ -3,7 +3,7 @@
  * 集中管理插件所有可自定义的提示词模板
  */
 
-import { esc, confirmDiscardChanges } from "./utils.js";
+import { esc, showToast, canDiscardChanges } from "./utils.js";
 
 export class PromptPage {
   constructor(state, apiClient) {
@@ -262,7 +262,7 @@ export class PromptPage {
       textarea.focus({ preventScroll: true });
       editorEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (e) {
-      if (generation === this._editorGeneration) this.showToast(e.message || window.t("prompt.loadFailed"), true);
+      if (generation === this._editorGeneration) showToast(e.message || window.t("prompt.loadFailed"), true);
     } finally {
       if (generation === this._editorGeneration) {
         this._opening = false;
@@ -288,20 +288,20 @@ export class PromptPage {
       if (this._resetMode) {
         await this.api.post("prompts/reset", { id: promptId }, { retries: 0 });
         this._resetMode = false;
-        this.showToast(window.t("prompt.resetDone"));
+        showToast(window.t("prompt.resetDone"));
       } else {
         await this.api.post("prompts/update", {
           id: promptId,
           content: content,
         }, { retries: 0 });
-        this.showToast(window.t("prompt.saved"));
+        showToast(window.t("prompt.saved"));
       }
       this.editContent = content;
       await this.fetch();
       await this.closeEditor({ force: true });
     } catch (e) {
       console.error("[PromptPage] savePrompt failed:", e);
-      this.showToast(e.message || window.t("prompt.saveFailed"), true);
+      showToast(e.message || window.t("prompt.saveFailed"), true);
     } finally {
       this._busy = false;
       this.updateEditorControls();
@@ -339,7 +339,7 @@ export class PromptPage {
         statusEl.textContent = " " + window.t("prompt.defaultFilledStatus");
     } catch (e) {
       console.error("[PromptPage] resetPrompt failed:", e);
-      this.showToast(e.message || window.t("prompt.resetFailed"), true);
+      showToast(e.message || window.t("prompt.resetFailed"), true);
     } finally {
       this._busy = false;
       this.updateEditorControls();
@@ -366,12 +366,8 @@ export class PromptPage {
     return this._resetMode || document.getElementById("prompt-editor-textarea").value !== this.editContent;
   }
 
-  async canLeave() {
-    if (this._busy) {
-      this.showToast(window.t("flow.waitForSave"));
-      return false;
-    }
-    return !this.hasUnsavedChanges() || await confirmDiscardChanges();
+  canLeave() {
+    return canDiscardChanges(this._busy, this.hasUnsavedChanges());
   }
 
   updateEditorControls() {
@@ -397,17 +393,6 @@ export class PromptPage {
     const titleEl = document.getElementById("prompt-editor-title");
     if (prompt && titleEl) {
       titleEl.textContent = this._pickLang(prompt.name, prompt.name_en) || prompt.id;
-    }
-  }
-
-  /**
-   * 显示 Toast 提示
-   * @param {string} message - 提示消息
-   * @param {boolean} isError - 是否为错误
-   */
-  showToast(message, isError = false) {
-    if (window.lmShowToast) {
-      window.lmShowToast(message, isError);
     }
   }
 }
