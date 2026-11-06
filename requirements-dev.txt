@@ -2,3 +2,4 @@
 # release cannot silently change async test semantics in CI.
 pytest==9.1.1
 pytest-asyncio==1.4.0
+ruff==0.15.22
