@@ -85,9 +85,7 @@ class ScopeBreakdown:
 
     @property
     def scopes(self) -> list[str]:
-        return sorted(
-            set(self.documents) | set(self.atoms) | set(self.graph_entries)
-        )
+        return sorted(set(self.documents) | set(self.atoms) | set(self.graph_entries))
 
 
 @dataclass

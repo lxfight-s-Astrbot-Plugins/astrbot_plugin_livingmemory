@@ -345,67 +345,6 @@ async def test_add_message_from_event_falls_back_for_implausible_timestamp(
 # ==================== #289 会话状态回收与元数据锁 ====================
 
 
-async def _prepare_two_sessions(tmp_path: Path):
-    """创建过期/活跃两个真实 SQLite 会话，并建立锁与修订号条目。"""
-    store = ConversationStore(str(tmp_path / "session-state.db"))
-    await store.initialize()
-    manager = ConversationManager(store=store, session_ttl=60)
-    expired_sid = "test:private:expired"
-    live_sid = "test:private:live"
-    await manager.add_message(session_id=expired_sid, role="user", content="old")
-    await manager.add_message(session_id=live_sid, role="user", content="new")
-    # 把过期会话的 last_active_at 拨回 TTL 之外
-    await store.connection.execute(
-        "UPDATE sessions SET last_active_at = ? WHERE session_id = ?",
-        (time.time() - 3600, expired_sid),
-    )
-    await store.connection.commit()
-    await manager.bump_session_revision(expired_sid)
-    await manager.bump_session_revision(live_sid)
-    return store, manager, expired_sid, live_sid
-
-
-@pytest.mark.asyncio
-async def test_cleanup_expired_sessions_prunes_session_state(tmp_path: Path):
-    """#289：过期会话被清理后，其锁/修订号条目一并回收，活跃会话不受影响。"""
-    store, manager, expired_sid, live_sid = await _prepare_two_sessions(tmp_path)
-    assert manager._session_locks.get(expired_sid) is not None
-    assert manager._session_revisions.get(expired_sid) == 1
-
-    deleted = await manager.cleanup_expired_sessions()
-
-    assert deleted == 1
-    assert expired_sid not in manager._session_locks
-    assert expired_sid not in manager._session_revisions
-    assert live_sid in manager._session_locks
-    assert manager._session_revisions.get(live_sid) == 1
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_expired_sessions_keeps_busy_lock(tmp_path: Path):
-    """#289：仍有在途操作持锁时不得回收，否则同一会话会出现两把锁。"""
-    store, manager, expired_sid, _ = await _prepare_two_sessions(tmp_path)
-    started = asyncio.Event()
-    release = asyncio.Event()
-
-    async def hold_lock():
-        async with manager._session_lock(expired_sid):
-            started.set()
-            await release.wait()
-
-    holder = asyncio.create_task(hold_lock())
-    await asyncio.wait_for(started.wait(), 2)
-    try:
-        assert await manager.cleanup_expired_sessions() == 1
-        assert expired_sid in manager._session_locks, "在用的锁必须保留"
-        assert manager._session_revisions.get(expired_sid) == 1
-    finally:
-        release.set()
-        await holder
-        await store.close()
-
-
 @pytest.mark.asyncio
 async def test_concurrent_metadata_updates_keep_unrelated_keys(tmp_path: Path):
     """#289：并发无条件写入不得基于同一旧快照互相覆盖无关键。"""

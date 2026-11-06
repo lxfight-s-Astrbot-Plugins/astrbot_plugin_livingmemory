@@ -138,18 +138,12 @@ def serialize_transfer_csv(records: list[dict[str, Any]]) -> str:
                 "original_id": record.get("original_id", ""),
                 "content": _escape_csv_formula(record.get("content", "")),
                 "importance": record.get("importance", 0.5),
-                "session_id": _escape_csv_formula(
-                    record.get("session_id") or ""
-                ),
-                "persona_id": _escape_csv_formula(
-                    record.get("persona_id") or ""
-                ),
+                "session_id": _escape_csv_formula(record.get("session_id") or ""),
+                "persona_id": _escape_csv_formula(record.get("persona_id") or ""),
                 "memory_type": _escape_csv_formula(
                     metadata.get("memory_type", "GENERAL")
                 ),
-                "status": _escape_csv_formula(
-                    metadata.get("status", "active")
-                ),
+                "status": _escape_csv_formula(metadata.get("status", "active")),
                 "topics": json.dumps(metadata.get("topics", []), ensure_ascii=False),
                 "key_facts": json.dumps(
                     metadata.get("key_facts", []), ensure_ascii=False
@@ -197,9 +191,7 @@ def _extract_json_entries(payload: Any) -> list[Any]:
                 entry.setdefault("original_id", original_id)
                 mapped_entries.append(entry)
             elif isinstance(item, str):
-                mapped_entries.append(
-                    {"original_id": original_id, "content": item}
-                )
+                mapped_entries.append({"original_id": original_id, "content": item})
             else:
                 mapped_entries = []
                 break
@@ -293,9 +285,7 @@ def _normalize_entry(raw: Any, index: int) -> ImportEntry:
         if value:
             metadata[key] = value
     if raw.get("memory_type") or raw.get("type"):
-        metadata["memory_type"] = str(
-            raw.get("memory_type") or raw.get("type")
-        ).upper()
+        metadata["memory_type"] = str(raw.get("memory_type") or raw.get("type")).upper()
     if raw.get("status"):
         metadata["status"] = str(raw["status"]).lower()
 
@@ -366,9 +356,8 @@ def _normalize_source(value: Any, session_id: str | None) -> list[dict[str, Any]
                 "group_id": raw_message.get("group_id"),
                 "platform": raw_message.get("platform") or "import",
                 "timestamp": raw_message.get("timestamp", 0.0),
-                "metadata": raw_message.get("metadata") or {
-                    "is_bot_message": role == "assistant"
-                },
+                "metadata": raw_message.get("metadata")
+                or {"is_bot_message": role == "assistant"},
             }
         )
     return serialize_source_messages(normalized)
