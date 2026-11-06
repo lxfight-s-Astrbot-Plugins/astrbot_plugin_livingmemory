@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import json
 import math
 import time
 from collections.abc import Callable
@@ -13,6 +12,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 from .bm25_retriever import BM25Retriever
 from .recall_diagnostics import record_route
@@ -101,7 +101,9 @@ class HybridRetriever:
         self.mmr_lambda = self.config.get("mmr_lambda", 0.7)  # 相关性 vs 多样性权衡
 
         # 融合策略：score=分数归一化加权融合（默认），rrf=排名级 RRF
-        self.fusion_mode = str(self.config.get("fusion_mode", "score") or "score").lower()
+        self.fusion_mode = str(
+            self.config.get("fusion_mode", "score") or "score"
+        ).lower()
         self.fusion_bm25_weight = min(
             1.0, max(0.0, float(self.config.get("fusion_bm25_weight", 0.5)))
         )
@@ -273,7 +275,8 @@ class HybridRetriever:
             result = converted[item.doc_id]
             relevance = (
                 item.rerank_score
-                if item.rerank_score is not None else item.rrf_score / max_rrf
+                if item.rerank_score is not None
+                else item.rrf_score / max_rrf
             )
             result.final_score = relevance
             result.score_breakdown["agentic_relevance"] = relevance
@@ -376,31 +379,7 @@ class HybridRetriever:
         hybrid_results = []
 
         for result in fused_results:
-            # 安全解析metadata，确保它是字典类型
-            metadata = result.metadata
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                    logger.debug(
-                        f"[hybrid_retriever] 将字符串metadata转换为字典: doc_id={result.doc_id}"
-                    )
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(
-                        f"[hybrid_retriever] 解析metadata JSON失败: {e}, doc_id={result.doc_id}, "
-                        f"metadata类型={type(metadata)}, 使用空字典"
-                    )
-                    metadata = {}
-            elif metadata is None:
-                logger.debug(
-                    f"[hybrid_retriever] metadata为None, doc_id={result.doc_id}, 使用空字典"
-                )
-                metadata = {}
-            elif not isinstance(metadata, dict):
-                logger.warning(
-                    f"[hybrid_retriever] metadata类型不支持: {type(metadata)}, doc_id={result.doc_id}, "
-                    f"使用空字典"
-                )
-                metadata = {}
+            metadata = safe_json_dict(result.metadata)
 
             # 获取重要性(默认0.5)，限制在 [0, 1]
             importance = clamp_float(metadata.get("importance"), default=0.5)
@@ -550,4 +529,3 @@ class HybridRetriever:
         # 应用加权
         current_time = time.time()
         return self._apply_weighting(fused_results, current_time)
-

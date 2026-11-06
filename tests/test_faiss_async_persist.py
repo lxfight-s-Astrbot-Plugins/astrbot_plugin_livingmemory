@@ -266,7 +266,7 @@ async def test_zero_debounce_persists_without_delay(tmp_path):
 async def test_flush_now_guards_rebuild_file_swap(tmp_path, monkeypatch):
     """索引重建换文件前必须先 flush_now 排空飞行中的落盘。
 
-    锁定 core/validators/index_validator_rebuild.py 中 flush_now 调用的必要性：
+    锁定 core/validators/index_maintenance.py 中 flush_now 调用的必要性：
     去掉它时，飞行中的旧索引落盘会在 os.replace 之后落地，覆盖重建结果。
     """
     storage = _make_storage(tmp_path)

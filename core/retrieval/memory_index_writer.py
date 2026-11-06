@@ -9,19 +9,28 @@ explicit and keeps the fusion module focused on ranking.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Any
 
 from astrbot.api import logger
 
+from ..utils.json_utils import safe_json_dict
+
 
 class MemoryIndexWriter:
     """Coordinate writes across the BM25 and vector stores."""
 
-    def __init__(self, bm25_retriever: Any, vector_retriever: Any):
+    def __init__(
+        self,
+        bm25_retriever: Any,
+        vector_retriever: Any,
+        write_transaction: Any = None,
+    ):
         self.bm25_retriever = bm25_retriever
         self.vector_retriever = vector_retriever
+        # documents 表由 MemoryEngine 主连接持有；写事务必须与引擎共用同一把写锁，
+        # 否则批量写入与删除会在两条连接上竞争同一张表。
+        self._write_transaction = write_transaction
 
     async def add_memory(
         self, content: str, metadata: dict[str, Any] | None = None
@@ -101,21 +110,14 @@ class MemoryIndexWriter:
         backup_metadata: dict[str, Any] = {}
         try:
             try:
-                async with self.bm25_retriever._connect() as db:
+                async with self._write_transaction() as db:
                     cursor = await db.execute(
                         "SELECT text, metadata FROM documents WHERE id = ?", (doc_id,)
                     )
                     row = await cursor.fetchone()
                     if row:
                         backup_content = row[0]
-                        metadata_raw = row[1]
-                        if isinstance(metadata_raw, str) and metadata_raw:
-                            try:
-                                backup_metadata = json.loads(metadata_raw)
-                            except (json.JSONDecodeError, TypeError):
-                                backup_metadata = {}
-                        elif isinstance(metadata_raw, dict):
-                            backup_metadata = metadata_raw
+                        backup_metadata = safe_json_dict(row[1])
             except Exception as e:
                 logger.warning(f"[删除] 备份文档内容失败 (doc_id={doc_id}): {e}")
 
@@ -147,9 +149,8 @@ class MemoryIndexWriter:
                 return False
 
             try:
-                async with self.bm25_retriever._connect() as db:
+                async with self._write_transaction() as db:
                     await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-                    await db.commit()
                 logger.debug(f"[删除] documents表已删除 (doc_id={doc_id})")
             except Exception as e:
                 # documents 删除失败不影响整体，主要数据已删除。
