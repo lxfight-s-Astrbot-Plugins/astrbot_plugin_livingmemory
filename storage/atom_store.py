@@ -8,12 +8,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from ..core.memory_scope import adapter_sql
-
 import aiosqlite
 
 from astrbot.api import logger
 
+from ..core.memory_scope import adapter_sql
 from ..core.models.memory_atom import (
     AtomStatus,
     AtomType,

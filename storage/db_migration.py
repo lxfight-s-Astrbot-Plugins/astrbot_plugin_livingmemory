@@ -17,7 +17,6 @@ from .schema import (
     DOCUMENTS_INDEX_STATEMENTS,
     GRAPH_SCHEMA_STATEMENTS,
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
-    WRITE_OPS_SCHEMA_STATEMENTS,
 )
 
 
@@ -156,7 +155,12 @@ class DBMigration:
                     INSERT INTO db_version (version, description, migrated_at, migration_duration_seconds)
                     VALUES (?, ?, ?, ?)
                 """,
-                    (version, description, datetime.now(timezone.utc).isoformat(), duration),
+                    (
+                        version,
+                        description,
+                        datetime.now(timezone.utc).isoformat(),
+                        duration,
+                    ),
                 )
                 await db.commit()
                 logger.info(f"数据库版本已更新至: {version}")
@@ -228,40 +232,23 @@ class DBMigration:
                         "迁移前备份失败，迁移将继续执行。请确认磁盘空间与文件权限。"
                     )
 
-                # 执行迁移步骤
-                migration_steps = []
-
-                # 从版本1升级到版本2
-                if current_version == 1:
-                    migration_steps.append(self._migrate_v1_to_v2)
-
-                # 从版本2升级到版本3
-                if current_version <= 2:
-                    migration_steps.append(self._migrate_v2_to_v3)
-
-                # 从版本3升级到版本4
-                if current_version <= 3:
-                    migration_steps.append(self._migrate_v3_to_v4)
-
-                # 从版本4升级到版本5
-                if current_version <= 4:
-                    migration_steps.append(self._migrate_v4_to_v5)
-
-                # 从版本5升级到版本6
-                if current_version <= 5:
-                    migration_steps.append(self._migrate_v5_to_v6)
-
-                # 从版本6升级到版本7
-                if current_version <= 6:
-                    migration_steps.append(self._migrate_v6_to_v7)
-
-                # 从版本7升级到版本8
-                if current_version <= 7:
-                    migration_steps.append(self._migrate_v7_to_v8)
-
-                # 执行所有迁移步骤
-                for step in migration_steps:
-                    await step(progress_callback)
+                # 版本 → 步骤声明：数据库版本 <= 起始版本时执行该步骤。
+                # v2 -> v3 是纯版本号升级（空步骤），已删除，故 v2 直接进入 v3 -> v4。
+                steps = [
+                    (1, self._migrate_v1_to_v2),
+                    (3, self._migrate_v3_to_v4),
+                    (4, self._migrate_v4_to_v5),
+                    (5, self._migrate_v5_to_v6),
+                    (6, self._migrate_v6_to_v7),
+                    (7, self._migrate_v7_to_v8),
+                ]
+                for from_version, step in steps:
+                    if current_version <= from_version:
+                        logger.info(
+                            f"执行迁移步骤: v{from_version} -> {from_version + 1}: "
+                            f"{self.VERSION_HISTORY.get(from_version + 1, '')}"
+                        )
+                        await step()
 
                 # 计算耗时
                 duration = (datetime.now() - start_time).total_seconds()
@@ -292,119 +279,73 @@ class DBMigration:
                     "error": str(e),
                 }
 
-    async def _migrate_v1_to_v2(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
+    async def _migrate_v1_to_v2(self):
         """
         从版本1迁移到版本2
         主要变更：重建BM25索引和向量索引以支持新的检索架构
         """
-        logger.info("执行迁移步骤: v1 -> v2 (重建索引)")
+        # 检查是否有documents表
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type='table' AND name='documents'
+            """)
+            has_table_row = await cursor.fetchone()
+            has_table = (
+                has_table_row[0] if has_table_row and len(has_table_row) > 0 else 0
+            ) > 0
 
-        try:
-            # 检查是否有documents表
-            async with aiosqlite.connect(self.db_path) as db:
-                cursor = await db.execute("""
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE type='table' AND name='documents'
-                """)
-                has_table_row = await cursor.fetchone()
-                has_table = (
-                    has_table_row[0] if has_table_row and len(has_table_row) > 0 else 0
-                ) > 0
+            if not has_table:
+                logger.info("未找到 documents 表，按新数据库处理")
+                return
 
-                if not has_table:
-                    logger.info("未找到 documents 表，按新数据库处理")
-                    return
+            # 获取文档总数
+            cursor = await db.execute("SELECT COUNT(*) FROM documents")
+            total_docs_row = await cursor.fetchone()
+            total_docs = total_docs_row[0] if total_docs_row else 0
 
-                # 获取文档总数
-                cursor = await db.execute("SELECT COUNT(*) FROM documents")
-                total_docs_row = await cursor.fetchone()
-                total_docs = total_docs_row[0] if total_docs_row else 0
+            if total_docs == 0:
+                logger.info("数据库为空，无需重建索引")
+                return
 
-                if total_docs == 0:
-                    logger.info("数据库为空，无需重建索引")
-                    return
+            logger.info(f"发现 {total_docs} 条 v1 数据，标记待重建索引")
 
-                logger.info(f"发现 {total_docs} 条 v1 数据，标记待重建索引")
+        # 重建索引需要在插件初始化完成后进行
+        # 这里只记录需要重建的标记，实际重建在插件启动时处理
+        logger.warning(f"检测到 {total_docs} 条 v1 迁移数据需要重建索引")
+        logger.warning("请在插件初始化完成后，使用 WebUI 数据迁移功能或执行命令:")
+        logger.warning("/lmem rebuild-index")
+        logger.info(f"数据库迁移完成（{total_docs} 条文档已保留在 documents 表）")
 
-                # 获取所有文档数据
-                cursor = await db.execute("SELECT id, text, metadata FROM documents")
-                await cursor.fetchall()
-
-            # 重建索引需要在插件初始化完成后进行
-            # 这里只记录需要重建的标记，实际重建在插件启动时处理
-            logger.warning(f"检测到 {total_docs} 条 v1 迁移数据需要重建索引")
-            logger.warning("请在插件初始化完成后，使用 WebUI 数据迁移功能或执行命令:")
-            logger.warning("/lmem rebuild-index")
-            logger.info(f"数据库迁移完成（{total_docs} 条文档已保留在 documents 表）")
-
-            # 创建迁移状态标记
-            async with aiosqlite.connect(self.db_path) as db:
-                for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
-                    await db.execute(statement)
-                await db.execute(
-                    """
-                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
-                    VALUES (?, ?, ?)
-                """,
-                    ("needs_index_rebuild", "true", datetime.now(timezone.utc).isoformat()),
-                )
-                await db.execute(
-                    """
-                    INSERT OR REPLACE INTO migration_status (key, value, updated_at)
-                    VALUES (?, ?, ?)
-                """,
-                    (
-                        "pending_documents_count",
-                        str(total_docs),
-                        datetime.now(timezone.utc).isoformat(),
-                    ),
-                )
-                await db.commit()
-
-        except Exception as e:
-            logger.error(f"数据库迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v2_to_v3(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
-        """
-        从版本2迁移到版本3
-        主要变更：标记需要进行 session_id 格式升级
-
-        策略说明：
-        不在迁移阶段进行数据转换，原因：
-        1. 大多数用户只有一个Bot，旧的session_id实际上就对应当前Bot的unified_msg_origin
-        2. 迁移时无法获取运行时的platform信息，无法生成正确的unified_msg_origin
-        3. 插件运行时会自动使用unified_msg_origin，旧数据保持不变不影响使用
-        4. 只有多Bot用户才会遇到session_id冲突，这种情况下新消息会使用新格式
-
-        此迁移步骤仅升级版本号，不进行实际数据转换。
-        """
-        logger.info("执行迁移步骤: v2 -> v3 (session_id 格式升级)")
-
-        try:
-            logger.info(
-                "插件现在使用 unified_msg_origin (格式:platform:type:id) 作为会话标识"
+        # 创建迁移状态标记
+        async with aiosqlite.connect(self.db_path) as db:
+            for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                await db.execute(statement)
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                VALUES (?, ?, ?)
+            """,
+                (
+                    "needs_index_rebuild",
+                    "true",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
             )
-            logger.info("旧数据保持不变，新消息自动使用新格式")
-            logger.info("对于单 Bot 用户，这不会导致任何问题")
-            logger.info("对于多 Bot 用户，新旧数据会自然分离，避免混淆")
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO migration_status (key, value, updated_at)
+                VALUES (?, ?, ?)
+            """,
+                (
+                    "pending_documents_count",
+                    str(total_docs),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            await db.commit()
 
-            logger.info("v2 -> v3 迁移完成")
-
-        except Exception as e:
-            logger.error(f"v2 -> v3 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v3_to_v4(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
+    async def _migrate_v3_to_v4(self):
         """
         从版本3迁移到版本4
         主要变更：
@@ -412,59 +353,47 @@ class DBMigration:
         - 新写入记录将自动携带 canonical_summary / persona_summary / source_window
         - 无法回填 source_window 的旧数据不做处理（traceable=false 由读取方判断）
         """
-        logger.info("执行迁移步骤: v3 -> v4 (Schema v2 双通道总结字段)")
+        async with aiosqlite.connect(self.db_path) as db:
+            # 检查 documents 表是否存在
+            cursor = await db.execute("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type='table' AND name='documents'
+            """)
+            row = await cursor.fetchone()
+            if not row or row[0] == 0:
+                logger.info("未找到 documents 表，跳过 v4 迁移")
+                return
 
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                # 检查 documents 表是否存在
-                cursor = await db.execute("""
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE type='table' AND name='documents'
-                """)
-                row = await cursor.fetchone()
-                if not row or row[0] == 0:
-                    logger.info("未找到 documents 表，跳过 v4 迁移")
-                    return
+            # 为没有 summary_schema_version 的旧记录打上 v1 标记
+            # 使用 JSON 函数更新 metadata 字段
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM documents WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'"
+            )
+            count_row = await cursor.fetchone()
+            legacy_count = count_row[0] if count_row else 0
 
-                # 为没有 summary_schema_version 的旧记录打上 v1 标记
-                # 使用 JSON 函数更新 metadata 字段
-                cursor = await db.execute(
-                    "SELECT COUNT(*) FROM documents WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'"
+            if legacy_count > 0:
+                logger.info(
+                    f"发现 {legacy_count} 条旧格式记录，补充 summary_schema_version=v1 标记"
                 )
-                count_row = await cursor.fetchone()
-                legacy_count = count_row[0] if count_row else 0
 
-                if legacy_count > 0:
-                    logger.info(
-                        f"发现 {legacy_count} 条旧格式记录，补充 summary_schema_version=v1 标记"
+                # 批量更新：将旧记录的 metadata 中注入 schema 版本标记
+                # 使用 COALESCE(NULLIF(...)) 处理 NULL/空字符串，再用 json_set 追加字段
+                await db.execute("""
+                    UPDATE documents
+                    SET metadata = json_set(
+                        COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
+                        '$.summary_schema_version', 'v1',
+                        '$.summary_quality', 'unknown'
                     )
+                    WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'
+                """)
+                await db.commit()
+                logger.info(f"已为 {legacy_count} 条旧记录补充 schema 版本标记")
+            else:
+                logger.info("所有记录已有 summary_schema_version，无需补充")
 
-                    # 批量更新：将旧记录的 metadata 中注入 schema 版本标记
-                    # 使用 COALESCE(NULLIF(...)) 处理 NULL/空字符串，再用 json_set 追加字段
-                    await db.execute("""
-                        UPDATE documents
-                        SET metadata = json_set(
-                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
-                            '$.summary_schema_version', 'v1',
-                            '$.summary_quality', 'unknown'
-                        )
-                        WHERE metadata IS NULL OR metadata NOT LIKE '%summary_schema_version%'
-                    """)
-                    await db.commit()
-                    logger.info(f"已为 {legacy_count} 条旧记录补充 schema 版本标记")
-                else:
-                    logger.info("所有记录已有 summary_schema_version，无需补充")
-
-            logger.info("v3 -> v4 迁移完成")
-
-        except Exception as e:
-            logger.error(f"v3 -> v4 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v4_to_v5(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
+    async def _migrate_v4_to_v5(self):
         """
         Migrate from version 4 to version 5.
 
@@ -472,180 +401,110 @@ class DBMigration:
         - Create graph-memory tables used by the dual-route retrieval layer
         - Keep legacy document memory data unchanged
         """
-        logger.info("执行迁移步骤: v4 -> v5 (Graph memory tables)")
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            for statement in GRAPH_SCHEMA_STATEMENTS:
+                await db.execute(statement)
+            await db.commit()
 
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("PRAGMA foreign_keys = ON")
-                for statement in GRAPH_SCHEMA_STATEMENTS:
-                    await db.execute(statement)
-                await db.commit()
-
-            logger.info("v4 -> v5 迁移完成")
-
-        except Exception as e:
-            logger.error(f"v4 -> v5 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v5_to_v6(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
+    async def _migrate_v5_to_v6(self):
         """
         从版本5迁移到版本6
         主要变更：插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 仅在精确匹配旧结构时重命名备份。
         """
-        logger.info("执行迁移步骤: v5 -> v6 (FTS 表前缀化与旧表备份)")
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_memories_fts
+                USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
+            """)
+            await db.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
+                USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
+            """)
 
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_memories_fts
-                    USING fts5(content, doc_id UNINDEXED, tokenize='unicode61')
-                """)
-                await db.execute("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_entries_fts
-                    USING fts5(content, entry_id UNINDEXED, tokenize='unicode61')
-                """)
+            await self._copy_fts_rows_if_exists(
+                db,
+                source_table="memories_fts",
+                target_table="livingmemory_memories_fts",
+                columns=("doc_id", "content"),
+            )
+            await self._copy_fts_rows_if_exists(
+                db,
+                source_table="graph_entries_fts",
+                target_table="livingmemory_graph_entries_fts",
+                columns=("entry_id", "content"),
+            )
 
-                await self._copy_fts_rows_if_exists(
-                    db,
-                    source_table="memories_fts",
-                    target_table="livingmemory_memories_fts",
-                    columns=("doc_id", "content"),
-                )
-                await self._copy_fts_rows_if_exists(
-                    db,
-                    source_table="graph_entries_fts",
-                    target_table="livingmemory_graph_entries_fts",
-                    columns=("entry_id", "content"),
-                )
+            await self._backup_legacy_documents_fts_if_safe(db)
 
-                await self._backup_legacy_documents_fts_if_safe(db)
+            await db.commit()
 
-                await db.commit()
-                logger.info("v5 -> v6 FTS 表前缀化完成")
-
-        except Exception as e:
-            logger.error(f"v5 -> v6 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v6_to_v7(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
+    async def _migrate_v6_to_v7(self):
         """Add storage indexes and run lightweight FTS maintenance."""
-        logger.info("执行迁移步骤: v6 -> v7 (storage indexes and FTS maintenance)")
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            await db.execute("PRAGMA foreign_keys = ON")
 
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("PRAGMA busy_timeout = 10000")
-                await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
+                ON graph_edges(source_node_id, target_node_id, relation_type)
+                """
+            )
 
-                if await self._table_exists(db, "graph_edges"):
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_graph_entries_scope_latest
+                ON graph_entries(session_id, persona_id, source_memory_id, id DESC)
+                """
+            )
+
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_graph_entry_nodes_node ON graph_entry_nodes(node_id)"
+            )
+
+            # memory_atoms 的索引与 FTS 表由 AtomStore.initialize 负责（迁移阶段该表可能尚不存在）
+
+            for table_name in (
+                "livingmemory_memories_fts",
+                "livingmemory_graph_entries_fts",
+                "memory_atoms_fts",
+            ):
+                try:
                     await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
-                        ON graph_edges(source_node_id, target_node_id, relation_type)
-                        """
+                        f"INSERT INTO {table_name}({table_name}) VALUES ('optimize')"
                     )
-                if await self._table_exists(db, "graph_entries"):
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_graph_entries_scope_latest
-                        ON graph_entries(session_id, persona_id, source_memory_id, id DESC)
-                        """
-                    )
-                if await self._table_exists(db, "graph_entry_nodes"):
-                    await db.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_graph_entry_nodes_node ON graph_entry_nodes(node_id)"
-                    )
-                if await self._table_exists(db, "memory_atoms"):
-                    await db.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_atoms_persona ON memory_atoms(persona_id)"
-                    )
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_atoms_scope_status
-                        ON memory_atoms(status, session_id, persona_id)
-                        """
-                    )
-                    await db.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_atoms_status_expires
-                        ON memory_atoms(status, expires_at)
-                        """
+                except Exception:
+                    logger.debug(
+                        f"跳过 FTS optimize: {table_name}",
+                        exc_info=True,
                     )
 
-                for table_name in (
-                    "livingmemory_memories_fts",
-                    "livingmemory_graph_entries_fts",
-                    "memory_atoms_fts",
-                ):
-                    try:
-                        await db.execute(
-                            f"INSERT INTO {table_name}({table_name}) VALUES ('optimize')"
-                        )
-                    except Exception:
-                        logger.debug(
-                            f"跳过 FTS optimize: {table_name}",
-                            exc_info=True,
-                        )
+            await db.commit()
+            await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
-                await db.commit()
-                await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    async def _migrate_v7_to_v8(self):
+        """Add expression indexes for hot metadata fields."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            for statement in DOCUMENTS_INDEX_STATEMENTS:
+                await db.execute(statement)
+            await db.execute(
+                """
+                UPDATE documents
+                SET metadata = json_set(
+                    COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
+                    '$.access_count',
+                    COALESCE(json_extract(metadata, '$.access_count'), 0)
+                )
+                WHERE json_valid(
+                    COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}')
+                )
+                  AND json_extract(metadata, '$.access_count') IS NULL
+                """
+            )
 
-            logger.info("v6 -> v7 迁移完成")
-
-        except Exception as e:
-            logger.error(f"v6 -> v7 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _migrate_v7_to_v8(
-        self,
-        progress_callback: Callable[[str, int, int], None] | None,
-    ):
-        """Add write-operation log and expression indexes for hot metadata fields."""
-        logger.info("执行迁移步骤: v7 -> v8 (write ops and hot metadata indexes)")
-
-        try:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("PRAGMA busy_timeout = 10000")
-                for statement in WRITE_OPS_SCHEMA_STATEMENTS:
-                    await db.execute(statement)
-
-                if await self._table_exists(db, "documents"):
-                    for statement in DOCUMENTS_INDEX_STATEMENTS:
-                        await db.execute(statement)
-                    await db.execute(
-                        """
-                        UPDATE documents
-                        SET metadata = json_set(
-                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}'),
-                            '$.access_count',
-                            COALESCE(json_extract(metadata, '$.access_count'), 0)
-                        )
-                        WHERE json_valid(
-                            COALESCE(NULLIF(TRIM(COALESCE(metadata, '')), ''), '{}')
-                        )
-                          AND json_extract(metadata, '$.access_count') IS NULL
-                        """
-                    )
-
-                await db.commit()
-
-            logger.info("v7 -> v8 迁移完成")
-
-        except Exception as e:
-            logger.error(f"v7 -> v8 迁移失败: {e}", exc_info=True)
-            raise
-
-    async def _table_exists(self, db: aiosqlite.Connection, table_name: str) -> bool:
-        cursor = await db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,),
-        )
-        return await cursor.fetchone() is not None
+            await db.commit()
 
     async def _copy_fts_rows_if_exists(
         self,

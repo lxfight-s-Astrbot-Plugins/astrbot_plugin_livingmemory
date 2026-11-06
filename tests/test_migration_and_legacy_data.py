@@ -14,9 +14,7 @@ import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.base.exceptions import InitializationError
-from astrbot_plugin_livingmemory.core.plugin_initializer_finalize import (
-    InitializerFinalizeMixin,
-)
+from astrbot_plugin_livingmemory.core.plugin_initializer import PluginInitializer
 from astrbot_plugin_livingmemory.core.utils import format_memories_for_injection
 from astrbot_plugin_livingmemory.storage.db_migration import DBMigration
 
@@ -162,7 +160,7 @@ async def test_migrate_private_chat_legacy_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -188,7 +186,7 @@ async def test_migrate_group_chat_legacy_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -213,7 +211,7 @@ async def test_migrate_null_metadata_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -234,7 +232,7 @@ async def test_migrate_empty_string_metadata_record(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -254,7 +252,7 @@ async def test_migrate_v2_record_not_overwritten(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -293,7 +291,7 @@ async def test_migrate_mixed_private_and_group_records(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     assert len(records) == 4
@@ -315,8 +313,8 @@ async def test_migrate_idempotent(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     meta = records[0]["metadata"]
@@ -325,8 +323,8 @@ async def test_migrate_idempotent(tmp_path):
     assert raw.count("summary_schema_version") == 1
 
 
-class _FakeInitializer(InitializerFinalizeMixin):
-    """只提供迁移检查所需属性的 InitializerFinalizeMixin 宿主。"""
+class _FakeInitializer(PluginInitializer):
+    """只提供迁移检查所需属性的 PluginInitializer 宿主。"""
 
     def __init__(self, db_migration, *, create_backup: bool = True):
         self.db_migration = db_migration
@@ -348,7 +346,7 @@ async def test_migration_aborts_when_required_backup_fails(tmp_path, monkeypatch
     host = _FakeInitializer(migration)
 
     with pytest.raises(InitializationError, match="备份失败"):
-        await InitializerFinalizeMixin._check_and_migrate_database(host)
+        await PluginInitializer._check_and_migrate_database(host)
 
     records = await _get_all_metadata(db_path)
     assert len(records) == 1
@@ -372,7 +370,7 @@ async def test_migration_restores_backup_when_a_step_fails(tmp_path, monkeypatch
     host = _FakeInitializer(migration)
 
     with pytest.raises(InitializationError, match="恢复"):
-        await InitializerFinalizeMixin._check_and_migrate_database(host)
+        await PluginInitializer._check_and_migrate_database(host)
 
     assert await migration.get_db_version() == 1
     records = await _get_all_metadata(db_path)
@@ -392,7 +390,7 @@ async def test_migration_continues_without_backup_when_disabled(tmp_path, monkey
     monkeypatch.setattr(migration, "create_backup", AsyncMock(return_value=None))
     host = _FakeInitializer(migration, create_backup=False)
 
-    await InitializerFinalizeMixin._check_and_migrate_database(host)
+    await PluginInitializer._check_and_migrate_database(host)
 
     assert await migration.get_db_version() == DBMigration.CURRENT_VERSION
 
@@ -475,7 +473,7 @@ async def test_bulk_migration_100_records(tmp_path):
 
     migration = DBMigration(db_path)
     await migration.initialize_version_table()
-    await migration._migrate_v3_to_v4(None)
+    await migration._migrate_v3_to_v4()
 
     records = await _get_all_metadata(db_path)
     assert len(records) == 100
@@ -508,7 +506,7 @@ async def test_migrate_v5_to_v6_renames_plugin_fts_tables(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None)
+    await migration._migrate_v5_to_v6()
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM livingmemory_memories_fts")
@@ -543,7 +541,7 @@ async def test_migrate_v5_to_v6_keeps_astrbot_documents_fts(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None)
+    await migration._migrate_v5_to_v6()
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM documents_fts")
@@ -572,7 +570,7 @@ async def test_migrate_v5_to_v6_backs_up_exact_legacy_documents_fts(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None)
+    await migration._migrate_v5_to_v6()
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("""
@@ -605,7 +603,7 @@ async def test_migrate_v5_to_v6_keeps_non_exact_documents_fts(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v5_to_v6(None)
+    await migration._migrate_v5_to_v6()
 
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM documents_fts")
@@ -622,7 +620,7 @@ async def test_migrate_v5_to_v6_keeps_non_exact_documents_fts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_migrate_v7_to_v8_creates_write_ops_and_access_metadata(tmp_path):
+async def test_migrate_v7_to_v8_creates_access_metadata_indexes(tmp_path):
     db_path = str(tmp_path / "v8.db")
     async with aiosqlite.connect(db_path) as db:
         await db.execute("""
@@ -639,14 +637,9 @@ async def test_migrate_v7_to_v8_creates_write_ops_and_access_metadata(tmp_path):
         await db.commit()
 
     migration = DBMigration(db_path)
-    await migration._migrate_v7_to_v8(None)
+    await migration._migrate_v7_to_v8()
 
     async with aiosqlite.connect(db_path) as db:
-        cursor = await db.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='memory_write_ops'
-        """)
-        assert await cursor.fetchone() is not None
         cursor = await db.execute("""
             SELECT name FROM sqlite_master
             WHERE type='index' AND name='idx_doc_persona_metadata'
