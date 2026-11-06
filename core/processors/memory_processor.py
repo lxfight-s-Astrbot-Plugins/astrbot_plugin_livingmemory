@@ -5,7 +5,6 @@
 import asyncio
 import json
 import random
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,10 +13,23 @@ from astrbot.api import logger
 
 from ..astrbot_compat import get_using_provider
 from ..models.conversation_models import Message
-from .memory_processor_parse import MemoryProcessorParseMixin
-from .memory_processor_build import MemoryProcessorBuildMixin
+from ..models.memory_atom import MemoryAtom
+from .atom_classifier import classify_atoms
+from .memory_processor_parse import (
+    apply_source_time_tags,
+    build_storage_format,
+    ensure_list,
+    extract_participant_identities,
+    format_conversation,
+    normalize_parsed_data,
+    parse_llm_response,
+    try_fix_json,
+    validate_importance,
+    validate_summary_quality,
+)
 
-class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
+
+class MemoryProcessor:
     """
     记忆处理器
 
@@ -112,7 +124,9 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
 
             mgr = get_prompt_manager()
             if mgr is not None:
-                prompt_id = "group_chat_prompt" if is_group_chat else "private_chat_prompt"
+                prompt_id = (
+                    "group_chat_prompt" if is_group_chat else "private_chat_prompt"
+                )
                 return mgr.get_prompt(prompt_id)
         except Exception:
             pass
@@ -371,66 +385,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             raise last_error
         raise RuntimeError("LLM 调用失败，未捕获到具体异常")
 
-    def _try_fix_json(self, text: str) -> str:
-        """
-        尝试修复损坏的 JSON 字符串
-
-        Args:
-            text: 可能损坏的 JSON 字符串
-
-        Returns:
-            修复后的 JSON 字符串
-        """
-        fixed = text.strip()
-
-        # 移除 markdown 代码块标记
-        if fixed.startswith("```json"):
-            fixed = fixed[7:]
-        elif fixed.startswith("```"):
-            fixed = fixed[3:]
-        if fixed.endswith("```"):
-            fixed = fixed[:-3]
-        fixed = fixed.strip()
-
-        # 按 JSON 字符串边界修复，保留字段之间合法的换行/缩进以及字符串中的括号。
-        result: list[str] = []
-        closing: list[str] = []
-        in_string = False
-        escaped = False
-        for index, char in enumerate(fixed):
-            if in_string:
-                if ord(char) < 0x20:
-                    # 非法的裸控制字符仅在字符串内转义。
-                    if escaped:
-                        result.append("\\")
-                    result.append(json.dumps(char)[1:-1])
-                    escaped = False
-                    continue
-                result.append(char)
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-                continue
-
-            if char == '"':
-                in_string = True
-            elif char in "[{":
-                closing.append("]" if char == "[" else "}")
-            elif char in "]}" and closing and closing[-1] == char:
-                closing.pop()
-            elif char == "," and fixed[index + 1:].lstrip().startswith(("]", "}")):
-                continue
-            result.append(char)
-
-        if in_string:
-            if escaped:
-                result.append("\\")
-            result.append('"')
-        result.extend(reversed(closing))
-        return "".join(result)
+    _try_fix_json = staticmethod(try_fix_json)
 
     async def process_conversation(
         self,
@@ -464,9 +419,11 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         # 2. 选择合适的提示词模板（每次从 PromptManager 读取，确保 WebUI 保存后立即生效）
         # 使用 replace 而非 format，避免对话内容中的大括号导致解析错误
         current_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        prompt = self._get_chat_prompt(is_group_chat).replace(
-            "{conversation}", conversation_text
-        ).replace("{current_date}", current_date)
+        prompt = (
+            self._get_chat_prompt(is_group_chat)
+            .replace("{conversation}", conversation_text)
+            .replace("{current_date}", current_date)
+        )
 
         # 3. 调用LLM生成结构化记忆
         conversation_type = "群聊" if is_group_chat else "私聊"
@@ -494,7 +451,7 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             logger.debug(f"[MemoryProcessor] LLM 原始响应内容:\n{llm_response_text}")
 
             # 4. 解析LLM响应
-            structured_data = self._parse_llm_response(llm_response_text, is_group_chat)
+            structured_data = parse_llm_response(llm_response_text, is_group_chat)
 
             # 4.5 质量校验
             quality = self._validate_summary_quality(structured_data)
@@ -516,7 +473,12 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             metadata["participant_identities"] = self._extract_participant_identities(
                 messages
             )
-            content = self._apply_source_time_tags(content, metadata, messages)
+            content = apply_source_time_tags(
+                content,
+                metadata,
+                messages,
+                self.config.get("include_source_time_tags", True),
+            )
             # 将质量标记写入 metadata
             metadata["summary_quality"] = structured_data.get("_quality", "normal")
 
@@ -538,33 +500,6 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
             # 不再降级处理，直接向上抛出异常，由调用方处理重试逻辑
             raise
 
-    def _apply_source_time_tags(
-        self,
-        content: str,
-        metadata: dict[str, Any],
-        messages: list[Message],
-    ) -> str:
-        """Attach source dates without asking the LLM to infer them."""
-        if not self.config.get("include_source_time_tags", True) or not messages:
-            return content
-
-        timestamps = sorted(float(message.timestamp) for message in messages)
-        start = datetime.fromtimestamp(timestamps[0]).astimezone()
-        end = datetime.fromtimestamp(timestamps[-1]).astimezone()
-        dates = sorted(
-            {
-                datetime.fromtimestamp(value).strftime("%Y-%m-%d")
-                for value in timestamps
-            }
-        )
-        label = dates[0] if len(dates) == 1 else f"{dates[0]} - {dates[-1]}"
-
-        metadata["time_tags"] = dates
-        metadata["source_time_start"] = start.isoformat()
-        metadata["source_time_end"] = end.isoformat()
-        metadata["source_time_label"] = label
-        return content
-
     def _format_conversation(self, messages: list[Message]) -> str:
         """
         格式化对话历史为文本
@@ -575,77 +510,171 @@ class MemoryProcessor(MemoryProcessorParseMixin, MemoryProcessorBuildMixin):
         Returns:
             格式化后的对话文本
         """
-
-        formatted_lines = []
-        for i, msg in enumerate(messages):
-            logger.debug(
-                f"[_format_conversation] 消息#{i}: "
-                f"sender_id={msg.sender_id}, sender_name={msg.sender_name}, "
-                f"role={msg.role}, group_id={msg.group_id}"
-            )
-
-            content_text = self._message_content_to_text(msg.content)
-            sender_info = self._format_sender_info(msg)
-            formatted_line = f"{sender_info} {content_text}".rstrip()
-            formatted_lines.append(formatted_line)
-            if msg.group_id:
-                logger.debug(
-                    f"[_format_conversation] 消息#{i} 格式化结果(群聊): {formatted_line[:100]}..."
-                )
-            else:
-                logger.debug(
-                    f"[_format_conversation] 消息#{i} 格式化结果(私聊): {sender_info[:50]}..."
-                )
-        return "\n".join(formatted_lines)
+        return format_conversation(messages)
 
     @staticmethod
     def _extract_participant_identities(
         messages: list[Message],
     ) -> list[dict[str, Any]]:
         """Build stable graph identities from message sender IDs, not LLM names."""
-        identities: dict[str, dict[str, Any]] = {}
-        for message in messages:
-            if message.role == "system":
-                continue
-            sender_id = str(message.sender_id or "").strip()
-            if not sender_id:
-                continue
-            platform = str(message.platform or "unknown").strip().lower() or "unknown"
-            identity_key = f"{platform}:{sender_id}"
-            display_name = str(message.sender_name or sender_id).strip() or sender_id
-            is_bot = bool(
-                message.metadata.get("is_bot_message", False)
-                or message.role == "assistant"
-            )
+        return extract_participant_identities(messages)
 
-            identity = identities.setdefault(
-                identity_key,
-                {
-                    "identity_key": identity_key,
-                    "sender_id": sender_id,
-                    "platform": platform,
-                    "display_name": display_name,
-                    "aliases": [],
-                    "is_bot": is_bot,
-                },
-            )
-            identity["display_name"] = display_name
-            identity["is_bot"] = bool(identity["is_bot"] or is_bot)
-            if display_name not in identity["aliases"]:
-                identity["aliases"].append(display_name)
+    def _build_storage_format(
+        self,
+        fallback_excerpt: str,
+        structured_data: dict[str, Any],
+        is_group_chat: bool,
+    ) -> tuple[str, dict[str, Any]]:
+        """
+        构建存储格式
 
-        return list(identities.values())
+        Args:
+            fallback_excerpt: 当摘要为空时使用的对话摘录
+            structured_data: 结构化数据
+            is_group_chat: 是否为群聊
+
+        Returns:
+            (content, metadata) 元组
+        """
+        return build_storage_format(fallback_excerpt, structured_data, is_group_chat)
 
     @staticmethod
-    def _format_sender_info(msg: Message) -> str:
-        time_str = datetime.fromtimestamp(msg.timestamp).strftime("%Y-%m-%d %H:%M:%S")
-        display_name = msg.sender_name if msg.sender_name else msg.sender_id or "未知"
-        is_bot = msg.metadata.get("is_bot_message", False) or msg.role == "assistant"
-        if is_bot:
-            return f"[Bot: {display_name} | ID: {msg.sender_id} | {time_str}]"
-        return f"[{display_name} | ID: {msg.sender_id} | {time_str}]"
+    def _validate_summary_quality(structured_data: dict[str, Any]) -> str:
+        """校验总结质量，返回 "normal" 或 "low"。"""
+        return validate_summary_quality(structured_data)
 
-    @classmethod
-    def _message_content_to_text(cls, content: Any) -> str:
-        return Message.content_to_text(content)
+    def build_memory_from_structured_data(
+        self,
+        structured_data: dict[str, Any],
+        is_group_chat: bool = False,
+        fallback_excerpt: str = "",
+    ) -> tuple[str, dict[str, Any], float]:
+        """复用自动总结流程，将结构化数据转换为标准记忆存储格式。"""
+        # 与自动总结路径保持一致：先校验质量，再规范化。
+        # 这样原始 importance 越界等异常仍会被判为 low quality。
+        quality = self._validate_summary_quality(structured_data)
+        normalized = normalize_parsed_data(structured_data, is_group_chat)
+        normalized["_quality"] = quality
 
+        content, metadata = self._build_storage_format(
+            fallback_excerpt or normalized.get("summary", ""),
+            normalized,
+            is_group_chat,
+        )
+        metadata["summary_quality"] = quality
+        return (
+            content,
+            metadata,
+            validate_importance(normalized.get("importance")),
+        )
+
+    def classify_atoms_from_metadata(
+        self,
+        metadata: dict[str, Any],
+        parent_importance: float = 0.5,
+        session_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[MemoryAtom]:
+        """Generate time-aware memory atoms from key_facts in metadata.
+
+        This is a post-processing step after process_conversation().
+        It does NOT make additional LLM calls — classification is rule-based.
+        """
+        if not self.config.get("atom_enabled", True):
+            return []
+        key_facts: list[str] = metadata.get("key_facts", [])
+        if not key_facts:
+            return []
+        topics = metadata.get("topics", [])
+        participants = metadata.get("participants", [])
+        atoms = classify_atoms(
+            key_facts=key_facts,
+            topics=topics,
+            participants=participants,
+            parent_importance=parent_importance,
+            session_id=session_id,
+            persona_id=persona_id,
+        )
+        metadata["atom_types"] = sorted({atom.atom_type.value for atom in atoms})
+        return atoms
+
+    async def merge_memories(self, memories: list[dict]) -> dict[str, Any]:
+        """把一组零散记忆合并为一条精炼记忆（供记忆库整合使用）。
+
+        Args:
+            memories: 待合并的记忆列表，每条为 {"content": str, "metadata": dict}。
+
+        Returns:
+            包含 summary/key_facts/topics/importance 的字典。
+
+        Raises:
+            RuntimeError: LLM 不可用或解析失败时抛出。
+        """
+        items: list[dict[str, Any]] = []
+        for i, mem in enumerate(memories, 1):
+            metadata = mem.get("metadata") or {}
+            summary = str(
+                metadata.get("persona_summary") or str(mem.get("content", "")).strip()
+            ).strip()
+            items.append(
+                {
+                    "id": i,
+                    "summary": summary,
+                    "key_facts": metadata.get("key_facts") or [],
+                    "topics": metadata.get("topics") or [],
+                }
+            )
+
+        system_prompt = (
+            "你是记忆整理助手。把多条关于同一主题或会话的零散记忆合并为一条精炼、"
+            "信息无损的记忆摘要。保留所有关键事实与具体细节，去重并消除相互矛盾，"
+            "避免泛化和丢失专有名词。只输出 JSON，不要输出任何其他内容。"
+        )
+        prompt = (
+            f"以下是一组需要合并的记忆（共 {len(items)} 条）：\n"
+            f"{json.dumps(items, ensure_ascii=False, indent=2)}\n\n"
+            "请将它们合并为一条记忆，按如下 JSON 格式输出：\n"
+            '{"summary": "合并后的精炼摘要", "key_facts": ["事实1", "事实2"], '
+            '"topics": ["主题1"], "importance": 0.5}'
+        )
+
+        text = await self._call_llm_with_retry(prompt, system_prompt)
+        data = self._parse_merge_response(text)
+
+        summary = str(data.get("summary", "")).strip()
+        if not summary:
+            raise RuntimeError("合并结果缺少 summary")
+
+        return {
+            "summary": summary,
+            "key_facts": ensure_list(data.get("key_facts", []))[:5],
+            "topics": ensure_list(data.get("topics", []))[:5],
+            "importance": validate_importance(data.get("importance", 0.5)),
+        }
+
+    def _parse_merge_response(self, text: str) -> dict[str, Any]:
+        """解析合并 LLM 响应中的 JSON，失败时抛出异常。"""
+        candidates = [text]
+
+        from ..utils import extract_json_from_response
+
+        extracted = extract_json_from_response(text)
+        if extracted != text.strip():
+            candidates.append(extracted)
+
+        last_error: Exception | None = None
+        for candidate in candidates:
+            for attempt in range(2):
+                try:
+                    data = json.loads(candidate)
+                except (json.JSONDecodeError, TypeError) as e:
+                    last_error = e
+                    if attempt == 0:
+                        candidate = self._try_fix_json(candidate)
+                    continue
+                if isinstance(data, dict):
+                    return data
+                last_error = TypeError("合并结果必须是 JSON 对象")
+                break
+
+        raise RuntimeError(f"合并结果 JSON 解析失败: {last_error}")
