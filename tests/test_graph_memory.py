@@ -301,10 +301,11 @@ async def test_graph_rebuild_failure_preserves_live_generation(
         AsyncMock(side_effect=RuntimeError("embedding failed")),
     )
 
+    async def _batches():
+        yield [(2, "shadow generation", {**metadata, "topics": ["new"]})]
+
     with pytest.raises(RuntimeError, match="embedding failed"):
-        await manager.rebuild_memories(
-            [(2, "shadow generation", {**metadata, "topics": ["new"]})]
-        )
+        await manager.rebuild_memory_batches(_batches())
 
     assert await graph_store.get_subgraph_for_memories([1]) == live_snapshot
     assert set(vector_db.docs) == live_vector_ids

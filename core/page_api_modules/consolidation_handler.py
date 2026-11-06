@@ -19,9 +19,7 @@ class ConsolidationHandler:
     ) -> dict[str, Any]:
         """返回整合配置与已整合/已归档统计。"""
         config = (
-            config_manager.get_section("memory_consolidation")
-            if config_manager
-            else {}
+            config_manager.get_section("memory_consolidation") if config_manager else {}
         )
         counts = {"consolidated_count": 0, "archived_count": 0}
         if memory_engine is not None:

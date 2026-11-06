@@ -3,6 +3,8 @@
  * 提供统一的 API 请求、错误处理和重试机制
  */
 
+import { unwrapResponse } from "./utils.js";
+
 export class ApiClient {
   constructor() {
     this.bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
@@ -106,28 +108,6 @@ export class ApiClient {
   }
 
   /**
-   * 解包 API 响应
-   *
-   * 后端返回格式：
-   * - 成功：{status: "ok", data: {...}}
-   * - 失败：{status: "error", message: "..."}
-   *
-   * Dashboard bridge unwraps standard plugin responses before returning them.
-   *
-   * @param {Object} response - API 响应
-   * @returns {any} 解包后的数据
-   */
-  unwrapResponse(response) {
-    if (response && response.status === "ok" && Object.prototype.hasOwnProperty.call(response, "data")) {
-      return response.data;
-    }
-    if (response && response.status === "error") {
-      throw new Error(response.message || (window.t ? window.t("misc.requestFailed") : "Request failed"));
-    }
-    return response || {};
-  }
-
-  /**
    * GET 请求
    * @param {string} path - API 路径
    * @param {Object} params - Query 参数
@@ -140,7 +120,7 @@ export class ApiClient {
     const fullPath = qs ? `${path}?${qs}` : path;
     if (!this._pendingGets.has(fullPath)) {
       const pending = this.request(fullPath, { method: "GET" })
-        .then(response => this.unwrapResponse(response))
+        .then(response => unwrapResponse(response))
         .finally(() => this._pendingGets.delete(fullPath));
       this._pendingGets.set(fullPath, pending);
     }
@@ -154,7 +134,7 @@ export class ApiClient {
    * @returns {Promise<any>} 响应数据
    */
   async post(path, body = {}, options = {}) {
-    return this.unwrapResponse(await this.request(path, {
+    return unwrapResponse(await this.request(path, {
       method: "POST",
       body,
       retries: options.retries,

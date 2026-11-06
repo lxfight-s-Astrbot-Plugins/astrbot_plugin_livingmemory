@@ -48,6 +48,12 @@ class TestPromptRegistry:
                 assert "JSON" in meta["usage_note"]
                 assert "JSON" in meta["usage_note_en"]
 
+    def test_builtin_txt_is_the_only_default_source(self):
+        builtin_dir = Path(__file__).resolve().parents[1] / "core" / "prompts"
+        for pid, meta in PROMPT_REGISTRY.items():
+            assert "default" not in meta, f"{pid} 仍保留硬编码默认值"
+            assert (builtin_dir / meta["file"]).exists(), f"{pid} 缺少内置 .txt"
+
 
 class TestPromptManagerBasics:
     def test_init_empty_data_dir(self):

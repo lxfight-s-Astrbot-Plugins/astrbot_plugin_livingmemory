@@ -1,23 +1,190 @@
 """
-IndexValidator 的 IndexValidatorRebuildMixin 拆分模块
-自动从 core/validators/index_validator.py 拆分，保持行为不变
+索引维护 - documents 表与 BM25/向量索引的重建、补写与状态记录
 """
 
-import aiosqlite
-from typing import Any, cast
 import asyncio
+import hashlib
 import json
-from astrbot.api import logger
 import os
 import time
+from typing import Any, cast
 
+import aiosqlite
+
+from astrbot.api import logger
+
+from ...storage.schema import MIGRATION_STATUS_SCHEMA_STATEMENTS
 from ..faiss_async_persist import get_async_persister
 from ..utils.faiss_path_bridge import read_index_safe, write_index_safe
-from ...storage.schema import MIGRATION_STATUS_SCHEMA_STATEMENTS
 
 
-class IndexValidatorRebuildMixin:
-    """IndexValidator 拆分模块：IndexValidatorRebuildMixin"""
+class IndexValidator:
+    """索引维护器
+
+    以 documents 表为唯一数据源，提供重建/补写入口（rebuild_indexes），
+    并维护 embedding provider 指纹与迁移重建状态。
+    """
+
+    def __init__(self, db_path: str, faiss_db: Any):
+        """
+        初始化索引维护器
+
+        Args:
+            db_path: SQLite数据库路径
+            faiss_db: FaissVecDB实例
+        """
+        self.db_path = db_path
+        self.faiss_db = faiss_db
+        self._maintenance_lock = asyncio.Lock()
+
+    DEFAULT_REBUILD_BATCH_SIZE = 50
+    DEFAULT_EMBEDDING_BATCH_SIZE = 8
+    DEFAULT_TASKS_LIMIT = 1
+    DEFAULT_MAX_RETRIES = 5
+    DEFAULT_RETRY_BASE_DELAY = 30.0
+    DEFAULT_BATCH_DELAY = 5.0
+    DEFAULT_REQUEST_DELAY = 5.0
+    DEFAULT_MAX_FAILURE_RATIO = 0.02
+    VECTOR_SCHEMA_VERSION = "document-vector-v2"
+    ACTIVE_DOCUMENT_SQL = (
+        "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'"
+    )
+
+    def get_provider_fingerprint(self) -> str:
+        provider = getattr(self.faiss_db, "embedding_provider", None)
+        provider_config = getattr(provider, "provider_config", {}) or {}
+        if not isinstance(provider_config, dict):
+            provider_config = {}
+
+        get_model = getattr(provider, "get_model", None)
+        try:
+            model = get_model() if callable(get_model) else None
+        except Exception:
+            model = None
+        model = (
+            model
+            or getattr(provider, "model", None)
+            or getattr(provider, "model_name", None)
+            or provider_config.get("embedding_model")
+            or provider_config.get("model")
+            or "unknown"
+        )
+
+        get_dim = getattr(provider, "get_dim", None)
+        try:
+            dimension = int(get_dim()) if callable(get_dim) else 0
+        except Exception:
+            dimension = 0
+        if dimension <= 0:
+            storage = getattr(self.faiss_db, "embedding_storage", None)
+            dimension = int(getattr(storage, "dimension", 0) or 0)
+
+        payload = {
+            "schema": self.VECTOR_SCHEMA_VERSION,
+            "provider_class": (
+                f"{type(provider).__module__}.{type(provider).__qualname__}"
+                if provider is not None
+                else "unknown"
+            ),
+            "provider_id": provider_config.get("id", "unknown"),
+            "provider_type": provider_config.get("type", "unknown"),
+            "model": str(model),
+            "dimension": dimension,
+            "dimensions_mode": provider_config.get("embedding_dimensions_mode"),
+            "input_type": provider_config.get("input_type"),
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    async def provider_fingerprint_changed(self) -> bool:
+        """Adopt legacy indexes once, then detect semantic provider changes."""
+        current = self.get_provider_fingerprint()
+        async with aiosqlite.connect(self.db_path) as db:
+            for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
+                await db.execute(statement)
+            cursor = await db.execute(
+                "SELECT value FROM migration_status WHERE key = ?",
+                ("document_vector_provider_fingerprint",),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                await db.execute(
+                    """
+                    INSERT INTO migration_status(key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                    """,
+                    ("document_vector_provider_fingerprint", current),
+                )
+                await db.commit()
+                return False
+            return str(row[0] or "") != current
+
+    async def record_provider_fingerprint(self) -> None:
+        current = self.get_provider_fingerprint()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO migration_status(key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                """,
+                ("document_vector_provider_fingerprint", current),
+            )
+            await db.commit()
+
+    async def get_migration_status(self) -> tuple[bool, int]:
+        """
+        获取v1迁移状态
+
+        Returns:
+            Tuple[bool, int]: (是否需要重建, 待处理文档数)
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # 检查migration_status表
+                cursor = await db.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='migration_status'
+                """)
+                has_table = await cursor.fetchone()
+
+                if not has_table:
+                    return False, 0
+
+                # 检查是否需要重建
+                cursor = await db.execute("""
+                    SELECT value FROM migration_status
+                    WHERE key='needs_index_rebuild'
+                """)
+                row = await cursor.fetchone()
+
+                if not row or len(row) == 0 or row[0] != "true":
+                    return False, 0
+
+                # 获取待处理文档数
+                cursor = await db.execute("""
+                    SELECT value FROM migration_status
+                    WHERE key='pending_documents_count'
+                """)
+                count_row = await cursor.fetchone()
+                pending_count = (
+                    int(count_row[0])
+                    if count_row and len(count_row) > 0 and count_row[0]
+                    else 0
+                )
+
+                return True, pending_count
+
+        except Exception as e:
+            logger.error(f"获取迁移状态失败: {e}", exc_info=True)
+            return False, 0
+
+    def _get_vector_ids(self) -> set[int] | None:
+        embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
+        index = getattr(embedding_storage, "index", None)
+        return self._get_ids_from_index(index)
+
     async def _create_bm25_shadow(self, table_name: str) -> str:
         """Create a fresh FTS5 table without touching the live index."""
         shadow_table = f"{table_name}_rebuild"

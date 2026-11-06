@@ -13,17 +13,52 @@
       "suggestions": "建议排查:",
       "suggestion_item": "{index}. {suggestion}"
     },
-    "component_not_ready": "{command} 执行失败：{component}未初始化。\n请先执行 /lmem status 检查插件状态；如状态异常请查看启动日志。",
     "suggestions": {
-      "status": ["确认数据库文件可读写","确认记忆引擎已完成初始化","查看日志中的异常堆栈定位具体模块"],
-      "search": ["确认关键词不为空且长度合理","确认数据库和索引文件存在且可读写","检查日志中是否有检索组件初始化失败信息"],
-      "forget": ["确认记忆 ID 存在且属于当前可访问数据","确认数据库未被其他进程长时间占用","查看日志中的删除调用堆栈"],
-      "rebuild_index": ["确认 Embedding Provider 已可用","确认数据库文件与索引文件可读写","根据日志定位失败文档后重试重建"],
-      "rebuild_graph": ["确认图记忆功能已启用","确认数据库与索引文件可读写","查看日志定位具体失败文档"],
-      "summarize": ["确认当前会话至少有 2 条未总结消息","确认 LLM Provider 可正常响应","检查日志中的 summary 处理堆栈"],
-      "reset": ["确认会话 ID 有效且会话存储可访问","确认数据库未被占用","查看日志中的 clear_session 调用堆栈"],
-      "cleanup": ["确认当前会话存在可读取的历史记录","确认对话存储可读写","查看日志中的 cleanup 调用堆栈"],
-      "migrate_scope": ["确认目标作用域书写正确（global/session/user 或字面值）","迁移前会自动生成数据库备份，必要时可用它回滚","图记忆条目已随迁移一并更新；如图谱召回异常，执行 /lmem rebuild-graph 重建"]
+      "status": [
+        "确认数据库文件可读写",
+        "确认记忆引擎已完成初始化",
+        "查看日志中的异常堆栈定位具体模块"
+      ],
+      "search": [
+        "确认关键词不为空且长度合理",
+        "确认数据库和索引文件存在且可读写",
+        "检查日志中是否有检索组件初始化失败信息"
+      ],
+      "forget": [
+        "确认记忆 ID 存在且属于当前可访问数据",
+        "确认数据库未被其他进程长时间占用",
+        "查看日志中的删除调用堆栈"
+      ],
+      "rebuild_index": [
+        "确认 Embedding Provider 已可用",
+        "确认数据库文件与索引文件可读写",
+        "根据日志定位失败文档后重试重建"
+      ],
+      "rebuild_graph": [
+        "确认图记忆功能已启用",
+        "确认数据库与索引文件可读写",
+        "查看日志定位具体失败文档"
+      ],
+      "summarize": [
+        "确认当前会话至少有 2 条未总结消息",
+        "确认 LLM Provider 可正常响应",
+        "检查日志中的 summary 处理堆栈"
+      ],
+      "reset": [
+        "确认会话 ID 有效且会话存储可访问",
+        "确认数据库未被占用",
+        "查看日志中的 clear_session 调用堆栈"
+      ],
+      "cleanup": [
+        "确认当前会话存在可读取的历史记录",
+        "确认对话存储可读写",
+        "查看日志中的 cleanup 调用堆栈"
+      ],
+      "migrate_scope": [
+        "确认目标作用域书写正确（global/session/user 或字面值）",
+        "迁移前会自动生成数据库备份，必要时可用它回滚",
+        "图记忆条目已随迁移一并更新；如图谱召回异常，执行 /lmem rebuild-graph 重建"
+      ]
     }
   },
   "status": {
@@ -40,7 +75,8 @@
       "score": "{index}. [得分:{score:.2f}] {content}\n",
       "id": "   ID: {id}\n\n",
       "breakdown": "   命中: 文档关键词={doc_kw:.2f}, 文档向量={doc_vec:.2f}, 图关键词={graph_kw:.2f}, 图向量={graph_vec:.2f}\n\n"
-    }
+    },
+    "access_denied": "当前用户或会话不在长期记忆白名单中。"
   },
   "forget": {
     "action_name": "删除记忆",
@@ -51,8 +87,6 @@
   "rebuild_index": {
     "action_name": "重建索引",
     "checking": "开始检查索引状态...",
-    "ok": "索引状态正常: {reason}",
-    "status_template": "当前索引状态:\n• Documents表: {doc_count} 条\n• BM25索引: {bm25_count} 条\n• 向量索引: {vec_count} 条\n• 问题: {reason}\n\n开始重建索引...",
     "partial_notice": "\n注意: 本次重建存在少量失败，失败率 {ratio:.2%}，未超过安全阈值。可稍后再次执行 /lmem rebuild-index 补齐。",
     "result_template": "索引重建完成。\n\n处理结果:\n• 成功: {success} 条\n• 失败: {failed} 条\n• 总计: {total} 条\n• 向量处理模式: {vector_mode}\n• 新索引切换: {switched}\n{partial_notice}\n\n现在可以继续使用召回功能。",
     "failed": "索引重建失败。\n错误详情: {message}\n请查看日志确认失败原因后重试 /lmem rebuild-index。"

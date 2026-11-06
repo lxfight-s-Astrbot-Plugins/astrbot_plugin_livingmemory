@@ -1,8 +1,6 @@
 """供 Agent 主动调用的长期记忆写入工具。"""
 
-from ..memory_scope import adapter_access
 import asyncio
-import json
 from dataclasses import field
 from typing import Any
 
@@ -14,13 +12,9 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
-from ..memory_scope import is_event_memory_allowed, resolve_memory_scope
+from ..memory_scope import adapter_access, is_event_memory_allowed, resolve_memory_scope
 from ..utils import get_persona_id
-
-
-def _json_result(data: dict[str, Any]) -> str:
-    """将工具结果稳定序列化为 JSON 文本。"""
-    return json.dumps(data, ensure_ascii=False, default=str)
+from .agentic_recall_common import json_result as _json_result
 
 
 def _normalize_list(value: Any, limit: int = 5) -> list[str]:

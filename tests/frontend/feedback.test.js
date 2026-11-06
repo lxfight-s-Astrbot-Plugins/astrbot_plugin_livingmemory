@@ -117,7 +117,7 @@ test("a failed memory list request keeps the inline banner and drops the toast",
   page.renderVirtual = () => {};
   page.updatePagination = () => {};
   let toasts = 0;
-  page.showToast = () => { toasts += 1; };
+  globalThis.window.lmShowToast = () => { toasts += 1; };
 
   await page.fetch();
 

@@ -25,7 +25,7 @@ test("app waits for the graph DOM initializer before contacting a ready Bridge",
     SystemPage: PageStub,
     PromptPage: PageStub,
     SettingsPage: PageStub,
-    esc() {}, statusPill() {}, nodeBadge() {},
+    esc() {}, statusPill() {}, nodeBadge() {}, unwrapResponse() {},
     window: { matchMedia: () => ({ matches: true }), LMAppearance: { init() {} } },
     document: {
       // Static modules execute in the interactive state, before DOMContentLoaded.

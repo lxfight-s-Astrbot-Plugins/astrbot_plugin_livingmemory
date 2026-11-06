@@ -41,7 +41,7 @@ async def test_decay_failure_does_not_mark_today(
 
     engine = Mock()
     engine.config = {}
-    engine.apply_daily_decay = AsyncMock(return_value=-1)
+    engine.apply_daily_decay = AsyncMock(side_effect=RuntimeError("decay failed"))
     scheduler = DecayScheduler(
         memory_engine=engine,
         decay_rate=0.01,

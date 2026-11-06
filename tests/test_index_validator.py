@@ -12,7 +12,7 @@ import faiss
 import numpy as np
 import pytest
 
-from astrbot_plugin_livingmemory.core.validators.index_validator import IndexValidator
+from astrbot_plugin_livingmemory.core.validators.index_maintenance import IndexValidator
 
 
 class _DummyTextProcessor:
@@ -363,13 +363,8 @@ async def test_archived_documents_are_not_expected_or_rebuilt(tmp_path: Path):
     _write_vectors(memory_engine.faiss_db.embedding_storage, [1, 2])
     validator = IndexValidator(str(db_path), faiss_db=memory_engine.faiss_db)
 
-    status = await validator.check_consistency()
     result = await validator.rebuild_indexes(memory_engine=memory_engine)
 
-    assert status.is_consistent is True
-    assert status.documents_count == 2
-    assert status.missing_in_bm25 == 0
-    assert status.missing_in_vector == 0
     assert result["success"] is True
     assert result["total"] == 2
     assert provider.calls == []

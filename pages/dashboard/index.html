@@ -6,7 +6,6 @@
     <meta name="color-scheme" content="light dark" />
     <title data-i18n="page.title">LivingMemory</title>
     <link rel="stylesheet" href="./assets/styles.min.css" />
-    <link id="graph-3d-module" rel="modulepreload" href="./assets/graph-3d.min.js" />
     <script src="./assets/base.min.js"></script>
     <script src="./vendor/lucide-subset.js"></script>
   </head>
@@ -97,7 +96,7 @@
               <div class="graph-canvas-state" id="graph-canvas-state"></div>
               <div id="graph-canvas" class="graph-canvas">
                 <div id="graph-view-2d" class="graph-view"></div>
-                <div id="graph-view-3d" class="graph-view" hidden></div>
+                <div id="graph-view-3d" class="graph-view" data-module="./assets/graph-3d.min.js" hidden></div>
               </div>
             </div>
             <div class="graph-legend" id="graph-legend"></div>
@@ -467,6 +466,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="./assets/graph.min.js"></script>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./assets/app.min.js"></script>
   </body>
 </html>

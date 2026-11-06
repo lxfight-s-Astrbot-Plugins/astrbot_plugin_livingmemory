@@ -75,7 +75,7 @@ async def test_system_prompt_auto_falls_back_to_extra_user_content(
     req = _make_req("query text")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -145,7 +145,7 @@ async def test_context_expansion_enriches_query(
     req = _make_req("当前用户消息")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -205,7 +205,7 @@ async def test_context_expansion_excludes_stale_and_undated_messages(
     event.get_message_str = Mock(return_value="当前消息")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -259,7 +259,7 @@ async def test_context_expansion_skips_when_empty(
     req = _make_req("唯一一条消息")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -290,7 +290,7 @@ async def test_pending_summary_retry_max_abandons(
     resp = _make_resp("assistant reply")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -334,7 +334,7 @@ async def test_pending_summary_retry_merges_range(
     resp = _make_resp("assistant reply")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -424,7 +424,7 @@ async def test_reflection_window_split_chooses_oldest_segment(
     handler._memory_reflection._storage_task = AsyncMock()
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"

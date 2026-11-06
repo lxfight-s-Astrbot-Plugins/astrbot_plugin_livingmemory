@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...storage.atom_store import AtomStore
-from ..models.memory_atom import MemoryAtom
 
 
 @dataclass(slots=True)
@@ -60,7 +59,9 @@ class AtomRetriever:
             persona_id=persona_id,
         )
         if diagnostics is not None:
-            diagnostics["candidate_limited"] = len(atoms) >= max(k * 2, k) or len(atoms) > k
+            diagnostics["candidate_limited"] = (
+                len(atoms) >= max(k * 2, k) or len(atoms) > k
+            )
 
         results: list[AtomRetrievalResult] = []
         for atom in atoms:
@@ -86,10 +87,6 @@ class AtomRetriever:
 
         results.sort(key=lambda r: r.final_score, reverse=True)
         return results[:k]
-
-    async def get_atoms_for_memory(self, parent_memory_id: int) -> list[MemoryAtom]:
-        """Return all atoms belonging to a parent memory."""
-        return await self.atom_store.get_by_parent(parent_memory_id)
 
     async def touch(self, atom_id: int) -> None:
         """Update access time for an atom."""

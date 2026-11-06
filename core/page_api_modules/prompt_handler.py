@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class PromptHandler:
     """提示词管理处理器"""
 
-    def __init__(self, utils: "PageApiUtils", plugin: Any = None) -> None:
+    def __init__(self, utils: PageApiUtils, plugin: Any = None) -> None:
         self.utils = utils
         self._plugin = plugin
 
@@ -31,9 +31,7 @@ class PromptHandler:
         if config_manager is None:
             return True
         try:
-            recall_on = bool(
-                config_manager.get("agent_tools.enable_recall_tool", True)
-            )
+            recall_on = bool(config_manager.get("agent_tools.enable_recall_tool", True))
             beta_on = bool(
                 config_manager.get("agent_tools.enable_agentic_recall_beta", False)
             )

@@ -71,7 +71,9 @@ class TextProcessor:
 
         # 查询分词缓存：同一次召回里 BM25 路与图关键词路会对同一 query 各分词一次，
         # 重复请求也会复用；停用词/自定义词变化时整体失效。
-        self._token_cache: OrderedDict[tuple[str, bool], tuple[str, ...]] = OrderedDict()
+        self._token_cache: OrderedDict[tuple[str, bool], tuple[str, ...]] = (
+            OrderedDict()
+        )
         self._token_cache_limit = 128
 
     def _invalidate_token_cache(self) -> None:

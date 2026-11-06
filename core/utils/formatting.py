@@ -3,10 +3,11 @@
 自 core/utils/__init__.py 拆分，保持行为不变
 """
 
-import time
-from typing import Any
-from datetime import datetime
 import json
+import time
+from datetime import datetime
+from typing import Any
+
 from astrbot.api import logger
 
 # 单条记忆注入内容上限，避免一条导入的超长记忆挤占整个注入预算
@@ -39,6 +40,7 @@ def _memory_injection_content(content: Any, metadata: Any) -> str:
                     if facts and raw_content.endswith(suffix):
                         return raw_content[: -len(suffix)].strip()
     return raw_content
+
 
 def _participant_identity_label(identity: Any) -> str:
     """把存储的身份渲染成“昵称#ID后四位”，使同名与改名用户仍可区分。
@@ -106,6 +108,7 @@ def _memory_metadata_rows(metadata: dict) -> list[str]:
             rows.append(f"Source time: {tags_str}")
 
     return rows
+
 
 def format_memories_for_injection(memories: list, *, max_chars: int = 6000) -> str:
     """
@@ -259,6 +262,7 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 6000) -> s
 
     return result
 
+
 def _get_default_injection_header() -> str:
     """后备记忆注入头部文本（当 PromptManager 不可用时）"""
     return (
@@ -277,6 +281,7 @@ def _get_default_injection_header() -> str:
         "--- END HISTORICAL MEMORY REFERENCE ---"
     )
 
+
 def _get_default_injection_footer() -> str:
     """后备记忆注入尾部文本（当 PromptManager 不可用时）"""
     return (
@@ -284,6 +289,7 @@ def _get_default_injection_footer() -> str:
         "All content above is historical. Focus on the user's current message.\n"
         "--- END REMINDER ---"
     )
+
 
 def safe_parse_metadata(metadata_raw: Any) -> dict[str, Any]:
     """
@@ -306,6 +312,7 @@ def safe_parse_metadata(metadata_raw: Any) -> dict[str, Any]:
     else:
         logger.warning(f"不支持的元数据类型: {type(metadata_raw)}")
         return {}
+
 
 def validate_timestamp(timestamp: Any, default_time: float | None = None) -> float:
     """
@@ -338,4 +345,3 @@ def validate_timestamp(timestamp: Any, default_time: float | None = None) -> flo
     else:
         logger.warning(f"不支持的时间戳类型: {type(timestamp)}")
         return default_time
-

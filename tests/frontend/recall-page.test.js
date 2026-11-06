@@ -94,7 +94,7 @@ test("a failed recall reports inline without a second toast", async t => {
   const el = environment(t);
   const page = new RecallPage({ _recallCache: null }, { post: async () => { throw new Error("offline"); } }, {});
   let toasts = 0;
-  page.showToast = () => { toasts += 1; };
+  globalThis.window.lmShowToast = () => { toasts += 1; };
   el("recall-query").value = "query";
   el("recall-k").value = "5";
   el("recall-session").value = "";

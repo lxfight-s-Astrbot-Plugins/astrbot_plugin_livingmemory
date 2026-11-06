@@ -21,7 +21,9 @@ class FusedResult:
     vector_score: float | None  # 原始向量分数
     content: str
     metadata: dict[str, Any]
-    rerank_score: float | None = None  # Rerank重排序分数(已归一化到[0,1],未重排序时为None)
+    rerank_score: float | None = (
+        None  # Rerank重排序分数(已归一化到[0,1],未重排序时为None)
+    )
 
 
 class RRFFusion:
@@ -182,8 +184,7 @@ class RRFFusion:
                 # 分数无区分度时交给并列名次决定顺序
                 return dict.fromkeys(values, 1.0)
             return {
-                doc_id: (value - low) / (high - low)
-                for doc_id, value in values.items()
+                doc_id: (value - low) / (high - low) for doc_id, value in values.items()
             }
 
         bm25_norm = normalize(bm25_results)

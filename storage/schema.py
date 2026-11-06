@@ -82,32 +82,6 @@ GRAPH_SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_node_id, status)",
 )
 
-# Resumable write-operation log (introduced in schema v8).
-WRITE_OPS_SCHEMA_STATEMENTS: tuple[str, ...] = (
-    """
-    CREATE TABLE IF NOT EXISTS memory_write_ops (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        op_type TEXT NOT NULL,
-        memory_id INTEGER,
-        status TEXT NOT NULL DEFAULT 'pending',
-        step TEXT NOT NULL DEFAULT 'started',
-        payload TEXT DEFAULT '{}',
-        error TEXT,
-        retry_count INTEGER NOT NULL DEFAULT 0,
-        created_at REAL NOT NULL,
-        updated_at REAL NOT NULL
-    )
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_status
-    ON memory_write_ops(status, updated_at)
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_memory_write_ops_memory
-    ON memory_write_ops(memory_id, op_type)
-    """,
-)
-
 # Version bookkeeping tables are shared by the engine, migrations and validators;
 # keep the DDL in one place so ownership of the schema stays unambiguous.
 DB_VERSION_SCHEMA_STATEMENTS: tuple[str, ...] = (

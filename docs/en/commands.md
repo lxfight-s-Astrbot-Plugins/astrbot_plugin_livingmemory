@@ -7,7 +7,7 @@ LivingMemory commands use the `/lmem` prefix.
 | `/lmem status` | Show memory statistics and, while maintenance is active or abnormal, its state, progress, and message |
 | `/lmem search <query> [k]` | Search long-term memories; `k` defaults to 5 |
 | `/lmem forget <id>` | Delete a specific memory |
-| `/lmem rebuild-index` | Rebuild document indexes |
+| `/lmem rebuild-index` | Rebuild or repair document indexes (full pass) |
 | `/lmem rebuild-graph` | Rebuild and compact graph indexes into memory-level vectors |
 | `/lmem migrate-scope <target> [apply] [source]` | Migrate existing memories (documents, atoms, graph entries) to a scope; dry-run by default, `apply` writes; optional `source` accepts `all`/`*`/`-` for every source |
 | `/lmem webui` | Show WebUI entry information |
@@ -18,13 +18,12 @@ LivingMemory commands use the `/lmem` prefix.
 
 ## Index maintenance states
 
-Startup consistency checks and automatic repairs run in the background. Use `/lmem status` to inspect non-idle states:
+Startup index maintenance runs in the background only when needed (a changed embedding provider fingerprint or data left by a migration). Use `/lmem status` to inspect non-idle states:
 
 | State | Meaning | Recommended action |
 | --- | --- | --- |
-| `checking` | Document, vector, BM25, and graph consistency is being checked | No action is required; the plugin remains available |
 | `rebuilding` | Indexes are being rebuilt in batches and progress is available | Keep providers available and do not start duplicate rebuilds |
-| `partial` | Rebuild finished with tolerated failures or the final check still found differences | Check provider limits and logs, then run `/lmem rebuild-index` again if needed |
+| `partial` | Rebuild finished with tolerated failures | Check provider limits and logs, then run `/lmem rebuild-index` again if needed |
 | `failed` | Background maintenance failed; the live index remains in use when a shadow generation did not switch | Fix the reported environment problem and rerun the rebuild |
 | `cancelled` | Maintenance was cancelled during plugin stop or reload | The next startup checks again, or rebuild manually after the runtime is stable |
 

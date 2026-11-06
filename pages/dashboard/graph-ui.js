@@ -41,10 +41,7 @@
     };
   }
 
-  const NODE_TYPE_COLORS = {
-    topic: "#78a94b", person: "#2a9e96", fact: "#c58c2a",
-    summary: "#df6d62", other: "#74868a",
-  };
+  const TYPE_COLORS = window.GraphShared.TYPE_COLORS;
 
   /* ================================================================
      Bridge helpers
@@ -75,21 +72,11 @@
         var qs = path.substring(qi + 1);
         var params = {};
         new URLSearchParams(qs).forEach(function(v, k) { params[k] = v; });
-        return unwrapGraphData(await bridge.apiGet(buildEndpoint(base), params));
+        return window.lmUnwrapResponse(await bridge.apiGet(buildEndpoint(base), params));
       }
-      return unwrapGraphData(await bridge.apiGet(buildEndpoint(path), {}));
+      return window.lmUnwrapResponse(await bridge.apiGet(buildEndpoint(path), {}));
     }
-    return unwrapGraphData(await bridge.apiPost(buildEndpoint(path), options.body || {}));
-  }
-
-  function unwrapGraphData(response) {
-    if (response && response.status === "ok" && Object.prototype.hasOwnProperty.call(response, "data")) {
-      return response.data || {};
-    }
-    if (response && response.status === "error") {
-      throw new Error(response.message || window.t("misc.requestFailed"));
-    }
-    return response || {};
+    return window.lmUnwrapResponse(await bridge.apiPost(buildEndpoint(path), options.body || {}));
   }
 
   /* ================================================================
@@ -205,7 +192,7 @@
   function createGraph3D() {
     if (state.graph3D) return Promise.resolve(state.graph3D);
     if (graph3DLoading) return graph3DLoading;
-    graph3DLoading = import(document.getElementById("graph-3d-module").href)
+    graph3DLoading = import(new URL(dom.view3D.dataset.module, document.baseURI).href)
       .then(({ default: Graph3D }) => {
         if (!state.pageActive || dom.viewMode.value !== "3d") return null;
         const instance = new Graph3D();
@@ -608,7 +595,7 @@
     if (!dom.legend) return;
     var summary = payload.summary || {};
     var nodeTypes = summary.node_type_breakdown || {};
-    var colors = state.viewMode === "3d" ? state.graph3D.colors : NODE_TYPE_COLORS;
+    var colors = state.viewMode === "3d" ? state.graph3D.colors : TYPE_COLORS;
 
     /* 图例只解释画布上真实存在的编码：节点颜色。关系 chip 既没有色点，
        也与画布上的边色无关，还用的是未本地化的枚举名。 */

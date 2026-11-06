@@ -19,11 +19,12 @@ from .managers.scope_migrator import ScopeMigrator
 from .memory_scope import (
     GLOBAL_MEMORY_SCOPE,
     is_event_memory_allowed,
-    resolve_event_identity,
+    resolve_event_memory_access,
     resolve_memory_scope,
+    resolve_user_memory_scope,
 )
 from .memory_source import serialize_source_messages
-from .validators.index_validator import IndexValidator
+from .validators.index_maintenance import IndexValidator
 
 
 class CommandHandler:
@@ -81,21 +82,10 @@ class CommandHandler:
                 )
         return "\n".join(message)
 
-    @staticmethod
-    def _component_not_ready_message(component: str, command: str) -> str:
-        """Build a consistent component-not-ready response."""
-        return t("error.component_not_ready", component=component, command=command)
-
     async def handle_status(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem status 命令"""
-        if not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message("记忆引擎", "/lmem status")
-            )
-            return
-
         try:
             stats = await self.memory_engine.get_statistics()
 
@@ -147,12 +137,6 @@ class CommandHandler:
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem search 命令"""
-        if not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message("记忆引擎", "/lmem search")
-            )
-            return
-
         # 输入验证
         if not query or not query.strip():
             yield event.plain_result(t("search.query_empty"))
@@ -161,10 +145,21 @@ class CommandHandler:
         # 限制k的范围为1-100
         k = max(1, min(k, 100))
 
+        # 与召回、反思、Agent 工具共用同一套白名单/人格/作用域解析，
+        # 避免 global/user 作用域下命令搜不到数据。
+        access = await resolve_event_memory_access(
+            self.config_manager, self.context, event
+        )
+        if not access.allowed:
+            yield event.plain_result(t("search.access_denied"))
+            return
+
         try:
-            session_id = event.unified_msg_origin
             results = await self.memory_engine.search_memories(
-                query=query.strip(), k=k, session_id=session_id
+                query=query.strip(),
+                k=k,
+                session_id=access.scope,
+                persona_id=access.persona_id,
             )
 
             if not results:
@@ -211,12 +206,6 @@ class CommandHandler:
         self, event: AstrMessageEvent, doc_id: int
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem forget 命令"""
-        if not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message("记忆引擎", "/lmem forget")
-            )
-            return
-
         # 输入验证
         if doc_id < 0:
             yield event.plain_result(t("forget.id_invalid"))
@@ -242,35 +231,10 @@ class CommandHandler:
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem rebuild-index 命令"""
-        if not self.memory_engine or not self.index_validator:
-            yield event.plain_result(
-                self._component_not_ready_message(
-                    "记忆引擎或索引验证器", "/lmem rebuild-index"
-                )
-            )
-            return
-
         try:
             yield event.plain_result(t("rebuild_index.checking"))
 
-            # 检查索引一致性
-            status = await self.index_validator.check_consistency()
-
-            if status.is_consistent and not status.needs_rebuild:
-                yield event.plain_result(t("rebuild_index.ok", reason=status.reason))
-                return
-
-            # 显示当前状态
-            status_msg = t(
-                "rebuild_index.status_template",
-                doc_count=status.documents_count,
-                bm25_count=status.bm25_count,
-                vec_count=status.vector_count,
-                reason=status.reason,
-            )
-            yield event.plain_result(status_msg)
-
-            # 执行重建
+            # 索引维护单入口：直接重建/补写，不再预先做全表一致性比对
             result = await self.index_validator.rebuild_indexes(self.memory_engine)
 
             if result["success"]:
@@ -331,9 +295,7 @@ class CommandHandler:
         if key == "session":
             return str(getattr(event, "unified_msg_origin", "") or "")
         if key == "user":
-            platform = str(event.get_platform_name() or "").casefold()
-            identity = resolve_event_identity(self.config_manager, event).casefold()
-            return f"livingmemory:user:{platform or 'unknown'}:{identity}"
+            return resolve_user_memory_scope(self.config_manager, event)
         return value
 
     def _scope_migration_backup_path(self) -> Path:
@@ -364,12 +326,6 @@ class CommandHandler:
         也接受 ``dry-run`` 以显式预览。``source`` 传 ``all`` / ``*`` / ``-`` 表示
         全部来源，其余按 ``global`` / ``session`` / ``user`` 关键字或字面作用域解析。
         """
-        if not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message("记忆引擎", "/lmem migrate-scope")
-            )
-            return
-
         try:
             resolved = self._resolve_target_scope(event, target)
             if not resolved:
@@ -393,14 +349,6 @@ class CommandHandler:
                 source_scope = self._resolve_target_scope(event, raw_source)
 
             db_connection = getattr(self.memory_engine, "db_connection", None)
-            if db_connection is None:
-                yield event.plain_result(
-                    self._component_not_ready_message(
-                        "数据库连接", "/lmem migrate-scope"
-                    )
-                )
-                return
-
             migrator = ScopeMigrator(db_connection)
             breakdown = await migrator.survey()
             plan = await migrator.plan(resolved, source=source_scope)
@@ -509,12 +457,6 @@ class CommandHandler:
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem rebuild-graph 命令"""
-        if not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message("记忆引擎", "/lmem rebuild-graph")
-            )
-            return
-
         try:
             yield event.plain_result(t("rebuild_graph.starting"))
             result = await self.memory_engine.rebuild_graph_index()
@@ -545,14 +487,6 @@ class CommandHandler:
         self, event: AstrMessageEvent, message_count: int | None = None
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem summarize 命令 - 立即触发记忆总结"""
-        if not self.conversation_manager or not self.memory_engine:
-            yield event.plain_result(
-                self._component_not_ready_message(
-                    "会话管理器或记忆引擎", "/lmem summarize"
-                )
-            )
-            return
-
         session_id = event.unified_msg_origin
         try:
             if not is_event_memory_allowed(self.config_manager, event):
@@ -629,12 +563,6 @@ class CommandHandler:
             )
             if not is_group_chat and "GroupMessage" in session_id:
                 is_group_chat = True
-
-            if not self._memory_processor:
-                yield event.plain_result(
-                    self._component_not_ready_message("记忆处理器", "/lmem summarize")
-                )
-                return
 
             (
                 content,
@@ -713,12 +641,6 @@ class CommandHandler:
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
         """处理 /lmem reset 命令"""
-        if not self.conversation_manager:
-            yield event.plain_result(
-                self._component_not_ready_message("会话管理器", "/lmem reset")
-            )
-            return
-
         session_id = event.unified_msg_origin
         try:
             await self.conversation_manager.clear_session(session_id)

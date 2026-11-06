@@ -9,15 +9,21 @@ from typing import Any
 
 import aiosqlite
 
-from .graph_store_write import GraphStoreWriteMixin
-from .graph_store_read import GraphStoreReadMixin
-from .graph_store_snapshot import GraphStoreSnapshotMixin
+from astrbot.api import logger
 
-class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin, GraphStoreSnapshotMixin):
+from .graph_store_read import GraphStoreReadMixin
+from .graph_store_write import GraphStoreWriteMixin
+from .schema import GRAPH_SCHEMA_STATEMENTS
+
+
+class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
     """Persist graph nodes, edges, and searchable entries."""
 
     _SQLITE_BATCH_SIZE = 500
     _NODE_TOKEN_QUERY_BATCH_SIZE = 200
+
+    # initialize() 中赋值：trigram tokenizer 不可用时保持 False，供节点检索选择回退路径
+    _node_fts_available: bool
 
     def __init__(self, db_path: str, *, cache_reads: bool = False):
         self.db_path = db_path
@@ -27,6 +33,74 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin, GraphStoreSnapshotMi
         # store 与短生命周期测试不需要多占一条连接。
         self._cache_reads = cache_reads
         self._read_conn: aiosqlite.Connection | None = None
+
+    async def initialize(self) -> None:
+        """Create tables used by the graph-memory layer."""
+        async with self._connect() as db:
+            for statement in GRAPH_SCHEMA_STATEMENTS:
+                await db.execute(statement)
+            # External-content triggers also cover graph snapshot replacement.
+            existing = await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'livingmemory_graph_nodes_fts'"
+            )
+            needs_backfill = await existing.fetchone() is None
+            try:
+                await db.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_nodes_fts
+                    USING fts5(canonical_value, content='graph_nodes', content_rowid='id', tokenize='trigram')
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_insert AFTER INSERT ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(rowid, canonical_value)
+                        VALUES (new.id, new.canonical_value);
+                    END
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_delete AFTER DELETE ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts, rowid, canonical_value)
+                        VALUES ('delete', old.id, old.canonical_value);
+                    END
+                """)
+                await db.execute("""
+                    CREATE TRIGGER IF NOT EXISTS lmem_nodes_update AFTER UPDATE OF canonical_value ON graph_nodes BEGIN
+                        INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts, rowid, canonical_value)
+                        VALUES ('delete', old.id, old.canonical_value);
+                        INSERT INTO livingmemory_graph_nodes_fts(rowid, canonical_value)
+                        VALUES (new.id, new.canonical_value);
+                    END
+                """)
+                if needs_backfill:
+                    await db.execute(
+                        "INSERT INTO livingmemory_graph_nodes_fts(livingmemory_graph_nodes_fts) VALUES ('rebuild')"
+                    )
+                self._node_fts_available = True
+            except aiosqlite.OperationalError:
+                self._node_fts_available = False
+                logger.warning(
+                    "SQLite trigram tokenizer unavailable; using node substring search"
+                )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
+                ON graph_edges(source_node_id, target_node_id, relation_type)
+                """
+            )
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_graph_entries_scope_latest
+                ON graph_entries(session_id, persona_id, source_memory_id, id DESC)
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_graph_entries_session_id ON graph_entries(session_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_graph_entries_persona_id ON graph_entries(persona_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_graph_entry_nodes_node ON graph_entry_nodes(node_id)"
+            )
+            await db.commit()
 
     @asynccontextmanager
     async def _connect(self):
@@ -70,5 +144,6 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin, GraphStoreSnapshotMi
     @staticmethod
     def _chunked(items: list[int], size: int) -> list[list[int]]:
         return [items[index : index + size] for index in range(0, len(items), size)]
+
 
 __all__ = ["GraphStore"]

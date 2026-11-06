@@ -282,9 +282,9 @@ class TestCurrentSpeakerTarget:
     async def test_cursor_pagination_reaches_older_memories(
         self, tmp_path, monkeypatch
     ):
-        from astrbot_plugin_livingmemory.core.managers import memory_engine_participant
+        from astrbot_plugin_livingmemory.core.managers import memory_engine_agentic
 
-        monkeypatch.setattr(memory_engine_participant, "_PARTICIPANT_PAGE_SIZE", 2)
+        monkeypatch.setattr(memory_engine_agentic, "_PARTICIPANT_PAGE_SIZE", 2)
         engine = await _make_engine(tmp_path)
         ids = []
         for i in range(5):
@@ -452,10 +452,6 @@ class TestLifecycle:
         assert "仍然有效的事实A" in content
         assert "将被遗忘的事实B" not in content
 
-        lifecycle = await engine.get_memory_atom_lifecycle(mid)
-        assert lifecycle is not None
-        assert lifecycle["hidden"] == 1
-        assert lifecycle["active"] == 1
         await engine.close()
 
     @pytest.mark.asyncio
@@ -604,9 +600,6 @@ class TestSourceLifecycleConservatism:
         )
         await engine.db_connection.commit()
         assert await engine.atom_store.cleanup_forgotten(older_than_days=0) == 1
-        lifecycle = await engine.get_memory_atom_lifecycle(mid)
-        assert lifecycle is not None and lifecycle["total"] == 1
-        assert lifecycle["hidden"] == 0
 
         result = await self._read(engine, mid)
         assert result["source_status"] == "lifecycle_limited"

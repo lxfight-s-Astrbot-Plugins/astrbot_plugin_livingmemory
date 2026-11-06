@@ -5,7 +5,6 @@ recall_long_term_memory，与基线工具在注册时二选一，不会并存。
 旧参数组合（query/k/include_source）在 Beta 下继续可用。
 """
 
-from ..memory_scope import adapter_access
 import asyncio
 from dataclasses import field
 from typing import Any
@@ -17,7 +16,7 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
-from ..memory_scope import resolve_memory_scope
+from ..memory_scope import adapter_access, resolve_memory_scope
 from .agentic_recall_budget import (
     get_or_create_budget,
     run_within_budget,

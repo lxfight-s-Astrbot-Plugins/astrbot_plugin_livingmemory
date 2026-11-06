@@ -186,14 +186,6 @@ class _MockEvent:
 
 
 @pytest.mark.asyncio
-async def test_summarize_no_memory_processor_returns_error():
-    """handle_summarize should return an error when _memory_processor is None."""
-    handler = _make_command_handler(memory_processor=None)
-    msgs = [m async for m in handler.handle_summarize(_MockEvent())]
-    assert any("未初始化" in m for m in msgs)
-
-
-@pytest.mark.asyncio
 async def test_summarize_no_unsummarized_messages():
     """handle_summarize should report nothing to summarize when already up-to-date."""
     conv_mgr = Mock()

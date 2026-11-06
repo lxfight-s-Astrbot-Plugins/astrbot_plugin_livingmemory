@@ -94,14 +94,14 @@ Archived memories do not participate in normal recall. Restoring one from the Da
 
 ## How large index maintenance stays available
 
-After startup, LivingMemory checks document, vector, BM25, and graph indexes in the background instead of blocking plugin readiness when extensive repairs are required:
+After startup, LivingMemory rebuilds indexes in the background only when needed (a changed provider fingerprint or data left by a migration), so extensive repairs never block plugin readiness:
 
 | Mechanism | Purpose |
 | --- | --- |
 | Provider fingerprint | A changed embedding provider or model triggers a full vector generation rebuild, even when dimensions are unchanged |
 | Batching and checkpoints | Read size, embedding batches, concurrency, and delays are bounded; full vector rebuilds can continue from checkpoints |
 | Shadow indexes | BM25, FAISS, and graph data are built in a separate generation and switched only after success; failures leave the live generation intact |
-| Concurrent-write reconciliation | A final consistency pass repairs data written or changed while maintenance was running |
-| Visible status | `/lmem status` reports checking, rebuilding, partial, failed, and cancelled states with progress |
+| Concurrent-write reconciliation | Rebuilds finish in a shadow generation and replay writes made during maintenance before switching |
+| Visible status | `/lmem status` reports rebuilding, partial, failed, and cancelled states with progress |
 
 See [WebUI management](/en/webui) for data operations and [Configuration](/en/configuration) for all related settings.

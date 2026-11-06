@@ -2,7 +2,6 @@
 记忆管理处理模块
 """
 
-import inspect
 from typing import TYPE_CHECKING, Any
 
 from quart import request
@@ -10,11 +9,12 @@ from quart import request
 from astrbot.api import logger
 
 from ..memory_source import restore_source_messages
-from .memory_handler_update import MemoryHandlerUpdateMixin
 from .memory_handler_io import MemoryHandlerIoMixin
+from .memory_handler_update import MemoryHandlerUpdateMixin
 
 if TYPE_CHECKING:
     from .utils import PageApiUtils
+
 
 class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
     """记忆管理处理器"""
@@ -175,11 +175,7 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         metadata = self.utils.normalize_metadata(memory.get("metadata"))
 
         # 构建完整的详情数据
-        get_source = getattr(memory_engine, "get_memory_source", None)
-        source_result = get_source(memory_id) if callable(get_source) else []
-        source_messages = (
-            await source_result if inspect.isawaitable(source_result) else []
-        )
+        source_messages = await memory_engine.get_memory_source(memory_id)
         detail = {
             "memory_id": memory.get("id"),
             "doc_id": memory.get("doc_id"),
@@ -243,9 +239,7 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         memory = await memory_engine.get_memory_record(memory_id)
         if not memory:
             return self.utils.error("记忆不存在")
-        get_source = getattr(memory_engine, "get_memory_source", None)
-        source_result = get_source(memory_id) if callable(get_source) else []
-        source = await source_result if inspect.isawaitable(source_result) else []
+        source = await memory_engine.get_memory_source(memory_id)
         if len(source) < 2:
             return self.utils.error("该记忆没有可重新总结的完整原文")
 
@@ -281,4 +275,3 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
                 "new_memory_id": new_memory_id,
             }
         )
-

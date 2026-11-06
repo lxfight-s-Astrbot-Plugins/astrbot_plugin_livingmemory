@@ -13,9 +13,8 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from ..processors.text_processor import TextProcessor
 from ..memory_scope import adapter_sql
-
+from ..processors.text_processor import TextProcessor
 
 _CJK_RUN = re.compile(r"[一-鿿]+")
 

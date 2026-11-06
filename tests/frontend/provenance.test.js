@@ -78,7 +78,7 @@ test("batch delete reports the ids the backend failed on", async t => {
   page.updateFeedback = () => {};
   page.updateSelectionControls = () => {};
   page.fetch = async () => {};
-  page.showToast = message => reported.push(message);
+  globalThis.window.lmShowToast = message => reported.push(message);
 
   await page.deleteSelected();
 

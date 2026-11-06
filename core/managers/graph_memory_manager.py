@@ -146,17 +146,6 @@ class GraphMemoryManager:
             await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
             return True
 
-    async def rebuild_memories(
-        self,
-        memories: list[tuple[int, str, dict[str, Any]]],
-    ) -> dict[str, int]:
-        """Compatibility wrapper for callers that already materialized memories."""
-
-        async def batches():
-            yield memories
-
-        return await self.rebuild_memory_batches(batches())
-
     async def rebuild_memory_batches(
         self,
         memory_batches: AsyncIterable[list[tuple[int, str, dict[str, Any]]]],

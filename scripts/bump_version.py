@@ -79,9 +79,7 @@ def main() -> None:
     lock = json.loads(lock_path.read_text("utf-8"))
     lock["version"] = new
     lock["packages"][""]["version"] = new
-    lock_path.write_text(
-        json.dumps(lock, ensure_ascii=False, indent=2) + "\n", "utf-8"
-    )
+    lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + "\n", "utf-8")
     changed.append("package-lock.json (2 处)")
 
     json.loads((ROOT / "package.json").read_text("utf-8"))

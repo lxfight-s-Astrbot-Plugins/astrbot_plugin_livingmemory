@@ -4,8 +4,22 @@ Tests for config manager and validator behavior.
 
 from unittest.mock import patch
 
+import pytest
+
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.base.config_validator import validate_config
+from astrbot_plugin_livingmemory.core.base.exceptions import ConfigurationError
+
+
+class _WritableConfig(dict):
+    """Minimal AstrBotConfig stand-in that records save_config calls."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.saved = 0
+
+    def save_config(self):
+        self.saved += 1
 
 
 def test_config_manager_loads_defaults() -> None:
@@ -47,61 +61,34 @@ def test_config_manager_sections_and_properties() -> None:
     assert isinstance(manager.filtering_settings, dict)
 
 
-def test_invalid_user_config_corrected_per_item() -> None:
-    # 非法类型不再触发整包回退，而是回退该字段默认值并告警。
-    with patch(
-        "astrbot_plugin_livingmemory.core.base.config_manager.logger.warning"
-    ) as warning:
-        manager = ConfigManager({"recall_engine": {"top_k": "invalid"}})
-
-    assert manager.get("recall_engine.top_k") == 5
-    assert manager.get("recall_engine.max_k") == 10
-    call_messages = [str(call.args[0]) for call in warning.call_args_list]
-    assert any("配置项已自动修正" in msg for msg in call_messages)
-    assert not any("已降级为默认配置" in msg for msg in call_messages)
+def test_invalid_config_value_fails_fast() -> None:
+    # 非法类型不再静默回退默认值，而是直接拒绝启动。
+    with pytest.raises(ConfigurationError):
+        ConfigManager({"recall_engine": {"top_k": "invalid"}})
 
 
-def test_out_of_range_config_is_clamped_per_item() -> None:
-    manager = ConfigManager(
-        {
-            "recall_engine": {"top_k": 60, "max_k": 0},
-            "session_manager": {"max_sessions": 7, "session_ttl": 30},
-            "backup_settings": {"keep_days": 9999},
-        }
-    )
-
-    # 越界值被截断到最近边界
-    assert manager.get("recall_engine.top_k") == 50
-    assert manager.get("recall_engine.max_k") == 1
-    assert manager.get("session_manager.session_ttl") == 60
-    assert manager.get("backup_settings.keep_days") == 365
-    # 有效值保持不变，且其余配置节不再被默认化
-    assert manager.get("session_manager.max_sessions") == 7
-    assert manager.get("fusion_strategy.rrf_k") == 60
-    assert manager.get("graph_memory.enabled") is True
+def test_out_of_range_config_fails_fast() -> None:
+    with pytest.raises(ConfigurationError):
+        ConfigManager(
+            {
+                "recall_engine": {"top_k": 60, "max_k": 0},
+                "session_manager": {"max_sessions": 7, "session_ttl": 30},
+                "backup_settings": {"keep_days": 9999},
+            }
+        )
 
 
-def test_pattern_violation_resets_that_field_default() -> None:
-    manager = ConfigManager(
-        {"recall_engine": {"memory_type_filter": "unknown", "top_k": 8}}
-    )
-
-    assert manager.get("recall_engine.memory_type_filter") == "all"
-    assert manager.get("recall_engine.top_k") == 8
+def test_pattern_violation_fails_fast() -> None:
+    with pytest.raises(ConfigurationError):
+        ConfigManager({"recall_engine": {"memory_type_filter": "unknown"}})
 
 
-def test_structural_broken_section_resets_only_that_section() -> None:
-    manager = ConfigManager(
-        {"session_manager": "broken", "recall_engine": {"top_k": 8}}
-    )
-
-    assert manager.get("session_manager.max_sessions") == 100
-    assert manager.get("session_manager.session_ttl") == 3600
-    assert manager.get("recall_engine.top_k") == 8
-    assert manager.get("recall_engine.importance_weight") == 1.0
+def test_structural_broken_section_fails_fast() -> None:
+    with pytest.raises(ConfigurationError):
+        ConfigManager({"session_manager": "broken"})
 
 
-def test_normalize_preserves_extra_and_backup_section() -> None:
+def test_preserves_extra_host_config_fields() -> None:
     manager = ConfigManager(
         {
             "bot_language": "en",
@@ -177,6 +164,44 @@ def test_validate_config_accepts_recent_context_max_age() -> None:
     )
 
     assert config.recall_engine.recent_context_max_age_seconds == 3600
+
+
+def test_validate_config_accepts_legacy_injection_modes() -> None:
+    """旧注入枚举值仍需通过校验，避免老配置升级后无法启动。"""
+    legacy_modes = [
+        "user_message_before",
+        "user_message_after",
+        "fake_tool_call",
+        "fake_tool_call_deepseek_v4",
+        "system_prompt",
+    ]
+
+    for mode in legacy_modes:
+        config = validate_config({"recall_engine": {"injection_method": mode}})
+        assert config.recall_engine.injection_method == mode
+
+
+def test_unknown_injection_mode_fails_fast() -> None:
+    with pytest.raises(ConfigurationError):
+        ConfigManager({"recall_engine": {"injection_method": "unknown_mode"}})
+
+
+def test_legacy_injection_mode_normalized_with_single_warning() -> None:
+    raw = _WritableConfig({"recall_engine": {"injection_method": "fake_tool_call"}})
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.base.config_manager.logger.warning"
+    ) as warning:
+        manager = ConfigManager(raw)
+
+        assert manager.get("recall_engine.injection_method") == "extra_user_content"
+        warning.assert_called_once()
+        assert "fake_tool_call" in str(warning.call_args.args)
+
+        # 宿主配置未回写，重新加载时不再重复提示
+        manager.apply_updates({"recall_engine.top_k": 7})
+        assert manager.get("recall_engine.top_k") == 7
+        warning.assert_called_once()
 
 
 def test_config_manager_graph_memory_property() -> None:

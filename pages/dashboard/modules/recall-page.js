@@ -3,7 +3,7 @@
  * 负责测试记忆召回功能
  */
 
-import { esc, statusPill, typeLabel, normalizeImportance } from "./utils.js";
+import { esc, statusPill, typeLabel, normalizeImportance, showToast } from "./utils.js";
 
 export class RecallPage {
   constructor(state, apiClient, peekPanel) {
@@ -56,7 +56,7 @@ export class RecallPage {
     const sessionId = document.getElementById("recall-session").value.trim();
 
     if (!query) {
-      this.showToast(window.t("recall.enterQuery"), true);
+      showToast(window.t("recall.enterQuery"), true);
       document.getElementById("recall-query").focus();
       return;
     }
@@ -221,16 +221,5 @@ export class RecallPage {
         }
       });
     });
-  }
-
-  /**
-   * 显示 Toast 提示
-   * @param {string} message - 提示消息
-   * @param {boolean} isError - 是否为错误
-   */
-  showToast(message, isError = false) {
-    if (window.lmShowToast) {
-      window.lmShowToast(message, isError);
-    }
   }
 }

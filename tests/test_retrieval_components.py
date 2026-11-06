@@ -5,6 +5,7 @@ Tests for retrieval components (BM25/RRF/Hybrid).
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -441,7 +442,6 @@ async def test_weighted_sum_scoring_does_not_zero_out_old_important_memory():
     # 新记忆的分数下限由重要性/时效项给出，不会被完全清零
     assert new_result.final_score > 0.25, "新记忆分数也应合理"
     assert all(0.0 <= r.final_score <= 1.0 for r in results), "融合分数应落在 [0,1]"
-
 
 
 @pytest.mark.asyncio
@@ -1074,11 +1074,6 @@ async def test_delete_memory_vector_fails_triggers_rollback():
     bm25 = _BM25WithDelete()
     vector = _VectorFails()
 
-    writer = MemoryIndexWriter(
-        bm25_retriever=cast(BM25Retriever, bm25),
-        vector_retriever=cast(VectorRetriever, vector),
-    )
-
     # 在 documents 表中准备一条记录供备份查询
     async with aiosqlite.connect(":memory:") as db:
         await db.execute(
@@ -1089,6 +1084,16 @@ async def test_delete_memory_vector_fails_triggers_rollback():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
+        @asynccontextmanager
+        async def _tx():
+            yield db
+            await db.commit()
+
+        writer = MemoryIndexWriter(
+            bm25_retriever=cast(BM25Retriever, bm25),
+            vector_retriever=cast(VectorRetriever, vector),
+            write_transaction=_tx,
+        )
         result = await writer.delete_memory(1)
 
     assert result is False
@@ -1123,11 +1128,6 @@ async def test_delete_memory_vector_raises_triggers_rollback():
     bm25 = _BM25WithDelete()
     vector = _VectorRaises()
 
-    writer = MemoryIndexWriter(
-        bm25_retriever=cast(BM25Retriever, bm25),
-        vector_retriever=cast(VectorRetriever, vector),
-    )
-
     async with aiosqlite.connect(":memory:") as db:
         await db.execute(
             "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
@@ -1137,6 +1137,16 @@ async def test_delete_memory_vector_raises_triggers_rollback():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
+        @asynccontextmanager
+        async def _tx():
+            yield db
+            await db.commit()
+
+        writer = MemoryIndexWriter(
+            bm25_retriever=cast(BM25Retriever, bm25),
+            vector_retriever=cast(VectorRetriever, vector),
+            write_transaction=_tx,
+        )
         result = await writer.delete_memory(1)
 
     assert result is False
@@ -1170,11 +1180,6 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
     bm25 = _BM25Fails()
     vector = _VectorOK()
 
-    writer = MemoryIndexWriter(
-        bm25_retriever=cast(BM25Retriever, bm25),
-        vector_retriever=cast(VectorRetriever, vector),
-    )
-
     async with aiosqlite.connect(":memory:") as db:
         await db.execute(
             "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
@@ -1184,6 +1189,16 @@ async def test_delete_memory_bm25_fails_no_rollback_needed():
         bm25._connect_mock.__aenter__ = AsyncMock(return_value=db)
         bm25._connect_mock.__aexit__ = AsyncMock(return_value=None)
 
+        @asynccontextmanager
+        async def _tx():
+            yield db
+            await db.commit()
+
+        writer = MemoryIndexWriter(
+            bm25_retriever=cast(BM25Retriever, bm25),
+            vector_retriever=cast(VectorRetriever, vector),
+            write_transaction=_tx,
+        )
         result = await writer.delete_memory(1)
 
     assert result is False

@@ -54,6 +54,103 @@ class ImportEntry:
         return not self.content and len(self.source_messages) >= 2
 
 
+PLATFORM_SCOPE_PREFIX = "livingmemory:user:"
+
+
+def split_session_platform(session_id: str) -> tuple[str, str] | None:
+    """Split an imported session id into (platform segment, remainder).
+
+    Accepts both raw ``unified_msg_origin`` values
+    (``platform:message_type:session``) and user memory scopes
+    (``livingmemory:user:platform:identity``).
+
+    Args:
+        session_id: imported session id or memory scope.
+
+    Returns:
+        ``(platform, remainder)`` or None when the id has no platform segment.
+    """
+    text = str(session_id or "")
+    if text.startswith(PLATFORM_SCOPE_PREFIX):
+        parts = text.split(":", 3)
+        if len(parts) == 4 and parts[2]:
+            return parts[2], parts[3]
+        return None
+    parts = text.split(":", 2)
+    if len(parts) == 3 and parts[0]:
+        return parts[0], f"{parts[1]}:{parts[2]}"
+    return None
+
+
+def plan_session_id_remap(
+    session_ids: list[str],
+    current_platforms: Any = (),
+    existing_sessions: Any = (),
+) -> dict[str, str]:
+    """Map imported session ids from a retired platform onto the current one.
+
+    Imported exports keep the ``platform`` segment they were written with. When
+    the deployment platform name changes (for example after switching adapters),
+    session filtering can no longer recall those memories even though the index
+    holds them. This maps only unambiguous cases:
+
+    1. the imported id already matches a current session or platform: keep it;
+    2. a current session shares the same ``message_type:session`` suffix: map to it;
+    3. exactly one platform is present: rewrite the platform segment to it;
+    4. otherwise leave the id untouched.
+
+    Args:
+        session_ids: session ids/scopes found in the import file.
+        current_platforms: platform names active in this deployment.
+        existing_sessions: session ids already stored in the conversation store.
+
+    Returns:
+        Mapping of old session id to replacement session id.
+    """
+    platforms = {
+        str(item).strip() for item in current_platforms if str(item or "").strip()
+    }
+    sessions = [str(item) for item in existing_sessions if str(item or "").strip()]
+    for session_id in sessions:
+        platform = session_id.split(":", 1)[0]
+        if platform and not session_id.startswith(PLATFORM_SCOPE_PREFIX):
+            platforms.add(platform)
+    if not platforms:
+        return {}
+
+    existing = set(sessions)
+    suffix_index: dict[str, list[str]] = {}
+    for session_id in sessions:
+        split = split_session_platform(session_id)
+        if split is None or split[0] not in platforms:
+            continue
+        suffix_index.setdefault(split[1], []).append(session_id)
+
+    single_platform = next(iter(platforms)) if len(platforms) == 1 else None
+    mapping: dict[str, str] = {}
+    for session_id in dict.fromkeys(str(item or "") for item in session_ids):
+        if not session_id or session_id in existing:
+            continue
+        split = split_session_platform(session_id)
+        if split is None:
+            continue
+        platform, remainder = split
+        if platform in platforms:
+            continue
+        candidates = suffix_index.get(remainder, [])
+        target = candidates[0] if len(candidates) == 1 else None
+        if target is None and single_platform is not None:
+            prefix = (
+                PLATFORM_SCOPE_PREFIX
+                if session_id.startswith(PLATFORM_SCOPE_PREFIX)
+                else ""
+            )
+            target = f"{prefix}{single_platform}:{remainder}"
+        if target and target != session_id:
+            mapping[session_id] = target
+    return mapping
+
+
 def memory_import_key(
     content: str, session_id: str | None, persona_id: str | None
 ) -> tuple[str, str, str]:
@@ -138,18 +235,12 @@ def serialize_transfer_csv(records: list[dict[str, Any]]) -> str:
                 "original_id": record.get("original_id", ""),
                 "content": _escape_csv_formula(record.get("content", "")),
                 "importance": record.get("importance", 0.5),
-                "session_id": _escape_csv_formula(
-                    record.get("session_id") or ""
-                ),
-                "persona_id": _escape_csv_formula(
-                    record.get("persona_id") or ""
-                ),
+                "session_id": _escape_csv_formula(record.get("session_id") or ""),
+                "persona_id": _escape_csv_formula(record.get("persona_id") or ""),
                 "memory_type": _escape_csv_formula(
                     metadata.get("memory_type", "GENERAL")
                 ),
-                "status": _escape_csv_formula(
-                    metadata.get("status", "active")
-                ),
+                "status": _escape_csv_formula(metadata.get("status", "active")),
                 "topics": json.dumps(metadata.get("topics", []), ensure_ascii=False),
                 "key_facts": json.dumps(
                     metadata.get("key_facts", []), ensure_ascii=False
@@ -197,9 +288,7 @@ def _extract_json_entries(payload: Any) -> list[Any]:
                 entry.setdefault("original_id", original_id)
                 mapped_entries.append(entry)
             elif isinstance(item, str):
-                mapped_entries.append(
-                    {"original_id": original_id, "content": item}
-                )
+                mapped_entries.append({"original_id": original_id, "content": item})
             else:
                 mapped_entries = []
                 break
@@ -293,9 +382,7 @@ def _normalize_entry(raw: Any, index: int) -> ImportEntry:
         if value:
             metadata[key] = value
     if raw.get("memory_type") or raw.get("type"):
-        metadata["memory_type"] = str(
-            raw.get("memory_type") or raw.get("type")
-        ).upper()
+        metadata["memory_type"] = str(raw.get("memory_type") or raw.get("type")).upper()
     if raw.get("status"):
         metadata["status"] = str(raw["status"]).lower()
 
@@ -366,9 +453,8 @@ def _normalize_source(value: Any, session_id: str | None) -> list[dict[str, Any]
                 "group_id": raw_message.get("group_id"),
                 "platform": raw_message.get("platform") or "import",
                 "timestamp": raw_message.get("timestamp", 0.0),
-                "metadata": raw_message.get("metadata") or {
-                    "is_bot_message": role == "assistant"
-                },
+                "metadata": raw_message.get("metadata")
+                or {"is_bot_message": role == "assistant"},
             }
         )
     return serialize_source_messages(normalized)
@@ -452,6 +538,7 @@ __all__ = [
     "TRANSFER_FORMAT",
     "TRANSFER_SCHEMA_VERSION",
     "memory_import_key",
+    "plan_session_id_remap",
     "parse_transfer_content",
     "serialize_transfer_csv",
     "serialize_transfer_json",

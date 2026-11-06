@@ -10,8 +10,8 @@ import pytest_asyncio
 
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.memory_atom import MemoryAtom
-from astrbot_plugin_livingmemory.core.processors.memory_processor_build import (
-    MemoryProcessorBuildMixin,
+from astrbot_plugin_livingmemory.core.processors.memory_processor import (
+    MemoryProcessor,
 )
 from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridResult
 from tests.test_agentic_engine_retrieval import (
@@ -226,7 +226,7 @@ async def test_person_topic_matches_multiple_keywords(engine):
 
 @pytest.mark.asyncio
 async def test_person_topic_matches_live_facts_beyond_parent_summary(engine):
-    processor = MemoryProcessorBuildMixin()
+    processor = MemoryProcessor()
     processor.config = {"atom_enabled": True}
     text, metadata = processor._build_storage_format(
         "",

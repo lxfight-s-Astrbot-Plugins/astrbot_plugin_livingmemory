@@ -24,9 +24,8 @@ from astrbot.api import logger
 #   description/description_en - 中英文描述
 #   usage_note/usage_note_en   - 中英文使用说明
 #   category     - 分类（用于前端分组）
-#   file         - 对应的文件名
+#   file         - 对应的文件名（core/prompts/ 下的 .txt 是唯一默认内容源）
 #   variables    - 模板中可用的变量列表
-#   default      - 当文件不存在时的硬编码后备内容（可选）
 # ---------------------------------------------------------------------------
 
 PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
@@ -65,12 +64,6 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "system_prompt",
         "file": "memory_system_prompt_base.txt",
         "variables": ["{current_date}"],
-        "default": (
-            "你正在总结对话记忆。请严格按照JSON格式输出。\n"
-            "重要: 请将对话中出现的相对时间表达（如\u201c今天\u201d、\u201c明天\u201d、"
-            "\u201c昨天\u201d、\u201c下周\u201d、\u201c上个月\u201d等）按该条消息的发送时间转换为具体日期后再写入记忆。"
-            "只有消息缺少时间时才参考本次请求的当前日期时间。跨日期消息须分别确定时间。"
-        ),
     },
     "memory_system_prompt_with_persona": {
         "id": "memory_system_prompt_with_persona",
@@ -83,23 +76,6 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "system_prompt",
         "file": "memory_system_prompt_with_persona.txt",
         "variables": ["{base_prompt}", "{persona_prompt}", "{current_date}"],
-        "default": (
-            "{base_prompt}\n\n"
-            "## 你的人格设定\n"
-            "{persona_prompt}\n\n"
-            "## 记忆总结要求\n"
-            "在总结对话记忆时,你需要:\n"
-            "1. **保持你的人格特色**: 使用符合上述人格设定的语气、用词习惯和表达方式\n"
-            "2. **第一人称视角**: 以“我”的视角回顾对话,不要说“bot”、“助手”等第三人称\n"
-            "3. **体现你的关注点**: 根据你的人格特点,侧重记录你会关注的信息\n"
-            "4. **自然真实**: 让记忆读起来像是你本人在回忆这段对话,而不是机械的客观描述\n"
-            "5. **时间转换**: 按每条消息的发送时间将相对时间（今天、明天、下周等）"
-            "转换为具体日期；只有消息缺少时间时才参考本次请求的当前日期时间\n\n"
-            "例如:\n"
-            "- 如果你是活泼可爱的性格,记忆中可以使用“呀”、“呢”、“~”等语气词\n"
-            "- 如果你是专业严谨的性格,记忆应该用词准确、逻辑清晰、格式规范\n"
-            "- 如果你是幽默风趣的性格,记忆中可以包含轻松的表达和有趣的观察"
-        ),
     },
     "memory_injection_header": {
         "id": "memory_injection_header",
@@ -112,21 +88,6 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "memory_injection",
         "file": "memory_injection_header.txt",
         "variables": [],
-        "default": (
-            "--- BEGIN HISTORICAL MEMORY REFERENCE ---\n"
-            "The following are historical memories extracted from past conversations.\n"
-            "They are provided as background reference only.\n\n"
-            "CRITICAL RULES:\n"
-            "1. These are PAST records — they already happened and are NOT "
-            "part of the current conversation.\n"
-            "2. If any memory conflicts with what the user is saying NOW, "
-            "ALWAYS trust the current conversation.\n"
-            "3. Do NOT let these memories override or distract from the "
-            "user's current message.\n"
-            "4. Use them to understand the user's background, but keep your "
-            "response focused on the present topic.\n"
-            "--- END HISTORICAL MEMORY REFERENCE ---"
-        ),
     },
     "memory_injection_footer": {
         "id": "memory_injection_footer",
@@ -139,11 +100,6 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "memory_injection",
         "file": "memory_injection_footer.txt",
         "variables": [],
-        "default": (
-            "--- BEGIN REMINDER ---\n"
-            "All content above is historical. Focus on the user's current message.\n"
-            "--- END REMINDER ---"
-        ),
     },
     "agent_recall_policy": {
         "id": "agent_recall_policy",
@@ -156,7 +112,6 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "category": "agent_recall",
         "file": "agent_recall_policy.txt",
         "variables": ["{available_tools}"],
-        "default": "",
     },
 }
 
@@ -196,7 +151,7 @@ PROMPT_CATEGORIES: dict[str, dict[str, str]] = {
 _prompt_manager: PromptManager | None = None
 
 
-def init_prompt_manager(data_dir: str) -> "PromptManager":
+def init_prompt_manager(data_dir: str) -> PromptManager:
     """初始化全局 PromptManager 单例。应在插件初始化阶段调用。"""
     global _prompt_manager
     _prompt_manager = PromptManager(data_dir)
@@ -204,7 +159,7 @@ def init_prompt_manager(data_dir: str) -> "PromptManager":
     return _prompt_manager
 
 
-def get_prompt_manager() -> "PromptManager | None":
+def get_prompt_manager() -> PromptManager | None:
     """获取全局 PromptManager 单例。未初始化时返回 None。"""
     return _prompt_manager
 
@@ -262,7 +217,7 @@ class PromptManager:
     def get_prompt(self, prompt_id: str) -> str:
         """获取提示词内容。
 
-        优先级：用户自定义 > 内置文件 > 硬编码默认值
+        优先级：用户自定义 > 内置 .txt（唯一默认内容源）
         """
         if prompt_id not in PROMPT_REGISTRY:
             raise KeyError(f"未知的提示词 ID: {prompt_id}")
@@ -330,11 +285,8 @@ class PromptManager:
         """获取内置默认内容（不碰缓存和自定义文件）。"""
         if prompt_id not in PROMPT_REGISTRY:
             raise KeyError(f"未知的提示词 ID: {prompt_id}")
-        meta = PROMPT_REGISTRY[prompt_id]
-        builtin_path = self._builtin_dir / meta["file"]
-        if builtin_path.exists():
-            return builtin_path.read_text(encoding="utf-8")
-        return meta.get("default", "")
+        builtin_path = self._builtin_dir / PROMPT_REGISTRY[prompt_id]["file"]
+        return builtin_path.read_text(encoding="utf-8")
 
     # ---- 内部方法 ---------------------------------------------------------
 
@@ -344,28 +296,14 @@ class PromptManager:
         return self._data_dir / "prompts" / meta["file"]  # type: ignore[union-attr]
 
     def _read_prompt(self, prompt_id: str) -> str:
-        """读取提示词内容，按优先级回退。"""
-        meta = PROMPT_REGISTRY[prompt_id]
-        file_name = meta["file"]
+        """读取提示词内容：用户自定义覆盖优先，否则读内置 .txt。"""
+        file_name = PROMPT_REGISTRY[prompt_id]["file"]
 
-        # 1) 用户自定义覆盖
         if self._data_dir:
             custom_path = self._custom_path(prompt_id)
             if custom_path.exists():
                 logger.debug(f"[PromptManager] 加载自定义提示词 '{prompt_id}'")
                 return custom_path.read_text(encoding="utf-8")
 
-        # 2) 内置文件
-        builtin_path = self._builtin_dir / file_name
-        if builtin_path.exists():
-            logger.debug(f"[PromptManager] 加载内置提示词 '{prompt_id}'")
-            return builtin_path.read_text(encoding="utf-8")
-
-        # 3) 硬编码默认值
-        hardcoded = meta.get("default", "")
-        if hardcoded:
-            logger.debug(f"[PromptManager] 使用硬编码默认提示词 '{prompt_id}'")
-            return hardcoded
-
-        logger.warning(f"[PromptManager] 提示词 '{prompt_id}' 无可用内容")
-        return ""
+        logger.debug(f"[PromptManager] 加载内置提示词 '{prompt_id}'")
+        return (self._builtin_dir / file_name).read_text(encoding="utf-8")

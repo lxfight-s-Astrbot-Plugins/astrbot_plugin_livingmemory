@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from ..models.memory_atom import compute_decay_score
+from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float, safe_float
 from .graph_keyword_retriever import GraphKeywordRetriever
 from .graph_vector_retriever import GraphVectorRetriever
@@ -67,7 +67,10 @@ class GraphRetriever:
             return []
 
         timeout = self.config.get("retrieval_timeout_seconds", 10.0)
-        (keyword_results, keyword_error), (vector_results, vector_error) = await asyncio.gather(
+        (
+            (keyword_results, keyword_error),
+            (vector_results, vector_error),
+        ) = await asyncio.gather(
             search_route(
                 "graph keyword",
                 self.keyword_retriever.search(query, k, session_id, persona_id),
@@ -83,8 +86,13 @@ class GraphRetriever:
         record_route(diagnostics, "vector", vector_error)
         if diagnostics is not None:
             diagnostics["candidate_limited"] = (
-                len(keyword_results) >= k or len(vector_results) >= k
-                or len({r.doc_id for r in keyword_results} | {r.doc_id for r in vector_results}) > k
+                len(keyword_results) >= k
+                or len(vector_results) >= k
+                or len(
+                    {r.doc_id for r in keyword_results}
+                    | {r.doc_id for r in vector_results}
+                )
+                > k
             )
 
         if not keyword_results and not vector_results:
@@ -122,14 +130,7 @@ class GraphRetriever:
         results: list[GraphResult] = []
 
         for item in fused:
-            metadata = item.metadata
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except (json.JSONDecodeError, TypeError):
-                    metadata = {}
-            if not isinstance(metadata, dict):
-                metadata = {}
+            metadata = safe_json_dict(item.metadata)
 
             importance = clamp_float(metadata.get("importance"), default=0.5)
             create_time = safe_float(metadata.get("create_time"), current_time)
@@ -183,7 +184,9 @@ class GraphRetriever:
                         "graph_confidence": round(graph_confidence, 4),
                         "graph_temporal_factor": round(temporal_factor, 4),
                         "graph_final_score": round(final_score, 4),
-                        **({"agentic_relevance": final_score} if relevance_only else {}),
+                        **(
+                            {"agentic_relevance": final_score} if relevance_only else {}
+                        ),
                     },
                 )
             )
