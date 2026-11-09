@@ -294,6 +294,26 @@ class ExternalAuditLog:
                 return 0
         return removed
 
+    def read_recent(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return the newest audit records, oldest first within the window."""
+        if limit <= 0 or not self.path.exists():
+            return []
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                lines = handle.readlines()
+        except OSError as exc:
+            logger.warning("[ExternalAPI] 读取审计日志失败: %s", exc)
+            return []
+        records: list[dict[str, Any]] = []
+        for line in lines[-limit:]:
+            try:
+                record = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+        return records
+
 
 class ExternalApiService:
     """Business logic behind the external HTTP endpoints and key management."""
@@ -427,6 +447,10 @@ class ExternalApiService:
                 else int(write_limit_per_min)
             ),
         )
+
+    async def recent_audit(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return the newest sanitized audit records for the dashboard."""
+        return self._audit.read_recent(limit)
 
     async def list_keys(self) -> list[ExternalApiKey]:
         """List all API keys (never includes token hashes)."""
