@@ -84,6 +84,7 @@ class AgentToolsConfig(BaseModel):
     enable_agentic_recall_beta: bool = False
     enable_memorize_tool: bool = False
     enable_forget_tool: bool = False
+    enable_profile_tool: bool = False
     forget_tool_max_memories: int = Field(default=3, ge=1, le=10)
     forget_tool_cooldown_seconds: int = Field(default=60, ge=0, le=3600)
     agentic_recall_max_calls: int = Field(default=3, ge=1, le=20)
@@ -213,6 +214,16 @@ class MemoryConsolidationConfig(BaseModel):
     semantic_similarity_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
+class ProfileSettingsConfig(BaseModel):
+    """用户档案（/lmem 个人档案）配置。"""
+
+    enabled: bool = True
+    max_chars: int = Field(default=300, ge=50, le=2000)
+    min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    history_limit: int = Field(default=20, ge=1, le=200)
+    max_pending: int = Field(default=50, ge=1, le=500)
+
+
 class MemoryDedupConfig(BaseModel):
     """写入时近重复检测与合并配置。"""
 
@@ -253,6 +264,9 @@ class LivingMemoryConfig(BaseModel):
         default_factory=MemoryConsolidationConfig
     )
     memory_dedup: MemoryDedupConfig = Field(default_factory=MemoryDedupConfig)
+    profile_settings: ProfileSettingsConfig = Field(
+        default_factory=ProfileSettingsConfig
+    )
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
 

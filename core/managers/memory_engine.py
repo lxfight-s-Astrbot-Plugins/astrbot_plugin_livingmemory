@@ -22,6 +22,7 @@ from ...storage.schema import (
     DOCUMENTS_DOC_ID_INDEX_STATEMENT,
     DOCUMENTS_INDEX_STATEMENTS,
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
+    PROFILE_SCHEMA_STATEMENTS,
 )
 from ...storage.sqlite_connection import open_connection
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
@@ -45,6 +46,7 @@ from .memory_engine_batch import MemoryEngineBatchMixin
 from .memory_engine_crud import MemoryEngineCrudMixin
 from .memory_engine_recall import MemoryEngineRecallMixin
 from .memory_engine_stats import MemoryEngineStatsMixin
+from .profile_manager import ProfileManager
 
 
 class MemoryEngine(
@@ -167,6 +169,7 @@ class MemoryEngine(
         self.atom_store = None
         self.atom_lifecycle_manager = None
         self.atom_retriever = None
+        self.profile_manager: ProfileManager | None = None
         self.db_connection = None
         self._db_write_lock = asyncio.Lock()
         self._search_cache_enabled = bool(self.config.get("search_cache_enabled", True))
@@ -193,6 +196,7 @@ class MemoryEngine(
         """初始化引擎：打开数据库、建表、迁移归属、装配文档路与图谱路组件。"""
         await self._open_database()
         await self._create_tables()
+        self.profile_manager = ProfileManager(self, self.config)
         await self._migrate_adapter_ownership()
         await self._init_document_route()
         if self.graph_enabled and self.graph_vector_db is not None:
@@ -431,6 +435,8 @@ class MemoryEngine(
             for statement in DOCUMENTS_INDEX_STATEMENTS:
                 await connection.execute(statement)
             await connection.execute(DOCUMENTS_DOC_ID_INDEX_STATEMENT)
+            for statement in PROFILE_SCHEMA_STATEMENTS:
+                await connection.execute(statement)
 
             await connection.execute("""
             CREATE TABLE IF NOT EXISTS memory_sources (

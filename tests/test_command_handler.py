@@ -34,7 +34,7 @@ def memory_engine():
     engine.get_diagnostics = AsyncMock(
         return_value={
             "db_path": "/tmp/livingmemory-test.db",
-            "db_version": 8,
+            "db_version": 9,
             "quick_check": "ok",
             "migration": {
                 "pending": ["needs_index_rebuild"],
@@ -121,7 +121,7 @@ async def test_handle_diag_reports_database_health(handler, mock_event):
         "last_decay",
     ):
         assert token in report
-    assert "8" in report
+    assert "9" in report
     assert "ok" in report
     assert "2.00" in report  # db_bytes -> 2.00 MB
     assert "2026-11-09" in report

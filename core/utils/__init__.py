@@ -9,7 +9,12 @@ from astrbot.api import logger, sp
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
-from .formatting import format_memories_for_injection
+from .formatting import (
+    attach_profile_to_memory_injection,
+    format_memories_for_injection,
+    format_profile_block_for_injection,
+    format_profile_for_injection,
+)
 
 
 class OperationContext:
@@ -123,4 +128,7 @@ __all__ = [
     "get_persona_id",
     "extract_json_from_response",
     "format_memories_for_injection",
+    "format_profile_for_injection",
+    "format_profile_block_for_injection",
+    "attach_profile_to_memory_injection",
 ]

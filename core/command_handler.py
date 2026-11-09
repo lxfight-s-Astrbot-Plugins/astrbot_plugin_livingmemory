@@ -728,8 +728,9 @@ class CommandHandler:
                 "triggered_by": "manual",
             }
             metadata["source_session_id"] = session_id
+            profile_updates = metadata.pop("profile_updates", []) or []
 
-            await self.memory_engine.add_memory(
+            memory_id = await self.memory_engine.add_memory(
                 content=content,
                 session_id=memory_scope,
                 persona_id=persona_id,
@@ -748,6 +749,14 @@ class CommandHandler:
                     else None
                 ),
             )
+
+            if profile_updates and memory_id is not None:
+                await self._apply_manual_profile_updates(
+                    memory_scope,
+                    persona_id,
+                    profile_updates,
+                    memory_id,
+                )
 
             await self.conversation_manager.update_session_metadata(
                 session_id, "last_summarized_index", actual_count
@@ -775,6 +784,44 @@ class CommandHandler:
                     t_list("error.suggestions.summarize"),
                 )
             )
+
+    async def _apply_manual_profile_updates(
+        self,
+        memory_scope: str,
+        persona_id,
+        updates: list,
+        memory_id: int,
+    ) -> None:
+        """Apply profile updates produced by a manual summary.
+
+        Args:
+            memory_scope: Resolved memory scope.
+            persona_id: Persona id of the summary.
+            updates: Normalised profile updates from the summary metadata.
+            memory_id: Memory written by this manual summary (evidence id).
+        """
+        manager = getattr(self.memory_engine, "profile_manager", None)
+        if manager is None:
+            return
+        try:
+            result = await manager.apply_updates(
+                memory_scope,
+                persona_id,
+                updates,
+                evidence_memory_ids=[int(memory_id)],
+                source="manual_summary",
+            )
+        except Exception:
+            logger.warning(
+                "手动总结的用户档案更新失败（不影响记忆入库）", exc_info=True
+            )
+            return
+        logger.info(
+            "手动总结的用户档案更新: applied=%s, pending=%s, version=%s",
+            result.get("applied", 0),
+            result.get("pending", 0),
+            result.get("version"),
+        )
 
     async def handle_reset(
         self, event: AstrMessageEvent

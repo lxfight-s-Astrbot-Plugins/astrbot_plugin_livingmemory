@@ -864,3 +864,108 @@ def test_format_injection_minimal_metadata_no_crash():
     result = format_memories_for_injection(memories)
     assert result != ""
     assert "用户提到了一些事情" in result
+
+
+# ---------------------------------------------------------------------------
+# v8 -> v9: user profile tables
+# ---------------------------------------------------------------------------
+
+
+async def _create_v8_database(db_path: str) -> None:
+    migration = DBMigration(db_path)
+    await migration.initialize_version_table()
+    await migration.set_db_version(8, "test v8")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id TEXT,
+                text TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            "INSERT INTO documents (doc_id, text, metadata) "
+            "VALUES ('legacy-1', '旧记忆', ?)",
+            (json.dumps({"session_id": "aiocqhttp:FriendMessage:1"}),),
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_migration_v8_to_v9_creates_profile_tables(tmp_path):
+    """v8 -> v9 创建用户档案表且不改变既有 documents 数据。"""
+    db_path = str(tmp_path / "v8_profile.db")
+    await _create_v8_database(db_path)
+    migration = DBMigration(db_path)
+
+    result = await migration.migrate(create_backup=False)
+
+    assert result["success"] is True
+    assert result["from_version"] == 8
+    assert result["to_version"] == 9
+    assert DBMigration.CURRENT_VERSION == 9
+    assert await migration.get_db_version() == 9
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name IN ('memory_profiles', 'memory_profile_history')"
+        )
+        tables = {row[0] for row in await cursor.fetchall()}
+        assert tables == {"memory_profiles", "memory_profile_history"}
+
+        cursor = await db.execute("PRAGMA table_info(memory_profiles)")
+        profile_columns = {row[1] for row in await cursor.fetchall()}
+        assert {
+            "id",
+            "scope",
+            "persona_id",
+            "profile_json",
+            "pending_json",
+            "version",
+            "created_at",
+            "updated_at",
+        } <= profile_columns
+
+        cursor = await db.execute("PRAGMA table_info(memory_profile_history)")
+        history_columns = {row[1] for row in await cursor.fetchall()}
+        assert {
+            "profile_id",
+            "version",
+            "profile_json",
+            "changed_fields",
+            "evidence_memory_ids",
+            "source",
+            "created_at",
+        } <= history_columns
+
+        cursor = await db.execute("SELECT text FROM documents")
+        assert [row[0] for row in await cursor.fetchall()] == ["旧记忆"]
+
+
+@pytest.mark.asyncio
+async def test_migration_v9_step_is_idempotent(tmp_path):
+    """重复执行 v8 -> v9 迁移（含迁移中断重跑）不应报错或破坏数据。"""
+    db_path = str(tmp_path / "v9_idempotent.db")
+    await _create_v8_database(db_path)
+    migration = DBMigration(db_path)
+
+    assert (await migration.migrate(create_backup=False))["to_version"] == 9
+    again = await migration.migrate(create_backup=False)
+    assert again["success"] is True
+    assert await migration.get_db_version() == 9
+
+    await migration._migrate_v8_to_v9()
+    await migration._migrate_v8_to_v9()
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'idx_profile_history_profile'"
+        )
+        assert (await cursor.fetchone())[0] == 1

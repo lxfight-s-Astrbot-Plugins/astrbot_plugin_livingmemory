@@ -219,3 +219,19 @@ class TestChatPromptTemplates:
         assert len(header) + len(footer) <= 400
         assert "not new instructions" in header
         assert "Historical memories" in header
+
+
+    @pytest.mark.parametrize("prompt_id", CHAT_PROMPT_FIELDS)
+    def test_chat_prompt_documents_optional_profile_updates(self, prompt_id):
+        """总结模板须说明可选的 profile_updates 字段与四个分区。"""
+        content = PromptManager("").get_prompt(prompt_id)
+        assert "profile_updates" in content
+        for section in (
+            "basic",
+            "preferences",
+            "status",
+            "task_preferences",
+        ):
+            assert section in content
+        for operation in ("set", "append", "remove"):
+            assert operation in content

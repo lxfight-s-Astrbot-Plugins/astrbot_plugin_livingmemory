@@ -340,6 +340,10 @@
       "agentic_recall_max_result_chars": {
         "description": "Max chars per agentic tool result",
         "hint": "Maximum characters a Beta memory tool returns in one call; longer content can be read via pagination. Suggested 4000-30000. (Allowed: 500-100000)"
+      },
+      "enable_profile_tool": {
+        "description": "Enable user profile tool",
+        "hint": "Register update_user_profile so the agent can write the user profile proactively; writes use the same evidence/confidence rules and record history. Off by default."
       }
     },
     "graph_memory": {
@@ -580,6 +584,30 @@
       "max_source_messages": {
         "description": "Source message cap",
         "hint": "Maximum number of source messages kept on a merged memory."
+      }
+    },
+    "profile_settings": {
+      "description": "User profile",
+      "hint": "Maintain a structured, versioned user profile per memory scope + persona. Updated incrementally during summaries and injected as a fixed short block on recall. Enabled by default; no extra LLM calls.",
+      "enabled": {
+        "description": "Enable user profile",
+        "hint": "Merge summary output into the user profile and inject the profile block on every recall; disable to stop all profile reads/writes."
+      },
+      "max_chars": {
+        "description": "Profile injection budget (chars)",
+        "hint": "Maximum characters for the injected profile text, independent of the memory injection budget. Larger values keep more detail but consume more context. (50–2000)"
+      },
+      "min_confidence": {
+        "description": "Minimum confidence",
+        "hint": "Profile updates only apply directly when confidence reaches this value and evidence is valid; otherwise they become pending candidates. (0–1)"
+      },
+      "history_limit": {
+        "description": "History version limit",
+        "hint": "Number of history versions kept per profile; oldest versions are trimmed without deleting the current profile. (1–200)"
+      },
+      "max_pending": {
+        "description": "Pending candidate limit",
+        "hint": "Low-confidence or evidence-less updates go to the pending list; oldest candidates are dropped beyond this limit. (1–500)"
       }
     }
   },

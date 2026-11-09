@@ -9,6 +9,7 @@ from astrbot_plugin_livingmemory.core.tools import (
     MemoryMemorizeTool,
     MemoryReadTool,
     MemorySearchTool,
+    UpdateUserProfileTool,
 )
 from astrbot_plugin_livingmemory.main import (
     LivingMemoryPlugin,
@@ -320,3 +321,33 @@ def test_reload_lifecycle_off_on_off_restores_tool_set():
     # 深读工具不再出现，且搜索工具恢复为基线实现
     tools = state_off_again.context.add_llm_tools.call_args.args
     assert isinstance(tools[0], MemorySearchTool)
+
+
+def test_profile_tool_not_registered_by_default():
+    """用户档案工具默认关闭，不改变默认工具集合。"""
+    plugin = _make_plugin({"enable_recall_tool": True})
+    plugin._register_agent_tools_if_needed()
+
+    names = [tool.name for tool in plugin.context.add_llm_tools.call_args.args]
+    assert names == ["recall_long_term_memory"]
+
+
+def test_profile_tool_registered_when_enabled():
+    """开启 enable_profile_tool 后注册 update_user_profile，独立于其他工具。"""
+    plugin = _make_plugin(
+        {
+            "enable_recall_tool": True,
+            "enable_agentic_recall_beta": False,
+            "enable_profile_tool": True,
+        }
+    )
+    plugin._register_agent_tools_if_needed()
+
+    tools = {tool.name: tool for tool in plugin.context.add_llm_tools.call_args.args}
+    assert set(tools) == {"recall_long_term_memory", "update_user_profile"}
+    assert isinstance(tools["update_user_profile"], UpdateUserProfileTool)
+    assert tools["update_user_profile"].parameters["required"] == [
+        "section",
+        "field",
+        "value",
+    ]

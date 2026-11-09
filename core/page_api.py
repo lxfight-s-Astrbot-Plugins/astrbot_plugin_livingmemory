@@ -21,6 +21,7 @@ from .page_api_modules import (
     GraphHandler,
     MemoryHandler,
     PageApiUtils,
+    ProfileHandler,
     PromptHandler,
     RecallHandler,
     SettingsHandler,
@@ -46,6 +47,7 @@ class PluginPageApi:
         self.recall_handler = RecallHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
         self.prompt_handler = PromptHandler(self.utils, plugin)
+        self.profile_handler = ProfileHandler(self.utils)
         self.consolidation_handler = ConsolidationHandler(self.utils)
         self.settings_handler = SettingsHandler(self.utils, plugin)
 
@@ -172,6 +174,45 @@ class PluginPageApi:
             "run_consolidation",
             ["POST"],
             "LivingMemory Page run consolidation",
+        ),
+        ("profiles", "list_profiles", ["GET"], "LivingMemory Page profiles"),
+        (
+            "profiles/detail",
+            "get_profile_detail",
+            ["GET"],
+            "LivingMemory Page profile detail",
+        ),
+        (
+            "profiles/history",
+            "list_profile_history",
+            ["GET"],
+            "LivingMemory Page profile history",
+        ),
+        (
+            # PUT 保持 REST 语义；POST 是宿主 Page API bridge 唯一支持的方法
+            # （bridge 只处理 apiGet/apiPost，插件 iframe 无法发 PUT/DELETE）。
+            "profiles/update",
+            "update_profile",
+            ["PUT", "POST"],
+            "LivingMemory Page update profile",
+        ),
+        (
+            "profiles/delete",
+            "delete_profile",
+            ["DELETE", "POST"],
+            "LivingMemory Page delete profile",
+        ),
+        (
+            "profiles/pending",
+            "list_profile_pending",
+            ["GET"],
+            "LivingMemory Page profile pending candidates",
+        ),
+        (
+            "profiles/pending/resolve",
+            "resolve_profile_pending",
+            ["POST"],
+            "LivingMemory Page resolve profile pending candidate",
         ),
     )
 
@@ -366,6 +407,59 @@ class PluginPageApi:
     async def update_settings_config(self):
         """Persist advanced configuration updates from the dashboard settings page."""
         return await self.settings_handler.update_config()
+
+    # ---- 用户档案路由 ----
+
+    async def list_profiles(self):
+        """列出用户档案（可选 scope/persona_id 过滤）。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.profile_handler.list_profiles(ready["memory_engine"])
+
+    async def get_profile_detail(self):
+        """获取单个用户档案。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.profile_handler.get_profile_detail(ready["memory_engine"])
+
+    async def list_profile_history(self):
+        """获取用户档案历史版本。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.profile_handler.list_profile_history(ready["memory_engine"])
+
+    async def update_profile(self):
+        """编辑用户档案（写入历史，version+1）。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.profile_handler.update_profile(ready["memory_engine"])
+
+    async def delete_profile(self):
+        """删除用户档案及其历史。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.profile_handler.delete_profile(ready["memory_engine"])
+
+    async def list_profile_pending(self):
+        """列出待确认档案候选。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.profile_handler.list_profile_pending(ready["memory_engine"])
+
+    async def resolve_profile_pending(self):
+        """接受/拒绝待确认档案候选。"""
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.profile_handler.resolve_profile_pending(
+            ready["memory_engine"]
+        )
 
     # ==================== 辅助方法 ====================
 

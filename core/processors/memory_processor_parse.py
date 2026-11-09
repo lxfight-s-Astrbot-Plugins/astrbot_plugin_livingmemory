@@ -12,6 +12,7 @@ from typing import Any
 from astrbot.api import logger
 
 from ..base.exceptions import MemoryParseError
+from ..managers.profile_manager import normalize_profile_updates
 from ..models.conversation_models import Message
 
 
@@ -254,6 +255,13 @@ def normalize_parsed_data(data: dict, is_group_chat: bool) -> dict[str, Any]:
         data["superseded_memory_ids"] = normalize_memory_ids(
             data["superseded_memory_ids"]
         )
+    # 可选字段：用户档案增量更新。缺失/全部非法时保持缺失，行为与旧版一致。
+    if "profile_updates" in data:
+        normalized_updates = normalize_profile_updates(data.get("profile_updates"))
+        if normalized_updates:
+            data["profile_updates"] = normalized_updates
+        else:
+            data.pop("profile_updates", None)
 
     if is_group_chat:
         data["participants"] = ensure_list(data.get("participants", []))
@@ -427,6 +435,9 @@ def build_storage_format(
     superseded_ids = structured_data.get("superseded_memory_ids")
     if superseded_ids:
         metadata["superseded_memory_ids"] = list(superseded_ids)
+    profile_updates = structured_data.get("profile_updates")
+    if profile_updates:
+        metadata["profile_updates"] = list(profile_updates)
 
     if is_group_chat and "participants" in structured_data:
         metadata["participants"] = structured_data["participants"]

@@ -121,6 +121,25 @@ def _memory_metadata_rows(metadata: dict, markers: tuple[str, ...]) -> list[str]
     return rows
 
 
+def _load_injection_header_footer() -> tuple[str, str]:
+    """Load the (possibly user-customised) memory-injection header/footer text."""
+    try:
+        from ..prompts.prompt_manager import get_prompt_manager
+
+        mgr = get_prompt_manager()
+        if mgr is not None:
+            return (
+                mgr.get_prompt("memory_injection_header").strip(),
+                mgr.get_prompt("memory_injection_footer").strip(),
+            )
+    except Exception:
+        pass
+    return (
+        _get_default_injection_header(),
+        _get_default_injection_footer(),
+    )
+
+
 def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
@@ -141,20 +160,7 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> s
 
     markers = (MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER)
 
-    # 从 PromptManager 获取记忆注入头部/尾部文本（支持用户自定义）
-    try:
-        from ..prompts.prompt_manager import get_prompt_manager
-
-        mgr = get_prompt_manager()
-        if mgr is not None:
-            header_body = mgr.get_prompt("memory_injection_header")
-            footer_body = mgr.get_prompt("memory_injection_footer")
-        else:
-            header_body = _get_default_injection_header()
-            footer_body = _get_default_injection_footer()
-    except Exception:
-        header_body = _get_default_injection_header()
-        footer_body = _get_default_injection_footer()
+    header_body, footer_body = _load_injection_header_footer()
 
     header = f"{MEMORY_INJECTION_HEADER}\n{header_body.strip()}\n\n"
     footer = f"\n\n{footer_body.strip()}\n{MEMORY_INJECTION_FOOTER}"
@@ -283,6 +289,125 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> s
     )
 
     return result
+
+
+_PROFILE_SECTION_LABELS: tuple[tuple[str, str], ...] = (
+    ("basic", "基础"),
+    ("preferences", "偏好"),
+    ("status", "状态"),
+    ("task_preferences", "任务偏好"),
+)
+
+
+def format_profile_for_injection(profile: Any, *, max_chars: int = 300) -> str:
+    """Render a structured user profile as one compact injection block.
+
+    Args:
+        profile: Normalised ``profile_json`` document
+            (``{section: {field: value}}``).
+        max_chars: Character budget for the rendered text.
+
+    Returns:
+        Compact single-line profile text, or ``""`` when empty.
+    """
+    from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+    if not isinstance(profile, dict):
+        return ""
+    markers = (MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER)
+    rendered_sections: list[str] = []
+    for section, label in _PROFILE_SECTION_LABELS:
+        fields = profile.get(section)
+        if not isinstance(fields, dict):
+            continue
+        rendered_fields: list[str] = []
+        for raw_field, raw_value in fields.items():
+            field = _compact_injection_text(raw_field, markers)
+            if isinstance(raw_value, list):
+                value = "、".join(
+                    text
+                    for text in (
+                        _compact_injection_text(item, markers) for item in raw_value
+                    )
+                    if text
+                )
+            else:
+                value = _compact_injection_text(raw_value, markers)
+            if not field or not value:
+                continue
+            rendered_fields.append(f"{field}={value}")
+        if rendered_fields:
+            rendered_sections.append(f"{label}：" + "；".join(rendered_fields))
+    if not rendered_sections:
+        return ""
+    text = "用户档案：" + "；".join(rendered_sections)
+    budget = max(1, int(max_chars))
+    if len(text) > budget:
+        text = text[: max(0, budget - 1)].rstrip() + "…"
+    return text
+
+
+def format_profile_block_for_injection(profile_text: str) -> str:
+    """Wrap profile-only text in the shared memory-injection markers.
+
+    Reusing ``MEMORY_INJECTION_HEADER/FOOTER`` means the existing context
+    cleanup keeps recognising and removing the fragment.
+
+    Args:
+        profile_text: Already formatted profile text.
+
+    Returns:
+        Marker-wrapped injection block, or ``""`` when there is no text.
+    """
+    from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
+
+    text = str(profile_text or "").strip()
+    if not text:
+        return ""
+    header_body, footer_body = _load_injection_header_footer()
+    return "".join(
+        [
+            MEMORY_INJECTION_HEADER,
+            "\n",
+            header_body,
+            "\n\n",
+            text,
+            "\n\n",
+            footer_body,
+            "\n",
+            MEMORY_INJECTION_FOOTER,
+        ]
+    )
+
+
+def attach_profile_to_memory_injection(memory_block: str, profile_text: str) -> str:
+    """Insert the profile text inside an existing memory injection block.
+
+    The profile is placed after the header description and before the first
+    memory entry, so the shared header/footer markers still delimit the whole
+    fragment for cleanup.
+
+    Args:
+        memory_block: Output of :func:`format_memories_for_injection`.
+        profile_text: Output of :func:`format_profile_for_injection`.
+
+    Returns:
+        Combined block; the original block when either input is empty.
+    """
+    from ..base.constants import MEMORY_INJECTION_HEADER
+
+    block = str(memory_block or "")
+    profile = str(profile_text or "").strip()
+    if not block or not profile:
+        return block
+    marker = MEMORY_INJECTION_HEADER + "\n"
+    if not block.startswith(marker):
+        return profile + "\n\n" + block
+    rest = block[len(marker) :]
+    header_body, separator, body = rest.partition("\n\n")
+    if not separator:
+        return marker + header_body + "\n" + profile + "\n"
+    return marker + header_body + "\n\n" + profile + "\n\n" + body
 
 
 def _get_default_injection_header() -> str:

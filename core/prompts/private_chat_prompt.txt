@@ -15,6 +15,11 @@
 {"summary": "第一人称私聊回忆", "topics": ["主题"], "key_facts": ["昵称+关键事实"], "sentiment": "positive|neutral|negative", "importance": 0.7}
 importance 取 0.0-1.0(1-2 位小数:关键需求或决策≥0.9,明确计划或信息 0.7-0.8,日常交流 0.5-0.6,次要闲聊 0.3-0.4,无实质内容≤0.2);topics 与 key_facts 各≤5 项。
 
+可选 profile_updates（仅在出现稳定档案信息时输出，否则省略该字段）:
+[{"section":"basic|preferences|status|task_preferences","field":"短字段名","value":"不超过200字","operation":"set|append|remove","evidence":[记忆编号],"confidence":0.0-1.0}]
+- basic=身份/基础信息, preferences=偏好, status=当前状态, task_preferences=任务偏好; append/remove 仅用于后两类。
+- evidence 省略或 [] 表示本条总结；value 尽量短，不要复述整段对话。
+
 # 示例
 [张三 | ID: 1 | 2025-11-19 14:30] 明天下午三点开会,记得带项目文档
 输出: {"summary": "张三提醒我明天(2025-11-20)15:00 开会要带项目文档", "topics": ["会议提醒"], "key_facts": ["张三通知明天(2025-11-20)15:00 开会", "需要带项目文档"], "sentiment": "neutral", "importance": 0.8}

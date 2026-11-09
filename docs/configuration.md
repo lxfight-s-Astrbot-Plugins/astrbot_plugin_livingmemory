@@ -46,6 +46,18 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 
 管理 API 可用 `adapter_id` 查询参数选择适配器范围；例如 `page/memories?adapter_id=qq-main` 继续与原有会话条件相交。`POST page/adapters/assign` 接受目标 `adapter_id`、原 `source_adapter_id` 和 `session_id`：原适配器为空时按旧作用域分配未归属记录，指定原适配器时转交该实例的记录。接口沿用 AstrBot 插件视图的鉴权。
 
+## 用户档案
+
+| 配置项 | 默认 | 说明 |
+| --- | --- | --- |
+| `profile_settings.enabled` | `true` | 是否启用按「记忆作用域 + 人格」维护的用户档案 |
+| `profile_settings.max_chars` | `300` | 档案注入文本的字符上限，独立于记忆注入预算 |
+| `profile_settings.min_confidence` | `0.6` | 档案更新直接生效所需的最低置信度，未达标进入待确认候选 |
+| `profile_settings.history_limit` | `20` | 每个档案保留的历史版本数量 |
+| `profile_settings.max_pending` | `50` | 待确认候选的最大保留条数 |
+
+总结时模型在同一次总结 JSON 中可选输出 `profile_updates`（`basic` / `preferences` / `status` / `task_preferences` 四个分区）：`set` 需要证据与置信度，`append` 去重追加到偏好类列表，`remove` 需要证据。所有生效更新都会写入历史版本，可在 Dashboard 的「用户档案」页查看、编辑、删除并处理待确认候选。档案不占用召回 `top_k` 名额，但计入注入字符预算；关闭 `profile_settings.enabled` 后不读写任何档案。
+
 ## 模型 Provider
 
 | 配置项 | 默认 | 说明 |

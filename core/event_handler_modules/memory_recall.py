@@ -21,7 +21,10 @@ from ..memory_scope import (
 )
 from ..utils import (
     OperationContext,
+    attach_profile_to_memory_injection,
     format_memories_for_injection,
+    format_profile_block_for_injection,
+    format_profile_for_injection,
 )
 from .memory_reflection import cancel_session_storage_task
 
@@ -239,14 +242,28 @@ class MemoryRecall:
                 )
 
                 channel_scope = recall_access.channel_scope
-                recalled_memories = await self.memory_engine.search_memories(
-                    query=query_for_search,
-                    k=self.config_manager.get("recall_engine.top_k", 5),
-                    session_id=recall_session_id,
-                    persona_id=recall_persona_id,
-                    extra_scopes=[channel_scope] if channel_scope else None,
+                try:
+                    recalled_memories = await self.memory_engine.search_memories(
+                        query=query_for_search,
+                        k=self.config_manager.get("recall_engine.top_k", 5),
+                        session_id=recall_session_id,
+                        persona_id=recall_persona_id,
+                        extra_scopes=[channel_scope] if channel_scope else None,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # 记忆检索失败不影响用户档案注入与主流程。
+                    logger.warning(
+                        f"[{session_id}] 记忆检索失败（跳过记忆注入）", exc_info=True
+                    )
+                    recalled_memories = []
+                # 用户档案是固定短块：不占 top_k 名额，只计入追加的注入字符预算。
+                profile_text = await self._load_profile_injection_text(
+                    recall_session_id, recall_persona_id
                 )
 
+                memory_str = ""
                 if recalled_memories:
                     logger.debug(
                         f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆"
@@ -272,26 +289,83 @@ class MemoryRecall:
                             f"内容={mem.content[:100]}..."
                         )
 
-                    memory_str = format_memories_for_injection(memory_list)
+                    try:
+                        memory_str = format_memories_for_injection(memory_list)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.warning(
+                            f"[{session_id}] 记忆注入格式化失败（保留用户档案）",
+                            exc_info=True,
+                        )
+                        memory_str = ""
 
-                    # 唯一注入方式（add-only）：将记忆作为临时片段追加到
+                if memory_str and profile_text:
+                    injection_text = attach_profile_to_memory_injection(
+                        memory_str, profile_text
+                    )
+                elif memory_str:
+                    injection_text = memory_str
+                elif profile_text:
+                    injection_text = format_profile_block_for_injection(profile_text)
+                else:
+                    injection_text = ""
+
+                if injection_text:
+                    # 唯一注入方式（add-only）：将记忆/档案作为临时片段追加到
                     # 当前用户消息末尾。mark_as_temp 标记的 part 由 AstrBot
                     # 在保存对话历史时过滤，注入不会写入 AstrBot 的历史，
-                    # 也不影响前缀缓存。
+                    # 也不影响前缀缓存；档案与记忆共用同一对定界标记，
+                    # 因此现有上下文清理逻辑可以整体移除该片段。
                     req.extra_user_content_parts.append(
-                        TextPart(text=memory_str).mark_as_temp()
+                        TextPart(text=injection_text).mark_as_temp()
                     )
                     logger.debug(
                         f"[{session_id}] 成功向用户消息末尾注入 "
-                        f"{len(recalled_memories)} 条记忆"
+                        f"{len(recalled_memories) if recalled_memories else 0} 条记忆"
+                        f"；用户档案={'有' if profile_text else '无'}"
                     )
                 else:
-                    logger.debug(f"[{session_id}] 未找到相关记忆")
+                    logger.debug(f"[{session_id}] 未找到相关记忆或用户档案")
 
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"处理 on_llm_request 钩子时发生错误: {e}", exc_info=True)
+
+    @staticmethod
+    def _get_profile_manager(memory_engine):
+        """返回真实 ProfileManager；Mock/测试替身返回 None。"""
+        from ..managers.profile_manager import ProfileManager
+
+        manager = getattr(memory_engine, "profile_manager", None)
+        return manager if isinstance(manager, ProfileManager) else None
+
+    async def _load_profile_injection_text(self, scope, persona_id) -> str:
+        """读取当前 scope+persona 的用户档案并渲染为注入文本。
+
+        Args:
+            scope: 解析后的记忆作用域。
+            persona_id: 人格 ID（未启用人格过滤时为 None）。
+
+        Returns:
+            紧凑档案文本；无档案/未启用/读取失败时返回空字符串。
+        """
+        manager = self._get_profile_manager(self.memory_engine)
+        if manager is None or not manager.enabled:
+            return ""
+        try:
+            profile = await manager.get_profile(scope, persona_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("读取用户档案失败（跳过档案注入）", exc_info=True)
+            return ""
+        if not profile:
+            return ""
+        return format_profile_for_injection(
+            profile.get("profile"), max_chars=manager.max_chars
+        )
 
     def _remove_agent_recall_policy_from_context(self, req: ProviderRequest) -> int:
         """移除本插件上一轮注入的自主回忆规则临时片段（重复钩子去重）。

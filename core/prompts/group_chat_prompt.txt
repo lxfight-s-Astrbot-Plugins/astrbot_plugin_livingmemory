@@ -15,6 +15,11 @@
 {"summary": "第一人称群聊回忆", "topics": ["主题"], "key_facts": ["昵称+关键事实"], "participants": ["昵称"], "sentiment": "positive|neutral|negative", "importance": 0.7}
 importance 取 0.0-1.0(1-2 位小数:群体决策或共识≥0.9,有价值讨论 0.7-0.8,日常 0.5-0.6,闲聊 0.3-0.4,灌水≤0.2);topics 与 key_facts 各≤5 项。
 
+可选 profile_updates（仅在出现稳定档案信息时输出，否则省略该字段）:
+[{"section":"basic|preferences|status|task_preferences","field":"短字段名","value":"不超过200字","operation":"set|append|remove","evidence":[记忆编号],"confidence":0.0-1.0}]
+- basic=身份/基础信息, preferences=偏好, status=当前状态, task_preferences=任务偏好; append/remove 仅用于后两类。
+- evidence 省略或 [] 表示本条总结；value 尽量短，不要复述整段对话。
+
 # 示例
 [张三 | ID: 1 | 2025-11-19 14:30] 明天团建去滑雪场
 输出: {"summary": "我注意到张三组织明天(2025-11-20)去滑雪场团建", "topics": ["团建"], "key_facts": ["张三组织明天(2025-11-20)团建", "地点是滑雪场"], "participants": ["张三", "我"], "sentiment": "positive", "importance": 0.7}
