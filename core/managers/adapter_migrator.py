@@ -82,7 +82,7 @@ class AdapterMigrator:
                     "FROM documents GROUP BY 1, 2 ORDER BY 1, 2"
                 )
             ).fetchall()
-        return [dict(adapter_id=a, session_id=s, count=n) for a, s, n in rows]
+        return [{"adapter_id": a, "session_id": s, "count": n} for a, s, n in rows]
 
     async def assign(
         self, assignments: dict[int, str], *, mark_migrated=False, mark_graph=False

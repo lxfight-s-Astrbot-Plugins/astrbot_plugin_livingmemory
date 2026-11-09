@@ -4,8 +4,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { unwrapResponse } from "../../pages/dashboard/modules/utils.js";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const uiSource = readFileSync(join(here, "../../pages/dashboard/graph-ui.js"), "utf-8");
+const sharedSource = readFileSync(join(here, "../../pages/dashboard/graph-shared.js"), "utf-8");
 
 /* 轻量 DOM 桩：仅覆盖 graph-ui.js init 用到的元素与事件监听。 */
 class FakeElement {
@@ -72,6 +75,9 @@ function loadGraphUi(withGraph2D) {
     },
     addEventListener() {},
   };
+  /* graph.min.js 先加载 graph-shared；app.min.js 提供共享的响应解包。 */
+  global.window.lmUnwrapResponse = unwrapResponse;
+  (0, eval)(sharedSource);
   if (withGraph2D) {
     global.window.Graph2D = {
       init(container, handlers) { graphHandlers = handlers; },

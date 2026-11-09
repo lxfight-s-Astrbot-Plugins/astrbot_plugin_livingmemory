@@ -44,6 +44,7 @@ FaissVecDB: Any = None
 
 class InitializerFaissMixin:
     """PluginInitializer 拆分模块：InitializerFaissMixin"""
+
     def _check_faiss_runtime(self) -> None:
         try:
             result = subprocess.run(
@@ -223,9 +224,7 @@ class InitializerFaissMixin:
         # 读取索引文件 — 仅在 FAISS I/O 失败时进入坏索引处理
         # 整索引读取是同步阻塞 I/O，放线程池避免阻塞事件循环
         try:
-            old_index = await asyncio.to_thread(
-                self._faiss_read_index_safe, index_path
-            )
+            old_index = await asyncio.to_thread(self._faiss_read_index_safe, index_path)
         except InitializationError:
             raise
         except Exception as e:
@@ -339,12 +338,14 @@ def _sanitize_path(path: str) -> str:
             parts.append("[***]")
     return "".join(parts)
 
+
 def _faiss_error_details(result: subprocess.CompletedProcess[str]) -> str:
     """Extract useful diagnostics from a FAISS import probe."""
     details = (result.stderr or result.stdout or "").strip()
     if result.returncode < 0:
         details = f"进程被信号 {-result.returncode} 终止。{details}".strip()
     return details
+
 
 def _is_faiss_binding_mismatch(details: str) -> bool:
     """Identify known Python-wrapper/binary-extension mismatches."""
@@ -353,6 +354,7 @@ def _is_faiss_binding_mismatch(details: str) -> bool:
         "python binding" in lowered and "mismatch" in lowered
     )
 
+
 def _should_try_faiss_generic(result: subprocess.CompletedProcess[str]) -> bool:
     """Return whether a generic-instruction-set probe can plausibly help."""
     if result.returncode < 0:
@@ -360,10 +362,10 @@ def _should_try_faiss_generic(result: subprocess.CompletedProcess[str]) -> bool:
     details = _faiss_error_details(result).lower()
     return any(marker in details for marker in _FAISS_GENERIC_FALLBACK_MARKERS)
 
+
 def _installed_faiss_version() -> str:
     """Read package metadata without importing a potentially broken FAISS module."""
     try:
         return metadata.version("faiss-cpu")
     except metadata.PackageNotFoundError:
         return "未知"
-

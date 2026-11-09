@@ -1118,17 +1118,6 @@ body {
   flex-wrap: wrap;
 }
 
-/* Mini graph in detail */
-.memory-detail-mini-graph {
-  display: block;
-  width: 100%;
-  height: 160px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-4);
-}
-
 /* Status & Type edit selects */
 .memory-detail-select {
   width: 100%;

@@ -827,20 +827,6 @@
     this._initialized = false;
   };
 
-  Graph2D.prototype.getDiagnostics = function() {
-    return {
-      performanceTier: this.renderer ? this.renderer.performanceTier : 0,
-      sourceNodes: this._nodes ? this._nodes.length : 0,
-      sourceEdges: this._edges ? this._edges.length : 0,
-      renderedNodes: this.renderer ? this.renderer._drawnNodes.length : 0,
-      renderedEdges: this.renderer ? this.renderer._drawnEdges.length : 0,
-      structuralEdges: this.renderer ? this.renderer._structuralEdges.length : 0,
-      communityBundles: this.renderer ? this.renderer._communityBundles.length : 0,
-      animatorRunning: Boolean(this.animator && this.animator._running),
-      ambientMotion: Boolean(this.animator && this.animator._ambientMotion),
-    };
-  };
-
   function relationColor(type) {
     var palette = ["#2a9e96", "#c58c2a", "#df6d62", "#78a94b", "#74868a"];
     var h = String(type || "related").split("").reduce(function(a, c) { return a * 31 + c.charCodeAt(0); }, 7);

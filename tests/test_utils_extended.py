@@ -8,6 +8,8 @@ import pytz
 from astrbot_plugin_livingmemory.core.utils import (
     extract_json_from_response,
     format_memories_for_injection,
+)
+from astrbot_plugin_livingmemory.core.utils.formatting import (
     safe_parse_metadata,
     validate_timestamp,
 )

@@ -97,11 +97,62 @@ class GraphExtractor:
         """Original graph extraction from metadata (backward-compatible path)."""
         metadata = metadata or {}
         graph = ExtractedGraph()
-
-        session_id = metadata.get("session_id")
-        persona_id = metadata.get("persona_id")
         summary = metadata.get("canonical_summary") or content
 
+        node_map, topic_keys, participant_keys, fact_keys = self._build_legacy_nodes(
+            metadata, content
+        )
+        graph.nodes.extend(node_map.values())
+
+        self._add_legacy_node_entries(
+            graph,
+            source_memory_id,
+            metadata,
+            summary,
+            node_map,
+            topic_keys,
+            participant_keys,
+            fact_keys,
+        )
+        self._add_legacy_edges(
+            graph,
+            source_memory_id,
+            metadata,
+            summary,
+            node_map,
+            topic_keys,
+            participant_keys,
+            fact_keys,
+        )
+
+        if not graph.entries and summary:
+            summary_key = self._legacy_node(node_map, "summary", summary)
+            if summary_key:
+                graph.nodes = list(node_map.values())
+                self._add_legacy_entry(
+                    graph,
+                    source_memory_id,
+                    metadata,
+                    summary,
+                    "summary",
+                    f"Summary: {summary}",
+                    [summary_key],
+                    relation_type="summary",
+                    confidence=0.6,
+                )
+
+        return graph
+
+    def _build_legacy_nodes(
+        self, metadata: dict[str, Any], content: str
+    ) -> tuple[
+        dict[str, GraphNode],
+        list[str],
+        list[str],
+        list[str],
+    ]:
+        """创建 legacy 抽取的节点，返回节点表与各类节点 key。"""
+        summary = metadata.get("canonical_summary") or content
         topics = EntityResolver.dedupe_preserve_order(
             [str(item) for item in metadata.get("topics", []) if item]
         )[: self.max_topics]
@@ -114,23 +165,11 @@ class GraphExtractor:
             key_facts = [summary]
 
         node_map: dict[str, GraphNode] = {}
-
-        def _add_node(
-            node_type: str, value: str, extra: dict[str, Any] | None = None
-        ) -> str:
-            canonical_value = EntityResolver.canonicalize(value)
-            if not canonical_value:
-                return ""
-            node = GraphNode(
-                node_type=node_type,
-                value=value.strip(),
-                canonical_value=canonical_value,
-                metadata=extra or {},
-            )
-            node_map[node.node_key] = node
-            return node.node_key
-
-        topic_keys = [_add_node("topic", topic) for topic in topics]
+        topic_keys = [
+            key
+            for key in (self._legacy_node(node_map, "topic", topic) for topic in topics)
+            if key
+        ]
         participant_keys = []
         for participant, canonical_value, identity_metadata in participants:
             node = GraphNode(
@@ -142,56 +181,34 @@ class GraphExtractor:
             node_map[node.node_key] = node
             participant_keys.append(node.node_key)
         fact_keys = [
-            _add_node("fact", fact, {"summary": summary}) for fact in key_facts
+            key
+            for key in (
+                self._legacy_node(node_map, "fact", fact, {"summary": summary})
+                for fact in key_facts
+            )
+            if key
         ]
+        return node_map, topic_keys, participant_keys, fact_keys
 
-        topic_keys = [item for item in topic_keys if item]
-        participant_keys = [item for item in participant_keys if item]
-        fact_keys = [item for item in fact_keys if item]
-
-        graph.nodes.extend(node_map.values())
-
-        def _add_entry(
-            entry_type: str,
-            content_text: str,
-            node_keys: list[str],
-            relation_type: str | None = None,
-            confidence: float = 0.8,
-        ) -> None:
-            payload = (
-                f"{entry_type}|{source_memory_id}|{relation_type or ''}|"
-                f"{'|'.join(node_keys)}|{content_text}"
-            )
-            entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
-            entry_metadata = {
-                "source_memory_id": source_memory_id,
-                "session_id": session_id,
-                "persona_id": persona_id,
-                "importance": metadata.get("importance", 0.5),
-                "create_time": metadata.get("create_time"),
-                "last_access_time": metadata.get("last_access_time"),
-                "canonical_summary": summary,
-                "summary_schema_version": metadata.get("summary_schema_version"),
-                "graph_confidence": confidence,
-                "source_window": metadata.get("source_window"),
-            }
-            graph.entries.append(
-                GraphEntry(
-                    entry_key=entry_key,
-                    source_memory_id=source_memory_id,
-                    session_id=session_id,
-                    persona_id=persona_id,
-                    entry_type=entry_type,
-                    content=content_text,
-                    metadata=entry_metadata,
-                    node_keys=node_keys,
-                    relation_type=relation_type,
-                )
-            )
-
+    def _add_legacy_node_entries(
+        self,
+        graph: ExtractedGraph,
+        source_memory_id: int,
+        metadata: dict[str, Any],
+        summary: str,
+        node_map: dict[str, GraphNode],
+        topic_keys: list[str],
+        participant_keys: list[str],
+        fact_keys: list[str],
+    ) -> None:
+        """为 fact/topic/participant 节点各写一条检索条目。"""
         for fact_key in fact_keys:
             fact_value = node_map[fact_key].value
-            _add_entry(
+            self._add_legacy_entry(
+                graph,
+                source_memory_id,
+                metadata,
+                summary,
                 "fact",
                 f"Fact: {fact_value}. Summary: {summary}",
                 [fact_key],
@@ -201,7 +218,11 @@ class GraphExtractor:
 
         for topic_key in topic_keys:
             topic_value = node_map[topic_key].value
-            _add_entry(
+            self._add_legacy_entry(
+                graph,
+                source_memory_id,
+                metadata,
+                summary,
                 "topic",
                 f"Topic: {topic_value}. Summary: {summary}",
                 [topic_key],
@@ -211,7 +232,11 @@ class GraphExtractor:
 
         for person_key in participant_keys:
             person_value = node_map[person_key].value
-            _add_entry(
+            self._add_legacy_entry(
+                graph,
+                source_memory_id,
+                metadata,
+                summary,
                 "participant",
                 f"Participant: {person_value}. Summary: {summary}",
                 [person_key],
@@ -219,88 +244,161 @@ class GraphExtractor:
                 confidence=0.7,
             )
 
+    def _add_legacy_edges(
+        self,
+        graph: ExtractedGraph,
+        source_memory_id: int,
+        metadata: dict[str, Any],
+        summary: str,
+        node_map: dict[str, GraphNode],
+        topic_keys: list[str],
+        participant_keys: list[str],
+        fact_keys: list[str],
+    ) -> None:
+        """建立 topic/participant 与 fact 及彼此之间的边与边条目。"""
         for topic_key in topic_keys:
             for fact_key in fact_keys:
-                graph.edges.append(
-                    GraphEdge(
-                        source_key=topic_key,
-                        target_key=fact_key,
-                        relation_type="describes",
-                        source_memory_id=source_memory_id,
-                        confidence=0.82,
-                        metadata={"summary": summary},
-                    )
-                )
-                _add_entry(
-                    "edge",
-                    (
-                        f"Topic {node_map[topic_key].value} describes "
-                        f"fact {node_map[fact_key].value}. Summary: {summary}"
-                    ),
-                    [topic_key, fact_key],
-                    relation_type="describes",
-                    confidence=0.82,
+                self._add_legacy_edge(
+                    graph,
+                    source_memory_id,
+                    metadata,
+                    summary,
+                    topic_key,
+                    fact_key,
+                    f"Topic {node_map[topic_key].value} describes "
+                    f"fact {node_map[fact_key].value}",
+                    "describes",
+                    0.82,
                 )
 
         for person_key in participant_keys:
             for fact_key in fact_keys:
-                graph.edges.append(
-                    GraphEdge(
-                        source_key=person_key,
-                        target_key=fact_key,
-                        relation_type="mentioned_in",
-                        source_memory_id=source_memory_id,
-                        confidence=0.88,
-                        metadata={"summary": summary},
-                    )
-                )
-                _add_entry(
-                    "edge",
-                    (
-                        f"Participant {node_map[person_key].value} is linked to "
-                        f"fact {node_map[fact_key].value}. Summary: {summary}"
-                    ),
-                    [person_key, fact_key],
-                    relation_type="mentioned_in",
-                    confidence=0.88,
+                self._add_legacy_edge(
+                    graph,
+                    source_memory_id,
+                    metadata,
+                    summary,
+                    person_key,
+                    fact_key,
+                    f"Participant {node_map[person_key].value} is linked to "
+                    f"fact {node_map[fact_key].value}",
+                    "mentioned_in",
+                    0.88,
                 )
 
         for index, first_key in enumerate(participant_keys):
             for second_key in participant_keys[index + 1 :]:
-                graph.edges.append(
-                    GraphEdge(
-                        source_key=first_key,
-                        target_key=second_key,
-                        relation_type="co_occurs_with",
-                        source_memory_id=source_memory_id,
-                        confidence=0.7,
-                        metadata={"summary": summary},
-                    )
-                )
-                _add_entry(
-                    "edge",
-                    (
-                        f"Participant {node_map[first_key].value} co-occurs with "
-                        f"participant {node_map[second_key].value}. Summary: {summary}"
-                    ),
-                    [first_key, second_key],
-                    relation_type="co_occurs_with",
-                    confidence=0.7,
+                self._add_legacy_edge(
+                    graph,
+                    source_memory_id,
+                    metadata,
+                    summary,
+                    first_key,
+                    second_key,
+                    f"Participant {node_map[first_key].value} co-occurs with "
+                    f"participant {node_map[second_key].value}",
+                    "co_occurs_with",
+                    0.7,
                 )
 
-        if not graph.entries and summary:
-            summary_key = _add_node("summary", summary)
-            if summary_key:
-                graph.nodes = list(node_map.values())
-                _add_entry(
-                    "summary",
-                    f"Summary: {summary}",
-                    [summary_key],
-                    relation_type="summary",
-                    confidence=0.6,
-                )
+    def _add_legacy_edge(
+        self,
+        graph: ExtractedGraph,
+        source_memory_id: int,
+        metadata: dict[str, Any],
+        summary: str,
+        source_key: str,
+        target_key: str,
+        description: str,
+        relation_type: str,
+        confidence: float,
+    ) -> None:
+        """向图中追加一条边及其检索条目。"""
+        graph.edges.append(
+            GraphEdge(
+                source_key=source_key,
+                target_key=target_key,
+                relation_type=relation_type,
+                source_memory_id=source_memory_id,
+                confidence=confidence,
+                metadata={"summary": summary},
+            )
+        )
+        self._add_legacy_entry(
+            graph,
+            source_memory_id,
+            metadata,
+            summary,
+            "edge",
+            f"{description}. Summary: {summary}",
+            [source_key, target_key],
+            relation_type=relation_type,
+            confidence=confidence,
+        )
 
-        return graph
+    @staticmethod
+    def _legacy_node(
+        node_map: dict[str, GraphNode],
+        node_type: str,
+        value: str,
+        extra: dict[str, Any] | None = None,
+    ) -> str:
+        """向节点表写入一个节点并返回其 key。"""
+        canonical_value = EntityResolver.canonicalize(value)
+        if not canonical_value:
+            return ""
+        node = GraphNode(
+            node_type=node_type,
+            value=value.strip(),
+            canonical_value=canonical_value,
+            metadata=extra or {},
+        )
+        node_map[node.node_key] = node
+        return node.node_key
+
+    @staticmethod
+    def _add_legacy_entry(
+        graph: ExtractedGraph,
+        source_memory_id: int,
+        metadata: dict[str, Any],
+        summary: str,
+        entry_type: str,
+        content_text: str,
+        node_keys: list[str],
+        relation_type: str | None = None,
+        confidence: float = 0.8,
+    ) -> None:
+        """向图中追加一条带稳定 key 的检索条目。"""
+        payload = (
+            f"{entry_type}|{source_memory_id}|{relation_type or ''}|"
+            f"{'|'.join(node_keys)}|{content_text}"
+        )
+        entry_key = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+        entry_metadata = {
+            "source_memory_id": source_memory_id,
+            "session_id": metadata.get("session_id"),
+            "persona_id": metadata.get("persona_id"),
+            "importance": metadata.get("importance", 0.5),
+            "create_time": metadata.get("create_time"),
+            "last_access_time": metadata.get("last_access_time"),
+            "canonical_summary": summary,
+            "summary_schema_version": metadata.get("summary_schema_version"),
+            "graph_confidence": confidence,
+            "source_window": metadata.get("source_window"),
+        }
+        graph.entries.append(
+            GraphEntry(
+                entry_key=entry_key,
+                source_memory_id=source_memory_id,
+                session_id=metadata.get("session_id"),
+                persona_id=metadata.get("persona_id"),
+                entry_type=entry_type,
+                content=content_text,
+                metadata=entry_metadata,
+                node_keys=node_keys,
+                relation_type=relation_type,
+            )
+        )
 
     def _extract_from_atoms(
         self,

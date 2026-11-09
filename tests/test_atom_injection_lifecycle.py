@@ -9,14 +9,19 @@ import pytest
 from astrbot_plugin_livingmemory.core.managers.memory_engine_crud import (
     MemoryEngineCrudMixin,
 )
-from astrbot_plugin_livingmemory.core.managers.memory_engine_evidence import (
-    MemoryEngineEvidenceMixin,
+from astrbot_plugin_livingmemory.core.managers.memory_engine_agentic import (
+    MemoryEngineAgenticMixin,
+)
+from astrbot_plugin_livingmemory.core.managers.memory_engine_recall import (
+    MemoryEngineRecallMixin,
 )
 from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridResult
 from astrbot_plugin_livingmemory.core.utils import format_memories_for_injection
 
 
-class _RecallEngine(MemoryEngineCrudMixin, MemoryEngineEvidenceMixin):
+class _RecallEngine(
+    MemoryEngineRecallMixin, MemoryEngineCrudMixin, MemoryEngineAgenticMixin
+):
     """Exercise production SQL/lifecycle code without starting vector services."""
 
     def __init__(self, connection):
@@ -30,7 +35,9 @@ async def _create_atoms(connection, rows):
         "CREATE TABLE memory_atoms (id INTEGER PRIMARY KEY, parent_memory_id INTEGER, "
         "content TEXT, status TEXT, expires_at REAL)"
     )
-    await connection.executemany("INSERT INTO memory_atoms VALUES (?, ?, ?, ?, ?)", rows)
+    await connection.executemany(
+        "INSERT INTO memory_atoms VALUES (?, ?, ?, ?, ?)", rows
+    )
     await connection.commit()
 
 
@@ -54,8 +61,12 @@ def _parent_result():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy", ["_apply_atom_policy", "_apply_agentic_atom_policy"])
-@pytest.mark.parametrize("hidden_status", ["expired", "forgotten", "superseded", "active"])
-async def test_partial_atom_expiry_cannot_reenter_prompt(tmp_path, policy, hidden_status):
+@pytest.mark.parametrize(
+    "hidden_status", ["expired", "forgotten", "superseded", "active"]
+)
+async def test_partial_atom_expiry_cannot_reenter_prompt(
+    tmp_path, policy, hidden_status
+):
     parent = _parent_result()
     original = copy.deepcopy(parent)
     now = time.time()
@@ -75,7 +86,10 @@ async def test_partial_atom_expiry_cannot_reenter_prompt(tmp_path, policy, hidde
         recalled = await getattr(engine, policy)([parent])
         # The automatic recall hook passes dictionaries to the formatter.
         prompt = format_memories_for_injection(
-            [{"content": result.content, "metadata": result.metadata} for result in recalled]
+            [
+                {"content": result.content, "metadata": result.metadata}
+                for result in recalled
+            ]
         )
 
         assert "STALE_TASK_A" not in prompt

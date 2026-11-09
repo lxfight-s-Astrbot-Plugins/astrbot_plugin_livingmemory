@@ -3,19 +3,29 @@ MemoryHandler 的 MemoryHandlerIoMixin 拆分模块
 自动从 core/page_api_modules/memory_handler.py 拆分，保持行为不变
 """
 
-from typing import Any
-from datetime import datetime, timezone
 import asyncio
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from quart import request
 
 from astrbot.api import logger
-from ..memory_transfer import (    MAX_IMPORT_ENTRIES,    memory_import_key,    parse_transfer_content,    serialize_transfer_csv,    serialize_transfer_json,)
-from quart import request
+
 from ..memory_source import restore_source_messages
-import time
+from ..memory_transfer import (
+    MAX_IMPORT_ENTRIES,
+    memory_import_key,
+    parse_transfer_content,
+    plan_session_id_remap,
+    serialize_transfer_csv,
+    serialize_transfer_json,
+)
 
 
 class MemoryHandlerIoMixin:
     """MemoryHandler 拆分模块：MemoryHandlerIoMixin"""
+
     async def export_memories(self, memory_engine) -> dict[str, Any]:
         """Export all or selected memories as portable JSON/CSV content."""
         payload = await request.get_json(silent=True) or {}
@@ -33,9 +43,7 @@ class MemoryHandlerIoMixin:
             except (TypeError, ValueError):
                 return self.utils.error("memory_ids 必须是整数列表")
             if len(memory_ids) > MAX_IMPORT_ENTRIES:
-                return self.utils.error(
-                    f"单次最多导出 {MAX_IMPORT_ENTRIES} 条记忆"
-                )
+                return self.utils.error(f"单次最多导出 {MAX_IMPORT_ENTRIES} 条记忆")
 
         records = await memory_engine.get_memory_transfer_records(memory_ids)
         exported_at = datetime.now(timezone.utc).isoformat()
@@ -60,16 +68,28 @@ class MemoryHandlerIoMixin:
         )
 
     async def import_memories(
-        self, memory_engine, memory_processor
+        self,
+        memory_engine,
+        memory_processor,
+        *,
+        current_platforms: Any = (),
+        existing_session_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Preview or import native and common external JSON/CSV memories."""
+        """Preview or import native and common external JSON/CSV memories.
+
+        Imported exports retain the platform segment of the deployment they were
+        written in (``platform:message_type:session`` or a user memory scope).
+        When that platform no longer exists, session filtering would never match
+        the imported memories, so unambiguous platform segments are rewritten to
+        the current deployment before duplicate detection and writing.
+        """
         payload = await request.get_json(silent=True) or {}
         import_format = str(payload.get("format", "json")).strip().lower()
         content = payload.get("content")
         dry_run = bool(payload.get("dry_run", True))
-        duplicate_strategy = str(
-            payload.get("duplicate_strategy", "skip")
-        ).strip().lower()
+        duplicate_strategy = (
+            str(payload.get("duplicate_strategy", "skip")).strip().lower()
+        )
         if duplicate_strategy not in {"skip", "allow"}:
             return self.utils.error("duplicate_strategy 仅支持 skip 或 allow")
         if not isinstance(content, str) or not content.strip():
@@ -85,15 +105,27 @@ class MemoryHandlerIoMixin:
         except ValueError as exc:
             return self.utils.error(str(exc))
 
+        session_remap = plan_session_id_remap(
+            [entry.session_id for entry in entries if entry.session_id],
+            current_platforms,
+            existing_session_ids or [],
+        )
+        remapped_count = 0
+        for entry in entries:
+            target = session_remap.get(entry.session_id) if entry.session_id else None
+            if target:
+                entry.session_id = target
+                # 旧平台推导出的 adapter_id 同样失效，写入时按新会话前缀重新推导。
+                entry.metadata.pop("adapter_id", None)
+                remapped_count += 1
+
         existing_keys = await memory_engine.get_memory_import_keys()
         detected_keys = set(existing_keys)
         duplicate_count = 0
         for entry in entries:
             if not entry.content:
                 continue
-            key = memory_import_key(
-                entry.content, entry.session_id, entry.persona_id
-            )
+            key = memory_import_key(entry.content, entry.session_id, entry.persona_id)
             if key in detected_keys:
                 duplicate_count += 1
             detected_keys.add(key)
@@ -112,6 +144,7 @@ class MemoryHandlerIoMixin:
                     "duplicate_count": duplicate_count,
                     "summary_required_count": summary_required,
                     "planned_import_count": max(0, planned_count),
+                    "remapped_session_count": remapped_count,
                     "errors": parse_errors[:50],
                 }
             )
@@ -124,6 +157,10 @@ class MemoryHandlerIoMixin:
             try:
                 content_text = entry.content
                 metadata = dict(entry.metadata)
+                # add_memory 会用 metadata 覆盖入参 session_id/persona_id，
+                # 这里显式写回导入解析后的目标值，避免旧平台前缀残留在检索过滤字段里。
+                metadata["session_id"] = entry.session_id
+                metadata["persona_id"] = entry.persona_id
                 importance = entry.importance
                 if entry.requires_summary:
                     if memory_processor is None:
@@ -131,12 +168,14 @@ class MemoryHandlerIoMixin:
                             "记忆处理器未初始化，无法总结仅含原始对话的导入项"
                         )
                     messages = restore_source_messages(entry.source_messages)
-                    generated_content, generated_metadata, generated_importance = (
-                        await memory_processor.process_conversation(
-                            messages=messages,
-                            is_group_chat=bool(messages[0].group_id),
-                            persona_id=entry.persona_id,
-                        )
+                    (
+                        generated_content,
+                        generated_metadata,
+                        generated_importance,
+                    ) = await memory_processor.process_conversation(
+                        messages=messages,
+                        is_group_chat=bool(messages[0].group_id),
+                        persona_id=entry.persona_id,
                     )
                     content_text = generated_content
                     metadata.update(generated_metadata or {})
@@ -152,9 +191,7 @@ class MemoryHandlerIoMixin:
                 metadata["memory_origin"] = "memory_import"
                 metadata["imported_at"] = time.time()
                 metadata["import_source_index"] = entry.source_index
-                importance = self._normalize_importance_update(
-                    importance, "stored"
-                )
+                importance = self._normalize_importance_update(importance, "stored")
                 metadata["importance"] = importance
                 atoms = None
                 classify_atoms = getattr(
@@ -184,9 +221,7 @@ class MemoryHandlerIoMixin:
                     f"[PageAPI] 导入记忆失败 (index={entry.source_index}): {exc}",
                     exc_info=True,
                 )
-                import_errors.append(
-                    {"index": entry.source_index, "error": str(exc)}
-                )
+                import_errors.append({"index": entry.source_index, "error": str(exc)})
 
         return self.utils.ok(
             {
@@ -196,6 +231,7 @@ class MemoryHandlerIoMixin:
                 "skipped_duplicate_count": skipped_duplicates,
                 "failed_count": len(import_errors),
                 "imported_ids": imported_ids,
+                "remapped_session_count": remapped_count,
                 "errors": import_errors[:50],
             }
         )

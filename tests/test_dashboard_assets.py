@@ -29,7 +29,9 @@ def test_dashboard_loads_built_assets_instead_of_uncompressed_sources() -> None:
     assert 'href="./assets/styles.min.css"' in index
     assert 'src="./assets/base.min.js"' in index
     assert 'src="./assets/graph.min.js"' in index
+    assert 'src="./assets/app.min.js"' in index
     for legacy in (
+        "./app.js",
         "./appearance.js",
         "./styles.css",
         "./i18n.js",
@@ -38,8 +40,12 @@ def test_dashboard_loads_built_assets_instead_of_uncompressed_sources() -> None:
     ):
         assert legacy not in index
 
-    for name in ("styles.min.css", "base.min.js", "graph.min.js"):
+    for name in ("styles.min.css", "base.min.js", "graph.min.js", "app.min.js"):
         assert (DASHBOARD / "assets" / name).stat().st_size > 1_000
+
+    # 629KB 的 3D bundle 只在进入 3D 视图时按需 import，首屏不得预载
+    assert 'rel="modulepreload"' not in index
+    assert 'data-module="./assets/graph-3d.min.js"' in index
 
 
 def test_dashboard_build_outputs_are_current() -> None:
@@ -169,7 +175,6 @@ def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
     assert "this._instantLayout = tier >= 2" in graph_2d
     assert "onRenderRequest" in graph_interaction
     assert "this._running = false" in graph_2d
-    assert "Graph2D.prototype.getDiagnostics" in graph_2d
 
 
 def test_graph_canvas_state_keeps_tooltip_inside_container() -> None:

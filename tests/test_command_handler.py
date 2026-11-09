@@ -4,7 +4,7 @@ Tests for CommandHandler.
 
 import inspect
 import json
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import aiosqlite
 import pytest
@@ -44,16 +44,6 @@ def conversation_manager():
 @pytest.fixture
 def index_validator():
     validator = Mock()
-    validator.check_consistency = AsyncMock(
-        return_value=Mock(
-            is_consistent=True,
-            needs_rebuild=False,
-            reason="ok",
-            documents_count=2,
-            bm25_count=2,
-            vector_count=2,
-        )
-    )
     validator.rebuild_indexes = AsyncMock(
         return_value={"success": True, "processed": 2, "errors": 0, "total": 2}
     )
@@ -82,24 +72,6 @@ async def test_handle_status_returns_report(handler, mock_event):
 
 
 @pytest.mark.asyncio
-async def test_handle_status_without_engine_returns_actionable_message(
-    config_manager, mock_event
-):
-    handler = CommandHandler(
-        context=Mock(),
-        config_manager=config_manager,
-        memory_engine=None,
-        conversation_manager=None,
-        index_validator=None,
-    )
-
-    messages = [msg async for msg in handler.handle_status(mock_event)]
-    assert len(messages) == 1
-    assert "/lmem status 执行失败" in messages[0]
-    assert "检查插件状态" in messages[0]
-
-
-@pytest.mark.asyncio
 async def test_handle_status_error_contains_suggestions(
     handler, mock_event, memory_engine
 ):
@@ -117,10 +89,17 @@ async def test_handle_search_validates_inputs_and_calls_engine(handler, mock_eve
     empty = [msg async for msg in handler.handle_search(mock_event, "", 3)]
     assert "不能为空" in empty[0]
 
-    _ = [msg async for msg in handler.handle_search(mock_event, "hello", 200)]
-    # k should be clamped to 100.
+    with patch(
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+        new=AsyncMock(return_value=None),
+    ):
+        _ = [msg async for msg in handler.handle_search(mock_event, "hello", 200)]
+    # k 被夹到 100；作用域/人格与召回共用同一解析入口。
     handler.memory_engine.search_memories.assert_awaited_with(
-        query="hello", k=100, session_id=mock_event.unified_msg_origin
+        query="hello",
+        k=100,
+        session_id=mock_event.unified_msg_origin,
+        persona_id=None,
     )
 
 
@@ -146,41 +125,18 @@ async def test_handle_forget_success_and_not_found(handler, mock_event, memory_e
 
 
 @pytest.mark.asyncio
-async def test_handle_rebuild_index_branches(handler, mock_event, index_validator):
-    # no rebuild needed
+async def test_handle_rebuild_index_reports_result(
+    handler, mock_event, index_validator
+):
     msgs = [msg async for msg in handler.handle_rebuild_index(mock_event)]
-    assert any("索引状态正常" in msg for msg in msgs)
-
-    # rebuild needed
-    index_validator.check_consistency = AsyncMock(
-        return_value=Mock(
-            is_consistent=False,
-            needs_rebuild=True,
-            reason="inconsistent",
-            documents_count=3,
-            bm25_count=2,
-            vector_count=1,
-        )
-    )
-    msgs2 = [msg async for msg in handler.handle_rebuild_index(mock_event)]
-    assert any("开始重建索引" in msg for msg in msgs2)
-    assert index_validator.rebuild_indexes.await_count >= 1
+    assert any("索引重建完成" in msg for msg in msgs)
+    assert index_validator.rebuild_indexes.await_count == 1
 
 
 @pytest.mark.asyncio
 async def test_handle_rebuild_index_failed_result_contains_retry_hint(
     handler, mock_event, index_validator
 ):
-    index_validator.check_consistency = AsyncMock(
-        return_value=Mock(
-            is_consistent=False,
-            needs_rebuild=True,
-            reason="inconsistent",
-            documents_count=3,
-            bm25_count=2,
-            vector_count=1,
-        )
-    )
     index_validator.rebuild_indexes = AsyncMock(
         return_value={"success": False, "message": "vector unavailable"}
     )

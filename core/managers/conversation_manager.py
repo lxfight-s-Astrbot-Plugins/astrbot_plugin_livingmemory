@@ -717,23 +717,6 @@ class ConversationManager:
             self._session_locks[session_id] = lock
         return lock
 
-    def _prune_session_state(self, session_ids: list[str]) -> None:
-        """回收已删除会话的锁与修订号条目（#289）。
-
-        只回收当前未上锁且无等待者的锁：若仍有在途操作持有或等待该会话锁，
-        直接删除会让后续 ``_session_lock()`` 创建出第二把锁，同一会话出现两个
-        临界区；这类残留留到下次清理再回收（修订号随锁一并保留，避免旧修订号
-        校验意外通过）。
-        """
-        for session_id in session_ids:
-            lock = self._session_locks.get(session_id)
-            if lock is not None:
-                # asyncio.Lock 的 _waiters 是等待队列，空队列为 None/空
-                if lock.locked() or getattr(lock, "_waiters", None):
-                    continue
-                self._session_locks.pop(session_id, None)
-            self._session_revisions.pop(session_id, None)
-
     async def get_summary_window(
         self, session_id: str, limit: int
     ) -> tuple[int, list[Message]]:
@@ -910,32 +893,6 @@ class ConversationManager:
             Message 或 None
         """
         return await self.store.get_last_message(session_id)
-
-    async def cleanup_expired_sessions(self) -> int:
-        """
-        清理过期会话，并回收对应的会话锁与修订号条目。
-
-        Returns:
-            清理的会话数量
-        """
-        ttl_seconds = max(60, int(self.session_ttl))
-        deleted_sessions = await self.store.delete_old_sessions(ttl_seconds=ttl_seconds)
-        deleted_count = len(deleted_sessions)
-
-        # 会话已从库中删除，回收其内存状态，避免长期运行后字典无限增长（#289）
-        self._prune_session_state(deleted_sessions)
-
-        # 清空缓存(可能包含已删除的会话)
-        async with self._cache_lock:
-            self._cache.clear()
-
-        if deleted_count > 0:
-            logger.info(
-                f"[ConversationManager] 清理过期会话: {deleted_count}个 "
-                f"(TTL={ttl_seconds}秒)"
-            )
-
-        return deleted_count
 
     async def _update_cache(self, session_id: str, messages: list[Message]):
         """
@@ -1155,30 +1112,3 @@ class ConversationManager:
         logger.info(
             f"[ConversationManager] 已重置会话 {session_id} 的元数据 (记忆总结计数器已清零)"
         )
-
-
-def create_conversation_manager(
-    db_path: str, config: dict[str, Any] | None = None
-) -> ConversationManager:
-    """
-    便捷创建函数
-
-    Args:
-        db_path: 数据库路径
-        config: 配置字典,可包含:
-            - max_cache_size: LRU缓存大小
-            - context_window_size: 上下文窗口大小
-            - session_ttl: 会话过期时间
-
-    Returns:
-        ConversationManager实例
-    """
-    config = config or {}
-    store = ConversationStore(db_path)
-
-    return ConversationManager(
-        store=store,
-        max_cache_size=config.get("max_cache_size", 100),
-        context_window_size=config.get("context_window_size", 50),
-        session_ttl=config.get("session_ttl", 3600),
-    )

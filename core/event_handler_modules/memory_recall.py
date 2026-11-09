@@ -17,12 +17,11 @@ from astrbot.core.agent.message import TextPart
 from ..memory_scope import (
     is_event_memory_allowed,
     is_suspicious_session_id,
-    resolve_memory_scope,
+    resolve_event_memory_access,
 )
 from ..utils import (
     OperationContext,
     format_memories_for_injection,
-    get_persona_id,
 )
 from .memory_reflection import cancel_session_storage_task
 
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
     from ..base.config_manager import ConfigManager
     from ..managers.conversation_manager import ConversationManager
     from ..managers.memory_engine import MemoryEngine
-    from ..utils.injection_adapter import InjectionAdapter
     from .message_utils import MessageUtils
 
 
@@ -44,7 +42,6 @@ class MemoryRecall:
         memory_engine: "MemoryEngine",
         conversation_manager: "ConversationManager",
         message_utils: "MessageUtils",
-        injection_adapter: "InjectionAdapter",
         storage_session_tasks: dict[str, asyncio.Task] | None = None,
     ):
         """
@@ -56,7 +53,6 @@ class MemoryRecall:
             memory_engine: 记忆引擎
             conversation_manager: 会话管理器
             message_utils: 消息处理工具
-            injection_adapter: 注入适配器
             storage_session_tasks: 会话 -> 进行中总结任务映射（共享状态），
                 用于在检测到 WebUI 编辑/重试回滚后取消过期总结任务
         """
@@ -65,7 +61,6 @@ class MemoryRecall:
         self.memory_engine = memory_engine
         self.conversation_manager = conversation_manager
         self.message_utils = message_utils
-        self.injection_adapter = injection_adapter
         self._storage_session_tasks: dict[str, asyncio.Task] = (
             storage_session_tasks if storage_session_tasks is not None else {}
         )
@@ -183,22 +178,13 @@ class MemoryRecall:
                     logger.warning(f"[{session_id}] 原始用户消息为空，跳过记忆召回")
                     return
 
-                # 获取过滤配置
-                filtering_config = self.config_manager.filtering_settings
-                use_persona_filtering = filtering_config.get(
-                    "use_persona_filtering", True
+                # on_llm_request 钩子在 _ensure_persona_and_skills 之前触发，
+                # 因此人格需按三级优先级自行解析；召回与写入共用同一解析入口。
+                recall_access = await resolve_event_memory_access(
+                    self.config_manager, self.context, event
                 )
-
-                # 获取 persona_id，与 AstrBot 主流程保持一致的三级优先级：
-                # 1. session_service_config（最高）
-                # 2. req.conversation.persona_id（会话级）
-                # 3. 全局默认人格（最低）
-                # 注意：on_llm_request 钩子在 _ensure_persona_and_skills 之前触发，
-                # 因此不能直接依赖 req.system_prompt 已注入人格，需自行走完整优先级。
-                persona_id = await get_persona_id(self.context, event)
-
-                recall_session_id = resolve_memory_scope(self.config_manager, event)
-                recall_persona_id = persona_id if use_persona_filtering else None
+                recall_session_id = recall_access.scope
+                recall_persona_id = recall_access.persona_id
 
                 # 使用原始用户输入作为召回关键字
                 query_for_search = actual_query
@@ -284,20 +270,6 @@ class MemoryRecall:
                             f"内容={mem.content[:100]}..."
                         )
 
-                    # 注入策略适配层负责把历史配置值映射到唯一的 add-only
-                    # 注入方式，废弃模式会返回回退原因供日志提示。
-                    configured_method = self.config_manager.get(
-                        "recall_engine.injection_method", "extra_user_content"
-                    )
-                    injection_method, fallback_reason = self.injection_adapter.resolve(
-                        configured_method
-                    )
-                    if fallback_reason:
-                        logger.warning(
-                            f"[{session_id}] 注入方式从 {configured_method} 回退为 "
-                            f"{injection_method}: {fallback_reason}"
-                        )
-
                     memory_str = format_memories_for_injection(memory_list)
 
                     # 唯一注入方式（add-only）：将记忆作为临时片段追加到
@@ -358,7 +330,7 @@ class MemoryRecall:
     def _load_agent_recall_policy(self) -> str | None:
         """按 自定义覆盖 > 内置默认文件 顺序读取自主回忆规则。"""
         try:
-            from ..prompts import get_prompt_manager
+            from ..prompts.prompt_manager import get_prompt_manager
 
             manager = get_prompt_manager()
             if manager is not None:
@@ -501,6 +473,7 @@ class MemoryRecall:
     ) -> int:
         """从请求上下文中移除临时注入的记忆片段"""
         import re
+
         from ..base.constants import MEMORY_INJECTION_FOOTER, MEMORY_INJECTION_HEADER
 
         removed = 0

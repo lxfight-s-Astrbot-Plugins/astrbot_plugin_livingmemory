@@ -324,14 +324,3 @@ def serialize_to_json(obj: Any) -> str:
     if isinstance(obj, list | dict):
         return json.dumps(obj, ensure_ascii=False)
     return str(obj)
-
-
-def deserialize_from_json(json_str: str | None, default: Any = None) -> Any:
-    """从 JSON 字符串反序列化对象"""
-    if json_str is None or json_str == "":
-        return default if default is not None else {}
-
-    try:
-        return json.loads(json_str)
-    except (json.JSONDecodeError, TypeError):
-        return default if default is not None else {}

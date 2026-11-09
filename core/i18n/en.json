@@ -13,17 +13,52 @@
       "suggestions": "Suggestions:",
       "suggestion_item": "{index}. {suggestion}"
     },
-    "component_not_ready": "{command} failed: {component} is not initialized.\nPlease run /lmem status to check plugin status; if abnormal, check startup logs.",
     "suggestions": {
-      "status": ["Confirm database file is readable/writable", "Confirm memory engine initialization is complete", "Check logs for exception stack trace to locate specific module"],
-      "search": ["Confirm keyword is not empty and of reasonable length", "Confirm database and index files exist and are readable/writable", "Check logs for retrieval component initialization failure"],
-      "forget": ["Confirm memory ID exists and belongs to currently accessible data", "Confirm database is not occupied by another process for a long time", "Check logs for delete call stack"],
-      "rebuild_index": ["Confirm Embedding Provider is available", "Confirm database and index files are readable/writable", "Locate failed documents from logs and retry rebuild"],
-      "rebuild_graph": ["Confirm graph memory feature is enabled", "Confirm database and index files are readable/writable", "Check logs to locate specific failed documents"],
-      "summarize": ["Confirm current session has at least 2 unsummarized messages", "Confirm LLM Provider responds normally", "Check logs for summary processing stack trace"],
-      "reset": ["Confirm session ID is valid and session storage is accessible", "Confirm database is not occupied", "Check logs for clear_session call stack"],
-      "cleanup": ["Confirm current session has readable historical records", "Confirm conversation storage is readable/writable", "Check logs for cleanup call stack"],
-      "migrate_scope": ["Confirm the target scope is written correctly (global/session/user or a literal value)", "A database backup is created automatically before migrating", "Graph entries are migrated together with the memories; run /lmem rebuild-graph only if graph recall still looks stale"]
+      "status": [
+        "Confirm database file is readable/writable",
+        "Confirm memory engine initialization is complete",
+        "Check logs for exception stack trace to locate specific module"
+      ],
+      "search": [
+        "Confirm keyword is not empty and of reasonable length",
+        "Confirm database and index files exist and are readable/writable",
+        "Check logs for retrieval component initialization failure"
+      ],
+      "forget": [
+        "Confirm memory ID exists and belongs to currently accessible data",
+        "Confirm database is not occupied by another process for a long time",
+        "Check logs for delete call stack"
+      ],
+      "rebuild_index": [
+        "Confirm Embedding Provider is available",
+        "Confirm database and index files are readable/writable",
+        "Locate failed documents from logs and retry rebuild"
+      ],
+      "rebuild_graph": [
+        "Confirm graph memory feature is enabled",
+        "Confirm database and index files are readable/writable",
+        "Check logs to locate specific failed documents"
+      ],
+      "summarize": [
+        "Confirm current session has at least 2 unsummarized messages",
+        "Confirm LLM Provider responds normally",
+        "Check logs for summary processing stack trace"
+      ],
+      "reset": [
+        "Confirm session ID is valid and session storage is accessible",
+        "Confirm database is not occupied",
+        "Check logs for clear_session call stack"
+      ],
+      "cleanup": [
+        "Confirm current session has readable historical records",
+        "Confirm conversation storage is readable/writable",
+        "Check logs for cleanup call stack"
+      ],
+      "migrate_scope": [
+        "Confirm the target scope is written correctly (global/session/user or a literal value)",
+        "A database backup is created automatically before migrating",
+        "Graph entries are migrated together with the memories; run /lmem rebuild-graph only if graph recall still looks stale"
+      ]
     }
   },
   "status": {
@@ -40,7 +75,8 @@
       "score": "{index}. [Score:{score:.2f}] {content}\n",
       "id": "   ID: {id}\n\n",
       "breakdown": "   Hit: doc_keyword={doc_kw:.2f}, doc_vector={doc_vec:.2f}, graph_keyword={graph_kw:.2f}, graph_vector={graph_vec:.2f}\n\n"
-    }
+    },
+    "access_denied": "The current user or session is not on the long-term memory allowlist."
   },
   "forget": {
     "action_name": "Delete memory",
@@ -51,8 +87,6 @@
   "rebuild_index": {
     "action_name": "Rebuild index",
     "checking": "Checking index status...",
-    "ok": "Index status normal: {reason}",
-    "status_template": "Current index status:\n• Documents table: {doc_count}\n• BM25 index: {bm25_count}\n• Vector index: {vec_count}\n• Issue: {reason}\n\nStarting index rebuild...",
     "partial_notice": "\nNote: This rebuild had a few failures, failure rate {ratio:.2%}, within safe threshold. You can run /lmem rebuild-index again later to complete.",
     "result_template": "Index rebuild complete.\n\nResults:\n• Success: {success} items\n• Failed: {failed} items\n• Total: {total} items\n• Vector processing mode: {vector_mode}\n• New index switched: {switched}\n{partial_notice}\n\nYou can now continue using recall features.",
     "failed": "Index rebuild failed.\nError details: {message}\nPlease check logs for the failure reason, then retry /lmem rebuild-index."

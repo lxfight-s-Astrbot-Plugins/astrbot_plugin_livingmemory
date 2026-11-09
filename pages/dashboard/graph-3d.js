@@ -712,16 +712,4 @@ export default class Graph3D {
     this.renderer.forceContextLoss();
     this.container.replaceChildren();
   }
-
-  getDiagnostics() {
-    return {
-      sourceNodes: this.graph?.nodes.length || 0, sourceEdges: this._payload?.snapshot.edges.length || 0,
-      renderedRelations: this.graph ? this.edgeGeometry.drawRange.count / 2 : 0,
-      drawCalls: this.renderer.info.render.calls, layoutMs: this._layoutMs || 0,
-      renderedCommunityLinks: this.communityLines?.visible ? this._bundleCount : 0,
-      framePending: this._frame !== null, layoutReady: this._ready, animating: !!this._flight,
-      motionEnabled: this.motionEnabled, movingNodes: this._gravity?.movingCount || 0,
-      cameraDistance: this.camera.position.distanceTo(this.controls.target),
-    };
-  }
 }

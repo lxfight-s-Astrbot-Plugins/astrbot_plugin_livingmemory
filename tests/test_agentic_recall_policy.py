@@ -94,7 +94,7 @@ def _policy_parts(req):
 
 def _run(handler, event, req):
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
         return_value=None,
     ):

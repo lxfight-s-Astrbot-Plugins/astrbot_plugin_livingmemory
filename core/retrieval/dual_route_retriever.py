@@ -56,13 +56,20 @@ class DualRouteRetriever:
         doc_diagnostics: dict[str, Any] = {}
         graph_diagnostics: dict[str, Any] = {}
         # 旧调用不增加下游关键字参数，保留宿主和已有替身的调用契约。
-        doc_options = {"diagnostics": doc_diagnostics} if diagnostics is not None else {}
-        graph_options = {"diagnostics": graph_diagnostics} if diagnostics is not None else {}
+        doc_options = (
+            {"diagnostics": doc_diagnostics} if diagnostics is not None else {}
+        )
+        graph_options = (
+            {"diagnostics": graph_diagnostics} if diagnostics is not None else {}
+        )
         if relevance_only:
             doc_options["relevance_only"] = True
             graph_options["relevance_only"] = True
         try:
-            (doc_results, doc_error), (graph_results, graph_error) = await asyncio.gather(
+            (
+                (doc_results, doc_error),
+                (graph_results, graph_error),
+            ) = await asyncio.gather(
                 search_route(
                     "document",
                     self.document_retriever.search(
@@ -93,8 +100,6 @@ class DualRouteRetriever:
             if diagnostics is not None and len(doc_results) > k:
                 diagnostics["candidate_limited"] = True
             return doc_results[:k]
-        if not doc_results and not graph_results:
-            return []
 
         document_weight, graph_weight, intent = self._route_weights_for_query(query)
 

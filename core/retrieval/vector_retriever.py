@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ..faiss_async_persist import get_async_persister
 from .vector_search import retrieve_vectors
 
 if TYPE_CHECKING:
@@ -449,47 +451,56 @@ class VectorRetriever:
         if len(unique_ids) < 2:
             return []
 
-        index = self.faiss_db.embedding_storage.index
-        if index is None:
-            return []
+        storage = self.faiss_db.embedding_storage
+        persister = get_async_persister(storage)
+        # 与增删/换索引互斥：分析期间必须持有读者锁，否则可能读到半更新的索引。
+        lock = (
+            persister.read_index()
+            if persister is not None
+            else contextlib.nullcontext(storage.index)
+        )
 
-        vectors: list[np.ndarray] = []
-        valid_ids: list[int] = []
-        for doc_id in unique_ids:
-            try:
-                vectors.append(index.reconstruct(doc_id))
-                valid_ids.append(doc_id)
-            except Exception:
-                # 向量缺失（如从未写入或已删除）的文档跳过，不参与语义聚类
-                continue
+        async with lock as index:
+            if index is None:
+                return []
 
-        if len(valid_ids) < 2:
-            return []
+            vectors: list[np.ndarray] = []
+            valid_ids: list[int] = []
+            for doc_id in unique_ids:
+                try:
+                    vectors.append(index.reconstruct(doc_id))
+                    valid_ids.append(doc_id)
+                except Exception:
+                    # 向量缺失（如从未写入或已删除）的文档跳过，不参与语义聚类
+                    continue
 
-        pairs: list[tuple[int, int, float]] = []
-        seen: set[tuple[int, int]] = set()
-        valid_id_set = set(valid_ids)
+            if len(valid_ids) < 2:
+                return []
 
-        for start in range(0, len(valid_ids), batch_size):
-            chunk_ids = valid_ids[start : start + batch_size]
-            matrix = np.stack(vectors[start : start + batch_size]).astype("float32")
-            try:
-                scores, indices = index.search(matrix, k + 1)
-            except Exception as e:
-                _logger.warning(f"[VectorRetriever] 批量向量检索失败: {e}")
-                continue
-            similarities = 1.0 - scores / 2.0
-            for i, doc_id in enumerate(chunk_ids):
-                for j in range(indices.shape[1]):
-                    nb_id = int(indices[i][j])
-                    if nb_id < 0 or nb_id == doc_id or nb_id not in valid_id_set:
-                        continue
-                    sim = float(similarities[i][j])
-                    if sim < threshold:
-                        continue
-                    a, b = (doc_id, nb_id) if doc_id < nb_id else (nb_id, doc_id)
-                    if (a, b) not in seen:
-                        seen.add((a, b))
-                        pairs.append((a, b, sim))
+            pairs: list[tuple[int, int, float]] = []
+            seen: set[tuple[int, int]] = set()
+            valid_id_set = set(valid_ids)
 
-        return pairs
+            for start in range(0, len(valid_ids), batch_size):
+                chunk_ids = valid_ids[start : start + batch_size]
+                matrix = np.stack(vectors[start : start + batch_size]).astype("float32")
+                try:
+                    scores, indices = index.search(matrix, k + 1)
+                except Exception as e:
+                    _logger.warning(f"[VectorRetriever] 批量向量检索失败: {e}")
+                    continue
+                similarities = 1.0 - scores / 2.0
+                for i, doc_id in enumerate(chunk_ids):
+                    for j in range(indices.shape[1]):
+                        nb_id = int(indices[i][j])
+                        if nb_id < 0 or nb_id == doc_id or nb_id not in valid_id_set:
+                            continue
+                        sim = float(similarities[i][j])
+                        if sim < threshold:
+                            continue
+                        a, b = (doc_id, nb_id) if doc_id < nb_id else (nb_id, doc_id)
+                        if (a, b) not in seen:
+                            seen.add((a, b))
+                            pairs.append((a, b, sim))
+
+            return pairs

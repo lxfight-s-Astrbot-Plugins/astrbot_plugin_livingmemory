@@ -564,51 +564,6 @@ async def test_lifecycle_manager_run_maintenance(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_manager_reinforcement_no_match(tmp_path: Path) -> None:
-    from astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager import (
-        AtomLifecycleManager,
-    )
-
-    db_path = str(tmp_path / "test_atoms_reinforce_mgr.db")
-    store = AtomStore(db_path)
-    await store.initialize()
-
-    mgr = AtomLifecycleManager(store)
-    new_atom = MemoryAtom(parent_memory_id=1, content="completely unique text")
-    count = await mgr.run_manual_reinforcement([new_atom])
-    assert count == 0
-
-
-@pytest.mark.asyncio
-async def test_lifecycle_manager_reinforcement_jaccard_match(tmp_path: Path) -> None:
-    from astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager import (
-        AtomLifecycleManager,
-    )
-
-    db_path = str(tmp_path / "test_atoms_reinforce_match.db")
-    store = AtomStore(db_path)
-    await store.initialize()
-
-    # Insert an existing atom
-    existing = MemoryAtom(
-        parent_memory_id=1,
-        content="张三喜欢喝咖啡每天都要喝",
-        confidence=0.7,
-    )
-    await store.insert(existing)
-
-    mgr = AtomLifecycleManager(store)
-    # New atom with very similar content
-    new_atom = MemoryAtom(
-        parent_memory_id=2,
-        content="张三喜欢喝咖啡",
-        confidence=0.9,
-    )
-    count = await mgr.run_manual_reinforcement([new_atom], similarity_threshold=0.3)
-    assert count >= 1
-
-
-@pytest.mark.asyncio
 async def test_lifecycle_manager_logs_and_backs_off_on_error(monkeypatch):
     import astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager as lifecycle_module
     from astrbot_plugin_livingmemory.core.managers.atom_lifecycle_manager import (
@@ -640,25 +595,6 @@ async def test_lifecycle_manager_logs_and_backs_off_on_error(monkeypatch):
 
 
 # ---------- AtomRetriever get_atoms_for_memory ----------
-
-
-@pytest.mark.asyncio
-async def test_atom_retriever_get_atoms_for_memory(tmp_path: Path) -> None:
-    from astrbot_plugin_livingmemory.core.retrieval.atom_retriever import AtomRetriever
-
-    db_path = str(tmp_path / "test_atoms_by_parent.db")
-    store = AtomStore(db_path)
-    await store.initialize()
-
-    await store.insert(MemoryAtom(parent_memory_id=42, content="fact a"))
-    await store.insert(MemoryAtom(parent_memory_id=42, content="fact b"))
-    await store.insert(MemoryAtom(parent_memory_id=99, content="fact c"))
-
-    retriever = AtomRetriever(store)
-    atoms = await retriever.get_atoms_for_memory(42)
-    assert len(atoms) == 2
-    contents = {a.content for a in atoms}
-    assert contents == {"fact a", "fact b"}
 
 
 @pytest.mark.asyncio

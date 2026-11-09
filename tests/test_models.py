@@ -6,7 +6,6 @@ from astrbot_plugin_livingmemory.core.models.conversation_models import (
     MemoryEvent,
     Message,
     Session,
-    deserialize_from_json,
     serialize_to_json,
 )
 
@@ -95,5 +94,3 @@ def test_json_helpers():
     payload = {"a": 1}
     raw = serialize_to_json(payload)
     assert isinstance(raw, str)
-    assert deserialize_from_json(raw)["a"] == 1
-    assert deserialize_from_json(None, default={}) == {}

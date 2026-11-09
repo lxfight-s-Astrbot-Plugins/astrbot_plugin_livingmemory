@@ -179,3 +179,67 @@ def test_duplicate_key_normalizes_whitespace_but_preserves_scope():
     assert memory_import_key("one two", "s1", "p1") != memory_import_key(
         "one two", "s2", "p1"
     )
+
+
+# ---------------------------------------------------------------------------
+# 导入时的旧平台前缀映射
+# ---------------------------------------------------------------------------
+
+
+def test_plan_session_remap_rewrites_retired_platform_prefix():
+    from astrbot_plugin_livingmemory.core.memory_transfer import plan_session_id_remap
+
+    mapping = plan_session_id_remap(
+        ["了了:FriendMessage:1163018485"],
+        current_platforms={"default"},
+    )
+
+    assert mapping == {"了了:FriendMessage:1163018485": "default:FriendMessage:1163018485"}
+
+
+def test_plan_session_remap_uses_existing_session_suffix_when_ambiguous():
+    from astrbot_plugin_livingmemory.core.memory_transfer import plan_session_id_remap
+
+    mapping = plan_session_id_remap(
+        ["old:FriendMessage:42", "old:GroupMessage:99"],
+        current_platforms={"qq", "telegram"},
+        existing_sessions=["qq:FriendMessage:42", "telegram:GroupMessage:7"],
+    )
+
+    # 后缀唯一且属于当前平台时才放宽映射；无匹配的保持原样。
+    assert mapping == {"old:FriendMessage:42": "qq:FriendMessage:42"}
+
+
+def test_plan_session_remap_rewrites_user_scope_platform():
+    from astrbot_plugin_livingmemory.core.memory_transfer import plan_session_id_remap
+
+    mapping = plan_session_id_remap(
+        ["livingmemory:user:了了:1163018485"],
+        current_platforms={"default"},
+    )
+
+    assert mapping == {
+        "livingmemory:user:了了:1163018485": "livingmemory:user:default:1163018485"
+    }
+
+
+def test_plan_session_remap_keeps_current_and_unknown_ids():
+    from astrbot_plugin_livingmemory.core.memory_transfer import plan_session_id_remap
+
+    mapping = plan_session_id_remap(
+        [
+            "default:FriendMessage:1",
+            "livingmemory:global",
+            "no-platform-segment",
+        ],
+        current_platforms={"default"},
+        existing_sessions=["default:FriendMessage:1"],
+    )
+
+    assert mapping == {}
+
+
+def test_plan_session_remap_without_platform_context_does_nothing():
+    from astrbot_plugin_livingmemory.core.memory_transfer import plan_session_id_remap
+
+    assert plan_session_id_remap(["了了:FriendMessage:1"]) == {}

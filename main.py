@@ -3,7 +3,6 @@ main.py - LivingMemory 插件主文件
 负责插件注册、初始化和生命周期管理
 """
 
-from .core.memory_scope import adapter_access
 import asyncio
 import re
 from collections.abc import AsyncGenerator
@@ -22,6 +21,7 @@ from .core.event_handler import EventHandler
 from .core.i18n_backend import init as i18n_init
 from .core.i18n_backend import t
 from .core.managers.backup_manager import BackupManager
+from .core.memory_scope import adapter_access
 from .core.page_api import PluginPageApi
 from .core.passive_group_capture import (
     PassiveGroupCaptureFilter,
@@ -341,7 +341,12 @@ class LivingMemoryPlugin(Star):
         return t("command.not_ready")
 
     async def _run_command(
-        self, event: AstrMessageEvent, handler_name: str, *args, **kwargs
+        self,
+        event: AstrMessageEvent,
+        handler_name: str,
+        *args,
+        write: bool = False,
+        **kwargs,
     ) -> AsyncGenerator[MessageEventResult, None]:
         """统一命令入口：就绪检查 + 委托 command_handler。
 
@@ -352,6 +357,7 @@ class LivingMemoryPlugin(Star):
             event: 命令事件。
             handler_name: CommandHandler 上的处理方法名。
             *args: 传给处理方法的额外位置参数。
+            write: 命令是否会写入记忆，决定适配器访问作用域的写权限。
             **kwargs: 传给处理方法的额外关键字参数。
 
         Yields:
@@ -368,18 +374,14 @@ class LivingMemoryPlugin(Star):
         messages = handler(event, *args, **kwargs)
         try:
             while True:
-                with adapter_access(
-                    self.config_manager, event, write=handler_name == "handle_summarize"
-                ):
+                with adapter_access(self.config_manager, event, write=write):
                     try:
                         item = await anext(messages)
                     except StopAsyncIteration:
                         return
                 yield item
         finally:
-            with adapter_access(
-                self.config_manager, event, write=handler_name == "handle_summarize"
-            ):
+            with adapter_access(self.config_manager, event, write=write):
                 await messages.aclose()
 
     # ==================== 事件钩子 ====================
@@ -520,7 +522,10 @@ class LivingMemoryPlugin(Star):
     ) -> AsyncGenerator[MessageEventResult, None]:
         """[Admin] Immediately trigger memory summarization for current session"""
         async for message in self._run_command(
-            event, "handle_summarize", message_count
+            event,
+            "handle_summarize",
+            message_count,
+            write=True,
         ):
             yield message
 

@@ -26,11 +26,6 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "Extra User Content",
-            "user_message_before": "Before User Message (deprecated)",
-            "user_message_after": "After User Message (deprecated)",
-            "fake_tool_call": "Fake Tool Call (deprecated)",
-            "fake_tool_call_deepseek_v4": "Fake Tool Call (DeepSeek V4, deprecated)",
-            "system_prompt": "System Prompt (deprecated)",
         },
         "recall_engine.fusion_mode": {
             "score": "Normalized Score",
@@ -73,13 +68,6 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "Дополнительный контент пользователя",
-            "user_message_before": "Перед сообщением пользователя (устарело)",
-            "user_message_after": "После сообщения пользователя (устарело)",
-            "fake_tool_call": "Фейковый вызов инструмента (устарело)",
-            "fake_tool_call_deepseek_v4": (
-                "Фейковый вызов инструмента (DeepSeek V4, устарело)"
-            ),
-            "system_prompt": "Системная инструкция (устарело)",
         },
         "recall_engine.fusion_mode": {
             "score": "Нормализованная оценка",
@@ -122,11 +110,6 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "追加到用户消息末尾",
-            "user_message_before": "用户消息前缀（已废弃）",
-            "user_message_after": "用户消息后缀（已废弃）",
-            "fake_tool_call": "伪造工具调用（已废弃）",
-            "fake_tool_call_deepseek_v4": "伪造工具调用（DeepSeek V4，已废弃）",
-            "system_prompt": "系统提示词（已废弃）",
         },
         "recall_engine.fusion_mode": {
             "score": "归一化分数",
@@ -169,11 +152,6 @@ EXPECTED_OPTION_LABELS = {
         },
         "recall_engine.injection_method": {
             "extra_user_content": "ユーザーメッセージ末尾",
-            "user_message_before": "ユーザーメッセージ前（非推奨）",
-            "user_message_after": "ユーザーメッセージ後（非推奨）",
-            "fake_tool_call": "偽ツール呼び出し（非推奨）",
-            "fake_tool_call_deepseek_v4": "偽ツール呼び出し（DeepSeek V4・非推奨）",
-            "system_prompt": "システムプロンプト（非推奨）",
         },
         "recall_engine.fusion_mode": {
             "score": "正規化スコア",

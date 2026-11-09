@@ -223,7 +223,7 @@ class AsyncIndexPersister:
     async def flush_now(self) -> None:
         """立即落盘未写变更，并等待进行中的写盘完成。
 
-        索引重建换文件（core/validators/index_validator_rebuild.py）之前必须调用：
+        索引重建换文件（core/validators/index_maintenance.py）之前必须调用：
         飞行中的落盘写的是换文件之前的索引对象，若在 os.replace 之后才落地，
         会把刚重建好的索引文件覆盖掉。
         """
@@ -262,6 +262,16 @@ class AsyncIndexPersister:
                 # Cancellation must not let a writer mutate an index still in use.
                 await future
                 raise
+
+    @asynccontextmanager
+    async def read_index(self):
+        """在读者锁内暴露原始 FAISS 索引，供批量只读分析使用。
+
+        Yields:
+            当前 storage 持有的 FAISS 索引；与增删互斥，与落盘可并发。
+        """
+        async with self._index_lock.read():
+            yield self._storage.index
 
     async def aclose(self) -> None:
         """落盘剩余变更并关闭写盘线程（插件卸载前调用，幂等）。"""

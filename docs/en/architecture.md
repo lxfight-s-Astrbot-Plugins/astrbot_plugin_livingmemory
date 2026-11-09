@@ -28,7 +28,7 @@ flowchart TB
 | Layer | Main implementation | Responsibility |
 | --- | --- | --- |
 | Plugin entry | `main.py` | Registers commands, LLM hooks and agent tools; metadata comes from `metadata.yaml`; hooks only check readiness and never block the host event loop |
-| Initialization | `core/plugin_initializer*.py` | Creates FAISS and document storage, checks vector dimensions, runs database migrations, builds the engine and schedulers, then finishes consistency work in the background |
+| Initialization | `core/plugin_initializer*.py` | Creates FAISS and document storage, checks vector dimensions, runs database migrations, builds the engine and schedulers, then finishes index maintenance in the background |
 | Request pipeline | `EventHandler`, `memory_recall`, `memory_reflection` | Whitelist and scope checks, history reconciliation, recall and injection, reply capture and summarization triggers |
 | Memory engine | `MemoryEngine` | Single entry point for write, search, update, delete, access statistics, decay and consolidation; exposes retrievers and the `index_writer` |
 | Retrieval and fusion | `HybridRetriever`, `DualRouteRetriever`, `RRFFusion`, `GraphRetriever` | Keyword and vector recall on the document and graph routes, candidate expansion, fusion, weighting, rerank and fallback |
@@ -41,7 +41,7 @@ flowchart TB
 2. Initialization runs in the background: it creates or opens the FAISS index and `documents` storage, checks vector dimensions, and routes non-ASCII paths through `faiss_path_bridge` to an ASCII temporary directory followed by an atomic replace.
 3. If the database version is behind, migrations run; a backup must be created successfully before migration starts, and any failure restores that backup and aborts initialization with an explicit error.
 4. `MemoryEngine` opens its connection (`PRAGMA journal_mode = WAL`, `busy_timeout = 10000`), creates the `documents` table and expression indexes, initializes the BM25, vector, graph and atom retrievers, the retrieval cache and coalesced access writes.
-5. The decay scheduler starts at the configured daily hour; the startup consistency check runs as a background task, so the plugin becomes available before that work completes.
+5. The decay scheduler starts at the configured daily hour; startup index maintenance (a rebuild only when the provider fingerprint changed or a migration left pending data) runs as a background task, so the plugin becomes available before that work completes.
 6. On shutdown the scheduler stops, tracked background tasks are cancelled and awaited with a bounded timeout, and index persisters plus database connections are closed to avoid partial flushes.
 
 ## Lifecycle of one request
@@ -120,7 +120,7 @@ flowchart LR
 ## Writes and consistency
 
 - Writes go through `MemoryIndexWriter`: the vector store is written first to obtain a doc_id, then BM25 is written with the same ID; if BM25 fails the vector write is deleted so no orphan vector remains.
-- Graph memory and atoms are written next; failures there are logged and reconciled by the startup consistency check and rebuild instead of rolling back the successful main document, so one graph-index failure does not lose the whole memory.
+- Graph memory and atoms are written next; failures there are logged and reconciled by index maintenance and rebuild instead of rolling back the successful main document, so one graph-index failure does not lose the whole memory.
 - Source messages go to the separate `memory_sources` table as JSON and never participate in retrieval; if that write fails the newly created memory is deleted and the error is raised, keeping every memory traceable to its source.
 - Deletion runs BM25 → vector → `documents`; a failed vector delete restores BM25 from the backup, and a failed document delete only warns because the primary data is already gone.
 - Access statistics are not written one row at a time: the same batch of doc_ids is coalesced into one update within a three-second window, and atom access counts are coalesced separately, cutting `json_set` calls and commits.
@@ -154,26 +154,26 @@ flowchart LR
 
 ## Index maintenance
 
-- The startup consistency check compares `documents` with BM25 document counts and `documents` with the vector ID set, then triggers incremental repair or a full rebuild.
+- Startup index maintenance does not scan every document for consistency: incremental writes already keep BM25, vector, and graph indexes in sync. A single rebuild entry point runs in the background only when the embedding provider fingerprint changed, a migration left pending data, or the graph index needs rebuilding (missing entries are repaired incrementally).
 - The `memory_atoms` FTS is backfilled from missing rows during engine initialization; graph memory rebuilds run separately through `/lmem rebuild-graph` or the startup maintenance task, both reusing the same shadow-build flow.
 - An embedding-provider fingerprint is stored; a provider or model change triggers a full vector rebuild even when dimensions match.
-- BM25 and vectors are built into a shadow generation and switched atomically only when the failure ratio stays under 2% and the final check passes; full vector rebuilds persist checkpoints and can resume after interruption.
+- BM25 and vectors are built into a shadow generation and switched atomically only when the failure ratio stays under 2%; full vector rebuilds persist checkpoints and can resume after interruption.
 - Graph memory rebuilds stream active memories into shadow storage and replay writes made during the rebuild before cutover, so updates are not lost.
-- On startup, migration leftovers or a host without vector deletion write the `needs_index_rebuild` flag; background maintenance consumes it and clears the flag when done.
-- Maintenance state is exposed through `MemoryEngine`, and `/lmem status` reports checking, rebuilding, partially complete, failed or cancelled states with progress.
+- Migration leftovers or a host without vector deletion are recorded in migration status as a pending rebuild, which background maintenance consumes and clears when done.
+- Maintenance state is exposed through `MemoryEngine`, and `/lmem status` reports rebuilding, partially complete, failed or cancelled states with progress.
 
 ```mermaid
 flowchart TB
-    A["Startup consistency check"] --> B{"documents and indexes agree?"}
-    B -->|"Yes"| C["Plugin ready"]
-    B -->|"No"| D["Incremental repair or full rebuild"]
+    A["Startup index maintenance"] --> B{"Fingerprint changed or migration left data?"}
+    B -->|"No"| C["Plugin ready; incremental writes keep indexes current"]
+    B -->|"Yes"| D["Single background rebuild"]
     D --> E["Build shadow generations: BM25 / vectors / graph"]
-    E --> F{"Failure ratio at most 2% and final check passed?"}
+    E --> F{"Failure ratio at most 2%?"}
     F -->|"Yes"| G["Atomic cutover to the new indexes"]
     F -->|"No"| H["Keep the live indexes and record state"]
     G --> I["Replay concurrent writes made during maintenance"]
     H --> I
-    I --> J["Re-check and update /lmem status state"]
+    I --> J["Update /lmem status state"]
 ```
 
 ## Lifecycle and forgetting

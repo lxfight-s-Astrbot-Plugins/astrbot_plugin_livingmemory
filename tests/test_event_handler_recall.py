@@ -37,7 +37,7 @@ async def test_handle_memory_recall_injects_extra_user_content(handler, memory_e
     memory_engine.search_memories = AsyncMock(return_value=[recalled])
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -60,7 +60,7 @@ async def test_handle_memory_recall_stores_private_user_message(
     req = _make_req("user input")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -77,7 +77,7 @@ async def test_handle_memory_reflection_triggers_storage_task(
     resp = _make_resp("assistant answer")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -179,7 +179,7 @@ async def test_handle_memory_recall_skips_when_prompt_empty(handler, memory_engi
     req = _make_req(prompt="")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -221,7 +221,7 @@ async def test_handle_memory_recall_injection_user_message_before(
     req = _make_req("user question")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -270,7 +270,7 @@ async def test_handle_memory_recall_injection_user_message_after(
     req = _make_req("user question")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -442,7 +442,7 @@ async def test_handle_memory_recall_prefers_get_message_str_over_non_string_attr
     req = _make_req("query text")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -465,7 +465,7 @@ async def test_handle_memory_recall_uses_extra_content_parts_when_prompt_empty(
     req.extra_user_content_parts = [Mock(text="<image_caption>cat</image_caption>")]
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "persona_1"
@@ -484,7 +484,7 @@ async def test_handle_memory_reflection_skips_error_response(
     resp = _make_resp("api error: rate limit exceeded")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -503,7 +503,7 @@ async def test_handle_memory_reflection_skips_empty_response(
     resp = _make_resp("")
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"
@@ -549,7 +549,7 @@ async def test_handle_memory_reflection_pending_retry_exceeds_max(
     conversation_manager.store.get_message_count = AsyncMock(return_value=4)
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = "p1"

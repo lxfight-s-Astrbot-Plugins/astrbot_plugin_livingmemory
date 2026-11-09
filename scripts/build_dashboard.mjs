@@ -7,6 +7,7 @@
  *   - stylesheets -> assets/styles.min.css
  *   - appearance.js + i18n.js -> assets/base.min.js (loaded in <head>)
  *   - graph scripts -> assets/graph.min.js (loaded at end of <body>)
+ *   - app.js + modules/*.js -> assets/app.min.js (ES module entry)
  *   - independent WebGL ESM bundle with its layout worker embedded
  *
  * Source files stay editable; run `node scripts/build_dashboard.mjs` after
@@ -74,6 +75,11 @@ const worker = await build({
   entryPoints: [join(DASHBOARD, "graph-3d-worker.js")], bundle: true, minify: true,
   format: "iife", target: "es2022", write: false, legalComments: "inline",
 });
+const app = await build({
+  entryPoints: [join(DASHBOARD, "app.js")], bundle: true, minify: true,
+  format: "esm", target: "es2022", write: false, legalComments: "inline",
+});
+artifacts.set("app.min.js", app.outputFiles[0].text);
 const scene = await build({
   entryPoints: [join(DASHBOARD, "graph-3d.js")], bundle: true, minify: true,
   format: "esm", target: "es2022", write: false, legalComments: "inline",

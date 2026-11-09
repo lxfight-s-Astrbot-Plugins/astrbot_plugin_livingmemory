@@ -3,13 +3,11 @@
 提供统一的记忆管理接口,整合所有底层组件
 """
 
-from functools import partial
-from ..retrieval.vector_search import retrieve_documents
-
 import asyncio
 from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -39,17 +37,20 @@ from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.memory_index_writer import MemoryIndexWriter
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
+from ..retrieval.vector_search import retrieve_documents
 from .adapter_migrator import AdapterMigrator
-from .memory_engine_batch import MemoryEngineBatchMixin
 from .memory_engine_agentic import MemoryEngineAgenticMixin
+from .memory_engine_batch import MemoryEngineBatchMixin
 from .memory_engine_crud import MemoryEngineCrudMixin
-from .memory_engine_write_ops import MemoryEngineWriteOpsMixin
+from .memory_engine_recall import MemoryEngineRecallMixin
+from .memory_engine_stats import MemoryEngineStatsMixin
 
 
 class MemoryEngine(
-    MemoryEngineWriteOpsMixin,
+    MemoryEngineRecallMixin,
     MemoryEngineCrudMixin,
     MemoryEngineBatchMixin,
+    MemoryEngineStatsMixin,
     MemoryEngineAgenticMixin,
 ):
     """
@@ -181,20 +182,23 @@ class MemoryEngine(
         }
 
     async def initialize(self):
-        """
-        异步初始化引擎
+        """初始化引擎：打开数据库、建表、迁移归属、装配文档路与图谱路组件。"""
+        await self._open_database()
+        await self._create_tables()
+        await self._migrate_adapter_ownership()
+        await self._init_document_route()
+        if self.graph_enabled and self.graph_vector_db is not None:
+            await self._init_graph_route()
 
-        创建数据库表、初始化所有检索器组件
-        """
-        # 1. 连接数据库
+    async def _open_database(self) -> None:
+        """打开主连接并设置 WAL 与忙等超时。"""
         self.db_connection = await aiosqlite.connect(self.db_path)
         self.db_connection.row_factory = aiosqlite.Row
         await self.db_connection.execute("PRAGMA journal_mode = WAL")
         await self.db_connection.execute("PRAGMA busy_timeout = 10000")
 
-        # 2. 创建表结构
-        await self._create_tables()
-
+    async def _migrate_adapter_ownership(self) -> None:
+        """为历史记忆补写适配器归属。"""
         self.adapter_migrator = AdapterMigrator(
             self.db_path,
             self.config.get("graph_document_path"),
@@ -202,24 +206,18 @@ class MemoryEngine(
         )
         await self.adapter_migrator.migrate()
 
-        # 3. 初始化文本处理器
+    async def _init_document_route(self) -> None:
+        """装配文本处理、BM25、向量、混合检索与写侧索引维护器。"""
         stopwords_path = self.config.get("stopwords_path")
         self.text_processor = TextProcessor(stopwords_path)
 
-        # 4. 初始化RRF融合器
-        rrf_k = self.config.get("rrf_k", 60)
-        self.rrf_fusion = RRFFusion(k=rrf_k)
+        self.rrf_fusion = RRFFusion(k=self.config.get("rrf_k", 60))
 
-        # 5. 初始化BM25检索器
         self.bm25_retriever = BM25Retriever(
             self.db_path, self.text_processor, self.config
         )
         await self.bm25_retriever.initialize()
-
-        # 6. 初始化向量检索器
         self.vector_retriever = VectorRetriever(self.faiss_db, self.config)
-
-        # 7. 初始化混合检索器（只负责查询融合）与写侧索引维护器
         self.hybrid_retriever = HybridRetriever(
             self.bm25_retriever,
             self.vector_retriever,
@@ -228,51 +226,52 @@ class MemoryEngine(
             rerank_provider_resolver=self.rerank_provider_resolver,
         )
         self.index_writer = MemoryIndexWriter(
-            self.bm25_retriever, self.vector_retriever
+            self.bm25_retriever, self.vector_retriever, self._write_transaction
         )
 
-        if self.graph_enabled and self.graph_vector_db is not None:
-            self.graph_store = GraphStore(self.db_path, cache_reads=True)
-            await self.graph_store.initialize()
+    async def _init_graph_route(self) -> None:
+        """装配图谱存储、原子生命周期与双路检索。"""
+        self.graph_store = GraphStore(self.db_path, cache_reads=True)
+        await self.graph_store.initialize()
 
-            self.atom_store = AtomStore(self.db_path)
-            await self.atom_store.initialize()
+        self.atom_store = AtomStore(self.db_path)
+        await self.atom_store.initialize()
 
-            if self.atom_enabled:
-                self.atom_lifecycle_manager = AtomLifecycleManager(
-                    self.atom_store, self.config
-                )
-                self.atom_retriever = AtomRetriever(self.atom_store, self.config)
-                await self.atom_lifecycle_manager.start()
+        if self.atom_enabled:
+            self.atom_lifecycle_manager = AtomLifecycleManager(
+                self.atom_store, self.config
+            )
+            self.atom_retriever = AtomRetriever(self.atom_store, self.config)
+            await self.atom_lifecycle_manager.start()
 
-            self.graph_extractor = GraphExtractor(self.config)
-            self.graph_keyword_retriever = GraphKeywordRetriever(
-                self.graph_store,
-                self.text_processor,
-                self.config,
-            )
-            self.graph_vector_retriever = GraphVectorRetriever(
-                self.graph_vector_db,
-                self.config,
-            )
-            self.graph_retriever = GraphRetriever(
-                self.graph_keyword_retriever,
-                self.graph_vector_retriever,
-                self.rrf_fusion,
-                self.config,
-            )
-            self.graph_memory_manager = GraphMemoryManager(
-                self.graph_store,
-                self.graph_vector_retriever,
-                self.graph_extractor,
-            )
-            self.dual_route_retriever = DualRouteRetriever(
-                self.hybrid_retriever,
-                self.graph_retriever,
-                self.get_memory,
-                self.config,
-                memory_batch_loader=partial(retrieve_documents, self.faiss_db),
-            )
+        self.graph_extractor = GraphExtractor(self.config)
+        self.graph_keyword_retriever = GraphKeywordRetriever(
+            self.graph_store,
+            self.text_processor,
+            self.config,
+        )
+        self.graph_vector_retriever = GraphVectorRetriever(
+            self.graph_vector_db,
+            self.config,
+        )
+        self.graph_retriever = GraphRetriever(
+            self.graph_keyword_retriever,
+            self.graph_vector_retriever,
+            self.rrf_fusion,
+            self.config,
+        )
+        self.graph_memory_manager = GraphMemoryManager(
+            self.graph_store,
+            self.graph_vector_retriever,
+            self.graph_extractor,
+        )
+        self.dual_route_retriever = DualRouteRetriever(
+            self.hybrid_retriever,
+            self.graph_retriever,
+            self.get_memory,
+            self.config,
+            memory_batch_loader=partial(retrieve_documents, self.faiss_db),
+        )
 
     async def close(self):
         """关闭数据库连接和清理资源"""

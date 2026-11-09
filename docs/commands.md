@@ -7,7 +7,7 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 | `/lmem status` | 查看记忆库统计；索引维护进行中或异常时同时显示状态、进度和消息 |
 | `/lmem search <query> [k]` | 搜索长期记忆，`k` 默认为 5 |
 | `/lmem forget <id>` | 删除指定记忆 |
-| `/lmem rebuild-index` | 重建文档索引 |
+| `/lmem rebuild-index` | 重建或补写文档索引（全量） |
 | `/lmem rebuild-graph` | 重建并压缩图谱索引，迁移到记忆级图向量 |
 | `/lmem migrate-scope <target> [apply] [source]` | 迁移既有记忆（文档、原子、图记忆条目）到指定作用域；默认仅预览，`apply` 才写入；`source` 可选，`all`/`*`/`-` 表示全部来源 |
 | `/lmem webui` | 查看 WebUI 入口信息 |
@@ -18,13 +18,12 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 
 ## 索引维护状态
 
-启动一致性检查和自动修复在后台运行。使用 `/lmem status` 观察非空闲状态：
+启动时按需执行索引维护（仅在 Embedding Provider 指纹变化或迁移遗留数据时重建），在后台运行。使用 `/lmem status` 观察非空闲状态：
 
 | 状态 | 含义 | 建议操作 |
 | --- | --- | --- |
-| `checking` | 正在检查文档、向量、BM25 和图谱一致性 | 无需操作，插件仍可提供服务 |
 | `rebuilding` | 正在分批重建并显示当前进度 | 保持 Provider 可用，不要重复启动重建 |
-| `partial` | 重建完成，但存在允许范围内的失败或最终检查仍发现差异 | 检查 Provider 限流和日志，必要时重新执行 `/lmem rebuild-index` |
+| `partial` | 重建完成，但存在允许范围内的失败 | 检查 Provider 限流和日志，必要时重新执行 `/lmem rebuild-index` |
 | `failed` | 后台维护失败；影子代际未切换时会保留原线上索引 | 根据状态消息和日志修复环境后重新执行重建 |
 | `cancelled` | 插件停止或重载时维护任务被取消 | 插件下次启动会重新检查；也可在稳定后手动重建 |
 

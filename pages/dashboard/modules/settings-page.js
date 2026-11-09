@@ -6,7 +6,7 @@
  * forms for every option.
  */
 
-import { esc } from "./utils.js";
+import { esc, showToast } from "./utils.js";
 
 const QUICK_PATHS = [
   "graph_memory.enabled",
@@ -68,12 +68,6 @@ export class SettingsPage {
   currentLang() {
     if (typeof window.getLanguage === "function") return window.getLanguage();
     return "zh";
-  }
-
-  showToast(message, isError = false) {
-    if (typeof window.lmShowToast === "function") {
-      window.lmShowToast(message, isError);
-    }
   }
 
   async fetch() {
@@ -398,17 +392,17 @@ export class SettingsPage {
     try {
       values = this.collectValues();
     } catch (error) {
-      this.showToast(window.t("settings.invalidValue", error.message), true);
+      showToast(window.t("settings.invalidValue", error.message), true);
       return;
     }
     this._busy = true;
     if (button) button.disabled = true;
     try {
       await this.api.post("config/update", { values });
-      this.showToast(window.t("settings.saved"));
+      showToast(window.t("settings.saved"));
       await this.fetch();
     } catch (error) {
-      this.showToast(error.message || window.t("settings.saveFailed"), true);
+      showToast(error.message || window.t("settings.saveFailed"), true);
     } finally {
       this._busy = false;
       if (button) button.disabled = false;

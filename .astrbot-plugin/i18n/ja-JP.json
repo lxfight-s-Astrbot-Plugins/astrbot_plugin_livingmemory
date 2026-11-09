@@ -163,14 +163,9 @@
       },
       "injection_method": {
         "description": "メモリの注入位置",
-        "hint": "メモリを LLM リクエストのどこに注入するか。extra_user_content（唯一のサポート対象）：mark_as_temp の一時パートとして現在のユーザーメッセージ末尾に追加され、AstrBot が履歴を保存する際に自動的に除外されるため、プレフィックスキャッシュに影響せず、会話履歴にも一切書き込まれません。user_message_before / user_message_after / fake_tool_call / fake_tool_call_deepseek_v4 / system_prompt：⚠️すべて非推奨（ユーザーメッセージを書き換えるか、会話履歴にメッセージを書き込みます）。選択すると自動的に extra_user_content にフォールバックします。",
+        "hint": "メモリは mark_as_temp の一時パートとして現在のユーザーメッセージ末尾に追加され、AstrBot が履歴を保存する際に自動的に除外されるため、プレフィックスキャッシュに影響せず、会話履歴にも一切書き込まれません。",
         "labels": [
-          "ユーザーメッセージ末尾",
-          "ユーザーメッセージ前（非推奨）",
-          "ユーザーメッセージ後（非推奨）",
-          "偽ツール呼び出し（非推奨）",
-          "偽ツール呼び出し（DeepSeek V4・非推奨）",
-          "システムプロンプト（非推奨）"
+          "ユーザーメッセージ末尾"
         ]
       },
       "auto_remove_injected": {

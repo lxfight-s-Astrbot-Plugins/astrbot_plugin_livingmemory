@@ -102,19 +102,30 @@ async def test_adapter_assignment_moves_legacy_ownership_without_changing_scope(
         await db.close()
 
 
-def test_apply_updates_persists_normalized_values() -> None:
+def test_apply_updates_persists_valid_values() -> None:
     raw = _WritableConfig({"recall_engine": {"top_k": 5}, "memory_dedup": {}})
     manager = ConfigManager(raw)
 
     updated = manager.apply_updates(
-        {"recall_engine.top_k": 999, "memory_dedup.enabled": False}
+        {"recall_engine.top_k": 8, "memory_dedup.enabled": False}
     )
 
     assert raw.saved == 1
-    assert updated["recall_engine"]["top_k"] == 50  # clamped to the allowed maximum
+    assert updated["recall_engine"]["top_k"] == 8
     assert updated["memory_dedup"]["enabled"] is False
-    assert manager.get("recall_engine.top_k") == 50
+    assert manager.get("recall_engine.top_k") == 8
     assert manager.get("memory_dedup.enabled") is False
+
+
+def test_apply_updates_rejects_out_of_range_value_without_saving() -> None:
+    raw = _WritableConfig({"recall_engine": {"top_k": 5}})
+    manager = ConfigManager(raw)
+
+    with pytest.raises(ValueError):
+        manager.apply_updates({"recall_engine.top_k": 999})
+
+    assert raw.saved == 0
+    assert manager.get("recall_engine.top_k") == 5
 
 
 def test_apply_updates_requires_writable_config() -> None:

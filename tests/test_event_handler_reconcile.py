@@ -50,7 +50,7 @@ async def test_edit_resend_reconciles_store_to_llm_history(tmp_path):
     req.contexts = []
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -97,7 +97,7 @@ async def test_regenerate_reconciles_reverted_tail(tmp_path):
     req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -143,7 +143,7 @@ async def test_reconcile_skips_group_events(tmp_path):
     req.contexts = []
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -180,7 +180,7 @@ async def test_reconcile_skips_without_checkpoints(tmp_path):
     req.contexts = [{"role": "user", "content": "q1"}]
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -325,7 +325,7 @@ async def test_image_turn_does_not_break_reconciliation(tmp_path):
         {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2", "C3")
     ]
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -348,7 +348,7 @@ async def test_image_turn_does_not_break_reconciliation(tmp_path):
         {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2")
     ]
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
@@ -426,7 +426,7 @@ async def test_rollback_bumps_revision_and_cancels_inflight_task(tmp_path):
     req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
 
     with patch(
-        "astrbot_plugin_livingmemory.core.event_handler_modules.memory_recall.get_persona_id",
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
         new_callable=AsyncMock,
     ) as get_persona:
         get_persona.return_value = None
