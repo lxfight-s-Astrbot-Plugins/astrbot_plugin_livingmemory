@@ -81,6 +81,14 @@ async def open_connection(
     """
     db = await aiosqlite.connect(db_path)
     await db.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    # WAL + NORMAL is durable enough for an embedded plugin store and avoids
+    # an fsync per commit; rollback journal keeps FULL to stay crash-safe.
+    await db.execute(
+        "PRAGMA synchronous = NORMAL"
+        if _journal_mode == JOURNAL_MODE_WAL
+        else "PRAGMA synchronous = FULL"
+    )
+    await db.execute("PRAGMA temp_store = MEMORY")
     if apply_journal_mode:
         await db.execute(f"PRAGMA journal_mode = {_journal_mode}")
     return db

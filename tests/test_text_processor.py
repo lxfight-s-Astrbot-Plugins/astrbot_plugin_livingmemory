@@ -128,3 +128,41 @@ async def test_text_processor_async_init_loads_builtin_stopwords(tmp_path: Path)
 
     assert processor.is_stopword("的")
     assert not (tmp_path / "stopwords_hit.txt").exists()
+
+
+def test_builtin_tokenizer_avoids_importing_jieba():
+    """builtin 分词器不导入 jieba（省约 55 MB 常驻内存），中文退化为单字词元。"""
+    import subprocess
+    import sys
+
+    plugin_root = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys, types;"
+        "root = sys.argv[1];"
+        "pkg = types.ModuleType('astrbot_plugin_livingmemory');"
+        "pkg.__path__ = [root]; sys.modules['astrbot_plugin_livingmemory'] = pkg;"
+        "from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor;"
+        "p = TextProcessor(tokenizer='builtin');"
+        "tokens = p.tokenize('我喜欢吃火锅');"
+        "assert p.tokenizer == 'builtin', p.tokenizer;"
+        "assert '火锅' not in tokens;"
+        "assert 'jieba' not in sys.modules, 'jieba must not be imported';"
+        "print('ok')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(plugin_root)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout
+
+
+def test_builtin_tokenizer_still_segments_ascii_words():
+    processor = TextProcessor(tokenizer="builtin")
+    assert processor.tokenize("project deadline tomorrow") == [
+        "project",
+        "deadline",
+        "tomorrow",
+    ]

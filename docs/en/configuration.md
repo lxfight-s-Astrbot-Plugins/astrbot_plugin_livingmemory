@@ -85,6 +85,7 @@ History above `max_messages_per_session` first discards summarized messages. If 
 | `recall_engine.recent_memory_count` | `0` | Recent memories used only to fill remaining slots when relevant results are insufficient |
 | `recall_engine.recent_memory_max_age_hours` | `72` | Time window for recent-memory slots |
 | `recall_engine.memory_type_filter` | `all` | Use `event_only` to exclude known preference-only or relationship-only memories |
+| `recall_engine.tokenizer` | `jieba` | Chinese tokenizer: `jieba` word segmentation, or `builtin` (no jieba import, ~55 MB less memory); run `/lmem rebuild-index` after switching |
 | `recall_engine.fallback_to_vector` | `true` | Falls back to vector search if hybrid retrieval fails |
 | `recall_engine.rerank_enabled` | `false` | Reranks fused candidates by query relevance with a Rerank model |
 | `recall_engine.rerank_provider_id` | `""` | ID of a Rerank-type provider in AstrBot; leave empty to skip |
@@ -150,9 +151,9 @@ Each input contains at most `max_messages_per_segment` messages; earlier day/idl
 | `agent_tools.forget_tool_max_memories` | `3` | Maximum memories a single forget call may archive (1-10); larger requests are rejected entirely |
 | `agent_tools.forget_tool_cooldown_seconds` | `60` | Minimum interval between successful archives in one session (0-3600); `0` disables the limit |
 | `agent_tools.enable_agentic_recall_beta` | `false` | Enables multi-turn agentic recall (beta); requires `enable_recall_tool` |
-| `agent_tools.agentic_recall_max_calls` | `4` | Shared recall/evidence tool calls allowed per request (1-20) |
+| `agent_tools.agentic_recall_max_calls` | `3` | Shared recall/evidence tool calls allowed per request (1-20) |
 | `agent_tools.agentic_recall_time_budget_seconds` | `20` | Cumulative memory-tool time per request in seconds (1-300) |
-| `agent_tools.agentic_recall_max_result_chars` | `12000` | Maximum characters returned by one beta memory-tool call (500-100000); longer output continues via cursors |
+| `agent_tools.agentic_recall_max_result_chars` | `6000` | Maximum characters returned by one beta memory-tool call (500-100000); longer output continues via cursors |
 
 The write tool is powerful and depends on model discipline. Start with active recall, then enable active writes after observing stable behavior.
 

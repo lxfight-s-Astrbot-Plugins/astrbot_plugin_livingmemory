@@ -24,13 +24,24 @@ _CN_PUNCT_TABLE = str.maketrans(
     ),
 )
 
-try:
-    import jieba
-
-    JIEBA_AVAILABLE = True
-except ImportError:
-    JIEBA_AVAILABLE = False
+jieba = None
+JIEBA_AVAILABLE: bool | None = None
 JIEBA_RUNTIME_DISABLED = False
+
+
+def _load_jieba() -> bool:
+    """按需导入 jieba；内置分词器配置下永远不会触发导入。"""
+    global jieba, JIEBA_AVAILABLE
+    if JIEBA_AVAILABLE is not None:
+        return JIEBA_AVAILABLE
+    try:
+        import jieba as _jieba
+
+        jieba = _jieba
+        JIEBA_AVAILABLE = True
+    except ImportError:
+        JIEBA_AVAILABLE = False
+    return JIEBA_AVAILABLE
 
 
 class TextProcessor:
@@ -47,20 +58,28 @@ class TextProcessor:
     # Built-in fallback stopwords shared with StopwordsManager.
     DEFAULT_STOPWORDS = FALLBACK_STOPWORDS
 
-    def __init__(self, stopwords_dir: str | None = None):
+    def __init__(
+        self,
+        stopwords_dir: str | None = None,
+        tokenizer: str = "jieba",
+    ):
         """
         初始化文本处理器
 
         Args:
             stopwords_dir: 停用词目录路径(将被传递给StopwordsManager),
                           如果为None则使用默认停用词
+            tokenizer: ``jieba``（默认，词级中文分词）或 ``builtin``
+                （内置单字/英文词元，不导入 jieba，省约 55 MB 常驻内存；
+                切换分词器后需要 /lmem rebuild-index 重建 BM25/原子索引）
         """
         self.stopwords: set[str] = set()
         self.custom_words: set[str] = set()
         self.stopwords_dir = stopwords_dir  # 保存目录路径
+        self.tokenizer = tokenizer if tokenizer in ("jieba", "builtin") else "jieba"
 
-        # 检查 jieba 是否可用
-        if not JIEBA_AVAILABLE:
+        # 仅在词级分词器下检查/加载 jieba；builtin 模式保持零导入
+        if self.tokenizer == "jieba" and not _load_jieba():
             warnings.warn(
                 "jieba 库未安装,中文分词将受限。建议安装: pip install jieba",
                 UserWarning,
@@ -244,11 +263,16 @@ class TextProcessor:
             >>> processor = TextProcessor()
             >>> processor.add_custom_words(["LivingMemory", "AstrBot"])
         """
-        if not JIEBA_AVAILABLE:
+        clean_words = [word for word in words if isinstance(word, str) and word.strip()]
+        if self.tokenizer == "builtin":
+            # 内置分词器没有词典，仅记录自定义词供统计/展示使用
+            self.custom_words.update(clean_words)
+            self._invalidate_token_cache()
+            return
+        if not _load_jieba():
             warnings.warn("jieba 未安装,无法添加自定义词汇", UserWarning)
             return
 
-        clean_words = [word for word in words if isinstance(word, str) and word.strip()]
         failed_words = []
         for word in clean_words:
             try:
@@ -375,7 +399,13 @@ class TextProcessor:
         # 检查是否包含中文
         has_chinese = any("\u4e00" <= char <= "\u9fff" for char in text)
 
-        if has_chinese and JIEBA_AVAILABLE and not JIEBA_RUNTIME_DISABLED:
+        use_jieba = (
+            has_chinese
+            and self.tokenizer == "jieba"
+            and not JIEBA_RUNTIME_DISABLED
+            and _load_jieba()
+        )
+        if use_jieba:
             # 使用 jieba 分词 (搜索模式,适合检索)
             try:
                 tokens = list(jieba.cut_for_search(text))
