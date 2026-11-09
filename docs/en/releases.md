@@ -1,5 +1,27 @@
 # Releases and Upgrades
 
+## 2.9.2 · November 9, 2026
+
+2.9.2 consolidates the plugin's internal modules and fixes memory writes failing when SQLite WAL is unavailable on Docker Desktop shared mounts. Commands, configuration keys, page APIs, agent tools and the database schema are unchanged; no migration is required.
+
+[Download 2.9.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.9.2)
+
+### What changed
+
+- **Docker/WAL fallback**: when the data directory lives on a Docker Desktop bind mount of a host disk (9p/drvfs, gRPC-FUSE, virtiofs) or a network share, SQLite cannot reliably map WAL's `-shm` shared-memory index, so new connections fail with `SQLITE_IOERR` (`disk I/O error`) and memory writes break. Startup now detects the mount type and probes WAL, safely converts existing WAL databases back to rollback journal when it is unavailable, and suggests moving the data directory; moving to a Docker named volume or a local disk restores WAL automatically. See [#398](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/398).
+- **Connection policy**: journal mode is applied once per database at startup, and hot-path connections in BM25, atom, graph and conversation storage only set `busy_timeout`, preventing new connections from returning `database is locked` immediately when another commit is in flight.
+- **Legacy platform import**: imported or migrated memories remap retired platform prefixes to the current platform identity, so old data remains recallable in session-filtered recall. See [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396).
+- **Internal refactor**: merged split storage and processor modules, regrouped `MemoryEngine` by responsibility, reduced the initializer from three files to two, made page routes declarative, removed unused exports and dead code (about 1,849 production Python lines), moved document writes into the engine write transaction, added the Ruff gate to CI and lazy-loads the 3D graph scene. See [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396).
+
+Contributed by [@lxfight](https://github.com/lxfight). The latest complete suite passed 1,210 backend and 150 frontend tests. New regressions cover filesystem WAL probing and fallback conversion, hot-path connection policy and legacy platform-prefix imports.
+
+### Install and upgrade
+
+1. Stop the plugin, back up its full data directory, update to `2.9.2`, then restart AstrBot and reopen Plugin Views. No database migration is required.
+2. If the data directory is on a Docker Desktop host-disk bind mount or a network share, startup logs will report the rollback-journal fallback; move `/AstrBot/data` to a Docker named volume or a local disk to restore WAL.
+3. Invalid configuration values now abort startup with `ConfigurationError` instead of being silently normalized; fix them before starting. Legacy injection-method values are still read, but settings expose only `extra_user_content`.
+4. The database file-open failure `unable to open database file` in [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) remains a separate issue from the `disk I/O error` handled here and stays open.
+
 ## 2.9.1 · November 5, 2026
 
 2.9.1 fixes missing stable participant identities in memory injection and keeps synthetic cron and background-task wakeups out of real conversation memory. No database migration or configuration change is required.
