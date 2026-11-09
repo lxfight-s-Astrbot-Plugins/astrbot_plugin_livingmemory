@@ -19,6 +19,10 @@ LivingMemory is not just a chat log. It transforms conversations into searchable
     <h3>Memory atomization</h3>
     <p>Important facts become independent atoms with type, TTL, importance, access count, and decay state.</p>
   </div>
+  <div>
+    <h3>User profiles</h3>
+    <p>Long-term memories consolidate into structured profiles organised by persona and scope, which can be browsed, edited, compared across versions and reviewed in the dashboard.</p>
+  </div>
 </div>
 
 ## Where memories come from

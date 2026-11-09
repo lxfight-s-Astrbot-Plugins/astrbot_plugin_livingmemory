@@ -60,6 +60,30 @@ import {
   const promptPage = new PromptPage(state, api);
   const settingsPage = new SettingsPage(state, api);
 
+  /* 用户档案页体量较大，首次进入时才加载（首屏预算不增加）。 */
+  let profilePage = null;
+  let profilePageLoading = null;
+  async function ensureProfilePage() {
+    if (profilePage) return profilePage;
+    if (!profilePageLoading) {
+      const moduleUrl = new URL("./assets/profile.min.js", document.baseURI).href;
+      profilePageLoading = import(moduleUrl)
+        .then((module) => {
+          profilePage = new module.ProfilePage(state, api);
+          profilePage.init();
+          return profilePage;
+        })
+        .catch((error) => {
+          showToast(error.message || window.t("misc.requestFailed"), true);
+          return null;
+        })
+        .finally(() => {
+          profilePageLoading = null;
+        });
+    }
+    return profilePageLoading;
+  }
+
   function hydrateIcons() {
     if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
     window.lucide.createIcons({
@@ -115,6 +139,7 @@ import {
       return;
     }
     if (state.page === "settings" && !await settingsPage.canLeave()) return;
+    if (state.page === "profile" && profilePage && !await profilePage.canLeave()) return;
     const generation = ++navigationGeneration;
     if (state.page === "prompts" && !await promptPage.canLeave()) return;
     if (!await peekPanel.requestClose() || generation !== navigationGeneration) return;
@@ -142,6 +167,10 @@ import {
     if (name === "system") systemPage.fetch();
     if (name === "prompts") promptPage.fetch();
     if (name === "settings") settingsPage.fetch();
+    if (name === "profile") {
+      const page = await ensureProfilePage();
+      if (page) await page.fetch();
+    }
   }
 
   /* 初始化完成后刷新当前页数据（横幅自动收起时调用）。 */
@@ -157,6 +186,8 @@ import {
       promptPage.fetch();
     } else if (state.page === "settings") {
       settingsPage.fetch();
+    } else if (state.page === "profile" && profilePage) {
+      profilePage.render();
     }
   }
 
@@ -242,6 +273,7 @@ import {
       promptPage.refreshEditorTitle();
     }
     if (state.page === "settings") settingsPage.fetch();
+    if (state.page === "profile" && profilePage) profilePage.render();
 
     const peekPanelEl = document.getElementById("peek-panel");
     const peekVisible = peekPanelEl && peekPanelEl.classList.contains("visible");
@@ -323,7 +355,7 @@ import {
       }
     });
     window.addEventListener("beforeunload", event => {
-      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || memoryPage._bulkBusy || memoryPage._transferBusy) {
+      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || (profilePage && profilePage.hasUnsavedChanges()) || memoryPage._bulkBusy || memoryPage._transferBusy) {
         event.preventDefault();
         event.returnValue = "";
       }

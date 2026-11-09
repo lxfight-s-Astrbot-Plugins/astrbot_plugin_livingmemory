@@ -1728,6 +1728,7 @@ body {
   font-size: 11px;
 }
 
+
 /* ----- Responsive ---------------------------------------------- */
 @media (max-width: 768px) {
   :root {
@@ -2140,4 +2141,19 @@ body {
 }
 .settings-group[open] > .settings-subgroup:first-of-type {
   padding-top: var(--space-2);
+}
+
+/* 新增「用户档案」后底部导航共 7 个入口：窄屏改为横向滚动，避免触摸目标被压到 44px 以下。 */
+@media (max-width: 480px) {
+  .sidebar {
+    overflow-x: auto;
+  }
+  .sidebar-nav,
+  .sidebar-footer {
+    flex: 0 0 auto;
+  }
+  .nav-item,
+  .sidebar-footer .nav-item {
+    flex: 0 0 44px;
+  }
 }
