@@ -250,3 +250,18 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `index_rebuild_settings.max_failure_ratio` | `0.02` | 允许失败比例 |
 
 如果遇到 API 限流，优先增大 `request_delay`，再降低 `embedding_batch_size`。不要盲目提高并发，索引重建更看重稳定完成。
+
+## 召回追踪
+
+`trace_settings` 记录每次记忆召回的可解释轨迹：各检索路线的候选数与耗时、被检索策略拒绝的原因，以及最终注入的记忆条数与字符数。轨迹保存在进程内的环形缓冲中（`max_records`），由 `/lmem trace` 与 Page API 查询；默认不写盘，默认不保存查询原文，只保存 `query_hash`。
+
+| 配置项 | 默认 | 说明 |
+| --- | --- | --- |
+| `trace_settings.enabled` | `true` | 关闭后召回链路不再记录任何追踪信息 |
+| `trace_settings.max_records` | `50` | 进程内保留的最近追踪条数，`0` 表示关闭 |
+| `trace_settings.persist_enabled` | `false` | 开启后按天写入插件数据目录的 `recall_traces` 目录 |
+| `trace_settings.include_query_text` | `false` | 是否保存查询原文，默认只保存哈希 |
+| `trace_settings.max_file_mb` | `10` | 单个 JSONL 文件大小上限，达到后当天不再追加 |
+| `trace_settings.retention_days` | `7` | 追踪文件保留天数，过期文件在下次写入时清理 |
+
+开启 `persist_enabled` 后，追踪按天写入 `recall_traces` 目录；Page API 提供 `traces`、`traces/stats` 查询追踪，`memories` 血缘接口返回来源消息、取代链、图关联与命中该记忆的追踪。

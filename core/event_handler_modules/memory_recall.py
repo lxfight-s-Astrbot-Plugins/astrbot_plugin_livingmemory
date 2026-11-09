@@ -19,6 +19,7 @@ from ..memory_scope import (
     is_suspicious_session_id,
     resolve_event_memory_access,
 )
+from ..retrieval.recall_trace import trace_request_context
 from ..utils import (
     OperationContext,
     attach_profile_to_memory_injection,
@@ -242,22 +243,28 @@ class MemoryRecall:
                 )
 
                 channel_scope = recall_access.channel_scope
-                try:
-                    recalled_memories = await self.memory_engine.search_memories(
-                        query=query_for_search,
-                        k=self.config_manager.get("recall_engine.top_k", 5),
-                        session_id=recall_session_id,
-                        persona_id=recall_persona_id,
-                        extra_scopes=[channel_scope] if channel_scope else None,
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    # 记忆检索失败不影响用户档案注入与主流程。
-                    logger.warning(
-                        f"[{session_id}] 记忆检索失败（跳过记忆注入）", exc_info=True
-                    )
-                    recalled_memories = []
+                with trace_request_context(
+                    session_id=session_id,
+                    scope=recall_session_id,
+                    persona_id=recall_persona_id,
+                ) as request_trace:
+                    try:
+                        recalled_memories = await self.memory_engine.search_memories(
+                            query=query_for_search,
+                            k=self.config_manager.get("recall_engine.top_k", 5),
+                            session_id=recall_session_id,
+                            persona_id=recall_persona_id,
+                            extra_scopes=[channel_scope] if channel_scope else None,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        # 记忆检索失败不影响用户档案注入与主流程。
+                        logger.warning(
+                            f"[{session_id}] 记忆检索失败（跳过记忆注入）",
+                            exc_info=True,
+                        )
+                        recalled_memories = []
                 # 用户档案是固定短块：不占 top_k 名额，只计入追加的注入字符预算。
                 profile_text = await self._load_profile_injection_text(
                     recall_session_id, recall_persona_id
@@ -320,12 +327,16 @@ class MemoryRecall:
                     req.extra_user_content_parts.append(
                         TextPart(text=injection_text).mark_as_temp()
                     )
+                    self._record_injected_trace(
+                        request_trace, recalled_memories, memory_str
+                    )
                     logger.debug(
                         f"[{session_id}] 成功向用户消息末尾注入 "
                         f"{len(recalled_memories) if recalled_memories else 0} 条记忆"
                         f"；用户档案={'有' if profile_text else '无'}"
                     )
                 else:
+                    self._record_trace_note(request_trace, "no_results")
                     logger.debug(f"[{session_id}] 未找到相关记忆或用户档案")
 
         except asyncio.CancelledError:
@@ -366,6 +377,29 @@ class MemoryRecall:
         return format_profile_for_injection(
             profile.get("profile"), max_chars=manager.max_chars
         )
+
+    def _record_injected_trace(self, request_trace, memories, injected_text) -> None:
+        """把最终注入的记忆条数/字符数写回本次召回的 trace。"""
+        recorder = getattr(self.memory_engine, "trace_recorder", None)
+        trace_id = getattr(request_trace, "trace_id", None)
+        if recorder is None or not trace_id:
+            return
+        injected = [
+            {
+                "doc_id": getattr(memory, "doc_id", None),
+                "score": getattr(memory, "final_score", None),
+                "chars": len(str(getattr(memory, "content", "") or "")),
+            }
+            for memory in memories
+        ]
+        recorder.update_injected(trace_id, injected, len(injected_text or ""))
+
+    def _record_trace_note(self, request_trace, note: str) -> None:
+        """给本次召回的 trace 追加一条说明（无结果/未就绪等）。"""
+        recorder = getattr(self.memory_engine, "trace_recorder", None)
+        trace_id = getattr(request_trace, "trace_id", None)
+        if recorder is not None and trace_id:
+            recorder.add_note(trace_id, note)
 
     def _remove_agent_recall_policy_from_context(self, req: ProviderRequest) -> int:
         """移除本插件上一轮注入的自主回忆规则临时片段（重复钩子去重）。

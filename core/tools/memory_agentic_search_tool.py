@@ -17,6 +17,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
 from ..memory_scope import adapter_access, resolve_memory_scope
+from ..retrieval.recall_trace import trace_request_context
 from .agentic_recall_budget import (
     get_or_create_budget,
     run_within_budget,
@@ -272,17 +273,26 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             if channel_scope:
                 agentic_kwargs["extra_scopes"] = [channel_scope]
             try:
-                outcome, _, timed_out = await run_within_budget(
-                    budget,
-                    lambda: self.memory_engine.search_memories_agentic(
-                        **agentic_kwargs,
-                        identity_candidates=identity_candidates,
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                        exclude_ids=exclude_ids or [],
-                        cursor=search_offset or "",
+                with trace_request_context(
+                    session_id=event.unified_msg_origin,
+                    scope=recall_session_id,
+                    persona_id=recall_persona_id,
+                    agentic=True,
+                    budget_truncated=bool(
+                        budget.calls_exhausted or budget.time_exhausted
                     ),
-                )
+                ) as request_trace:
+                    outcome, _, timed_out = await run_within_budget(
+                        budget,
+                        lambda: self.memory_engine.search_memories_agentic(
+                            **agentic_kwargs,
+                            identity_candidates=identity_candidates,
+                            start_ts=start_ts,
+                            end_ts=end_ts,
+                            exclude_ids=exclude_ids or [],
+                            cursor=search_offset or "",
+                        ),
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -339,7 +349,7 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                     for memory in outcome.results:
                         evidence_by_id.setdefault(memory.doc_id, {"status": "timeout"})
 
-            return format_search_result(
+            output = format_search_result(
                 outcome,
                 query=cleaned_query,
                 target=normalized_target,
@@ -352,3 +362,21 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                 evidence_by_id=evidence_by_id,
                 include_source=include_source,
             )
+            self._record_tool_trace(request_trace, outcome.results, output)
+            return output
+
+    def _record_tool_trace(self, request_trace, results, output) -> None:
+        """把 Beta 工具返回的命中写回本次 agentic trace。"""
+        recorder = getattr(self.memory_engine, "trace_recorder", None)
+        trace_id = getattr(request_trace, "trace_id", None)
+        if recorder is None or not trace_id:
+            return
+        injected = [
+            {
+                "doc_id": getattr(memory, "doc_id", None),
+                "score": getattr(memory, "final_score", None),
+                "chars": len(str(getattr(memory, "content", "") or "")),
+            }
+            for memory in results
+        ]
+        recorder.update_injected(trace_id, injected, len(output or ""))

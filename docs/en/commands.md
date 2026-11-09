@@ -14,6 +14,7 @@ LivingMemory commands use the `/lmem` prefix.
 | `/lmem summarize [message_count]` | Summarize now; with a count, re-summarize the most recent N messages |
 | `/lmem reset` | Reset current session memory context |
 | `/lmem cleanup [preview\|exec]` | Clean old memory injection fragments from message history |
+| `/lmem trace [n\|id]` | Show recent recall trace summaries; pass a trace id for one detail (routes, rejection reasons, candidates, injected memories) |
 | `/lmem help` | Show help |
 
 ## Index maintenance states

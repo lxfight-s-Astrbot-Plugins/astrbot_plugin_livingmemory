@@ -609,6 +609,34 @@
         "description": "Pending candidate limit",
         "hint": "Low-confidence or evidence-less updates go to the pending list; oldest candidates are dropped beyond this limit. (1–500)"
       }
+    },
+    "trace_settings": {
+      "description": "Recall tracing",
+      "hint": "Record explainable traces of every memory recall (candidates, routes, rejection reasons, final injection) to debug why a memory was or was not recalled. In-memory ring buffer only; disk persistence is opt-in and query text is not stored by default.",
+      "enabled": {
+        "description": "Enable recall tracing",
+        "hint": "When disabled the recall path records nothing and behaves exactly as before."
+      },
+      "max_records": {
+        "description": "In-memory records",
+        "hint": "Number of recent traces kept in the in-process ring buffer; 0 disables the buffer. Oldest records are overwritten."
+      },
+      "persist_enabled": {
+        "description": "Persist as JSONL",
+        "hint": "Append one JSON object per line to recall_traces/YYYYMMDD.jsonl in the data directory. Disabled by default to avoid continuous disk writes."
+      },
+      "include_query_text": {
+        "description": "Store raw query text",
+        "hint": "By default only a query hash is stored; enabling this includes the user's raw query in traces, so enable it with privacy in mind."
+      },
+      "max_file_mb": {
+        "description": "Per-day file limit",
+        "hint": "New traces stop being appended to a JSONL file once it reaches this size."
+      },
+      "retention_days": {
+        "description": "Retention days",
+        "hint": "JSONL trace files older than this are cleaned up on the next write."
+      }
     }
   },
   "pages": {

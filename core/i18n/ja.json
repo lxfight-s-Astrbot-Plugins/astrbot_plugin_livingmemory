@@ -169,7 +169,7 @@
     "notice_exec": "AstrBot の会話履歴を更新し、記憶注入フラグメントを整理しました。"
   },
   "help": {
-    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem diag                 データ診断（DB/グラフ/バックアップ/サイズ）、diag compact で VACUUM\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• ディスク容量が厳しい場合は /lmem diag compact を実行\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem diag                 データ診断（DB/グラフ/バックアップ/サイズ）、diag compact で VACUUM\n/lmem trace [n|ID]        最近の召回トレースを表示。ID 指定で1件の詳細\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• ディスク容量が厳しい場合は /lmem diag compact を実行\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "プラグインの準備ができました。使用可能なコマンドは /lmem help で確認できます。",
@@ -179,5 +179,22 @@
   "command": {
     "not_ready": "コマンドハンドラの準備ができていないため、現在のコマンドは実行できません。\nまず /lmem status でプラグインの状態を確認してください。失敗が続く場合は初期化ログを確認してください。",
     "core_not_ready": "プラグインのコアコンポーネントが初期化されていません。\nまず /lmem status で初期化状態を確認してください。それでも失敗する場合は起動ログの例外スタックを確認してください。"
+  },
+  "trace": {
+    "action_name": "召回トレースの読み取り",
+    "disabled": "召回トレースは無効です。詳細設定で trace_settings.enabled を有効にしてください。",
+    "empty": "召回トレースの記録はまだありません。",
+    "header": "最近の召回トレース（{count} 件）：",
+    "item": "{index}. [{time}] id={id} セッション={session}\n   クエリハッシュ={query} | キャッシュ={cache} | ルート={routes}\n   候補={candidates} 注入={injected}件/{chars}文字 所要={duration}ms",
+    "cache_hit": "ヒット",
+    "cache_miss": "ミス",
+    "not_found": "トレースが見つかりません: {id}",
+    "error": "召回トレースの読み取りに失敗しました: {error}",
+    "detail_header": "召回トレース {id}\n時刻: {time}\nセッション: {session}\nクエリハッシュ: {query}\nキャッシュヒット: {cache}\n所要: {duration}ms\n候補: {candidates}",
+    "detail_route": "ルート {name}: 候補={candidates} ok={ok} {ms}ms{error}",
+    "detail_filters": "しきい値: min_similarity={min_similarity} min_importance={min_importance}\n除外理由: {rejected}",
+    "detail_candidate": "候補 #{doc_id}: スコア={score} bm25={bm25} vector={vector}",
+    "detail_injected": "注入: {count} 件 / {chars} 文字",
+    "detail_notes": "備考: {notes}"
   }
 }

@@ -26,6 +26,7 @@ from .page_api_modules import (
     RecallHandler,
     SettingsHandler,
     StatsHandler,
+    TraceHandler,
 )
 
 PLUGIN_NAME = "astrbot_plugin_livingmemory"
@@ -43,6 +44,7 @@ class PluginPageApi:
 
         # 初始化各个处理器
         self.stats_handler = StatsHandler(self.utils)
+        self.trace_handler = TraceHandler(self.utils)
         self.memory_handler = MemoryHandler(self.utils)
         self.recall_handler = RecallHandler(self.utils)
         self.graph_handler = GraphHandler(self.utils)
@@ -123,6 +125,25 @@ class PluginPageApi:
             "LivingMemory Page batch update memories",
         ),
         ("recall/test", "test_recall", ["POST"], "LivingMemory Page recall test"),
+        ("traces", "list_traces", ["GET"], "LivingMemory Page recall traces"),
+        (
+            "traces/stats",
+            "get_trace_stats",
+            ["GET"],
+            "LivingMemory Page recall trace statistics",
+        ),
+        (
+            "traces/<trace_id>",
+            "get_trace",
+            ["GET"],
+            "LivingMemory Page recall trace detail",
+        ),
+        (
+            "memories/<memory_id>/lineage",
+            "get_memory_lineage",
+            ["GET"],
+            "LivingMemory Page memory lineage",
+        ),
         (
             "graph/overview",
             "get_graph_overview",
@@ -360,6 +381,36 @@ class PluginPageApi:
     async def list_backups(self):
         """列出所有版本备份及其元数据"""
         return await self.backup_handler.list_backups()
+
+    # ---- 召回追踪与血缘路由 ----
+
+    async def list_traces(self):
+        """列出最近的召回追踪摘要。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.trace_handler.list_traces(ready["memory_engine"])
+
+    async def get_trace_stats(self):
+        """返回召回追踪聚合统计。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.trace_handler.get_trace_stats(ready["memory_engine"])
+
+    async def get_trace(self, trace_id: str = ""):
+        """返回单条召回追踪详情。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.trace_handler.get_trace(ready["memory_engine"], trace_id)
+
+    async def get_memory_lineage(self, memory_id: str = ""):
+        """返回单条记忆的血缘（来源/取代链/图关联/命中追踪）。"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.trace_handler.get_lineage(ready["memory_engine"], memory_id)
 
     # ---- Prompt 管理路由 ----
 

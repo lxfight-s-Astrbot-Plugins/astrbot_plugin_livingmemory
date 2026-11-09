@@ -13,6 +13,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..base.config_manager import ConfigManager
 from ..memory_scope import adapter_access, resolve_event_memory_access
+from ..retrieval.recall_trace import trace_request_context
 from .agentic_recall_common import json_result as _json_result
 
 
@@ -134,15 +135,21 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                 limited_k = max(1, min(requested_k_int, max_k))
 
                 channel_scope = access.channel_scope
-                search_kwargs: dict[str, Any] = {
-                    "query": cleaned_query,
-                    "k": limited_k,
-                    "session_id": recall_session_id,
-                    "persona_id": recall_persona_id,
-                }
-                if channel_scope:
-                    search_kwargs["extra_scopes"] = [channel_scope]
-                memories = await self.memory_engine.search_memories(**search_kwargs)
+                with trace_request_context(
+                    session_id=event.unified_msg_origin,
+                    scope=recall_session_id,
+                    persona_id=recall_persona_id,
+                    agentic=True,
+                ) as request_trace:
+                    search_kwargs: dict[str, Any] = {
+                        "query": cleaned_query,
+                        "k": limited_k,
+                        "session_id": recall_session_id,
+                        "persona_id": recall_persona_id,
+                    }
+                    if channel_scope:
+                        search_kwargs["extra_scopes"] = [channel_scope]
+                    memories = await self.memory_engine.search_memories(**search_kwargs)
 
                 serialized_results = []
                 for memory in memories:
@@ -167,17 +174,19 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                             item["source_messages"] = await get_source(memory.doc_id)
                     serialized_results.append(item)
 
-                return _json_result(
-                    {
-                        "query": cleaned_query,
-                        "applied_filters": {
-                            "session_filtered": session_filtered,
-                            "persona_filtered": use_persona_filtering,
-                        },
-                        "count": len(serialized_results),
-                        "results": serialized_results,
-                    }
+                payload = {
+                    "query": cleaned_query,
+                    "applied_filters": {
+                        "session_filtered": session_filtered,
+                        "persona_filtered": use_persona_filtering,
+                    },
+                    "count": len(serialized_results),
+                    "results": serialized_results,
+                }
+                self._record_tool_trace(
+                    request_trace, serialized_results, _json_result(payload)
                 )
+                return _json_result(payload)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -190,3 +199,19 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "error": "internal_error",
                 }
             )
+
+    def _record_tool_trace(self, request_trace, results, output) -> None:
+        """把 agent 工具返回的命中写回本次召回的 trace（agentic=true）。"""
+        recorder = getattr(self.memory_engine, "trace_recorder", None)
+        trace_id = getattr(request_trace, "trace_id", None)
+        if recorder is None or not trace_id:
+            return
+        injected = [
+            {
+                "doc_id": item.get("id"),
+                "score": item.get("score"),
+                "chars": len(str(item.get("content") or "")),
+            }
+            for item in results
+        ]
+        recorder.update_injected(trace_id, injected, len(output or ""))

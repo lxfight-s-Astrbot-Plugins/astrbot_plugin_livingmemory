@@ -11,6 +11,7 @@ from .prompt_handler import PromptHandler
 from .recall_handler import RecallHandler
 from .settings_handler import SettingsHandler
 from .stats_handler import StatsHandler
+from .trace_handler import TraceHandler
 from .utils import PageApiUtils
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "PromptHandler",
     "ProfileHandler",
     "ConsolidationHandler",
+    "TraceHandler",
     "PageApiUtils",
 ]

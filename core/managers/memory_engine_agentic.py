@@ -15,6 +15,7 @@ from ..memory_scope import (
 )
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.recall_diagnostics import all_routes_failed, merge_route
+from ..retrieval.recall_trace import current_trace_context, snapshot_candidates
 from ..retrieval.route_execution import search_route
 from ..retrieval.rrf_fusion import BM25Result, VectorResult
 from ..retrieval.vector_search import (
@@ -44,6 +45,89 @@ _TIME_SQL = (
 
 class MemoryEngineAgenticMixin:
     async def search_memories_agentic(
+        self,
+        *,
+        target="conversation",
+        query="",
+        k=5,
+        session_id=None,
+        persona_id=None,
+        extra_scopes: list[str] | None = None,
+        identity_key=None,
+        identity_candidates=None,
+        start_ts=None,
+        end_ts=None,
+        exclude_ids=None,
+        cursor="",
+    ) -> AgenticRecallOutcome:
+        """Beta 自主检索入口；开启召回追踪时记录一次 agentic trace。
+
+        Args:
+            target: ``conversation`` 或 ``current_speaker``。
+            query: 查询文本。
+            k: 返回条数。
+            session_id: 会话作用域。
+            persona_id: 人格过滤。
+            identity_key: 当前说话人稳定身份键。
+            identity_candidates: 身份候选值。
+            start_ts: 来源时间下界。
+            end_ts: 来源时间上界。
+            exclude_ids: 需要排除的记忆 id。
+            cursor: 人物回忆分页游标。
+
+        Returns:
+            ``AgenticRecallOutcome``；失败时由内部转换为错误状态。
+        """
+        recorder = getattr(self, "trace_recorder", None)
+        trace = None
+        if recorder is not None and recorder.enabled:
+            trace = self._begin_recall_trace(
+                recorder, str(query or ""), session_id, persona_id
+            )
+            if trace is not None:
+                trace.agentic = True
+                context = current_trace_context()
+                if context is not None and context.budget_truncated:
+                    trace.budget_truncated = True
+        try:
+            outcome = await self._search_memories_agentic_impl(
+                target=target,
+                query=query,
+                k=k,
+                session_id=session_id,
+                persona_id=persona_id,
+                extra_scopes=extra_scopes,
+                identity_key=identity_key,
+                identity_candidates=identity_candidates,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                exclude_ids=exclude_ids,
+                cursor=cursor,
+            )
+        except asyncio.CancelledError:
+            if trace is not None and recorder is not None:
+                trace.notes.append("cancelled")
+                recorder.commit(trace)
+            raise
+        if trace is not None and recorder is not None:
+            failed = outcome.status == "error"
+            recorder.route(
+                trace,
+                "agentic",
+                candidates=len(outcome.results),
+                ok=not failed,
+                error=outcome.message[:120] if failed else None,
+            )
+            trace.candidates = snapshot_candidates(outcome.results)
+            trace.notes.append(f"agentic_status:{outcome.status}")
+            if outcome.partial:
+                trace.notes.append("partial")
+            if outcome.has_more:
+                trace.notes.append("has_more")
+            recorder.commit(trace)
+        return outcome
+
+    async def _search_memories_agentic_impl(
         self,
         *,
         target="conversation",

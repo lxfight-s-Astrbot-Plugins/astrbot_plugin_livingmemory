@@ -234,6 +234,21 @@ class MemoryDedupConfig(BaseModel):
     max_source_messages: int = Field(default=50, ge=1, le=500)
 
 
+class TraceSettings(BaseModel):
+    """请求级召回追踪配置。
+
+    追踪只记录召回决策（候选、路由、过滤原因、最终注入），默认关闭落盘且
+    不保存查询原文，避免向磁盘写入用户内容。
+    """
+
+    enabled: bool = True
+    max_records: int = Field(default=50, ge=0, le=1000)
+    persist_enabled: bool = False
+    include_query_text: bool = False
+    max_file_mb: int = Field(default=10, ge=1, le=1024)
+    retention_days: int = Field(default=7, ge=1, le=365)
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -267,6 +282,7 @@ class LivingMemoryConfig(BaseModel):
     profile_settings: ProfileSettingsConfig = Field(
         default_factory=ProfileSettingsConfig
     )
+    trace_settings: TraceSettings = Field(default_factory=TraceSettings)
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
 

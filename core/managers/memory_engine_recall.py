@@ -26,6 +26,7 @@ from ..memory_scope import (
 )
 from ..memory_transfer import memory_import_key
 from ..retrieval.hybrid_retriever import HybridResult
+from ..retrieval.recall_trace import current_trace_context, snapshot_candidates
 from ..retrieval.route_execution import search_route
 from ..retrieval.vector_search import query_embeddings, retrieve_documents
 from ..utils.json_utils import safe_json_dict
@@ -99,10 +100,85 @@ class MemoryEngineRecallMixin:
         channel_scopes = [
             scope for scope in extra_scope_values if is_channel_scope(scope)
         ]
+        recorder = getattr(self, "trace_recorder", None)
+        trace = None
+        rejected: dict[str, int] | None = None
+        if recorder is not None and recorder.enabled:
+            trace = self._begin_recall_trace(recorder, query, scope_filter, persona_id)
+            rejected = {}
+        try:
+            return await self._search_memories_impl(
+                query,
+                k,
+                scope_filter,
+                persona_id,
+                channel_scopes,
+                recorder,
+                trace,
+                rejected,
+            )
+        except asyncio.CancelledError:
+            if trace is not None and recorder is not None:
+                trace.notes.append("cancelled")
+                recorder.commit(trace)
+            raise
+        except Exception as exc:
+            if trace is not None and recorder is not None:
+                trace.error = f"{type(exc).__name__}: {exc}"[:300]
+                recorder.commit(trace)
+            raise
+
+    def _begin_recall_trace(
+        self,
+        recorder,
+        query: str,
+        scope_filter: str | list[str] | None,
+        persona_id: str | None,
+    ):
+        """为一次召回创建 draft trace，并把 trace_id 写回请求上下文。"""
+        context = current_trace_context()
+        access = current_adapter_access.get()
+        trace = recorder.begin(
+            query=query,
+            session_id=context.session_id if context is not None else None,
+            scope=scope_filter if isinstance(scope_filter, str) else None,
+            persona_id=persona_id
+            or (context.persona_id if context is not None else None),
+            adapter_id=getattr(access, "adapter_id", None)
+            if access is not None
+            else None,
+            agentic=bool(context.agentic) if context is not None else False,
+            budget_truncated=bool(context.budget_truncated)
+            if context is not None
+            else False,
+        )
+        if trace is not None and context is not None:
+            context.trace_id = trace.trace_id
+        return trace
+
+    async def _search_memories_impl(
+        self,
+        query: str,
+        k: int,
+        scope_filter: str | list[str] | None,
+        persona_id: str | None,
+        channel_scopes: list[str],
+        recorder,
+        trace,
+        rejected: dict[str, int] | None,
+    ) -> list[HybridResult]:
+        """召回主流程；trace 为 None 时只多一次布尔判断。"""
+        trace_active = trace is not None and recorder is not None
         cache_key = self._search_cache_key(query, k, scope_filter, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
+            if trace_active:
+                trace.cache_hit = True
+                recorder.route(trace, "cache", candidates=len(cached_results))
+            atom_before = len(cached_results)
             cached_results = await self._apply_atom_policy(cached_results)
+            if trace_active:
+                self._note_atom_filter(trace, atom_before, len(cached_results))
             await self._update_access_times_internal(
                 [result.doc_id for result in cached_results],
                 [
@@ -111,42 +187,69 @@ class MemoryEngineRecallMixin:
                     for atom_id in result.metadata.get("retrieved_atom_ids", [])
                 ],
             )
+            if trace_active:
+                self._finalize_recall_trace(recorder, trace, cached_results)
             return cached_results
 
         # 旧会话数据迁移：仅当库里仍有旧格式 session_id 数据、且当前会话尚未
         # 迁移过时才调度后台任务；迁移完成后由进程内缓存短路，热路径不再查库。
+        migration_scope = scope_filter if isinstance(scope_filter, str) else None
         if (
-            session_id
-            and ":" in session_id
-            and not session_id.startswith("livingmemory:")
-            and await self._runtime_session_migration_needed(session_id)
+            migration_scope
+            and ":" in migration_scope
+            and not migration_scope.startswith("livingmemory:")
+            and await self._runtime_session_migration_needed(migration_scope)
         ):
-            self._schedule_runtime_session_migration(session_id)
+            self._schedule_runtime_session_migration(migration_scope)
 
         # 【关键修改】不再提取UUID，直接使用完整的unified_msg_origin进行匹配
         # 因为现在数据库中存储的就是完整格式
         # session_id 和 persona_id 保持原样传递给检索器
 
         # 执行混合检索 / 双路检索
+        diagnostics: dict[str, Any] | None = {} if trace_active else None
         if self.dual_route_retriever is not None:
             results = await self.dual_route_retriever.search(
                 query,
                 k,
                 scope_filter,
                 persona_id,
+                diagnostics=diagnostics,
             )
+            if trace_active:
+                self._record_route_diagnostics(recorder, trace, diagnostics)
         else:
             if self.hybrid_retriever is None:
                 raise RuntimeError("混合检索器未初始化")
+            hybrid_started = time.perf_counter()
             results = await self.hybrid_retriever.search(
                 query, k, scope_filter, persona_id
             )
+            if trace_active:
+                recorder.route(
+                    trace,
+                    "hybrid",
+                    candidates=len(results),
+                    ms=(time.perf_counter() - hybrid_started) * 1000.0,
+                )
 
         if self.atom_retriever is not None:
-            atom_results, _ = await search_route(
+            atoms_started = time.perf_counter()
+            atom_results, atom_error = await search_route(
                 "atoms",
                 self.atom_retriever.search(query, k * 2, scope_filter, persona_id),
             )
+            if trace_active:
+                recorder.route(
+                    trace,
+                    "atoms",
+                    candidates=len(atom_results),
+                    ok=atom_error is None,
+                    error=None if atom_error is None else type(atom_error).__name__,
+                    ms=(time.perf_counter() - atoms_started) * 1000.0,
+                )
+                if atom_error is not None:
+                    trace.notes.append("atom_route_failed")
             existing_ids = {result.doc_id for result in results}
             scores = {}
             for atom in atom_results:
@@ -185,7 +288,11 @@ class MemoryEngineRecallMixin:
                     )
                 results.sort(key=lambda result: result.final_score, reverse=True)
 
+        atom_before = len(results)
         results = await self._apply_atom_policy(results)
+        if trace_active:
+            self._note_atom_filter(trace, atom_before, len(results))
+        policy_before = len(results)
         results = self._filter_by_retrieval_policy(
             results,
             archived_scopes=(
@@ -193,14 +300,20 @@ class MemoryEngineRecallMixin:
                 if channel_scopes and self.config.get("channel_include_archived")
                 else None
             ),
+            rejected=rejected,
         )
+        if trace_active:
+            self._record_filter_summary(trace, rejected, policy_before, len(results))
         resolved_ids = {result.doc_id for result in results}
+        recent_before = len(results)
         results = await self._merge_recent_memories(
             results,
             k,
             scope_filter,
             persona_id,
         )
+        if trace_active and len(results) > recent_before:
+            trace.notes.append(f"recent_filled:{len(results) - recent_before}")
         # 只对合并进来的新候选做原子策略解析，避免重复查询已解析的文档
         results = await self._apply_atom_policy(results, skip_doc_ids=resolved_ids)
         # 频道联合召回：保证 user/channel 各自的最小保底槽位后按分数补满。
@@ -222,7 +335,66 @@ class MemoryEngineRecallMixin:
             )
 
         self._set_cached_search_results(cache_key, results)
+        if trace_active:
+            self._finalize_recall_trace(recorder, trace, results)
         return results
+
+    def _note_atom_filter(self, trace, before: int, after: int) -> None:
+        """记录原子生命周期过滤移除的候选数。"""
+        removed = max(0, int(before) - int(after))
+        if removed <= 0:
+            return
+        trace.notes.append(f"atom_filter:{removed}")
+        rejected = trace.filters.setdefault("rejected", {})
+        rejected["atom_expired"] = rejected.get("atom_expired", 0) + removed
+
+    def _record_filter_summary(
+        self,
+        trace,
+        rejected: dict[str, int] | None,
+        before: int,
+        after: int,
+    ) -> None:
+        """记录检索策略阈值与各拒绝原因计数。"""
+        trace.filters = {
+            "min_similarity": clamp_float(
+                self.config.get("min_similarity_for_retrieval"), default=0.0
+            ),
+            "min_importance": clamp_float(
+                self.config.get("min_importance_for_retrieval"), default=0.0
+            ),
+            "memory_type": str(self.config.get("memory_type_filter", "all")),
+            "candidates": int(before),
+            "kept": int(after),
+            "rejected": dict(rejected or {}),
+        }
+
+    def _record_route_diagnostics(
+        self, recorder, trace, diagnostics: dict[str, Any] | None
+    ) -> None:
+        """把双路检索返回的路线细节写进 trace。"""
+        payload = diagnostics or {}
+        routes = payload.get("routes") or {}
+        errors = payload.get("route_errors") or {}
+        details = payload.get("route_details") or {}
+        for name in ("document", "graph"):
+            detail = details.get(name)
+            detail = detail if isinstance(detail, dict) else {}
+            recorder.route(
+                trace,
+                name,
+                candidates=int(detail.get("candidates") or 0),
+                ok=bool(routes.get(name, True)),
+                error=errors.get(name),
+                ms=float(detail.get("ms") or 0.0),
+            )
+        if payload.get("candidate_limited"):
+            trace.notes.append("candidate_limited")
+
+    def _finalize_recall_trace(self, recorder, trace, results) -> None:
+        """写入候选快照并提交 trace。"""
+        trace.candidates = snapshot_candidates(results)
+        recorder.commit(trace)
 
     async def _apply_atom_policy(self, results, skip_doc_ids: set[int] | None = None):
         """Resolve atom-backed recall content from current lifecycle state.
@@ -825,7 +997,17 @@ class MemoryEngineRecallMixin:
         results: list[HybridResult],
         *,
         archived_scopes: set[str] | None = None,
+        rejected: dict[str, int] | None = None,
     ) -> list[HybridResult]:
+        """过滤不可召回候选，可选把拒绝原因计数写入 ``rejected``。
+
+        Args:
+            results: 候选列表。
+            rejected: 可选的拒绝计数容器；命中时按 reason 累加，供召回 trace 使用。
+
+        Returns:
+            通过检索策略的候选列表。
+        """
         importance_threshold = clamp_float(
             self.config.get("min_importance_for_retrieval"), default=0.0
         )
@@ -844,16 +1026,22 @@ class MemoryEngineRecallMixin:
             if status != "active" and not (
                 archived_scopes and metadata.get("session_id") in archived_scopes
             ):
+                if rejected is not None:
+                    rejected["status"] = rejected.get("status", 0) + 1
                 continue
             # 被新总结取代的旧记忆只保留在存储中供审计，不再参与任何召回
             # （显式 /lmem search 与自动注入共用本过滤）。
             if metadata.get("superseded_by") is not None:
+                if rejected is not None:
+                    rejected["superseded"] = rejected.get("superseded", 0) + 1
                 continue
             if (
                 importance_threshold > 0
                 and clamp_float(metadata.get("importance"), default=0.5)
                 < importance_threshold
             ):
+                if rejected is not None:
+                    rejected["importance"] = rejected.get("importance", 0) + 1
                 continue
 
             signals: list[float] = []
@@ -870,12 +1058,16 @@ class MemoryEngineRecallMixin:
                 and signals
                 and max(signals) < similarity_threshold
             ):
+                if rejected is not None:
+                    rejected["similarity"] = rejected.get("similarity", 0) + 1
                 continue
 
             atom_types = metadata.get("atom_types")
             if event_only and isinstance(atom_types, list) and atom_types:
                 normalized_types = {str(value).casefold() for value in atom_types}
                 if normalized_types.isdisjoint(event_atom_types):
+                    if rejected is not None:
+                        rejected["memory_type"] = rejected.get("memory_type", 0) + 1
                     continue
             filtered.append(result)
         return filtered

@@ -7,6 +7,7 @@ import os
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
@@ -25,6 +26,7 @@ from .memory_scope import (
     resolve_user_memory_scope,
 )
 from .memory_source import serialize_source_messages
+from .retrieval.recall_trace import trace_request_context
 from .validators.index_maintenance import IndexValidator
 
 
@@ -272,6 +274,139 @@ class CommandHandler:
                 )
             )
 
+    async def handle_trace(
+        self, event: AstrMessageEvent, arg: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem trace 命令：查看最近召回追踪或单条追踪详情。"""
+        recorder = getattr(self.memory_engine, "trace_recorder", None)
+        if recorder is None or not recorder.enabled:
+            yield event.plain_result(t("trace.disabled"))
+            return
+
+        argument = (arg or "").strip()
+        try:
+            if not argument:
+                yield event.plain_result(self._format_trace_list(recorder, 5))
+                return
+            if argument.isdigit():
+                count = max(1, min(int(argument), 50))
+                yield event.plain_result(self._format_trace_list(recorder, count))
+                return
+            detail = recorder.get(argument)
+            if detail is None:
+                yield event.plain_result(t("trace.not_found", id=argument))
+                return
+            yield event.plain_result(self._format_trace_detail(detail))
+        except Exception as e:
+            logger.error(f"读取召回追踪失败: {e}", exc_info=True)
+            yield event.plain_result(t("trace.error", error=e))
+
+    @staticmethod
+    def _format_trace_time(timestamp: Any) -> str:
+        """把 unix 时间戳格式化成命令展示用的本地时间。"""
+        try:
+            return datetime.fromtimestamp(float(timestamp)).strftime("%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OSError):
+            return "-"
+
+    def _format_trace_list(self, recorder, count: int) -> str:
+        """格式化最近召回追踪列表。"""
+        rows = recorder.recent(count)
+        if not rows:
+            return t("trace.empty")
+        lines = [t("trace.header", count=len(rows))]
+        for index, row in enumerate(rows, 1):
+            routes = row.get("routes") or {}
+            route_text = ",".join(
+                f"{name}:{int(info.get('candidates') or 0)}"
+                for name, info in routes.items()
+            )
+            lines.append(
+                t(
+                    "trace.item",
+                    index=index,
+                    id=row.get("id"),
+                    time=self._format_trace_time(row.get("ts")),
+                    session=row.get("session_id") or "-",
+                    query=row.get("query_hash") or "-",
+                    cache=t("trace.cache_hit")
+                    if row.get("cache_hit")
+                    else t("trace.cache_miss"),
+                    routes=route_text or "-",
+                    candidates=int(row.get("candidates") or 0),
+                    injected=int(row.get("injected") or 0),
+                    chars=int(row.get("injected_chars") or 0),
+                    duration=row.get("duration_ms") or 0,
+                )
+            )
+        return "\n".join(lines)
+
+    def _format_trace_detail(self, detail: dict[str, Any]) -> str:
+        """格式化单条召回追踪详情：路由、过滤原因、候选与注入。"""
+        lines = [
+            t(
+                "trace.detail_header",
+                id=detail.get("id"),
+                time=self._format_trace_time(detail.get("ts")),
+                session=detail.get("session_id") or "-",
+                query=detail.get("query_hash") or "-",
+                cache=t("trace.cache_hit")
+                if detail.get("cache_hit")
+                else t("trace.cache_miss"),
+                duration=detail.get("duration_ms") or 0,
+                candidates=len(detail.get("candidates") or []),
+            )
+        ]
+        for name, route in (detail.get("routes") or {}).items():
+            error = route.get("error")
+            lines.append(
+                t(
+                    "trace.detail_route",
+                    name=name,
+                    candidates=int(route.get("candidates") or 0),
+                    ok=bool(route.get("ok")),
+                    ms=route.get("ms") or 0,
+                    error=f" error={error}" if error else "",
+                )
+            )
+        filters = detail.get("filters") or {}
+        rejected = filters.get("rejected") or {}
+        rejected_text = ",".join(
+            f"{reason}:{int(value)}" for reason, value in rejected.items()
+        )
+        lines.append(
+            t(
+                "trace.detail_filters",
+                min_similarity=filters.get("min_similarity", 0.0),
+                min_importance=filters.get("min_importance", 0.0),
+                rejected=rejected_text or "-",
+            )
+        )
+        for candidate in (detail.get("candidates") or [])[:5]:
+            lines.append(
+                t(
+                    "trace.detail_candidate",
+                    doc_id=candidate.get("doc_id"),
+                    score=candidate.get("final_score"),
+                    bm25=candidate.get("bm25"),
+                    vector=candidate.get("vector"),
+                )
+            )
+        injected = detail.get("injected") or []
+        lines.append(
+            t(
+                "trace.detail_injected",
+                count=len(injected),
+                chars=int(detail.get("injected_chars") or 0),
+            )
+        )
+        notes = detail.get("notes") or []
+        if notes:
+            lines.append(t("trace.detail_notes", notes="; ".join(notes)))
+        if detail.get("error"):
+            lines.append(t("trace.error", error=detail.get("error")))
+        return "\n".join(lines)
+
     async def handle_search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -294,12 +429,17 @@ class CommandHandler:
             return
 
         try:
-            results = await self.memory_engine.search_memories(
-                query=query.strip(),
-                k=k,
-                session_id=access.scope,
+            with trace_request_context(
+                session_id=event.unified_msg_origin,
+                scope=access.scope,
                 persona_id=access.persona_id,
-            )
+            ):
+                results = await self.memory_engine.search_memories(
+                    query=query.strip(),
+                    k=k,
+                    session_id=access.scope,
+                    persona_id=access.persona_id,
+                )
 
             if not results:
                 yield event.plain_result(t("search.no_results", query=query))

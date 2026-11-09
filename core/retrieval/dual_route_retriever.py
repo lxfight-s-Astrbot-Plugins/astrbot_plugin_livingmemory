@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -67,17 +68,17 @@ class DualRouteRetriever:
             graph_options["relevance_only"] = True
         try:
             (
-                (doc_results, doc_error),
-                (graph_results, graph_error),
+                (doc_results, doc_error, doc_ms),
+                (graph_results, graph_error, graph_ms),
             ) = await asyncio.gather(
-                search_route(
+                self._timed_route(
                     "document",
                     self.document_retriever.search(
                         query, max(k * 2, k), session_id, persona_id, **doc_options
                     ),
                     timeout,
                 ),
-                search_route(
+                self._timed_route(
                     "graph",
                     self.graph_retriever.search(
                         query, max(k * 2, k), session_id, persona_id, **graph_options
@@ -85,8 +86,20 @@ class DualRouteRetriever:
                     timeout,
                 ),
             )
-            merge_route(diagnostics, "document", doc_diagnostics, doc_error)
-            merge_route(diagnostics, "graph", graph_diagnostics, graph_error)
+            merge_route(
+                diagnostics,
+                "document",
+                doc_diagnostics,
+                doc_error,
+                details={"candidates": len(doc_results), "ms": doc_ms},
+            )
+            merge_route(
+                diagnostics,
+                "graph",
+                graph_diagnostics,
+                graph_error,
+                details={"candidates": len(graph_results), "ms": graph_ms},
+            )
         finally:
             if token is not None:
                 query_embeddings.reset(token)
@@ -313,6 +326,21 @@ class DualRouteRetriever:
             if len(merged_results) > k:
                 diagnostics["candidate_limited"] = True
         return final
+
+    async def _timed_route(self, name: str, awaitable, timeout: float):
+        """Run one route through ``search_route`` and measure its latency.
+
+        Args:
+            name: Route name used in diagnostics.
+            awaitable: Coroutine performing the route search.
+            timeout: Route timeout in seconds.
+
+        Returns:
+            ``(results, error, elapsed_ms)``.
+        """
+        started = time.perf_counter()
+        results, error = await search_route(name, awaitable, timeout)
+        return results, error, (time.perf_counter() - started) * 1000.0
 
     def _route_weights_for_query(self, query: str) -> tuple[float, float, str]:
         """Adjust document/graph weights with lightweight query intent rules."""

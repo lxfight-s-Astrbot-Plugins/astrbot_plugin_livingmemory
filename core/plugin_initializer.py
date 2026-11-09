@@ -649,6 +649,14 @@ class PluginInitializer(InitializerFaissMixin):
             "profile_min_confidence": get("profile_settings.min_confidence", 0.6),
             "profile_history_limit": get("profile_settings.history_limit", 20),
             "profile_max_pending": get("profile_settings.max_pending", 50),
+            "trace_settings": {
+                "enabled": get("trace_settings.enabled", True),
+                "max_records": get("trace_settings.max_records", 50),
+                "persist_enabled": get("trace_settings.persist_enabled", False),
+                "include_query_text": get("trace_settings.include_query_text", False),
+                "max_file_mb": get("trace_settings.max_file_mb", 10),
+                "retention_days": get("trace_settings.retention_days", 7),
+            },
         }
 
     async def _init_conversation_layer(self, storage: dict[str, Any]) -> None:
