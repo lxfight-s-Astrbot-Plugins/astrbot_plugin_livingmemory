@@ -47,7 +47,8 @@ async def test_ensure_initialized_timeout(initializer):
 @pytest.mark.asyncio
 async def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path):
     class DummyEmbeddingProvider:
-        pass
+        def get_dim(self):
+            return 768
 
     class DummyProvider:
         pass
@@ -298,7 +299,8 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     created_vec_dbs = []
 
     class DummyEmbeddingProvider:
-        pass
+        def get_dim(self):
+            return 768
 
     class DummyProvider:
         pass
@@ -436,7 +438,6 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     )
     init.embedding_provider = DummyEmbeddingProvider()
     init.llm_provider = DummyProvider()
-    init._check_and_fix_dimension_mismatch = AsyncMock()
     init._repair_message_counts = AsyncMock()
     init._auto_rebuild_index_if_needed = AsyncMock()
 
@@ -467,7 +468,8 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
     created_vec_dbs = []
 
     class DummyEmbeddingProvider:
-        pass
+        def get_dim(self):
+            return 768
 
     class DummyProvider:
         pass
@@ -592,7 +594,6 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
     )
     init.embedding_provider = DummyEmbeddingProvider()
     init.llm_provider = DummyProvider()
-    init._check_and_fix_dimension_mismatch = AsyncMock()
     init._repair_message_counts = AsyncMock()
     init._auto_rebuild_index_if_needed = AsyncMock()
 
@@ -602,7 +603,7 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
     assert init.graph_db is None
     assert init.memory_engine.graph_vector_db is None
     assert init.memory_engine.config["graph_memory_enabled"] is False
-    init._check_and_fix_dimension_mismatch.assert_awaited_once()
+    assert init._graph_index_requires_rebuild is False
 
 
 @pytest.mark.asyncio
@@ -714,3 +715,75 @@ async def test_teardown_partial_init_closes_orphan_graph_db(initializer):
     db.close.assert_awaited_once()
     assert initializer.graph_db is None
     assert initializer.db is None
+
+
+class _DimProvider:
+    """Minimal embedding provider stub exposing only the dimension."""
+
+    def __init__(self, dimension: int):
+        self._dimension = dimension
+
+    def get_dim(self) -> int:
+        return self._dimension
+
+
+@pytest.mark.asyncio
+async def test_open_faiss_db_constructs_off_event_loop(
+    monkeypatch, initializer, tmp_path
+):
+    """索引整文件读取/数据库构造必须在线程池执行，不能阻塞事件循环。"""
+    created = []
+
+    class FakeFaissVecDB:
+        def __init__(self, doc_path, index_path, embedding_provider):
+            created.append((doc_path, index_path))
+            self.embedding_storage = SimpleNamespace(index=None)
+
+        async def initialize(self):
+            return None
+
+    calls = []
+    real_to_thread = asyncio.to_thread
+
+    async def spy_to_thread(func, *args, **kwargs):
+        calls.append(func)
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(faiss_mod.asyncio, "to_thread", spy_to_thread)
+    initializer.embedding_provider = _DimProvider(768)
+
+    vec_db, index_rebuilt = await initializer._open_faiss_db(
+        FakeFaissVecDB, tmp_path / "docs.db", tmp_path / "livingmemory.index"
+    )
+
+    assert isinstance(vec_db, FakeFaissVecDB)
+    assert index_rebuilt is False
+    assert len(created) == 1
+    assert calls == [FakeFaissVecDB]
+
+
+@pytest.mark.asyncio
+async def test_open_faiss_db_rebuilds_on_dimension_mismatch(initializer, tmp_path):
+    """索引维度与当前 Provider 不一致时删除旧文件并用空索引重建。"""
+    index_path = tmp_path / "livingmemory.index"
+    index_path.write_bytes(b"stale-index")
+    created = []
+
+    class FakeFaissVecDB:
+        def __init__(self, doc_path, index_path_arg, embedding_provider):
+            self.embedding_storage = SimpleNamespace(index=SimpleNamespace(d=4))
+            created.append(self)
+
+        async def initialize(self):
+            return None
+
+    initializer.embedding_provider = _DimProvider(8)
+
+    vec_db, index_rebuilt = await initializer._open_faiss_db(
+        FakeFaissVecDB, tmp_path / "docs.db", index_path
+    )
+
+    assert isinstance(vec_db, FakeFaissVecDB)
+    assert index_rebuilt is True
+    assert len(created) == 2
+    assert not index_path.exists()

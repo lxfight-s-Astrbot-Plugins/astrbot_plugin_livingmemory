@@ -6,7 +6,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 
@@ -23,14 +23,34 @@ from ..core.models.memory_atom import (
 from ..core.utils.json_utils import safe_json_dict
 from .sqlite_connection import open_connection
 
+if TYPE_CHECKING:
+    from ..core.processors.text_processor import TextProcessor
+
 
 class AtomStore:
     """Persist memory atoms with FTS search support."""
 
     _SQLITE_BATCH_SIZE = 500
+    # FTS 内容格式：raw=源文本原样（unicode61 会把连续中文当成单 token），
+    # tokenized=与查询共用 TextProcessor 分词后的空格分隔文本。
+    _FTS_FORMAT_RAW = "raw"
+    _FTS_FORMAT_TOKENIZED = "tokenized"
+    _FTS_STATE_TABLE = "atom_store_fts_state"
 
-    def __init__(self, db_path: str):
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        cache_reads: bool = False,
+        text_processor: TextProcessor | None = None,
+    ):
         self.db_path = db_path
+        # 召回链路每次查询都建连 + PRAGMA 会在并发下被 WAL 锁串行化；长生命
+        # 周期实例（MemoryEngine）复用一条只读连接，写路径仍按操作独立建连。
+        self._cache_reads = cache_reads
+        # 写入与查询共用同一分词器，中文整句才能命中分词后的原子内容。
+        self._text_processor = text_processor
+        self._read_conn: aiosqlite.Connection | None = None
 
     @asynccontextmanager
     async def _connect(self):
@@ -39,6 +59,45 @@ class AtomStore:
             yield db
         finally:
             await db.close()
+
+    @asynccontextmanager
+    async def _read_connect(self):
+        """复用长期只读连接；未开启缓存时退回按操作建连。"""
+        if not self._cache_reads:
+            async with self._connect() as db:
+                yield db
+            return
+        if self._read_conn is None:
+            self._read_conn = await open_connection(self.db_path)
+        yield self._read_conn
+
+    async def close(self) -> None:
+        """关闭复用的只读连接（插件卸载 / 重新初始化前调用，幂等）。"""
+        if self._read_conn is not None:
+            await self._read_conn.close()
+            self._read_conn = None
+
+    def _fts_format(self) -> str:
+        return (
+            self._FTS_FORMAT_TOKENIZED
+            if self._text_processor is not None
+            else self._FTS_FORMAT_RAW
+        )
+
+    async def _fts_content(self, content: str) -> str:
+        """Tokenize text for the FTS index with the query tokenizer."""
+        if self._text_processor is None:
+            return content
+        tokens = await self._text_processor.tokenize_async(
+            content, remove_stopwords=True
+        )
+        return " ".join(tokens)
+
+    async def _query_tokens(self, query: str) -> list[str]:
+        """Tokenize a search query exactly like indexed atom content."""
+        if self._text_processor is None:
+            return [token for token in query.strip().split() if token]
+        return await self._text_processor.tokenize_async(query, remove_stopwords=True)
 
     @staticmethod
     def _now_iso() -> str:
@@ -112,22 +171,76 @@ class AtomStore:
                 USING fts5(content, atom_id UNINDEXED, tokenize='unicode61')
                 """
             )
-            # FTS 表是后加能力：旧库里的存量原子没有对应 FTS 行，部分原子会
-            # 永远检索不到（且非空结果不会触发 LIKE 兜底）。启动时按源表回填。
+            await db.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._FTS_STATE_TABLE} (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            # FTS 表是后加能力：旧库存量原子没有对应 FTS 行，且历史格式是
+            # 源文本原样写入。这里按当前分词格式与「非 forgotten」原子对账。
+            await self._sync_fts_index(db)
+            await db.commit()
+
+    async def _sync_fts_index(self, db: aiosqlite.Connection) -> None:
+        """Rebuild or repair the atom FTS index without resurrecting forgotten atoms.
+
+        Args:
+            db: Connection opened by ``initialize()``.
+        """
+        expected_format = self._fts_format()
+        cursor = await db.execute(
+            f"SELECT value FROM {self._FTS_STATE_TABLE} WHERE key = 'fts_format'"
+        )
+        row = await cursor.fetchone()
+        stored_format = row[0] if row else None
+        # forgotten 原子会被 forget_expired_atoms 有意移出 FTS，不能计入期望行数，
+        # 否则每次启动都会误判不一致并全量重建（并把 forgotten 原子写回索引）。
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM memory_atoms WHERE status != ?",
+            (AtomStatus.FORGOTTEN.value,),
+        )
+        expected_count = int((await cursor.fetchone())[0])
+
+        if stored_format == expected_format:
             cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms_fts")
             fts_count = int((await cursor.fetchone())[0])
-            cursor = await db.execute("SELECT COUNT(*) FROM memory_atoms")
-            atom_count = int((await cursor.fetchone())[0])
-            if fts_count != atom_count:
-                await db.execute("DELETE FROM memory_atoms_fts")
-                await db.execute(
-                    "INSERT INTO memory_atoms_fts(atom_id, content) "
-                    "SELECT id, content FROM memory_atoms"
+            if fts_count == expected_count:
+                return
+            logger.info(
+                f"[AtomStore] 原子 FTS 索引不一致（{fts_count}/{expected_count}），"
+                "已按源表回填"
+            )
+        await self._rebuild_fts(db)
+        await db.execute(
+            f"INSERT OR REPLACE INTO {self._FTS_STATE_TABLE}(key, value) "
+            "VALUES ('fts_format', ?)",
+            (expected_format,),
+        )
+
+    async def _rebuild_fts(self, db: aiosqlite.Connection) -> None:
+        """Rewrite FTS rows for all non-forgotten atoms in the current format."""
+        await db.execute("DELETE FROM memory_atoms_fts")
+        cursor = await db.execute(
+            "SELECT id, content FROM memory_atoms WHERE status != ? ORDER BY id",
+            (AtomStatus.FORGOTTEN.value,),
+        )
+        rows = await cursor.fetchall()
+        batch: list[tuple[int, str]] = []
+        for atom_id, content in rows:
+            batch.append((int(atom_id), await self._fts_content(str(content))))
+            if len(batch) >= self._SQLITE_BATCH_SIZE:
+                await db.executemany(
+                    "INSERT INTO memory_atoms_fts(atom_id, content) VALUES (?, ?)",
+                    batch,
                 )
-                logger.info(
-                    f"[AtomStore] 原子 FTS 索引不一致（{fts_count}/{atom_count}），已从源表重建"
-                )
-            await db.commit()
+                batch.clear()
+        if batch:
+            await db.executemany(
+                "INSERT INTO memory_atoms_fts(atom_id, content) VALUES (?, ?)", batch
+            )
 
     async def insert(self, atom: MemoryAtom) -> int:
         """Insert a new atom and return its id. Updates atom.atom_id in place."""
@@ -216,13 +329,13 @@ class AtomStore:
 
         await db.execute(
             "INSERT INTO memory_atoms_fts(atom_id, content) VALUES (?, ?)",
-            (atom_id, atom.content),
+            (atom_id, await self._fts_content(atom.content)),
         )
         return atom_id
 
     async def get(self, atom_id: int) -> MemoryAtom | None:
         """Retrieve a single atom by id."""
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM memory_atoms WHERE id = ?", (atom_id,)
@@ -232,7 +345,7 @@ class AtomStore:
 
     async def get_by_parent(self, parent_memory_id: int) -> list[MemoryAtom]:
         """Retrieve all atoms belonging to a parent memory document."""
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM memory_atoms WHERE parent_memory_id = ? ORDER BY id ASC",
@@ -253,17 +366,13 @@ class AtomStore:
         if not query or not query.strip():
             return []
 
-        # Use bare tokens for CJK compatibility; quoted phrases only for multi-word
-        tokens = [token for token in query.strip().split() if token]
+        # 与写入侧共用同一分词器：中文整句必须先切成词，否则 unicode61
+        # 会把整段中文当成一个 token，用户查询永远匹配不到。
+        tokens = await self._query_tokens(query)
         if not tokens:
             return []
         escaped = [token.replace('"', '""') for token in tokens]
-        # Wrap tokens longer than 1 char (or containing spaces) in quotes
-        fts_tokens = [
-            f'"{token}"' if (" " in token or len(token) > 3) else token
-            for token in escaped
-        ]
-        fts_query = " OR ".join(fts_tokens)
+        fts_query = " OR ".join(f'"{token}"' for token in escaped)
 
         filters = (
             ["ma.status = 'active'", "ma.expires_at > ?"] if not include_expired else []
@@ -283,7 +392,7 @@ class AtomStore:
 
         where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             # Try FTS first
             try:
@@ -553,7 +662,7 @@ class AtomStore:
     async def get_stats(self) -> dict[str, int]:
         """Return per-status atom counts."""
         ownership, ownership_params = adapter_sql("metadata")
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"SELECT status, COUNT(*) AS cnt FROM memory_atoms WHERE {ownership} GROUP BY status",
@@ -568,7 +677,7 @@ class AtomStore:
     async def count_atoms(self) -> int:
         """Return the total number of atoms."""
         ownership, ownership_params = adapter_sql("metadata")
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             cursor = await db.execute(
                 f"SELECT COUNT(*) FROM memory_atoms WHERE {ownership}", ownership_params
             )
@@ -578,7 +687,7 @@ class AtomStore:
     async def count_by_type(self) -> dict[str, int]:
         """Return per-type atom counts for frontend display."""
         ownership, ownership_params = adapter_sql("metadata")
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 f"SELECT atom_type, COUNT(*) AS cnt FROM memory_atoms WHERE {ownership} GROUP BY atom_type",

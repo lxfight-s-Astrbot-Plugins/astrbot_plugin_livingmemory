@@ -52,9 +52,7 @@ RECENT_SQL = (
 async def test_recent_memory_query_uses_indexes(tmp_path: Path):
     engine = await _make_engine(tmp_path)
     try:
-        plan = await _plan(
-            engine, RECENT_SQL, ["s1", time.time() - 72 * 3600, 15]
-        )
+        plan = await _plan(engine, RECENT_SQL, ["s1", time.time() - 72 * 3600, 15])
         assert "SCAN documents" not in plan, plan
         assert "TEMP B-TREE" not in plan, plan
         assert "idx_doc_create_time" in plan, plan
@@ -161,3 +159,15 @@ async def test_recent_memory_results_still_correct_with_coalesce_expr(tmp_path: 
         assert all(r.doc_id != 99 for r in results)
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_engine_close_releases_reusable_read_connection(tmp_path: Path):
+    """MemoryEngine 持有长只读连接，close() 必须把它关掉（避免文件句柄泄漏）。"""
+    engine = await _make_engine(tmp_path)
+    try:
+        await engine.bm25_retriever.search("任何查询", limit=1)
+        assert engine.bm25_retriever._read_conn is not None
+    finally:
+        await engine.close()
+    assert engine.bm25_retriever._read_conn is None

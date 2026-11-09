@@ -233,10 +233,86 @@ class DualRouteRetriever:
                 )
             )
 
-        merged_results.sort(key=lambda item: item.final_score, reverse=True)
+        merged_results.sort(
+            key=lambda item: (item.final_score, -item.doc_id), reverse=True
+        )
+        final_results = self._apply_graph_presence_floor(
+            merged_results,
+            doc_map=doc_map,
+            graph_map=graph_map,
+            k=k,
+            diagnostics=diagnostics,
+        )
         if diagnostics is not None and len(merged_results) > k:
             diagnostics["candidate_limited"] = True
-        return merged_results[:k]
+        return final_results
+
+    # 图路权重上限是 graph_route_weight（默认 0.35），文档路任一条
+    # signal > 0.65 即可压过所有 graph-only 结果；k>=5 时保底保留图路配额。
+    _GRAPH_PRESENCE_MIN_K = 5
+
+    def _apply_graph_presence_floor(
+        self,
+        merged_results: list[HybridResult],
+        *,
+        doc_map: dict[int, HybridResult],
+        graph_map: dict[int, Any],
+        k: int,
+        diagnostics: dict[str, Any] | None,
+    ) -> list[HybridResult]:
+        """Keep a floor of graph-exclusive results in the fused top-k.
+
+        Document-route signals are normalized by the document-route maximum, so a
+        single document hit with signal above ``1 - graph_weight`` outranks every
+        graph-only hit (graph route max contributes at most ``graph_weight``).
+        When ``k >= 5`` at least ``max(1, k // 5)`` graph-exclusive docs are kept
+        by replacing fused tail entries: the head keeps its fused order, injected
+        results stay at the tail in their own score order.
+
+        Args:
+            merged_results: Fused results sorted by final score (descending).
+            doc_map: Document-route results keyed by doc id.
+            graph_map: Graph-route results keyed by doc id.
+            k: Number of results the caller asked for.
+            diagnostics: Optional per-request diagnostics dict.
+
+        Returns:
+            The fused list trimmed to ``k`` results with the graph floor applied.
+        """
+        if k < self._GRAPH_PRESENCE_MIN_K:
+            return merged_results[:k]
+        graph_only_ids = {doc_id for doc_id in graph_map if doc_id not in doc_map}
+        if not graph_only_ids:
+            return merged_results[:k]
+
+        budget = max(1, k // 5)
+        head = merged_results[: max(0, k - budget)]
+        head_ids = {result.doc_id for result in head}
+        kept_graph_only = sum(1 for result in head if result.doc_id in graph_only_ids)
+        missing = budget - kept_graph_only
+        if missing <= 0:
+            return merged_results[:k]
+
+        injected = [
+            result
+            for result in merged_results
+            if result.doc_id in graph_only_ids and result.doc_id not in head_ids
+        ][:missing]
+        if not injected:
+            return merged_results[:k]
+
+        final = head + injected
+        if len(final) < k:
+            used = {result.doc_id for result in final}
+            final.extend(
+                result for result in merged_results if result.doc_id not in used
+            )
+            final = final[:k]
+        if diagnostics is not None:
+            diagnostics["graph_presence_injected"] = len(injected)
+            if len(merged_results) > k:
+                diagnostics["candidate_limited"] = True
+        return final
 
     def _route_weights_for_query(self, query: str) -> tuple[float, float, str]:
         """Adjust document/graph weights with lightweight query intent rules."""

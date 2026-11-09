@@ -17,7 +17,6 @@ from .base.exceptions import InitializationError
 from .utils.faiss_path_bridge import (
     bridge_installed,
     needs_bridge,
-    read_index_safe,
     safe_temp_dir,
     safe_temp_file,
 )
@@ -190,91 +189,148 @@ class InitializerFaissMixin:
         FaissVecDB = LoadedFaissVecDB
         return LoadedFaissVecDB
 
-    async def _check_and_fix_dimension_mismatch(self, index_path: str) -> bool:
-        """
-        检查 FAISS 索引维度与当前 embedding provider 维度是否一致
+    async def _open_faiss_db(
+        self,
+        faiss_vec_db_cls: Any,
+        doc_store_path: Any,
+        index_path: Any,
+    ) -> tuple[Any, bool]:
+        """Open one FAISS database off the event loop.
 
-        当用户更换 embedding provider 后，旧索引的维度可能与新模型不匹配，
-        导致 FAISS 插入时报错 "assert d == self.d"。
-        此方法检测并自动删除不兼容的旧索引，让系统重建。
+        FaissVecDB's constructor reads the whole index file, so construction and
+        ``initialize()`` both run in a worker thread instead of blocking the event
+        loop. The dimension check inspects the index the constructor already
+        loaded, so the index file is read once instead of twice.
 
         Args:
-            index_path: FAISS 索引文件路径
+            faiss_vec_db_cls: FaissVecDB class resolved by
+                :meth:`_load_faiss_vec_db_class`.
+            doc_store_path: SQLite path holding host document rows.
+            index_path: FAISS index file path.
+
+        Returns:
+            ``(vec_db, index_rebuilt)``. ``index_rebuilt`` is True when an empty,
+            corrupt or dimension-incompatible index file was deleted, so the
+            startup maintenance task must rebuild the index.
         """
-        if not os.path.exists(index_path):
-            return False
-
-        # 空文件不是有效索引，直接删除让 initialize() 重建，避免 faiss 抛异常
+        # Provider 自身异常（如取维度失败）必须在触碰索引文件之前抛出，不能
+        # 被下面的坏索引处理吞掉后误删一个健康的索引文件（沿用旧实现的保护）。
+        expected_dim = int(self.embedding_provider.get_dim())  # type: ignore[union-attr]
+        index_rebuilt = self._discard_empty_index(str(index_path))
         try:
-            if os.path.getsize(index_path) == 0:
-                os.remove(index_path)
-                logger.debug(f"已删除空索引文件: {_sanitize_path(index_path)}")
-                return True
-        except OSError:
-            pass
-
-        try:
-            import faiss  # noqa: F401
-        except (ImportError, ModuleNotFoundError, SystemError, OSError) as exc:
-            raise InitializationError(
-                "FAISS 初始化失败，无法读取索引文件。"
-                "请检查 faiss-cpu 安装状态和 CPU 指令集兼容性。"
-            ) from exc
-
-        # 读取索引文件 — 仅在 FAISS I/O 失败时进入坏索引处理
-        # 整索引读取是同步阻塞 I/O，放线程池避免阻塞事件循环
-        try:
-            old_index = await asyncio.to_thread(self._faiss_read_index_safe, index_path)
-        except InitializationError:
-            raise
-        except Exception as e:
-            error_msg = str(e)
-            # 文件在 os.path.exists 和 faiss.read_index 之间消失（如被外部进程删除），
-            # 这不是坏文件，不需要隔离，让 initialize() 自动重建即可
-            if "No such file" in error_msg or "could not open" in error_msg:
-                logger.debug(
-                    f"FAISS 索引文件({_sanitize_path(index_path)})在检查时不可访问，将由 initialize() 重建: {e}"
-                )
-                return False
-            # 真正的坏文件：直接删除（系统会自动重建），避免累积 .corrupt_* 文件
-            try:
-                os.remove(index_path)
-                logger.error(
-                    f"FAISS 索引文件已损坏并被删除: {_sanitize_path(index_path)}。"
-                    "系统将创建空索引，并在初始化后尝试分批重建。",
-                    exc_info=True,
-                )
-            except OSError:
-                logger.error(
-                    f"检查索引维度时出错，且删除坏索引失败: {e}",
-                    exc_info=True,
-                )
-            return True
-
-        # 对比维度 — 放在坏索引处理之外，避免 embedding_provider 异常误删健康索引
-        old_dim = old_index.d
-        new_dim = self.embedding_provider.get_dim()  # type: ignore
-
-        if old_dim != new_dim:
-            logger.warning(
-                f"检测到 FAISS 索引维度不匹配: 索引维度={old_dim}, "
-                f"当前 Embedding Provider 维度={new_dim}"
+            vec_db = await self._construct_faiss_db(
+                faiss_vec_db_cls, doc_store_path, index_path
             )
-            logger.warning(
-                "这通常由 Embedding 模型切换导致。旧索引将被删除，系统会自动重建索引。"
+        except Exception as exc:
+            if not self._discard_corrupt_index(str(index_path), exc):
+                raise
+            index_rebuilt = True
+            vec_db = await self._construct_faiss_db(
+                faiss_vec_db_cls, doc_store_path, index_path
             )
+        if self._reset_incompatible_index(vec_db, str(index_path), expected_dim):
+            index_rebuilt = True
+            vec_db = await self._construct_faiss_db(
+                faiss_vec_db_cls, doc_store_path, index_path
+            )
+        await vec_db.initialize()
+        return vec_db, index_rebuilt
 
-            os.remove(index_path)
-            logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
-            logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
-            return True
-
-        return False
+    async def _construct_faiss_db(
+        self,
+        faiss_vec_db_cls: Any,
+        doc_store_path: Any,
+        index_path: Any,
+    ) -> Any:
+        """Construct a FaissVecDB in a worker thread (whole-index file I/O)."""
+        return await asyncio.to_thread(
+            faiss_vec_db_cls,
+            str(doc_store_path),
+            str(index_path),
+            self.embedding_provider,
+        )
 
     @staticmethod
-    def _faiss_read_index_safe(index_path: str):
-        """通过 ASCII 临时路径桥接 FAISS read_index（显式后备，不依赖 monkey-patch）。"""
-        return read_index_safe(index_path)
+    def _index_dimension(vec_db: Any) -> int:
+        """Return the dimension of the FAISS index already loaded by ``vec_db``."""
+        storage = getattr(vec_db, "embedding_storage", None)
+        index = getattr(storage, "index", None)
+        return int(getattr(index, "d", 0))
+
+    def _reset_incompatible_index(
+        self, vec_db: Any, index_path: str, expected_dim: int
+    ) -> bool:
+        """Delete an index whose dimension differs from the current provider.
+
+        The old implementation read the whole index file only to compare
+        dimensions, then FaissVecDB's constructor read it again. Reusing the
+        loaded index removes that duplicate read.
+
+        Args:
+            vec_db: FaissVecDB just constructed from ``index_path``.
+            index_path: FAISS index file path.
+            expected_dim: Dimension reported by the current embedding provider.
+
+        Returns:
+            True when the incompatible index file was deleted.
+        """
+        current_dim = self._index_dimension(vec_db)
+        if not current_dim or current_dim == expected_dim:
+            return False
+        logger.warning(
+            f"检测到 FAISS 索引维度不匹配: 索引维度={current_dim}, "
+            f"当前 Embedding Provider 维度={expected_dim}"
+        )
+        logger.warning(
+            "这通常由 Embedding 模型切换导致。旧索引将被删除，系统会自动重建索引。"
+        )
+        os.remove(index_path)
+        logger.info(f"已删除不兼容的旧索引文件: {_sanitize_path(index_path)}")
+        logger.info("注意: 向量检索功能将暂时不可用，直到重新导入记忆数据。")
+        return True
+
+    @staticmethod
+    def _discard_empty_index(index_path: str) -> bool:
+        """Delete a zero-byte index file so the DB starts from an empty index."""
+        try:
+            if os.path.getsize(index_path) != 0:
+                return False
+            os.remove(index_path)
+        except OSError:
+            return False
+        logger.debug(f"已删除空索引文件: {_sanitize_path(index_path)}")
+        return True
+
+    @staticmethod
+    def _discard_corrupt_index(index_path: str, error: Exception) -> bool:
+        """Delete a corrupt index file; keep transient/unreadable files untouched.
+
+        Args:
+            index_path: FAISS index file that failed to load.
+            error: Exception raised while constructing the database.
+
+        Returns:
+            True when the file was deleted (caller should construct an empty DB).
+        """
+        message = str(error)
+        # 文件在读取前消失/被外部进程删除时不是坏文件，交给空索引重建即可。
+        if "No such file" in message or "could not open" in message:
+            logger.debug(
+                f"FAISS 索引文件({_sanitize_path(index_path)})在初始化时不可访问，"
+                f"将由空索引重建: {error}"
+            )
+            return False
+        try:
+            os.remove(index_path)
+        except OSError:
+            logger.error(f"索引文件损坏且删除失败: {error}", exc_info=True)
+            return False
+        logger.error(
+            f"FAISS 索引文件已损坏并被删除: {_sanitize_path(index_path)}。"
+            "系统将创建空索引，并在初始化后尝试分批重建。",
+            exc_info=True,
+        )
+        return True
 
 
 _FAISS_GENERIC_FALLBACK_MARKERS = (

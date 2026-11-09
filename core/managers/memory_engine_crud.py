@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import time
 from collections import OrderedDict
 from typing import Any
@@ -20,6 +21,12 @@ from ..retrieval.hybrid_retriever import HybridResult
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float
 from .agentic_recall_types import AgenticRecallOutcome as AgenticRecallOutcome
+
+# 合并后的正文上限：两段摘要拼接后的长度上限，超过则只保留更完整的一段，
+# 避免同一记忆在多轮合并后无限膨胀（会放大 embedding/FTS 写入成本）。
+_MERGED_CONTENT_MAX_CHARS = 1200
+# 句子级切分：中英文句末标点与换行；保留标点由正则后行断言完成。
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[。！？!?；;\n])")
 
 
 class MemoryEngineCrudMixin:
@@ -544,34 +551,45 @@ class MemoryEngineCrudMixin:
         self,
         memory_id: int,
         *,
+        content: str | None = None,
         importance: float,
         metadata: dict[str, Any] | None = None,
         atoms: list | None = None,
         source_messages: list[dict[str, Any]] | None = None,
-    ) -> bool:
+    ) -> int | None:
         """Merge a new summary into an existing near-duplicate memory.
 
-        The existing summary text is kept (avoiding another embedding pass);
-        importance, topics, key facts, source windows, sources and new atoms are
-        folded in so the new facts remain retrievable.
+        The merged body keeps the more complete variant (or the de-duplicated
+        concatenation of both). When the body changes it is rebuilt through
+        :meth:`replace_memory`, so the embedding, BM25/FTS index, graph entries
+        and atoms all describe the merged text instead of the stale old one.
+        Metadata-only merges keep the current document id and sync the affected
+        indexes in place.
 
         Args:
             memory_id: Existing memory document id.
+            content: Incoming summary text; ``None`` keeps the existing body.
             importance: Importance of the incoming summary.
             metadata: Incoming summary metadata.
             atoms: Newly classified memory atoms.
             source_messages: Optional retained source messages.
 
         Returns:
-            True when the merge was persisted.
+            The surviving memory id (``memory_id`` or its replacement), or
+            ``None`` when the merge could not be persisted.
+
+        Raises:
+            asyncio.CancelledError: Re-raised so rollback compensation still runs.
         """
         if self.db_connection is None:
-            return False
+            return None
         memory = await self.get_memory(memory_id)
         if not memory:
-            return False
+            return None
         metadata = metadata or {}
         current_metadata = safe_json_dict(memory.get("metadata"))
+        current_content = str(memory.get("text") or "")
+        merged_content = self._merge_memory_text(current_content, content or "")
         patch: dict[str, Any] = {}
 
         for key in ("topics", "key_facts", "participants", "participant_identities"):
@@ -601,29 +619,46 @@ class MemoryEngineCrudMixin:
         merged_importance = max(
             current_importance, clamp_float(importance, default=0.5)
         )
+
+        content_changed = merged_content.strip() != current_content.strip()
+        if content_changed:
+            patch["canonical_summary"] = merged_content
         try:
-            success = await self.update_memory(
-                memory_id,
-                {"importance": merged_importance, "metadata": patch},
-            )
+            if content_changed:
+                # 内容变化必须重建向量/FTS/图/原子；replace_memory 先写新记忆再删旧，
+                # 任何一步失败都会回滚，不会留下半同步状态。
+                target_id = await self.replace_memory(
+                    memory_id,
+                    content=merged_content,
+                    metadata=patch,
+                    importance=merged_importance,
+                )
+            else:
+                if not await self.update_memory(
+                    memory_id,
+                    {"importance": merged_importance, "metadata": patch},
+                ):
+                    return None
+                target_id = memory_id
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning(
-                f"[MemoryEngine] 合并近重复记忆失败 (memory_id={memory_id})",
+            logger.error(
+                f"[MemoryEngine] 合并近重复记忆后重建索引失败 (memory_id={memory_id})",
                 exc_info=True,
             )
-            return False
-        if not success:
-            return False
+            await self._mark_index_rebuild_needed(
+                "dedup_merge_rebuild_failed", memory_id
+            )
+            return None
 
         if atoms and self.atom_store is not None and self.atom_enabled:
-            await self._append_atoms_to_memory(memory_id, atoms, metadata)
+            await self._append_atoms_to_memory(target_id, atoms, metadata)
 
         dedup_cfg = self.config.get("memory_dedup") or {}
         if source_messages and bool(dedup_cfg.get("merge_sources", True)):
             max_sources = int(dedup_cfg.get("max_source_messages", 50) or 50)
-            existing_sources = await self.get_memory_source(memory_id)
+            existing_sources = await self.get_memory_source(target_id)
             combined: list[dict[str, Any]] = []
             seen: set[str] = set()
             for item in [*existing_sources, *source_messages]:
@@ -633,20 +668,95 @@ class MemoryEngineCrudMixin:
                 seen.add(key)
                 combined.append(item)
             try:
-                await self.save_memory_source(memory_id, combined[-max_sources:])
+                await self.save_memory_source(target_id, combined[-max_sources:])
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.warning(
-                    f"[MemoryEngine] 合并来源消息失败 (memory_id={memory_id})",
+                    f"[MemoryEngine] 合并来源消息失败 (memory_id={target_id})",
                     exc_info=True,
                 )
 
         logger.info(
-            f"[MemoryEngine] 已合并近重复记忆到 #{memory_id}"
-            f"（相似度合并次数={patch['dedup_merge_count']}）"
+            f"[MemoryEngine] 已合并近重复记忆到 #{target_id}"
+            f"（相似度合并次数={patch['dedup_merge_count']}，"
+            f"正文{'已重建' if content_changed else '未变'}）"
         )
-        return True
+        return target_id
+
+    @staticmethod
+    def _merge_memory_text(existing: str, incoming: str) -> str:
+        """Return the merged summary body for a dedup merge.
+
+        Keeps the more complete variant when one body already contains the
+        other, and otherwise concatenates the non-overlapping sentences so facts
+        introduced by the newer summary stay retrievable. When the union exceeds
+        ``_MERGED_CONTENT_MAX_CHARS`` the longer single body wins, which bounds
+        the cost of re-embedding repeated merges.
+
+        Args:
+            existing: Body stored on the existing memory.
+            incoming: Body of the incoming summary.
+
+        Returns:
+            Body to persist on the surviving memory.
+        """
+        left = str(existing or "").strip()
+        right = str(incoming or "").strip()
+        if not left:
+            return right
+        if not right:
+            return left
+        if left == right or right in left:
+            return left
+        if left in right:
+            return right
+
+        seen: set[str] = set()
+        merged = ""
+        for text in (left, right):
+            for segment in _SENTENCE_BOUNDARY.split(text):
+                piece = segment.strip()
+                if not piece or piece in seen:
+                    continue
+                seen.add(piece)
+                if not merged:
+                    merged = piece
+                elif merged[-1].isascii() and merged[-1] not in "。！？；\n":
+                    merged = f"{merged} {piece}"
+                else:
+                    merged += piece
+        if len(merged) > _MERGED_CONTENT_MAX_CHARS:
+            return left if len(left) >= len(right) else right
+        return merged or (left if len(left) >= len(right) else right)
+
+    async def _mark_index_rebuild_needed(self, reason: str, memory_id: int) -> None:
+        """Flag startup index maintenance after an unsafe merge rebuild.
+
+        Args:
+            reason: Short machine-readable reason recorded in the log.
+            memory_id: Memory whose derived indexes may be stale.
+        """
+        logger.error(
+            f"[MemoryEngine] {reason}: 检索索引可能未同步，"
+            f"已标记 needs_index_rebuild 以便启动时重建 (memory_id={memory_id})"
+        )
+        writer = getattr(self, "_write_transaction", None)
+        if self.db_connection is None or not callable(writer):
+            return
+        try:
+            async with writer() as connection:
+                await connection.execute(
+                    "INSERT OR REPLACE INTO migration_status (key, value, updated_at) "
+                    "VALUES (?, ?, datetime('now'))",
+                    ("needs_index_rebuild", "true"),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error(
+                "[MemoryEngine] 写入 needs_index_rebuild 标记失败", exc_info=True
+            )
 
     @staticmethod
     def _merge_unique_values(existing: Any, incoming: Any) -> list[Any]:

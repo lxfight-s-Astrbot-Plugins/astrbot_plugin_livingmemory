@@ -450,26 +450,15 @@ class PluginInitializer(InitializerFaissMixin):
         # 放到线程池执行，避免阻塞 AstrBot 事件循环。
         faiss_vec_db_cls = await asyncio.to_thread(self._load_faiss_vec_db_class)
 
-        await self._check_and_fix_dimension_mismatch(str(index_path))
-        if graph_memory_enabled:
-            self._graph_index_requires_rebuild = (
-                await self._check_and_fix_dimension_mismatch(str(graph_index_path))
-            )
-
-        self.db = faiss_vec_db_cls(
-            str(db_path),
-            str(index_path),
-            self.embedding_provider,
-        )
-        await self.db.initialize()
+        self.db, _ = await self._open_faiss_db(faiss_vec_db_cls, db_path, index_path)
         self.graph_db = None
         if graph_memory_enabled:
-            self.graph_db = faiss_vec_db_cls(
-                str(graph_doc_path),
-                str(graph_index_path),
-                self.embedding_provider,
+            (
+                self.graph_db,
+                self._graph_index_requires_rebuild,
+            ) = await self._open_faiss_db(
+                faiss_vec_db_cls, graph_doc_path, graph_index_path
             )
-            await self.graph_db.initialize()
         logger.info(f"数据库已初始化。数据目录: {self.data_dir}")
 
         # 实例级替换 save_index：变更锁 + 线程内直写 + 防抖合并，

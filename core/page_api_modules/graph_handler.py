@@ -5,13 +5,26 @@
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-import networkx as nx
 from quart import request
 
 from astrbot.api import logger
 
 if TYPE_CHECKING:
     from .utils import PageApiUtils
+
+# networkx 只服务于「打开图谱页」时的社区分组，顶层 import 会在插件加载时
+# 多花约 0.24s / 13MB（仅 WebUI 需要）。改为首次分配社区时再导入并缓存。
+_nx: Any = None
+
+
+def _networkx() -> Any:
+    global _nx
+    if _nx is None:
+        import networkx
+
+        _nx = networkx
+    return _nx
+
 
 # Hard limits for the full-graph snapshot: prevent a single request from
 # reading every archived edge and pushing the process peak into hundreds of MB.
@@ -38,6 +51,7 @@ class GraphHandler:
         Args:
             snapshot: Fresh graph snapshot whose node dictionaries are updated.
         """
+        nx = _networkx()
         graph = nx.Graph()
         graph.add_nodes_from(sorted(node["id"] for node in snapshot["nodes"]))
         for edge in snapshot["edges"]:
