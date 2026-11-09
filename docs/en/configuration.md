@@ -211,6 +211,8 @@ Memory consolidation controls the memory-store size at the source: scattered low
 
 Use that path to check that the database parent directory is available and writable by the account running AstrBot. Include the diagnostic log and full traceback when reporting the error. Version 2.7.3 already fixed transactions retaining locks after exceptions, cancellation or commit failure; remaining open failures need the actual SQLite error code to identify their cause.
 
+`disk I/O error` maps to `SQLITE_IOERR`: when the data directory lives on a shared filesystem such as a Docker Desktop bind mount or a network share, SQLite cannot use the WAL `-shm` shared-memory index and new connections joining WAL fail. The plugin identifies the mount type and probes WAL at startup, falling back to rollback journal with a log hint when WAL is unavailable; moving the data directory onto a Docker named volume or a local disk restores WAL automatically.
+
 ## Index rebuild tuning
 
 | Key | Default | Description |

@@ -23,6 +23,7 @@ from ...storage.schema import (
     DOCUMENTS_INDEX_STATEMENTS,
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
 )
+from ...storage.sqlite_connection import open_connection
 from ..managers.atom_lifecycle_manager import AtomLifecycleManager
 from ..managers.graph_memory_manager import GraphMemoryManager
 from ..processors.graph_extractor import GraphExtractor
@@ -191,11 +192,11 @@ class MemoryEngine(
             await self._init_graph_route()
 
     async def _open_database(self) -> None:
-        """打开主连接并设置 WAL 与忙等超时。"""
-        self.db_connection = await aiosqlite.connect(self.db_path)
+        """打开主连接并应用进程级 journal 策略与忙等超时。"""
+        self.db_connection = await open_connection(
+            self.db_path, apply_journal_mode=True
+        )
         self.db_connection.row_factory = aiosqlite.Row
-        await self.db_connection.execute("PRAGMA journal_mode = WAL")
-        await self.db_connection.execute("PRAGMA busy_timeout = 10000")
 
     async def _migrate_adapter_ownership(self) -> None:
         """为历史记忆补写适配器归属。"""

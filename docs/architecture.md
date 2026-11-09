@@ -40,7 +40,7 @@ flowchart TB
 1. AstrBot 加载插件模块后按 `metadata.yaml` 识别插件类；`main.py` 注册命令、LLM 钩子、Agent 工具与 Plugin View API，然后启动初始化任务。
 2. 初始化在后台运行：创建或打开 FAISS 索引与 `documents` 存储并检查向量维度；非 ASCII 路径通过 `faiss_path_bridge` 先写 ASCII 临时目录再原子替换。
 3. 数据库版本不足时执行迁移；迁移前必须成功创建备份，任一步失败会恢复备份并终止初始化，向用户返回明确错误。
-4. `MemoryEngine` 建立连接（`PRAGMA journal_mode = WAL`、`busy_timeout = 10000`）、创建 `documents` 表与表达式索引、初始化 BM25/向量/图谱/原子检索器、检索缓存与访问统计合并写。
+4. `MemoryEngine` 建立连接（启动时探测数据目录：支持时使用 WAL，不支持时回退 rollback journal；连接统一设置 `busy_timeout = 10000`）、创建 `documents` 表与表达式索引、初始化 BM25/向量/图谱/原子检索器、检索缓存与访问统计合并写。
 5. 衰减调度器按配置的每日执行小时启动；启动索引维护（仅在 Provider 指纹变化或迁移遗留数据时重建）作为后台任务运行，插件在维护完成前就进入可用状态。
 6. 关闭时停止调度器、取消并等待后台任务（有界等待，超时记录日志），再关闭索引持久化器与数据库连接，避免半写盘。
 
@@ -146,7 +146,7 @@ flowchart LR
 
 ## 并发模型
 
-- 进程内单事件循环；SQLite 使用 WAL 与 `busy_timeout = 10000`，写事务集中在 `MemoryEngine` 的单一连接，读多写少场景下减少锁竞争。
+- 进程内单事件循环；SQLite 启动时探测数据目录的 WAL 能力，Docker Desktop 共享挂载等无法承载共享内存索引的文件系统回退 rollback journal，`busy_timeout = 10000`，写事务集中在 `MemoryEngine` 的单一连接，读多写少场景下减少锁竞争。
 - FAISS 使用读者-写者锁：检索在默认线程池中持有读锁，索引变更与落盘持有写锁；落盘由单线程 executor 串行执行并做防抖，保证写入顺序。
 - 会话层有独立会话锁与 store 写锁：消息删除、元数据写入、修订号推进和游标钳制在同一临界区完成。
 - 缓存有独立锁；失效与重建不会长时间阻塞请求；后台任务通过集合跟踪，完成后回调记录异常。

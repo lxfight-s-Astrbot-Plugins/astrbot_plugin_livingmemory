@@ -40,7 +40,7 @@ flowchart TB
 1. After AstrBot loads the plugin module it identifies the plugin class from `metadata.yaml`; `main.py` registers commands, LLM hooks, agent tools and the Plugin View API, then starts initialization.
 2. Initialization runs in the background: it creates or opens the FAISS index and `documents` storage, checks vector dimensions, and routes non-ASCII paths through `faiss_path_bridge` to an ASCII temporary directory followed by an atomic replace.
 3. If the database version is behind, migrations run; a backup must be created successfully before migration starts, and any failure restores that backup and aborts initialization with an explicit error.
-4. `MemoryEngine` opens its connection (`PRAGMA journal_mode = WAL`, `busy_timeout = 10000`), creates the `documents` table and expression indexes, initializes the BM25, vector, graph and atom retrievers, the retrieval cache and coalesced access writes.
+4. `MemoryEngine` opens its connection (a startup probe uses WAL when the data directory supports the shared-memory index and falls back to rollback journal otherwise; connections set `busy_timeout = 10000`), creates the `documents` table and expression indexes, initializes the BM25, vector, graph and atom retrievers, the retrieval cache and coalesced access writes.
 5. The decay scheduler starts at the configured daily hour; startup index maintenance (a rebuild only when the provider fingerprint changed or a migration left pending data) runs as a background task, so the plugin becomes available before that work completes.
 6. On shutdown the scheduler stops, tracked background tasks are cancelled and awaited with a bounded timeout, and index persisters plus database connections are closed to avoid partial flushes.
 
@@ -146,7 +146,7 @@ flowchart LR
 
 ## Concurrency model
 
-- A single event loop per process; SQLite uses WAL and `busy_timeout = 10000`, and writes are concentrated on the one `MemoryEngine` connection, which reduces lock contention in a read-heavy workload.
+- A single event loop per process; at startup SQLite probes whether the data directory supports WAL and falls back to rollback journal on filesystems that cannot host the shared-memory index, such as Docker Desktop shared mounts; `busy_timeout = 10000` and writes concentrated on the one `MemoryEngine` connection reduce lock contention in a read-heavy workload.
 - FAISS uses a readers-writer lock: searches hold a read lock in the default thread pool, while mutations and flushes hold the write lock; flushes run serially on a single-thread executor with debouncing to preserve write order.
 - The conversation layer has its own session lock and store write lock: message deletion, metadata writes, revision bumps and cursor clamping happen in the same critical section.
 - The cache has its own lock; invalidation and rebuild never block requests for long; background tasks are tracked in a set and their done callbacks record exceptions.

@@ -14,6 +14,7 @@ import aiosqlite
 from astrbot.api import logger
 
 from ..core.models.conversation_models import Message, Session, serialize_to_json
+from .sqlite_connection import open_connection
 
 
 class ConversationStore:
@@ -42,10 +43,8 @@ class ConversationStore:
 
     async def initialize(self) -> None:
         """初始化数据库连接并创建表结构"""
-        self.connection = await aiosqlite.connect(self.db_path)
+        self.connection = await open_connection(self.db_path, apply_journal_mode=True)
         self.connection.row_factory = aiosqlite.Row
-        await self.connection.execute("PRAGMA journal_mode = WAL")
-        await self.connection.execute("PRAGMA busy_timeout = 10000")
         await self._create_tables()
         await self._create_indexes()
 
