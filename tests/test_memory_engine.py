@@ -14,6 +14,7 @@ import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.memory_atom import MemoryAtom
+from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridResult
 
 
 @dataclass
@@ -768,9 +769,9 @@ async def test_search_memories_event_only_keeps_legacy_and_event_types(tmp_path:
 
 
 @pytest.mark.asyncio
-async def test_recent_memory_slots_are_reserved_without_duplicates(tmp_path: Path):
+async def test_recent_memory_not_appended_when_relevance_is_sufficient(tmp_path: Path):
     engine = MemoryEngine(
-        db_path=str(tmp_path / "recent_slots.db"),
+        db_path=str(tmp_path / "recent_sufficient.db"),
         faiss_db=_FakeFaissDB(),
         config={"recent_memory_count": 2},
     )
@@ -781,7 +782,77 @@ async def test_recent_memory_slots_are_reserved_without_duplicates(tmp_path: Pat
 
     merged = await engine._merge_recent_memories(relevant, 4, "session", "persona")
 
-    assert [result.doc_id for result in merged] == [1, 2, 4, 5]
+    assert len(merged) == 4
+    assert merged == relevant
+    engine._get_recent_memory_results.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recent_memory_fills_when_relevance_is_insufficient(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "recent_fill.db"),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "atom_enabled": False,
+            "graph_memory_enabled": False,
+            "recent_memory_count": 3,
+        },
+    )
+    await engine.initialize()
+    try:
+        now = time.time()
+        for offset, doc_id in enumerate((1, 2, 3)):
+            await engine.db_connection.execute(
+                "INSERT INTO documents(id, doc_id, text, metadata, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (
+                    doc_id,
+                    f"uuid-{doc_id}",
+                    f"近期记忆 {doc_id}",
+                    json.dumps({"session_id": "s1", "create_time": now + offset}),
+                ),
+            )
+        await engine.db_connection.commit()
+
+        relevant = [
+            HybridResult(
+                doc_id=2,
+                final_score=0.9,
+                rrf_score=0.9,
+                bm25_score=None,
+                vector_score=None,
+                content="相关性结果",
+                metadata={"session_id": "s1"},
+                score_breakdown={},
+            )
+        ]
+
+        merged = await engine._merge_recent_memories(relevant, 3, "s1", None)
+
+        # 相关性结果已占 1 条，补入最新的 doc 3，跳过重复的 doc 2，再补 doc 1
+        assert [result.doc_id for result in merged] == [2, 3, 1]
+        assert merged[0].final_score == 0.9
+        for recent in merged[1:]:
+            assert recent.final_score == 0.6
+            assert recent.score_breakdown["recent_memory"] == 0.6
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_recent_memory_count_zero_does_not_append(tmp_path: Path):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "recent_disabled.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"recent_memory_count": 0},
+    )
+    relevant = [Mock(doc_id=value) for value in (1, 2)]
+    engine._get_recent_memory_results = AsyncMock(return_value=[Mock(doc_id=3)])
+
+    merged = await engine._merge_recent_memories(relevant, 4, "session", "persona")
+
+    assert [result.doc_id for result in merged] == [1, 2]
+    engine._get_recent_memory_results.assert_not_awaited()
 
 
 @pytest.mark.asyncio

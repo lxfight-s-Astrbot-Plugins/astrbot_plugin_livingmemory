@@ -195,27 +195,23 @@ class MemoryReflection(MemoryReflectionStorageMixin):
     async def _reflection_precheck(
         self, event: AstrMessageEvent, resp: LLMResponse
     ) -> tuple[str, str] | None:
-        """过滤不需要反思的响应；返回 (session_id, response_text) 表示可以继续。"""
+        """过滤不需要反思的响应；返回 (session_id, response_text) 表示可以继续。
+
+        工具调用轮次的助手文字由本方法单独写入会话库（不触发后台总结），
+        因此这类轮次也返回 None。
+        """
         if not is_event_memory_allowed(self.config_manager, event):
             logger.debug("当前事件不在记忆白名单中，跳过记忆反思")
             return None
 
-        if resp.role != "assistant":
+        # 流式增量只是完整回复的片段，不能作为一轮对话入库；
+        # Mock 对象没有 is_chunk 属性，按 False 处理，仅真正为 True 时跳过
+        if getattr(resp, "is_chunk", False) is True:
             return None
 
-        # 过滤 tool 循环中间轮次（有工具调用时跳过，等待最终总结轮）
-        if resp.tools_call_name:
-            logger.debug(
-                f"[DEBUG-Reflection] 检测到工具调用响应（tools={resp.tools_call_name}），跳过记录"
-            )
-            return None
-
-        # 过滤 tool 循环最终总结：若本次响应是 tool 调用完成后的总结，
-        # 其 tools_call_extra_content 会携带工具调用上下文，说明这是 tool loop 产生的内容
-        if resp.tools_call_extra_content:
-            logger.debug(
-                "[DEBUG-Reflection] 检测到 tool loop 总结响应（tools_call_extra_content 非空），跳过记录"
-            )
+        # 工具调用轮次的 role 会被 OpenAI 兼容 Provider 改写为 "tool"，
+        # 这些轮次的助手文字仍需入库；其他 role（如 err）不记录
+        if resp.role not in ("assistant", "tool"):
             return None
 
         session_id = event.unified_msg_origin
@@ -254,6 +250,19 @@ class MemoryReflection(MemoryReflectionStorageMixin):
 
         if await self._is_superseded_response(event, session_id):
             return None
+
+        # 工具轮：tool loop 尚未结束，总结会截断在工具调用中间，
+        # 因此只把助手文字写入会话库，最终回复轮才触发后台总结。
+        if resp.role == "tool" or resp.tools_call_name or resp.tools_call_extra_content:
+            logger.debug(f"[{session_id}] 工具调用轮次仅记录助手消息，不触发记忆总结")
+            await self.conversation_manager.add_message_from_event(
+                event=event,
+                role="assistant",
+                content=response_text,
+            )
+            await self.message_utils.enforce_message_limit(session_id)
+            return None
+
         return session_id, response_text
 
     async def _is_superseded_response(

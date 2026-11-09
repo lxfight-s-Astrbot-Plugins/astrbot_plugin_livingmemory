@@ -31,8 +31,8 @@ def test_config_manager_loads_defaults() -> None:
     assert "dense_retriever" not in config
     assert manager.get("recall_engine.top_k") == 5
     assert manager.get("recall_engine.min_importance_for_retrieval") == 0.0
-    assert manager.get("recall_engine.min_similarity_for_retrieval") == 0.0
-    assert manager.get("recall_engine.recent_memory_count") == 2
+    assert manager.get("recall_engine.min_similarity_for_retrieval") == 0.45
+    assert manager.get("recall_engine.recent_memory_count") == 0
     assert manager.get("recall_engine.memory_type_filter") == "all"
     assert manager.get("recall_engine.recent_context_max_age_seconds") == 7200
     assert manager.get("fusion_strategy.rrf_k") == 60

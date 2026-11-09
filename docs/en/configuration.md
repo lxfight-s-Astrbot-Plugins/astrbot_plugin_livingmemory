@@ -81,8 +81,8 @@ History above `max_messages_per_session` first discards summarized messages. If 
 | `recall_engine.max_k` | `10` | Maximum results returned by active agent recall |
 | `recall_engine.importance_weight` | `1.0` | Importance weight in final ranking |
 | `recall_engine.min_importance_for_retrieval` | `0.0` | Minimum importance; `0` disables the filter |
-| `recall_engine.min_similarity_for_retrieval` | `0.0` | Minimum vector similarity; keyword-only hits remain eligible |
-| `recall_engine.recent_memory_count` | `2` | Recall slots reserved for recent memories |
+| `recall_engine.min_similarity_for_retrieval` | `0.45` | Minimum vector similarity; keyword-only hits remain eligible; `0` disables the filter |
+| `recall_engine.recent_memory_count` | `0` | Recent memories used only to fill remaining slots when relevant results are insufficient |
 | `recall_engine.recent_memory_max_age_hours` | `72` | Time window for recent-memory slots |
 | `recall_engine.memory_type_filter` | `all` | Use `event_only` to exclude known preference-only or relationship-only memories |
 | `recall_engine.fallback_to_vector` | `true` | Falls back to vector search if hybrid retrieval fails |
@@ -126,10 +126,10 @@ Aliases are matched in this order: `platform:user ID`, user ID, then current use
 | `reflection_engine.window_split_gap_minutes` | `180` | Summarizes only the oldest segment when the idle gap between messages exceeds this many minutes; `0` disables gap splitting |
 | `reflection_engine.include_source_time_tags` | `true` | Derives source date tags from original message timestamps |
 | `reflection_engine.source_retention_importance_threshold` | `0.8` | Retains original messages separately at or above the threshold |
-| `importance_decay.decay_rate` | `0.01` | Daily importance decay |
+| `importance_decay.decay_rate` | `0.005` | Daily importance decay (0.5% per day by default) |
 | `importance_decay.access_decay_window_days` | `30.0` | Time window for access reinforcement |
 | `importance_decay.access_decay_max_count` | `10` | Maximum access reinforcement count |
-| `importance_decay.protected_importance_threshold` | `1.0` | Memories at or above this importance do not decay |
+| `importance_decay.protected_importance_threshold` | `0.6` | Memories at or above this importance do not decay |
 
 Lower `summary_trigger_rounds` if you want the bot to remember faster. Raise it if you want fewer LLM calls.
 
@@ -181,13 +181,13 @@ For relationship-heavy use, increase graph-route weight or set `expansion_hops` 
 | `migration_settings.auto_migrate` | `true` | Migrates old databases at startup |
 | `migration_settings.create_backup` | `true` | Creates a backup before migration |
 | `backup_settings.enabled` | `true` | Daily database backup |
-| `backup_settings.keep_days` | `7` | Backup retention days |
+| `backup_settings.keep_days` | `7` | Daily backup retention; version backups keep only the 2 newest and total backup size is capped at 512 MB |
 | `forgetting_agent.auto_cleanup_enabled` | `true` | Daily cleanup for old low-importance memories |
-| `forgetting_agent.auto_archived_enabled` | `false` | Archives cleanup candidates outside retrieval indexes instead of deleting them |
-| `forgetting_agent.cleanup_days_threshold` | `30` | Age threshold for cleanup candidates |
-| `forgetting_agent.cleanup_importance_threshold` | `0.3` | Importance threshold for cleanup candidates |
+| `forgetting_agent.auto_archived_enabled` | `true` | Archives cleanup candidates outside retrieval indexes instead of deleting them |
+| `forgetting_agent.cleanup_days_threshold` | `120` | Age threshold for cleanup candidates |
+| `forgetting_agent.cleanup_importance_threshold` | `0.25` | Importance threshold for cleanup candidates |
 
-With automatic archiving enabled, source documents remain visible and restorable in the Dashboard. Restoring regenerates the embedding and rebuilds BM25, graph, and memory-atom indexes.
+Automatic archiving is enabled by default; source documents remain visible and restorable in the Dashboard. Restoring regenerates the embedding and rebuilds BM25, graph, and memory-atom indexes.
 
 ## Memory store consolidation
 

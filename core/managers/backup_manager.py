@@ -2,24 +2,49 @@
 
 Automatically backs up all plugin data files when the plugin version changes,
 storing each backup under a version-tagged directory for easy recovery.
+Also prunes expired or oversized backups so the data directory stays bounded.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
+import re
 import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 from astrbot.api import logger
 
 # Match metadata.yaml; backup manifests use this plugin version.
 PLUGIN_VERSION = "2.9.2"
 
+# Retention policies enforced by BackupManager.prune().
+KEEP_VERSION_BACKUPS = 2
+KEEP_ADAPTER_BACKUPS = 1
+KEEP_SCOPE_BACKUPS = 3
+MAX_BACKUP_TOTAL_MB = 512
+
 _VERSION_FILE = ".plugin_version"
 _BACKUP_INFO_FILE = "backup_info.json"
+
+_VERSION_DIR_RE = re.compile(r"^v\d")
+_ADAPTER_BACKUP_PREFIX = "adapter_ownership_"
+_SCOPE_BACKUP_PREFIX = "scope_migration_"
+_DAILY_BACKUP_GLOB = "*_backup_*.db"
+
+
+class _BackupEntry(NamedTuple):
+    """A direct child of the backups directory with its retention metadata."""
+
+    path: Path
+    is_dir: bool
+    mtime: float
+    size: int
+
 
 # Files/patterns to include in a full backup (relative to data_dir).
 _BACKUP_PATTERNS: list[str] = [
@@ -119,6 +144,199 @@ class BackupManager:
         """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""
         return await asyncio.to_thread(self.backup_if_needed)
 
+    @staticmethod
+    def prune(
+        data_dir: str,
+        *,
+        keep_days: int = 7,
+        max_total_mb: int = MAX_BACKUP_TOTAL_MB,
+    ) -> dict[str, int]:
+        """Remove expired and oversized backups under ``<data_dir>/backups``.
+
+        Only direct children of the backups directory are touched. Every child
+        is resolved first and skipped if it escapes the backups directory.
+        Retention per category:
+
+        - ``v<digit>...`` directories keep the newest KEEP_VERSION_BACKUPS;
+        - ``adapter_ownership_*`` directories keep the newest
+          KEEP_ADAPTER_BACKUPS;
+        - ``scope_migration_*`` files keep the newest KEEP_SCOPE_BACKUPS;
+        - ``*_backup_*.db`` files older than ``keep_days`` are removed.
+
+        If the remaining entries exceed ``max_total_mb``, the oldest entries are
+        removed until the cap is met or nothing else can be removed. The newest
+        version directory and the newest daily DB backup are never removed by
+        the cap.
+
+        Args:
+            data_dir: Plugin data directory that owns the backups folder.
+            keep_days: Retention period for daily DB backups, in days.
+            max_total_mb: Total backups size cap, in MiB.
+
+        Returns:
+            Counters of removed files/directories and bytes, plus the final
+            backups size in bytes.
+        """
+        stats = {
+            "files_removed": 0,
+            "dirs_removed": 0,
+            "bytes_removed": 0,
+            "total_bytes": 0,
+        }
+        backups_root = Path(data_dir) / "backups"
+        if not backups_root.is_dir():
+            return stats
+
+        root = backups_root.resolve()
+        entries: list[_BackupEntry] = []
+        for child in backups_root.iterdir():
+            try:
+                path = child.resolve()
+            except OSError as exc:
+                logger.warning(
+                    f"[BackupManager] Skipping unresolvable backup path {child}: {exc}"
+                )
+                continue
+            if path.parent != root:
+                logger.warning(
+                    f"[BackupManager] Skipping path outside backups dir: {child}"
+                )
+                continue
+            try:
+                mtime = path.stat().st_mtime
+                is_dir = path.is_dir()
+                size = (
+                    sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+                    if is_dir
+                    else path.stat().st_size
+                )
+            except OSError as exc:
+                logger.warning(
+                    f"[BackupManager] Skipping unreadable backup entry {child}: {exc}"
+                )
+                continue
+            entries.append(_BackupEntry(path, is_dir, mtime, size))
+
+        removed: set[Path] = set()
+
+        def _remove(entry: _BackupEntry) -> None:
+            try:
+                if entry.is_dir:
+                    shutil.rmtree(entry.path)
+                else:
+                    entry.path.unlink()
+            except OSError as exc:
+                logger.warning(
+                    f"[BackupManager] Failed to remove backup entry {entry.path}: {exc}"
+                )
+                return
+            removed.add(entry.path)
+            stats["bytes_removed"] += entry.size
+            if entry.is_dir:
+                stats["dirs_removed"] += 1
+            else:
+                stats["files_removed"] += 1
+
+        # Category retention: keep the newest entries of each backup source.
+        version_dirs = sorted(
+            (e for e in entries if e.is_dir and _VERSION_DIR_RE.match(e.path.name)),
+            key=lambda e: e.mtime,
+            reverse=True,
+        )
+        for entry in version_dirs[KEEP_VERSION_BACKUPS:]:
+            _remove(entry)
+
+        adapter_dirs = sorted(
+            (
+                e
+                for e in entries
+                if e.is_dir and e.path.name.startswith(_ADAPTER_BACKUP_PREFIX)
+            ),
+            key=lambda e: e.mtime,
+            reverse=True,
+        )
+        for entry in adapter_dirs[KEEP_ADAPTER_BACKUPS:]:
+            _remove(entry)
+
+        scope_files = sorted(
+            (
+                e
+                for e in entries
+                if not e.is_dir and e.path.name.startswith(_SCOPE_BACKUP_PREFIX)
+            ),
+            key=lambda e: e.mtime,
+            reverse=True,
+        )
+        for entry in scope_files[KEEP_SCOPE_BACKUPS:]:
+            _remove(entry)
+
+        cutoff = time.time() - keep_days * 86400
+        for entry in entries:
+            if (
+                not entry.is_dir
+                and fnmatch.fnmatch(entry.path.name, _DAILY_BACKUP_GLOB)
+                and entry.mtime < cutoff
+            ):
+                _remove(entry)
+
+        # Total size cap: drop oldest entries first, never the protected ones.
+        remaining = [e for e in entries if e.path not in removed]
+        total_bytes = sum(e.size for e in remaining)
+        limit = max_total_mb * 1024 * 1024
+        if total_bytes > limit:
+            protected: set[Path] = set()
+            kept_versions = [
+                e for e in remaining if e.is_dir and _VERSION_DIR_RE.match(e.path.name)
+            ]
+            if kept_versions:
+                protected.add(max(kept_versions, key=lambda e: e.mtime).path)
+            kept_daily = [
+                e
+                for e in remaining
+                if not e.is_dir and fnmatch.fnmatch(e.path.name, _DAILY_BACKUP_GLOB)
+            ]
+            if kept_daily:
+                protected.add(max(kept_daily, key=lambda e: e.mtime).path)
+            for entry in sorted(remaining, key=lambda e: e.mtime):
+                if total_bytes <= limit:
+                    break
+                if entry.path in protected:
+                    continue
+                _remove(entry)
+                if entry.path in removed:
+                    total_bytes -= entry.size
+
+        stats["total_bytes"] = sum(e.size for e in entries if e.path not in removed)
+        logger.info(
+            f"[BackupManager] Backup prune finished: removed "
+            f"{stats['files_removed']} files / {stats['dirs_removed']} dirs "
+            f"({stats['bytes_removed']} bytes), "
+            f"{stats['total_bytes']} bytes kept"
+        )
+        return stats
+
+    async def prune_async(
+        self,
+        *,
+        keep_days: int = 7,
+        max_total_mb: int = MAX_BACKUP_TOTAL_MB,
+    ) -> dict[str, int]:
+        """Async wrapper that runs prune() in the thread pool.
+
+        Args:
+            keep_days: Retention period for daily DB backups, in days.
+            max_total_mb: Total backups size cap, in MiB.
+
+        Returns:
+            Same counters as prune().
+        """
+        return await asyncio.to_thread(
+            self.prune,
+            str(self.data_dir),
+            keep_days=keep_days,
+            max_total_mb=max_total_mb,
+        )
+
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
@@ -151,4 +369,11 @@ class BackupManager:
         return result
 
 
-__all__ = ["BackupManager", "PLUGIN_VERSION"]
+__all__ = [
+    "KEEP_ADAPTER_BACKUPS",
+    "KEEP_SCOPE_BACKUPS",
+    "KEEP_VERSION_BACKUPS",
+    "MAX_BACKUP_TOTAL_MB",
+    "BackupManager",
+    "PLUGIN_VERSION",
+]
