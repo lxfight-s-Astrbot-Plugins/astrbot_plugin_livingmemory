@@ -1333,5 +1333,61 @@
                 }
             }
         }
+    },
+    "external_api": {
+        "invisible": false,
+        "description": "外部记忆 API",
+        "hint": "允许外部 Agent 终端通过 API Key 读写记忆（默认关闭）。开启后插件会启动独立 HTTP 监听，并通过 MCP bridge 或 curl 使用；建议仅本机使用或置于 HTTPS 反向代理之后。",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "启用外部记忆 API",
+                "hint": "开启后插件启动独立的 HTTP 监听（默认 127.0.0.1:7801），提供 /page/external 接口；关闭时所有外部接口返回 404。修改后需重载插件。",
+                "type": "bool",
+                "default": false
+            },
+            "listen_host": {
+                "description": "监听地址",
+                "hint": "外部 API 绑定地址，默认仅本机 127.0.0.1。若经反向代理暴露，保持回环地址并由代理转发。",
+                "type": "string",
+                "default": "127.0.0.1"
+            },
+            "listen_port": {
+                "description": "监听端口",
+                "hint": "外部 API 监听端口，默认 7801。修改后需重载插件。",
+                "type": "int",
+                "default": 7801
+            },
+            "max_request_bytes": {
+                "description": "请求体上限（字节）",
+                "hint": "单个请求体最大字节数，默认 262144（256 KiB），超过返回 400。",
+                "type": "int",
+                "default": 262144
+            },
+            "default_rate_limit_per_min": {
+                "description": "默认每分钟请求上限",
+                "hint": "新建 API Key 的默认每分钟请求数，可在创建 Key 时覆盖。",
+                "type": "int",
+                "default": 60
+            },
+            "default_write_limit_per_min": {
+                "description": "默认每分钟写入上限",
+                "hint": "新建 API Key 的默认每分钟写入次数；召回、查询不计入写入限流。",
+                "type": "int",
+                "default": 20
+            },
+            "audit_retention_days": {
+                "description": "审计日志保留天数",
+                "hint": "审计日志位于插件数据目录 external_api_audit.jsonl，按配置天数自动清理，默认 30 天。",
+                "type": "int",
+                "default": 30
+            },
+            "trust_proxy_headers": {
+                "description": "信任反向代理头",
+                "hint": "开启后审计日志使用 X-Forwarded-For 作为客户端地址；仅在请求确实经过可信反向代理时开启。",
+                "type": "bool",
+                "default": false
+            }
+        }
     }
 }

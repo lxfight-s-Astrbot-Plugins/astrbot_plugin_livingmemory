@@ -169,7 +169,7 @@
     "notice_exec": "AstrBot の会話履歴を更新し、記憶注入フラグメントを整理しました。"
   },
   "help": {
-    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem diag                 データ診断（DB/グラフ/バックアップ/サイズ）、diag compact で VACUUM\n/lmem trace [n|ID]        最近の召回トレースを表示。ID 指定で1件の詳細\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• ディスク容量が厳しい場合は /lmem diag compact を実行\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem diag                 データ診断（DB/グラフ/バックアップ/サイズ）、diag compact で VACUUM\n/lmem trace [n|ID]        最近の召回トレースを表示。ID 指定で1件の詳細\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem apikey [create|list|revoke] 外部メモリ API キーを管理（既定では無効）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• ディスク容量が厳しい場合は /lmem diag compact を実行\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n• 外部エージェント連携: external_api.enabled を有効化し、/lmem apikey create で一度だけ表示されるトークンを取得\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "プラグインの準備ができました。使用可能なコマンドは /lmem help で確認できます。",
@@ -196,5 +196,22 @@
     "detail_candidate": "候補 #{doc_id}: スコア={score} bm25={bm25} vector={vector}",
     "detail_injected": "注入: {count} 件 / {chars} 文字",
     "detail_notes": "備考: {notes}"
+  },
+  "external_api": {
+    "command": {
+      "created": "外部メモリ API キーを作成しました。\n名前: {name}\nID: {key_id}\n権限: {scopes}\nレート制限: {rate} 回/分（書き込み {write_rate} 回/分）\n\nトークン（一度だけ表示、すぐ保存してください）:\n{token}\n\nプラグイン設定で external_api.enabled を有効化して再読み込み後、Authorization: Bearer <トークン> で http://<host>:<port>/page/external にアクセスしてください。",
+      "list_header": "外部メモリ API キー（合計 {total} 件）:",
+      "list_row": "• [{key_id}] {name} | {key_prefix}… | {status} | 権限={scopes} | 制限 {rate}/{write_rate} 回/分",
+      "list_empty": "外部メモリ API キーはまだありません。/lmem apikey create <名前> [read|write] で作成してください。",
+      "status_active": "有効",
+      "revoked": "API キーを失効しました: [{key_id}] {name}",
+      "revoke_not_found": "API キーが見つかりません: {identifier}",
+      "name_required": "キー名を指定してください: /lmem apikey create <名前> [read|write] [人格一覧] [スコープ一覧] [毎分リクエスト数]",
+      "invalid_action": "不明な操作 {action}。create / list / revoke を指定してください。",
+      "create_failed": "API キー操作に失敗しました: {error}",
+      "disabled": "外部メモリ API は無効です。プラグイン設定で external_api.enabled を有効化して再読み込み後にキーを作成してください。",
+      "usage": "使い方: /lmem apikey create <名前> [read|write] [人格一覧] [スコープ一覧] [毎分リクエスト数] | /lmem apikey list | /lmem apikey revoke <id|名前>",
+      "status_revoked": "失効"
+    }
   }
 }

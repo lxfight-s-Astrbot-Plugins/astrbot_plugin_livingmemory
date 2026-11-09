@@ -637,6 +637,42 @@
         "description": "Retention days",
         "hint": "JSONL trace files older than this are cleaned up on the next write."
       }
+    },
+    "external_api": {
+      "description": "External memory API",
+      "hint": "Let external agent terminals read and write memories with API keys (disabled by default). Create keys with /lmem apikey or the dashboard, then use the bundled MCP bridge.",
+      "enabled": {
+        "description": "Enable external memory API",
+        "hint": "Starts a dedicated HTTP listener (default 127.0.0.1:7801) serving /page/external. When disabled every external endpoint returns 404. Reload the plugin after changing."
+      },
+      "listen_host": {
+        "description": "Listen address",
+        "hint": "Bind address for the external API. Keep loopback 127.0.0.1 and let a reverse proxy expose it, if needed."
+      },
+      "listen_port": {
+        "description": "Listen port",
+        "hint": "Port for the external API listener, default 7801. Reload the plugin after changing."
+      },
+      "max_request_bytes": {
+        "description": "Max request body bytes",
+        "hint": "Largest accepted request body, default 262144 (256 KiB); larger requests return 400."
+      },
+      "default_rate_limit_per_min": {
+        "description": "Default requests per minute",
+        "hint": "Default per-key request budget for new keys; can be overridden per key."
+      },
+      "default_write_limit_per_min": {
+        "description": "Default writes per minute",
+        "hint": "Default per-key write budget for new keys. Read requests do not consume it."
+      },
+      "audit_retention_days": {
+        "description": "Audit retention days",
+        "hint": "Audit JSONL lives in the plugin data directory (external_api_audit.jsonl) and is trimmed to this many days, default 30."
+      },
+      "trust_proxy_headers": {
+        "description": "Trust proxy headers",
+        "hint": "Use X-Forwarded-For as the audit client address. Enable only behind a trusted reverse proxy."
+      }
     }
   },
   "pages": {

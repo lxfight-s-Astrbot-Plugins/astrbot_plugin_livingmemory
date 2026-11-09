@@ -14,6 +14,7 @@ from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
 from .base.config_manager import ConfigManager
 from .base.usage_metrics import get_usage_snapshot
+from .command_handler_external import ExternalApiCommandMixin
 from .i18n_backend import t, t_list
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
@@ -30,7 +31,7 @@ from .retrieval.recall_trace import trace_request_context
 from .validators.index_maintenance import IndexValidator
 
 
-class CommandHandler:
+class CommandHandler(ExternalApiCommandMixin):
     """命令处理器"""
 
     def __init__(

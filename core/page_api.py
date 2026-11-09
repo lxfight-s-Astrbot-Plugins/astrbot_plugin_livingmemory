@@ -18,6 +18,7 @@ from .memory_scope import adapter_access
 from .page_api_modules import (
     BackupHandler,
     ConsolidationHandler,
+    ExternalHandler,
     GraphHandler,
     MemoryHandler,
     PageApiUtils,
@@ -52,6 +53,7 @@ class PluginPageApi:
         self.profile_handler = ProfileHandler(self.utils)
         self.consolidation_handler = ConsolidationHandler(self.utils)
         self.settings_handler = SettingsHandler(self.utils, plugin)
+        self.external_handler = ExternalHandler(self.utils, plugin)
 
         # BackupHandler 需要 data_dir，延迟初始化
         self._backup_handler = None
@@ -234,6 +236,60 @@ class PluginPageApi:
             "resolve_profile_pending",
             ["POST"],
             "LivingMemory Page resolve profile pending candidate",
+        ),
+        (
+            "external/keys",
+            "external_handler.list_keys",
+            ["GET"],
+            "LivingMemory external API key list",
+        ),
+        (
+            "external/keys",
+            "external_handler.create_key",
+            ["POST"],
+            "LivingMemory external API key create (token returned once)",
+        ),
+        (
+            "external/keys/<key_id>",
+            "external_handler.revoke_key",
+            ["DELETE"],
+            "LivingMemory external API key revoke",
+        ),
+        (
+            "external/health",
+            "external_handler.handle_health",
+            ["GET"],
+            "LivingMemory external API health",
+        ),
+        (
+            "external/personas",
+            "external_handler.handle_personas",
+            ["GET"],
+            "LivingMemory external API personas and scopes",
+        ),
+        (
+            "external/recall",
+            "external_handler.handle_recall",
+            ["POST"],
+            "LivingMemory external API recall",
+        ),
+        (
+            "external/memories",
+            "external_handler.handle_write_memory",
+            ["POST"],
+            "LivingMemory external API write memory",
+        ),
+        (
+            "external/memories/<memory_id>",
+            "external_handler.handle_get_memory",
+            ["GET"],
+            "LivingMemory external API get memory",
+        ),
+        (
+            "external/memories/<memory_id>/archive",
+            "external_handler.handle_archive_memory",
+            ["POST"],
+            "LivingMemory external API archive memory",
         ),
     )
 
@@ -511,6 +567,62 @@ class PluginPageApi:
         return await self.profile_handler.resolve_profile_pending(
             ready["memory_engine"]
         )
+
+    # ---- 外部记忆 API 路由 ----
+
+    async def external_list_keys(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.list_keys(ready)
+
+    async def external_create_key(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.create_key(ready)
+
+    async def external_revoke_key(self, key_id: str):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.revoke_key(ready, key_id)
+
+    async def external_health(self):
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.external_handler.handle_health()
+
+    async def external_personas(self):
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.external_handler.handle_personas()
+
+    async def external_recall(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.handle_recall()
+
+    async def external_write_memory(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.handle_write_memory()
+
+    async def external_get_memory(self, memory_id: str):
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.external_handler.handle_get_memory(memory_id)
+
+    async def external_archive_memory(self, memory_id: str):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.handle_archive_memory(memory_id)
 
     # ==================== 辅助方法 ====================
 

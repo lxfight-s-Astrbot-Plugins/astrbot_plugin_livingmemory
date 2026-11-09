@@ -169,7 +169,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem diag                 数据体检（DB/图谱/备份/体积），diag compact 执行 VACUUM\n/lmem trace [n|ID]        查看最近召回追踪；带 ID 查看单条详情\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 磁盘紧张时执行 /lmem diag compact 压缩数据库\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem diag                 数据体检（DB/图谱/备份/体积），diag compact 执行 VACUUM\n/lmem trace [n|ID]        查看最近召回追踪；带 ID 查看单条详情\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem apikey [create|list|revoke] 管理外部记忆 API Key（默认关闭）\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 磁盘紧张时执行 /lmem diag compact 压缩数据库\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n• 外部 Agent 读写记忆：开启 external_api.enabled 后执行 /lmem apikey create 生成一次性令牌\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",
@@ -196,5 +196,22 @@
     "detail_candidate": "候选 #{doc_id}: 分数={score} bm25={bm25} vector={vector}",
     "detail_injected": "注入: {count} 条 / {chars} 字符",
     "detail_notes": "备注: {notes}"
+  },
+  "external_api": {
+    "command": {
+      "created": "外部记忆 API Key 已创建。\n名称: {name}\nID: {key_id}\n权限: {scopes}\n限流: {rate} 次/分钟（写入 {write_rate} 次/分钟）\n\n令牌（仅显示一次，请立即保存）:\n{token}\n\n在插件配置中开启 external_api.enabled 并重载插件后，客户端以 Authorization: Bearer <令牌> 访问 http://<host>:<port>/page/external。",
+      "list_header": "外部记忆 API Key（共 {total} 个）:",
+      "list_row": "• [{key_id}] {name} | {key_prefix}… | {status} | 权限={scopes} | 限流 {rate}/{write_rate} 次每分钟",
+      "list_empty": "当前没有外部记忆 API Key。使用 /lmem apikey create <名称> [read|write] 创建。",
+      "status_active": "有效",
+      "revoked": "已吊销 API Key: [{key_id}] {name}",
+      "revoke_not_found": "未找到 API Key: {identifier}",
+      "name_required": "请提供 Key 名称：/lmem apikey create <名称> [read|write] [人格列表] [作用域列表] [每分钟请求数]",
+      "invalid_action": "未知操作 {action}；可用: create / list / revoke。",
+      "create_failed": "处理 API Key 失败: {error}",
+      "disabled": "外部记忆 API 当前未启用。请先在插件配置中开启 external_api.enabled 并重载插件后再创建 Key。",
+      "usage": "用法: /lmem apikey create <名称> [read|write] [人格列表] [作用域列表] [每分钟请求数] | /lmem apikey list | /lmem apikey revoke <id|名称>",
+      "status_revoked": "已吊销"
+    }
   }
 }

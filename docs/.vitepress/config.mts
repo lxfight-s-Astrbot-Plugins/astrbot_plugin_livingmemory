@@ -93,6 +93,7 @@ function navZh() {
     { text: '功能', link: '/features' },
     { text: '版本与升级', link: '/releases' },
     { text: '架构', link: '/architecture' },
+    { text: '外部 API', link: '/external-api' },
     { text: 'GitHub', link: repo }
   ]
 }
@@ -103,6 +104,7 @@ function navEn() {
     { text: 'Features', link: '/en/features' },
     { text: 'Releases', link: '/en/releases' },
     { text: 'Architecture', link: '/en/architecture' },
+    { text: 'External API', link: '/en/external-api' },
     { text: 'GitHub', link: repo }
   ]
 }
@@ -125,6 +127,7 @@ function sidebarZh() {
       items: [
         { text: '功能说明', link: '/features' },
         { text: '技术架构', link: '/architecture' },
+        { text: '外部记忆 API', link: '/external-api' },
         { text: '部署文档站', link: '/deployment' }
       ]
     }
@@ -149,6 +152,7 @@ function sidebarEn() {
       items: [
         { text: 'Features', link: '/en/features' },
         { text: 'Architecture', link: '/en/architecture' },
+        { text: 'External Memory API', link: '/en/external-api' },
         { text: 'Docs Deployment', link: '/en/deployment' }
       ]
     }

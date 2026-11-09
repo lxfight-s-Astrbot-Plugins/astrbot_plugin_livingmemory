@@ -1423,6 +1423,15 @@ class TestRouteRegistration:
         assert f"{prefix}/traces/stats" in paths
         assert f"{prefix}/traces/<trace_id>" in paths
         assert f"{prefix}/memories/<memory_id>/lineage" in paths
+        # External memory API: dashboard key management + Bearer routes.
+        assert f"{prefix}/external/keys" in paths
+        assert f"{prefix}/external/keys/<key_id>" in paths
+        assert f"{prefix}/external/health" in paths
+        assert f"{prefix}/external/personas" in paths
+        assert f"{prefix}/external/recall" in paths
+        assert f"{prefix}/external/memories" in paths
+        assert f"{prefix}/external/memories/<memory_id>" in paths
+        assert f"{prefix}/external/memories/<memory_id>/archive" in paths
 
     def test_route_prefix_contains_plugin_name(self):
         assert PLUGIN_NAME in PAGE_API_PREFIX
