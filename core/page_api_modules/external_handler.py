@@ -185,6 +185,14 @@ class ExternalHandler:
         records = await service.recent_audit(limit)
         return self.utils.ok({"records": records, "total": len(records)})
 
+    async def revoke_key_post(self, ready: dict[str, Any]) -> dict[str, Any]:
+        """Revoke one API key via POST (iframe bridge only supports GET/POST)."""
+        payload = await request.get_json(silent=True) or {}
+        key_id = payload.get("id", payload.get("key_id"))
+        if key_id is None:
+            return {**self.utils.error("id 不能为空"), "code": "invalid_request"}
+        return await self.revoke_key(ready, str(key_id))
+
     # ==================== Bearer-authenticated external routes ====================
 
     async def handle_health(self) -> dict[str, Any]:
