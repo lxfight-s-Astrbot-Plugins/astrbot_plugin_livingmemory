@@ -391,6 +391,125 @@ class MemoryEngineBatchMixin:
                 await self.atom_store.delete_by_parent(memory_id)
             raise
 
+    # 运行时旧会话迁移的全局完成标记（migration_status.key）
+    _RUNTIME_MIGRATION_FLAG_KEY = "runtime_session_migration_v1"
+    _RUNTIME_MIGRATION_MARKER_PREFIX = "migrated_umo_"
+
+    async def _runtime_session_migration_needed(self, unified_msg_origin: str) -> bool:
+        """判断当前会话是否还需要跑一次旧格式 session_id 迁移。
+
+        热路径（每次召回）调用：已完成的迁移由进程内状态短路，只有进程内首次
+        调用或未完成迁移的会话才会查 ``migration_status``。库里没有旧格式
+        session_id 数据时写一次全局完成标记，之后本进程不再触发任何迁移任务。
+
+        Args:
+            unified_msg_origin: 当前会话的 unified_msg_origin。
+
+        Returns:
+            True 表示需要调度后台迁移任务。
+        """
+        if self._runtime_migration_finished:
+            return False
+        if unified_msg_origin in self._runtime_migration_checked_sessions:
+            return False
+        if self.db_connection is None:
+            return False
+
+        if not self._runtime_migration_flag_loaded:
+            self._runtime_migration_flag_loaded = True
+            flag = await self._read_migration_status_value(
+                self._RUNTIME_MIGRATION_FLAG_KEY
+            )
+            if str(flag or "").casefold() == "true":
+                self._runtime_migration_finished = True
+                return False
+            if not await self._has_legacy_session_rows():
+                await self._write_runtime_migration_flag()
+                self._runtime_migration_finished = True
+                return False
+
+        marker = await self._read_migration_status_value(
+            f"{self._RUNTIME_MIGRATION_MARKER_PREFIX}{unified_msg_origin}"
+        )
+        if str(marker or "").casefold() == "true":
+            self._runtime_migration_checked_sessions.add(unified_msg_origin)
+            return False
+        return True
+
+    async def _read_migration_status_value(self, key: str) -> str | None:
+        """读取 migration_status 单键值；读取失败按缺失处理。"""
+        if self.db_connection is None:
+            return None
+        try:
+            cursor = await self.db_connection.execute(
+                "SELECT value FROM migration_status WHERE key = ?", (key,)
+            )
+            row = await cursor.fetchone()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[自动迁移] 读取 migration_status 失败", exc_info=True)
+            return None
+        return str(row[0]) if row and row[0] is not None else None
+
+    async def _has_legacy_session_rows(self) -> bool:
+        """判断 documents 中是否还有未 unified_msg_origin 化的旧会话数据。"""
+        if self.db_connection is None:
+            return False
+        try:
+            cursor = await self.db_connection.execute(
+                "SELECT 1 FROM documents WHERE json_valid(metadata) "
+                "AND json_extract(metadata, '$.session_id') IS NOT NULL "
+                "AND json_extract(metadata, '$.session_id') NOT LIKE '%:%' "
+                "LIMIT 1"
+            )
+            return await cursor.fetchone() is not None
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[自动迁移] 检查旧会话数据失败", exc_info=True)
+            return False
+
+    async def _write_runtime_migration_flag(self) -> None:
+        """写入“旧会话数据已清理完毕”的全局标记（失败只记日志）。"""
+        if self.db_connection is None:
+            return
+        try:
+            async with self._write_transaction() as connection:
+                await connection.execute(
+                    "INSERT OR REPLACE INTO migration_status "
+                    "(key, value, updated_at) VALUES (?, 'true', datetime('now'))",
+                    (self._RUNTIME_MIGRATION_FLAG_KEY,),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[自动迁移] 写入运行期迁移标记失败", exc_info=True)
+
+    async def _finish_runtime_session_migration(self, unified_msg_origin: str) -> None:
+        """记录单会话迁移完成；若库里已无旧数据则写全局完成标记。"""
+        self._runtime_migration_checked_sessions.add(unified_msg_origin)
+        if self._runtime_migration_finished:
+            return
+        if await self._has_legacy_session_rows():
+            return
+        await self._write_runtime_migration_flag()
+        self._runtime_migration_finished = True
+
+    def _schedule_runtime_session_migration(self, unified_msg_origin: str) -> None:
+        """调度单会话后台迁移任务（同一会话 in-flight 去重）。"""
+        if unified_msg_origin in self._runtime_migration_inflight:
+            return
+        self._runtime_migration_inflight.add(unified_msg_origin)
+        task = self._create_tracked_task(
+            self._migrate_session_data_if_needed(unified_msg_origin)
+        )
+        task.add_done_callback(
+            lambda _task, umo=unified_msg_origin: (
+                self._runtime_migration_inflight.discard(umo)
+            )
+        )
+
     async def _migrate_session_data_if_needed(self, unified_msg_origin: str) -> None:
         """
         运行时自动迁移：将旧格式的session_id更新为unified_msg_origin格式
@@ -448,7 +567,8 @@ class MemoryEngineBatchMixin:
             )
             row = await cursor.fetchone()
             if row and row[0] == "true":
-                # 已迁移过，跳过
+                # 已迁移过，跳过；同时写入进程内缓存，后续召回不再触发本任务
+                self._runtime_migration_checked_sessions.add(unified_msg_origin)
                 return
 
             # 4. 查找所有需要迁移的记录
@@ -473,6 +593,7 @@ class MemoryEngineBatchMixin:
                         "INSERT OR REPLACE INTO migration_status (key, value, updated_at) VALUES (?, ?, datetime('now'))",
                         (migration_key, "true"),
                     )
+                await self._finish_runtime_session_migration(unified_msg_origin)
                 return
 
             logger.info(f"[自动迁移] 找到 {len(rows)} 条旧数据需要迁移")
@@ -512,6 +633,7 @@ class MemoryEngineBatchMixin:
             logger.info(
                 f"[自动迁移] 完成！已更新 {updated_count} 条记录 -> {unified_msg_origin}"
             )
+            await self._finish_runtime_session_migration(unified_msg_origin)
 
         except asyncio.CancelledError:
             raise

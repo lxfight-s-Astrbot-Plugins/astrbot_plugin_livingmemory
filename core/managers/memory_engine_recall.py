@@ -57,6 +57,10 @@ class MemoryEngineRecallMixin:
     _access_update_pending: set[int]
     _access_atom_update_pending: set[int]
     _access_flush_task: asyncio.Task | None
+    _runtime_migration_finished: bool
+    _runtime_migration_flag_loaded: bool
+    _runtime_migration_checked_sessions: set[str]
+    _runtime_migration_inflight: set[str]
     index_maintenance_status: dict[str, Any]
 
     async def search_memories(
@@ -95,14 +99,15 @@ class MemoryEngineRecallMixin:
             )
             return cached_results
 
-        # 如果session_id是unified_msg_origin格式，自动触发旧数据迁移
+        # 旧会话数据迁移：仅当库里仍有旧格式 session_id 数据、且当前会话尚未
+        # 迁移过时才调度后台任务；迁移完成后由进程内缓存短路，热路径不再查库。
         if (
             session_id
             and ":" in session_id
             and not session_id.startswith("livingmemory:")
+            and await self._runtime_session_migration_needed(session_id)
         ):
-            # 异步触发迁移，不阻塞查询
-            self._create_tracked_task(self._migrate_session_data_if_needed(session_id))
+            self._schedule_runtime_session_migration(session_id)
 
         # 【关键修改】不再提取UUID，直接使用完整的unified_msg_origin进行匹配
         # 因为现在数据库中存储的就是完整格式

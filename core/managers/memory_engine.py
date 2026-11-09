@@ -144,6 +144,13 @@ class MemoryEngine(
         # 后台任务跟踪
         self._pending_tasks: set[asyncio.Task] = set()
 
+        # 旧会话运行时迁移（unified_msg_origin 化）：进程内缓存，避免已迁移用户
+        # 每次召回都创建后台任务、查 migration_status 或打 INFO 日志。
+        self._runtime_migration_finished = False
+        self._runtime_migration_flag_loaded = False
+        self._runtime_migration_checked_sessions: set[str] = set()
+        self._runtime_migration_inflight: set[str] = set()
+
         # 初始化组件(在initialize中完成)
         self.text_processor = None
         self.bm25_retriever = None

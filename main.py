@@ -464,6 +464,15 @@ class LivingMemoryPlugin(Star):
             yield message
 
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("diag")
+    async def diag(
+        self, event: AstrMessageEvent, mode: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[Admin] Show data diagnostics; `compact` runs VACUUM"""
+        async for message in self._run_command(event, "handle_diag", mode):
+            yield message
+
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("search", priority=10)
     async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5

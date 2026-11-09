@@ -654,6 +654,111 @@ async def test_internal_memory_scope_skips_legacy_session_migration(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_runtime_session_migration_runs_once_per_session(tmp_path: Path):
+    """D7：同一会话迁移完成后再召回不再触发迁移任务。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "runtime_migration.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "recent_memory_count": 0},
+    )
+    await engine.initialize()
+    # 模拟“升级库仍有旧格式数据”的场景，让首次召回进入迁移分支。
+    engine._has_legacy_session_rows = AsyncMock(return_value=True)
+    spy = AsyncMock(side_effect=engine._migrate_session_data_if_needed)
+    engine._migrate_session_data_if_needed = spy
+
+    await engine.search_memories("q1", session_id="webchat:group:legacy")
+    await asyncio.gather(*list(engine._pending_tasks))
+    assert spy.await_count == 1
+    assert "webchat:group:legacy" in engine._runtime_migration_checked_sessions
+
+    await engine.search_memories("q2", session_id="webchat:group:legacy")
+    await asyncio.gather(*list(engine._pending_tasks))
+    assert spy.await_count == 1
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_migration_skips_new_format_sessions(tmp_path: Path):
+    """D7：非 unified_msg_origin / 内部作用域会话不触发旧数据迁移。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "runtime_migration_new_format.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "recent_memory_count": 0},
+    )
+    await engine.initialize()
+    engine._migrate_session_data_if_needed = AsyncMock()
+
+    await engine.search_memories("q", session_id="plain-session-id")
+    await engine.search_memories("q", session_id="livingmemory:user:test:user-1")
+    await asyncio.gather(*list(engine._pending_tasks))
+
+    engine._migrate_session_data_if_needed.assert_not_awaited()
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_migration_writes_global_flag_when_clean(
+    tmp_path: Path,
+):
+    """D7：库里没有旧格式数据时写全局完成标记，之后热路径不再查库。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "runtime_migration_clean.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "recent_memory_count": 0},
+    )
+    await engine.initialize()
+    engine._migrate_session_data_if_needed = AsyncMock()
+
+    await engine.search_memories("q", session_id="webchat:group:fresh")
+    await asyncio.gather(*list(engine._pending_tasks))
+
+    engine._migrate_session_data_if_needed.assert_not_awaited()
+    assert engine._runtime_migration_finished is True
+    cursor = await engine.db_connection.execute(
+        "SELECT value FROM migration_status WHERE key = ?",
+        ("runtime_session_migration_v1",),
+    )
+    assert (await cursor.fetchone())[0] == "true"
+
+    # 完成后再次判定不应访问数据库（否则会抛 AssertionError）。
+    async def _unexpected_query(*_args, **_kwargs):
+        raise AssertionError("runtime migration hot path must not query the db")
+
+    engine.db_connection.execute = _unexpected_query
+    assert (
+        await engine._runtime_session_migration_needed("webchat:group:another") is False
+    )
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_session_migration_global_marker_skips_hot_path(
+    tmp_path: Path,
+):
+    """D7：已存在全局完成标记时启动后首次召回也不再起迁移任务。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "runtime_migration_marker.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"fallback_enabled": True, "recent_memory_count": 0},
+    )
+    await engine.initialize()
+    await engine.db_connection.execute(
+        "INSERT OR REPLACE INTO migration_status (key, value, updated_at) "
+        "VALUES ('runtime_session_migration_v1', 'true', datetime('now'))"
+    )
+    await engine.db_connection.commit()
+    engine._migrate_session_data_if_needed = AsyncMock()
+
+    await engine.search_memories("q", session_id="webchat:group:legacy")
+    await asyncio.gather(*list(engine._pending_tasks))
+
+    engine._migrate_session_data_if_needed.assert_not_awaited()
+    assert engine._runtime_migration_finished is True
+    await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_search_memories_filters_below_minimum_importance(tmp_path: Path):
     engine = MemoryEngine(
         db_path=str(tmp_path / "memory_threshold.db"),

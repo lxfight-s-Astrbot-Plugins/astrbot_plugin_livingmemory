@@ -31,6 +31,40 @@ def memory_engine():
     engine.search_memories = AsyncMock(return_value=[])
     engine.delete_memory = AsyncMock(return_value=True)
     engine.rebuild_graph_index = AsyncMock(return_value={"rebuilt": 0, "skipped": 0})
+    engine.get_diagnostics = AsyncMock(
+        return_value={
+            "db_path": "/tmp/livingmemory-test.db",
+            "db_version": 8,
+            "quick_check": "ok",
+            "migration": {
+                "pending": ["needs_index_rebuild"],
+                "pending_documents": 3,
+                "legacy_session_markers": 2,
+            },
+            "documents": {"total": 2, "active": 1, "archived": 1, "deleted": 0},
+            "graph": {"nodes": 4, "edges": 5},
+            "faiss": {"main": 2, "graph": 4},
+            "db_bytes": 2 * 1024 * 1024,
+            "wal_bytes": 1024,
+            "data_dir_bytes": 3 * 1024 * 1024,
+            "backups": {
+                "count": 2,
+                "bytes": 1024 * 1024,
+                "latest_at": 1_700_000_000.0,
+            },
+            "last_decay": {"date": "2026-11-09", "timestamp": 1_700_000_000.0},
+        }
+    )
+    engine.compact_storage = AsyncMock(
+        return_value={
+            "success": True,
+            "db_size_before": 4 * 1024 * 1024,
+            "db_size_after": 3 * 1024 * 1024,
+            "wal_size_before": 1024 * 1024,
+            "wal_size_after": 0,
+            "bytes_reclaimed": 2 * 1024 * 1024,
+        }
+    )
     return engine
 
 
@@ -69,6 +103,63 @@ async def test_handle_status_returns_report(handler, mock_event):
     assert len(messages) == 1
     assert "LivingMemory" in messages[0]
     assert "总记忆数" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_diag_reports_database_health(handler, mock_event):
+    messages = [msg async for msg in handler.handle_diag(mock_event)]
+    assert len(messages) == 2
+    report = messages[-1]
+    for token in (
+        "db_version",
+        "quick_check",
+        "migration_status",
+        "documents",
+        "graph",
+        "faiss ntotal",
+        "backups",
+        "last_decay",
+    ):
+        assert token in report
+    assert "8" in report
+    assert "ok" in report
+    assert "2.00" in report  # db_bytes -> 2.00 MB
+    assert "2026-11-09" in report
+
+
+@pytest.mark.asyncio
+async def test_handle_diag_quick_check_error_is_rendered(handler, mock_event):
+    """quick_check 失败时输出 error 文本而不是抛异常。"""
+    diagnostics = dict(handler.memory_engine.get_diagnostics.return_value)
+    diagnostics["quick_check"] = "error: database disk image is malformed"
+    handler.memory_engine.get_diagnostics = AsyncMock(return_value=diagnostics)
+
+    messages = [msg async for msg in handler.handle_diag(mock_event)]
+
+    assert len(messages) == 2
+    assert "error: database disk image is malformed" in messages[-1]
+
+
+@pytest.mark.asyncio
+async def test_handle_diag_compact_reports_before_after_sizes(handler, mock_event):
+    messages = [msg async for msg in handler.handle_diag(mock_event, "compact")]
+
+    assert len(messages) == 2
+    assert "VACUUM" in messages[0]
+    assert "4.00 MB -> 3.00 MB" in messages[-1]
+    assert "释放 2.00 MB" in messages[-1]
+    handler.memory_engine.compact_storage.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_diag_compact_error_uses_error_handler(handler, mock_event):
+    handler.memory_engine.compact_storage = AsyncMock(
+        side_effect=RuntimeError("database is locked")
+    )
+
+    messages = [msg async for msg in handler.handle_diag(mock_event, "compact")]
+
+    assert any("database is locked" in msg for msg in messages)
 
 
 @pytest.mark.asyncio

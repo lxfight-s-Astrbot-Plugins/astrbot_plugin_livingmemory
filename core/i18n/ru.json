@@ -4,7 +4,8 @@
     "no": "Нет",
     "none": "Нет",
     "never": "Никогда",
-    "unknown_error": "Неизвестная ошибка"
+    "unknown_error": "Неизвестная ошибка",
+    "unknown": "Неизвестно"
   },
   "error": {
     "format": {
@@ -58,6 +59,11 @@
         "Убедитесь, что целевая область указана верно (global/session/user или строка)",
         "Перед миграцией автоматически создаётся резервная копия БД",
         "Записи графа мигрируются вместе с памятью; /lmem rebuild-graph нужен только при устаревшем графовом поиске"
+      ],
+      "diag": [
+        "Убедитесь, что каталог данных плагина и файл базы доступны для чтения и записи",
+        "Убедитесь, что другой процесс не удерживает базу долго (для VACUUM нужна кратковременная эксклюзивная блокировка)",
+        "Проверьте трассировки [Diag]/[автомиграция] в логах"
       ]
     }
   },
@@ -66,6 +72,25 @@
     "report": "Отчёт о состоянии LivingMemory\n\nВсего памяти: {total}\nСессий: {session_count}\nПоследнее обновление: {last_update}\nРазмер БД: {db_size:.2f} MB\n\nДоступные операции:\n- /lmem search <ключевое слово>",
     "usage": "\n\nВызовы LLM: {calls} / входные токены: {input_tokens} / выходные токены: {output_tokens}",
     "index_maintenance": "\n\nОбслуживание индекса: {state} ({current}/{total})\n{message}"
+  },
+  "diag": {
+    "header": "Диагностика данных LivingMemory (diag)",
+    "db_version": "Версия БД (db_version): {version}",
+    "quick_check": "Проверка целостности (quick_check): {result}",
+    "migration": "Остатки миграции (migration_status): в ожидании={pending}, документов в ожидании={pending_documents}, маркеров старых сессий={legacy_markers}",
+    "documents": "Документы памяти (documents): всего={total}, active={active}, archived={archived}, deleted={deleted}",
+    "graph": "Граф (graph): узлов={nodes}, рёбер={edges}",
+    "faiss": "Векторный индекс (faiss ntotal): основной={main}, граф={graph}",
+    "storage": "Занято (storage): база={db_size} MB, WAL={wal_size} MB, каталог данных={data_dir} MB",
+    "backups": "Резервные копии (backups): файлов={count}, размер={size} MB, последняя={latest}",
+    "last_decay": "Последнее затухание (last_decay): {last_decay}",
+    "hint": "Подсказка: /lmem diag compact выполняет VACUUM для сжатия базы (долго на больших данных, избегайте записи)",
+    "action_name": "Диагностика данных",
+    "collecting": "Сбор диагностики данных...",
+    "compact": {
+      "starting": "Сжатие базы данных (VACUUM), на больших данных может занять время...",
+      "done": "Сжатие завершено (compact): база {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, освобождено {reclaimed} MB"
+    }
   },
   "search": {
     "action_name": "Поиск",
@@ -144,7 +169,7 @@
     "notice_exec": "История диалогов AstrBot обновлена, фрагменты инъекции памяти очищены."
   },
   "help": {
-    "text": "Руководство по LivingMemory\n\nОсновные команды:\n/lmem status              Просмотр состояния системы\n/lmem search <ключевое слово> [количество]  Поиск памяти (по умолчанию 5)\n/lmem forget <ID>          Удалить указанную память\n/lmem rebuild-index       Перестроить индекс (исправить несоответствие)\n/lmem rebuild-graph       Перестроить графовый индекс (заполнить старые данные)\n/lmem migrate-scope <target> [apply] [source]  Перенести старые памяти в область (по умолчанию предпросмотр)\n/lmem webui               Показать вход в панель управления WebUI\n/lmem summarize [message_count]  Суммировать сейчас или повторно обработать последние сообщения\n/lmem reset               Сбросить контекст памяти текущей сессии\n/lmem cleanup [preview|exec] Очистить фрагменты инъекции памяти из истории (по умолчанию preview)\n/lmem help                Показать эту справку\n\nРекомендации:\n• Используйте search для ежедневных запросов\n• Для сложного управления откройте Плагины -> LivingMemory -> Pages -> dashboard в панели AstrBot\n• Память автоматически сохраняется из диалогов\n• Используйте forget для удаления конфиденциальной информации\n• Выполняйте rebuild-index при несоответствии индекса\n• После включения графовой памяти выполните rebuild-graph\n• После обновления плагина выполните cleanup\n\nПримеры команды cleanup:\n  /lmem cleanup          # Режим предпросмотра, только статистика\n  /lmem cleanup preview  # То же самое\n  /lmem cleanup exec     # Выполнить реальную очистку\n\nПодробнее: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "Руководство по LivingMemory\n\nОсновные команды:\n/lmem status              Просмотр состояния системы\n/lmem diag                 Диагностика данных (БД/граф/бэкапы/размер); diag compact выполняет VACUUM\n/lmem search <ключевое слово> [количество]  Поиск памяти (по умолчанию 5)\n/lmem forget <ID>          Удалить указанную память\n/lmem rebuild-index       Перестроить индекс (исправить несоответствие)\n/lmem rebuild-graph       Перестроить графовый индекс (заполнить старые данные)\n/lmem migrate-scope <target> [apply] [source]  Перенести старые памяти в область (по умолчанию предпросмотр)\n/lmem webui               Показать вход в панель управления WebUI\n/lmem summarize [message_count]  Суммировать сейчас или повторно обработать последние сообщения\n/lmem reset               Сбросить контекст памяти текущей сессии\n/lmem cleanup [preview|exec] Очистить фрагменты инъекции памяти из истории (по умолчанию preview)\n/lmem help                Показать эту справку\n\nРекомендации:\n• Используйте search для ежедневных запросов\n• При нехватке места выполните /lmem diag compact\n• Для сложного управления откройте Плагины -> LivingMemory -> Pages -> dashboard в панели AstrBot\n• Память автоматически сохраняется из диалогов\n• Используйте forget для удаления конфиденциальной информации\n• Выполняйте rebuild-index при несоответствии индекса\n• После включения графовой памяти выполните rebuild-graph\n• После обновления плагина выполните cleanup\n\nПримеры команды cleanup:\n  /lmem cleanup          # Режим предпросмотра, только статистика\n  /lmem cleanup preview  # То же самое\n  /lmem cleanup exec     # Выполнить реальную очистку\n\nПодробнее: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "Плагин готов. Используйте /lmem help для просмотра доступных команд.",
