@@ -637,6 +637,42 @@
         "description": "保持日数",
         "hint": "この日数を超えた JSONL トレースファイルは次回書き込み時に自動削除されます。"
       }
+    },
+    "external_api": {
+      "description": "外部メモリ API",
+      "hint": "外部エージェント端末が API キーで記憶を読み書きできるようにします（デフォルト無効）。/lmem apikey かダッシュボードでキーを作成し、同梱の MCP bridge を利用できます。",
+      "enabled": {
+        "description": "外部メモリ API を有効化",
+        "hint": "専用 HTTP リスナー（既定 127.0.0.1:7801）を起動し /page/external を提供します。無効時はすべての外部エンドポイントが 404 を返します。変更後はプラグインを再読み込みしてください。"
+      },
+      "listen_host": {
+        "description": "待受アドレス",
+        "hint": "外部 API のバインド先。既定はループバック 127.0.0.1。外部公開する場合はリバースプロキシ経由にしてください。"
+      },
+      "listen_port": {
+        "description": "待受ポート",
+        "hint": "外部 API のポート（既定 7801）。変更後はプラグインを再読み込みしてください。"
+      },
+      "max_request_bytes": {
+        "description": "リクエスト本文の上限（バイト）",
+        "hint": "受け付けるリクエスト本文の最大サイズ（既定 262144 / 256 KiB）。超過時は 400。"
+      },
+      "default_rate_limit_per_min": {
+        "description": "既定の毎分リクエスト上限",
+        "hint": "新しい API キーの既定リクエスト量。キー作成時に上書きできます。"
+      },
+      "default_write_limit_per_min": {
+        "description": "既定の毎分書き込み上限",
+        "hint": "新しい API キーの既定書き込み量。読み取りは消費しません。"
+      },
+      "audit_retention_days": {
+        "description": "監査ログ保持日数",
+        "hint": "監査ログ external_api_audit.jsonl はプラグインデータディレクトリに保存され、指定日数で自動削除されます（既定 30 日）。"
+      },
+      "trust_proxy_headers": {
+        "description": "プロキシヘッダーを信頼",
+        "hint": "監査ログのクライアントアドレスに X-Forwarded-For を使用します。信頼できるリバースプロキシ経由の場合のみ有効化してください。"
+      }
     }
   },
   "pages": {

@@ -61,6 +61,7 @@ def _make_plugin(
     plugin._terminating = False
     plugin.page_api = Mock()
     plugin._backup_manager = Mock()
+    plugin._external_api_server = None
     return plugin
 
 

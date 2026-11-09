@@ -196,3 +196,38 @@ PROFILE_SCHEMA_STATEMENTS: tuple[str, ...] = (
     ON memory_profile_history(profile_id, created_at DESC)
     """,
 )
+
+# External memory API schema: API keys, per-key idempotency records.
+# Audit records live in a JSONL file next to the database, not in SQLite, so the
+# table schema stays small and audit retention can be trimmed without VACUUM.
+# All statements are idempotent and intentionally version-independent:
+# ``MemoryEngine._create_tables`` executes them on every plugin start (fresh and
+# upgraded databases), and ``ExternalApiStore.initialize`` repeats them for the
+# standalone listener/tests. This keeps db_version reserved for other features.
+EXTERNAL_API_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS external_api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL DEFAULT '["read"]',
+        allowed_personas TEXT,
+        allowed_scopes TEXT,
+        rate_limit_per_min INTEGER NOT NULL DEFAULT 60,
+        write_limit_per_min INTEGER NOT NULL DEFAULT 20,
+        created_at REAL NOT NULL,
+        last_used_at REAL,
+        revoked_at REAL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS external_api_idempotency (
+        idempotency_key TEXT PRIMARY KEY,
+        memory_id INTEGER NOT NULL,
+        created_at REAL NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_external_api_keys_prefix ON external_api_keys(key_prefix)",
+    "CREATE INDEX IF NOT EXISTS idx_external_api_idempotency_created ON external_api_idempotency(created_at)",
+)

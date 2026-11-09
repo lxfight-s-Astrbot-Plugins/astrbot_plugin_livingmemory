@@ -4,6 +4,7 @@ Page API 模块化子模块
 
 from .backup_handler import BackupHandler
 from .consolidation_handler import ConsolidationHandler
+from .external_handler import ExternalHandler
 from .graph_handler import GraphHandler
 from .memory_handler import MemoryHandler
 from .profile_handler import ProfileHandler
@@ -25,5 +26,6 @@ __all__ = [
     "ProfileHandler",
     "ConsolidationHandler",
     "TraceHandler",
+    "ExternalHandler",
     "PageApiUtils",
 ]

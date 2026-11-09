@@ -21,6 +21,7 @@ from ...storage.schema import (
     DB_VERSION_SCHEMA_STATEMENTS,
     DOCUMENTS_DOC_ID_INDEX_STATEMENT,
     DOCUMENTS_INDEX_STATEMENTS,
+    EXTERNAL_API_SCHEMA_STATEMENTS,
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
     PROFILE_SCHEMA_STATEMENTS,
 )
@@ -459,6 +460,8 @@ class MemoryEngine(
 
             # 版本管理 / 迁移状态表：与 DBMigration、IndexValidator 共用同一份 DDL
             for statement in DB_VERSION_SCHEMA_STATEMENTS:
+                await connection.execute(statement)
+            for statement in EXTERNAL_API_SCHEMA_STATEMENTS:
                 await connection.execute(statement)
             for statement in MIGRATION_STATUS_SCHEMA_STATEMENTS:
                 await connection.execute(statement)

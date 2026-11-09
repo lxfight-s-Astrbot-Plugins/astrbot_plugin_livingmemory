@@ -18,6 +18,7 @@ PAIRS = [
     ("configuration.md", "en/configuration.md"),
     ("commands.md", "en/commands.md"),
     ("webui.md", "en/webui.md"),
+    ("external-api.md", "en/external-api.md"),
     ("architecture.md", "en/architecture.md"),
     ("deployment.md", "en/deployment.md"),
     ("releases.md", "en/releases.md"),

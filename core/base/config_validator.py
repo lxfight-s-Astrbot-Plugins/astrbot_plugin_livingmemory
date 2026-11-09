@@ -249,6 +249,19 @@ class TraceSettings(BaseModel):
     retention_days: int = Field(default=7, ge=1, le=365)
 
 
+class ExternalApiConfig(BaseModel):
+    """External memory API (default off)."""
+
+    enabled: bool = False
+    listen_host: str = "127.0.0.1"
+    listen_port: int = Field(default=7801, ge=1, le=65535)
+    max_request_bytes: int = Field(default=262144, ge=1024, le=1048576)
+    default_rate_limit_per_min: int = Field(default=60, ge=1, le=100000)
+    default_write_limit_per_min: int = Field(default=20, ge=1, le=100000)
+    audit_retention_days: int = Field(default=30, ge=1, le=3650)
+    trust_proxy_headers: bool = False
+
+
 class LivingMemoryConfig(BaseModel):
     """完整插件配置"""
 
@@ -283,6 +296,7 @@ class LivingMemoryConfig(BaseModel):
         default_factory=ProfileSettingsConfig
     )
     trace_settings: TraceSettings = Field(default_factory=TraceSettings)
+    external_api: ExternalApiConfig = Field(default_factory=ExternalApiConfig)
 
     model_config = {"extra": "allow"}  # 允许额外字段，向前兼容
 

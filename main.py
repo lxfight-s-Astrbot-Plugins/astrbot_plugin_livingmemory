@@ -128,6 +128,7 @@ class LivingMemoryPlugin(Star):
         self._component_init_lock = asyncio.Lock()
         self._llm_tools_registered = False
         self._terminating = False
+        self._external_api_server = None
 
         self.page_api = PluginPageApi(self)
         self.page_api.register_routes()
@@ -220,8 +221,43 @@ class LivingMemoryPlugin(Star):
                 )
 
             self._register_agent_tools_if_needed()
+            await self._ensure_external_api_server()
 
         return True
+
+    async def _ensure_external_api_server(self) -> None:
+        """Start the standalone external API listener once when it is enabled."""
+        if self._external_api_server is not None:
+            return
+        if not self.config_manager.get("external_api.enabled", False):
+            return
+        engine = self.initializer.memory_engine if self.initializer else None
+        if engine is None:
+            return
+        from .core.external_api import ExternalApiService
+        from .core.external_api_server import ExternalApiServer
+
+        data_dir = getattr(self.initializer, "data_dir", None) or "."
+        service = ExternalApiService(self.config_manager, engine, data_dir)
+        try:
+            await service.ensure_initialized()
+        except Exception as exc:
+            logger.error("[ExternalAPI] 初始化失败: %s", exc, exc_info=True)
+            return
+        server = ExternalApiServer(
+            service,
+            host=str(self.config_manager.get("external_api.listen_host", "127.0.0.1")),
+            port=int(self.config_manager.get("external_api.listen_port", 7801)),
+        )
+        if server.start():
+            self._external_api_server = server
+
+    async def _stop_external_api_server(self) -> None:
+        """Stop the external API listener if it is running."""
+        server = self._external_api_server
+        self._external_api_server = None
+        if server is not None:
+            server.stop()
 
     def _register_agent_tools_if_needed(self) -> None:
         """在核心组件就绪后注册 Agent 工具（回忆/写入）。
@@ -551,6 +587,32 @@ class LivingMemoryPlugin(Star):
             yield message
 
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("apikey")
+    async def apikey(
+        self,
+        event: AstrMessageEvent,
+        action: str = "list",
+        name: str = "",
+        mode: str = "read",
+        personas: str = "",
+        scopes: str = "",
+        rate: int = 0,
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[Admin] Manage external memory API keys (create/list/revoke)"""
+        async for message in self._run_command(
+            event,
+            "handle_apikey",
+            action,
+            name,
+            mode,
+            personas,
+            scopes,
+            rate,
+            write=True,
+        ):
+            yield message
+
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("webui")
     async def webui(
         self, event: AstrMessageEvent
@@ -626,6 +688,9 @@ class LivingMemoryPlugin(Star):
                     task.cancel()
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
+
+        # 关闭外部记忆 API 监听
+        await self._stop_external_api_server()
 
         # 停止初始化后台任务（如Provider重试）
         await self.initializer.stop_background_tasks()
