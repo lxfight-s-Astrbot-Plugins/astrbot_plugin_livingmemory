@@ -31,6 +31,8 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         "summary_quality",
         "session_id",
         "persona_id",
+        "scope_kind",
+        "channel_id",
     )
 
     def __init__(self, utils: "PageApiUtils"):
@@ -112,6 +114,8 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
         type_filter = self.utils.optional_text(query.get("type"))
         if type_filter and type_filter.lower() == "all":
             type_filter = None
+        scope_filter = self.utils.optional_text(query.get("scope"))
+        channel_filter = self.utils.optional_text(query.get("channel_id"))
         sort_key = str(query.get("sort", "created_desc")).strip().lower()
 
         try:
@@ -126,6 +130,8 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
                 keyword=keyword,
                 status=status_filter,
                 memory_type=type_filter,
+                scope=scope_filter,
+                channel_id=channel_filter,
                 sort_key=sort_key,
                 page=page,
                 page_size=page_size,
@@ -176,6 +182,8 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
                 "has_more": page_data["has_more"],
                 "filters": {
                     "session_id": session_id,
+                    "scope": scope_filter,
+                    "channel_id": channel_filter,
                     "keyword": keyword,
                     "status": status_filter,
                     "type": type_filter,

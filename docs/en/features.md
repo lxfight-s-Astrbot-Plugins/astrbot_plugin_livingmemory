@@ -77,6 +77,19 @@ The same boundaries apply to both memory writes and recall:
 
 Scope changes affect newly written memories only. Existing data is not migrated automatically.
 
+## Channel memory
+
+Groups can opt into shared channel memory: summaries are stored in the group's channel scope, and questions from any member recall the personal scope and the channel scope together.
+
+| Capability | Behavior |
+| --- | --- |
+| Group-wide writes | Group summaries land in `livingmemory:channel:<platform>:<group id>` instead of being isolated per triggering user |
+| Merged recall | Group recall searches the current scope and the channel scope together, deduplicating and sharing one `top_k` budget |
+| Guaranteed slots | When available, at least one personal and one channel result are kept (`min_user_slots` / `min_channel_slots`, 0-5) |
+| Isolation preserved | Persona, adapter and allowlist filters still apply; private and explicit writes keep their own scopes |
+
+This feature is off by default (`channel_memory.enabled=false`); while off, writes and recall behave exactly like the previous version.
+
 ## Lifecycle behavior
 
 <img class="diagram" src="/images/lifecycle.svg" alt="Memory lifecycle">

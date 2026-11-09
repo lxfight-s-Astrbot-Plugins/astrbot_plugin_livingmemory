@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..faiss_async_persist import get_async_persister
+from ..memory_scope import normalize_memory_scopes
 from .vector_search import retrieve_vectors
 
 if TYPE_CHECKING:
@@ -246,8 +247,9 @@ class VectorRetriever:
 
         # 构建元数据过滤器
         metadata_filters = {}
-        if session_id is not None:
-            metadata_filters["session_id"] = session_id
+        scopes = normalize_memory_scopes(session_id)
+        if scopes is not None:
+            metadata_filters["session_id"] = scopes[0] if len(scopes) == 1 else scopes
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 

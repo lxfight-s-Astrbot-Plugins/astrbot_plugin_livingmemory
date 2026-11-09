@@ -116,6 +116,17 @@ History above `max_messages_per_session` first discards summarized messages. If 
 
 Aliases are matched in this order: `platform:user ID`, user ID, then current username. The mapped display name is applied before summarization. Scope changes affect newly written memories only; existing memories are not migrated or re-embedded automatically.
 
+## Channel memory
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `channel_memory.enabled` | `false` | Stores group summaries in a shared per-group channel scope so members can recall them; off keeps the previous behavior |
+| `channel_memory.min_user_slots` | `1` | Minimum personal/session results kept during merged recall (0-5) |
+| `channel_memory.min_channel_slots` | `1` | Minimum channel-scope results kept during merged recall (0-5) |
+| `channel_memory.include_archived` | `false` | Archived memories stay excluded by default; enabling relaxes the status filter only for channel-scope results |
+
+The channel scope is `livingmemory:channel:<platform>:<group id>`, derived from group events. `enabled` is off by default and changes neither writes nor recall while off. When on, group summaries land in the channel pool while personal memories (private summaries and explicit writes) keep their own scopes; automatic group recall searches the current scope and the channel scope together within one `top_k` budget, keeping `min_user_slots` / `min_channel_slots` results when available. Persona, adapter and allowlist isolation still apply, and toggling the feature never migrates existing memories.
+
 ## Reflection and lifecycle
 
 | Key | Default | Description |

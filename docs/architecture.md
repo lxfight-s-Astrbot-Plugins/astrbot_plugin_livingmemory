@@ -193,6 +193,9 @@ flowchart TB
 - 会话、人格与状态过滤在 BM25 与 SQL 查询中完成，并在截断候选前执行，避免先截断再过滤造成漏召回。
 - 图条目与原子同样携带 session_id 与 persona_id，user、global 或 legacy 关闭会话过滤时可跨会话共享，并受适配器范围约束。
 
+- 频道公共记忆开启后，群聊总结写入 `livingmemory:channel:<平台>:<群ID>` 公共作用域，并在 metadata 中标记 `scope_kind=channel`、`channel_id`；私聊与显式写入仍使用原有作用域解析。
+- 群聊召回把当前作用域与频道作用域合并成一组作用域（SQL 侧 `IN (...)`），BM25、向量、图与原子路共用同一组过滤；融合后按 `min_user_slots` / `min_channel_slots` 保底再以分数补满 `top_k`，缓存键包含完整作用域集合。
+
 适配器访问范围由请求局部的 `ContextVar` 传递，在事件、工具和管理 API 结束时复位，并进入检索缓存键。关键词、原子与图条目在 SQL 候选阶段应用归属条件；向量路线使用 SQL 允许的文档 ID 构造 FAISS 选择器，避免其他适配器的大量近邻挤占候选上限。新记忆保存适配器实例 `adapter_id`，原始会话及用户 ID 保留不变。
 
 ## 性能预算与已知限制

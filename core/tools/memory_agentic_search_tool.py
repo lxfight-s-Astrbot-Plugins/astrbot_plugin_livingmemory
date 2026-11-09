@@ -160,6 +160,7 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             event,
             recall_session_id,
             recall_persona_id,
+            channel_scope,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
         with adapter_access(self.config_manager, event):
@@ -260,16 +261,21 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                 requested_k = default_k
             limited_k = max(1, min(requested_k, max_k))
 
+            agentic_kwargs: dict[str, Any] = {
+                "target": normalized_target,
+                "query": cleaned_query,
+                "k": limited_k,
+                "session_id": recall_session_id,
+                "persona_id": recall_persona_id,
+                "identity_key": identity_key,
+            }
+            if channel_scope:
+                agentic_kwargs["extra_scopes"] = [channel_scope]
             try:
                 outcome, _, timed_out = await run_within_budget(
                     budget,
                     lambda: self.memory_engine.search_memories_agentic(
-                        target=normalized_target,
-                        query=cleaned_query,
-                        k=limited_k,
-                        session_id=recall_session_id,
-                        persona_id=recall_persona_id,
-                        identity_key=identity_key,
+                        **agentic_kwargs,
                         identity_candidates=identity_candidates,
                         start_ts=start_ts,
                         end_ts=end_ts,

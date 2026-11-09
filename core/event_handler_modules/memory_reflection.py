@@ -459,7 +459,8 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         access = await resolve_event_memory_access(
             self.config_manager, self.context, event
         )
-        memory_scope = access.scope or session_id
+        # 群聊开启频道记忆后，总结进入群共享的频道作用域；私聊不变。
+        memory_scope = access.channel_scope or access.scope or session_id
         return await self._build_reflection_plan_for_cursor(
             session_id,
             total_messages,

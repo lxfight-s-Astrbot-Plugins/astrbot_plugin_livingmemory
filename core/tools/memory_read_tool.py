@@ -107,6 +107,7 @@ class MemoryReadTool(FunctionTool[AstrAgentContext]):
             event,
             recall_session_id,
             recall_persona_id,
+            _channel_scope,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
         with adapter_access(self.config_manager, event):

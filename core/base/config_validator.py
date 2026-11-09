@@ -186,6 +186,15 @@ class GraphMemoryConfig(BaseModel):
     atom_purge_delay_days: float = Field(default=30.0, ge=1.0, le=365.0)
 
 
+class ChannelMemoryConfig(BaseModel):
+    """群聊频道公共记忆配置"""
+
+    enabled: bool = False
+    min_user_slots: int = Field(default=1, ge=0, le=5)
+    min_channel_slots: int = Field(default=1, ge=0, le=5)
+    include_archived: bool = False
+
+
 class MemoryConsolidationConfig(BaseModel):
     """记忆库定期整合配置"""
 
@@ -231,6 +240,7 @@ class LivingMemoryConfig(BaseModel):
     )
     backup_settings: BackupSettings = Field(default_factory=BackupSettings)
     graph_memory: GraphMemoryConfig = Field(default_factory=GraphMemoryConfig)
+    channel_memory: ChannelMemoryConfig = Field(default_factory=ChannelMemoryConfig)
     fusion_strategy: FusionStrategyConfig = Field(default_factory=FusionStrategyConfig)
     importance_decay: ImportanceDecayConfig = Field(
         default_factory=ImportanceDecayConfig

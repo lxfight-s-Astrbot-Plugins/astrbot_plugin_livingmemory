@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
 GLOBAL_MEMORY_SCOPE = "livingmemory:global"
+CHANNEL_SCOPE_PREFIX = "livingmemory:channel"
+
+# 一个检索请求可携带单个作用域，或「个人 + 频道」等多个作用域的并集。
+MemoryScopeFilter = str | Sequence[str] | None
 
 
 @dataclass(frozen=True)
@@ -198,6 +203,7 @@ class EventMemoryAccess:
     allowed: bool
     persona_id: str | None
     scope: str | None
+    channel_scope: str | None = None
 
 
 async def resolve_event_memory_access(
@@ -224,7 +230,157 @@ async def resolve_event_memory_access(
         allowed=True,
         persona_id=persona_id,
         scope=resolve_memory_scope(config, event),
+        channel_scope=resolve_channel_memory_scope(config, event),
     )
+
+
+def is_channel_scope(scope: Any) -> bool:
+    """Return True when *scope* is a shared channel memory scope."""
+    return isinstance(scope, str) and scope.startswith(f"{CHANNEL_SCOPE_PREFIX}:")
+
+
+def channel_scope_parts(scope: Any) -> tuple[str | None, str | None]:
+    """Split a channel scope into ``(platform, group_id)``.
+
+    Args:
+        scope: Candidate channel scope.
+
+    Returns:
+        ``(platform, group_id)``; both are None when *scope* is not a channel.
+    """
+    if not is_channel_scope(scope):
+        return None, None
+    parts = str(scope).split(":", 3)
+    if len(parts) != 4:
+        return None, None
+    return parts[2] or None, parts[3] or None
+
+
+def _is_group_event(event: Any) -> bool:
+    group_id = _event_value(event, "get_group_id", "group_id")
+    if group_id:
+        return True
+    message_type = getattr(event, "get_message_type", None)
+    if callable(message_type):
+        try:
+            value = message_type()
+        except Exception:
+            value = None
+        if str(getattr(value, "value", value) or "").casefold() == "group_message":
+            return True
+    origin = _event_value(event, "unified_msg_origin", "unified_msg_origin")
+    return "groupmessage" in origin.casefold()
+
+
+def resolve_channel_memory_scope(config: Any, event: Any) -> str | None:
+    """Resolve the shared group channel scope when channel memory is enabled.
+
+    Args:
+        config: ConfigManager or host config.
+        event: Current message event.
+
+    Returns:
+        ``livingmemory:channel:<platform>:<group_id>`` for group events with a
+        resolvable group id, otherwise None.
+    """
+    if not _config_get(config, "channel_memory.enabled", False):
+        return None
+    if not _is_group_event(event):
+        return None
+    group_id = _event_value(event, "get_group_id", "group_id")
+    if not group_id:
+        origin = _event_value(event, "unified_msg_origin", "unified_msg_origin")
+        if "GroupMessage" in origin:
+            group_id = origin.rsplit(":", 1)[-1]
+        elif "groupmessage" in origin.casefold():
+            group_id = origin.rsplit(":", 1)[-1]
+    if not group_id:
+        return None
+    if _scope_mode(config) == "global":
+        return None
+    session_id = _event_value(event, "unified_msg_origin", "unified_msg_origin")
+    isolated = set(
+        parse_value_list(
+            _config_get(config, "filtering_settings.isolated_sessions", "")
+        )
+    )
+    if session_id and session_id in isolated:
+        return None
+    platform = _event_value(event, "get_platform_name", "platform").casefold()
+    return f"{CHANNEL_SCOPE_PREFIX}:{platform or 'unknown'}:{group_id}"
+
+
+def _scope_mode(config: Any) -> str:
+    return str(
+        _config_get(config, "filtering_settings.memory_scope_mode", "legacy")
+    ).casefold()
+
+
+def normalize_memory_scopes(scopes: MemoryScopeFilter) -> list[str] | None:
+    """Normalize one scope or a scope sequence into a unique ordered list.
+
+    Args:
+        scopes: A single scope string, a sequence of scopes, or None.
+
+    Returns:
+        Ordered unique scopes, or None when the filter is empty.
+    """
+    if scopes is None:
+        return None
+    if isinstance(scopes, str):
+        values = [scopes.strip()] if scopes.strip() else []
+    else:
+        values = [str(value).strip() for value in scopes if value]
+    unique = list(dict.fromkeys(value for value in values if value))
+    return unique or None
+
+
+def merge_memory_scopes(*scopes: MemoryScopeFilter) -> str | list[str] | None:
+    """Merge scope filters, preserving order and collapsing a single scope.
+
+    Args:
+        *scopes: Scope filters to merge (each may itself be a sequence).
+
+    Returns:
+        A single scope string, a non-empty scope list, or None.
+    """
+    merged: list[str] = []
+    for scope in scopes:
+        for value in normalize_memory_scopes(scope) or []:
+            if value not in merged:
+                merged.append(value)
+    if not merged:
+        return None
+    return merged[0] if len(merged) == 1 else merged
+
+
+def memory_scope_sql(
+    column: str, scope_filter: MemoryScopeFilter
+) -> tuple[str, list[str]]:
+    """Build a SQL predicate for one or more memory scopes.
+
+    Args:
+        column: SQL expression holding the stored scope (e.g. ``ge.session_id``).
+        scope_filter: Single scope or scope sequence.
+
+    Returns:
+        ``(predicate, params)``; predicate is empty when no scope filter is set.
+    """
+    scopes = normalize_memory_scopes(scope_filter)
+    if not scopes:
+        return "", []
+    if len(scopes) == 1:
+        return f"{column} = ?", scopes
+    placeholders = ",".join("?" for _ in scopes)
+    return f"{column} IN ({placeholders})", scopes
+
+
+def memory_scope_visible(
+    metadata: dict[str, Any], scope_filter: MemoryScopeFilter
+) -> bool:
+    """Check loaded metadata against a scope filter."""
+    scopes = normalize_memory_scopes(scope_filter)
+    return scopes is None or metadata.get("session_id") in scopes
 
 
 def is_event_memory_allowed(config: Any, event: Any) -> bool:
@@ -310,8 +466,17 @@ def is_suspicious_session_id(session_id: str | None) -> bool:
 
 
 __all__ = [
+    "CHANNEL_SCOPE_PREFIX",
     "EventMemoryAccess",
     "GLOBAL_MEMORY_SCOPE",
+    "MemoryScopeFilter",
+    "channel_scope_parts",
+    "is_channel_scope",
+    "memory_scope_sql",
+    "memory_scope_visible",
+    "merge_memory_scopes",
+    "normalize_memory_scopes",
+    "resolve_channel_memory_scope",
     "resolve_event_memory_access",
     "is_event_memory_allowed",
     "is_suspicious_session_id",

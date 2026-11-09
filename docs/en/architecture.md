@@ -193,6 +193,9 @@ flowchart TB
 - Session, persona and status filters run inside BM25 and SQL queries before candidate truncation, so filtering cannot lose matches after limiting.
 - Graph entries and atoms also carry session_id and persona_id; cross-session sharing is available in user/global mode or with legacy session filtering disabled, within the adapter range.
 
+- With channel memory enabled, group summaries are written to the shared `livingmemory:channel:<platform>:<group id>` scope and tagged with `scope_kind=channel` and `channel_id` in metadata; private and explicit writes keep the existing scope resolution.
+- Group recall merges the current scope and the channel scope into one scope set (SQL `IN (...)`), shared by BM25, vector, graph and atom routes; after fusion, `min_user_slots` / `min_channel_slots` are guaranteed before filling the rest of `top_k` by score, and the cache key contains the full scope set.
+
 An immutable request-local `ContextVar` carries adapter access, resets after event/tool/management requests and participates in retrieval cache keys. Keyword, atom and graph-entry SQL applies ownership before candidate limits. Vector retrieval builds a FAISS selector from SQL-eligible document IDs so other adapters cannot exhaust candidate expansion. New memories retain their instance `adapter_id`, while original session and user IDs are preserved.
 
 ## Budgets and known limits
