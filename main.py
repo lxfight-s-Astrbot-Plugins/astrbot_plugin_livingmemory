@@ -491,6 +491,15 @@ class LivingMemoryPlugin(Star):
             yield message
 
     @permission_type(PermissionType.ADMIN)
+    @lmem.command("trace")
+    async def trace(
+        self, event: AstrMessageEvent, arg: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """[Admin] Inspect recall traces: `trace [n]` or `trace <id>`"""
+        async for message in self._run_command(event, "handle_trace", arg):
+            yield message
+
+    @permission_type(PermissionType.ADMIN)
     @lmem.command("search", priority=10)
     async def search(
         self, event: AstrMessageEvent, query: str, k: int = 5

@@ -9,6 +9,8 @@ from quart import request
 
 from astrbot.api import logger
 
+from ..retrieval.recall_trace import trace_request_context
+
 if TYPE_CHECKING:
     from .utils import PageApiUtils
 
@@ -305,12 +307,17 @@ class GraphHandler:
                 )
 
             # 模式 3: 基于查询文本的语义检索
-            search_results = await memory_engine.search_memories(
-                query=query_text,
-                k=limit_memories,
+            with trace_request_context(
                 session_id=session_id,
+                scope=session_id,
                 persona_id=persona_id,
-            )
+            ):
+                search_results = await memory_engine.search_memories(
+                    query=query_text,
+                    k=limit_memories,
+                    session_id=session_id,
+                    persona_id=persona_id,
+                )
             retrieval_items = []
             matched_memory_ids: list[int] = []
             seen_memory_ids: set[int] = set()

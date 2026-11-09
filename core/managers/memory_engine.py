@@ -37,6 +37,7 @@ from ..retrieval.graph_retriever import GraphRetriever
 from ..retrieval.graph_vector_retriever import GraphVectorRetriever
 from ..retrieval.hybrid_retriever import HybridResult, HybridRetriever
 from ..retrieval.memory_index_writer import MemoryIndexWriter
+from ..retrieval.recall_trace import TRACE_DIR_NAME, RecallTraceRecorder
 from ..retrieval.rrf_fusion import RRFFusion
 from ..retrieval.vector_retriever import VectorRetriever
 from ..retrieval.vector_search import retrieve_documents
@@ -192,6 +193,13 @@ class MemoryEngine(
             "message": "",
         }
 
+        # 请求级召回追踪：默认只保留内存环形缓冲，JSONL 落盘需显式开启。
+        # 关闭时 search_memories 只读一次 recorder.enabled，不构造 trace 对象。
+        self.trace_recorder = RecallTraceRecorder(
+            self.config.get("trace_settings"),
+            trace_dir=Path(db_path).parent / TRACE_DIR_NAME,
+        )
+
     async def initialize(self):
         """初始化引擎：打开数据库、建表、迁移归属、装配文档路与图谱路组件。"""
         await self._open_database()
@@ -310,6 +318,8 @@ class MemoryEngine(
             if self.db_connection.in_transaction:
                 await self.db_connection.rollback()
             await self.db_connection.close()
+        if self.trace_recorder is not None:
+            await self.trace_recorder.flush_persist()
         if self.graph_store is not None:
             await self.graph_store.close()
         await self._close_read_connections()

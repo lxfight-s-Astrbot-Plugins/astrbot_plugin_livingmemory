@@ -9,6 +9,8 @@ from quart import request
 
 from astrbot.api import logger
 
+from ..retrieval.recall_trace import trace_request_context
+
 if TYPE_CHECKING:
     from .utils import PageApiUtils
 
@@ -51,12 +53,13 @@ class RecallHandler:
 
         try:
             start_time = time.time()
-            results = await memory_engine.search_memories(
-                query=query_text,
-                k=k,
-                session_id=session_id,
-                persona_id=None,
-            )
+            with trace_request_context(session_id=session_id, scope=session_id):
+                results = await memory_engine.search_memories(
+                    query=query_text,
+                    k=k,
+                    session_id=session_id,
+                    persona_id=None,
+                )
             elapsed_time = (time.time() - start_time) * 1000
         except Exception as exc:
             logger.error(f"[PageAPI] 召回测试失败: {exc}", exc_info=True)

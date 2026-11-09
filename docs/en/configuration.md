@@ -253,3 +253,18 @@ Use that path to check that the database parent directory is available and writa
 | `index_rebuild_settings.max_failure_ratio` | `0.02` | Allowed failure ratio |
 
 If you hit API rate limits, increase `request_delay` first, then lower `embedding_batch_size`. Avoid raising concurrency blindly; index rebuilds are more about finishing reliably than finishing aggressively.
+
+## Recall tracing
+
+`trace_settings` records explainable traces for every memory recall: per-route candidate counts and latency, rejection reasons from the retrieval policy, and the final injected memory count and characters. Traces stay in an in-process ring buffer (`max_records`) and are served by `/lmem trace` and the Page API; disk persistence and raw query text are off by default, and only `query_hash` is stored.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `trace_settings.enabled` | `true` | Record no trace data at all when disabled |
+| `trace_settings.max_records` | `50` | Recent traces kept in memory; `0` disables the buffer |
+| `trace_settings.persist_enabled` | `false` | Append daily JSONL files under the plugin data directory |
+| `trace_settings.include_query_text` | `false` | Store raw query text; only a hash is stored by default |
+| `trace_settings.max_file_mb` | `10` | Per-file size cap; appends stop for the day once reached |
+| `trace_settings.retention_days` | `7` | Trace retention days; expired files are pruned on the next write |
+
+With `persist_enabled` on, traces are appended daily under the `recall_traces` directory. The Page API exposes `traces` and `traces/stats` for traces, and the `memories` lineage endpoint returns source messages, supersede chain, graph context and traces that cited the memory.

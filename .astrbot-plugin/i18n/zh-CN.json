@@ -609,6 +609,34 @@
         "description": "待确认候选上限",
         "hint": "低置信度或证据不足的档案更新进入待确认列表，最多保留条数。（1–500）"
       }
+    },
+    "trace_settings": {
+      "description": "召回追踪",
+      "hint": "记录每次记忆召回的可解释轨迹（候选、路由、过滤原因、最终注入），用于排查“为什么召回到/没召回到这条记忆”。只写入内存环形缓冲；开启落盘后才写入数据目录，且默认不保存查询原文。",
+      "enabled": {
+        "description": "启用召回追踪",
+        "hint": "关闭后召回链路不再记录任何追踪信息，仅保留原有行为。"
+      },
+      "max_records": {
+        "description": "内存保留条数",
+        "hint": "进程内环形缓冲保留的最近追踪条数；0 表示关闭。超出后最旧记录被覆盖。"
+      },
+      "persist_enabled": {
+        "description": "落盘为 JSONL",
+        "hint": "开启后按天写入数据目录的 recall_traces/YYYYMMDD.jsonl；默认关闭，避免持续写盘。"
+      },
+      "include_query_text": {
+        "description": "保存查询原文",
+        "hint": "默认只保存查询哈希；开启后追踪会包含用户查询原文，请按隐私要求谨慎启用。"
+      },
+      "max_file_mb": {
+        "description": "单日文件上限",
+        "hint": "单个 JSONL 文件达到该大小后当天不再写入新追踪。"
+      },
+      "retention_days": {
+        "description": "保留天数",
+        "hint": "超过该天数的 JSONL 追踪文件会在下次写入时自动清理。"
+      }
     }
   },
   "pages": {

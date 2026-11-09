@@ -169,7 +169,7 @@
     "notice_exec": "История диалогов AstrBot обновлена, фрагменты инъекции памяти очищены."
   },
   "help": {
-    "text": "Руководство по LivingMemory\n\nОсновные команды:\n/lmem status              Просмотр состояния системы\n/lmem diag                 Диагностика данных (БД/граф/бэкапы/размер); diag compact выполняет VACUUM\n/lmem search <ключевое слово> [количество]  Поиск памяти (по умолчанию 5)\n/lmem forget <ID>          Удалить указанную память\n/lmem rebuild-index       Перестроить индекс (исправить несоответствие)\n/lmem rebuild-graph       Перестроить графовый индекс (заполнить старые данные)\n/lmem migrate-scope <target> [apply] [source]  Перенести старые памяти в область (по умолчанию предпросмотр)\n/lmem webui               Показать вход в панель управления WebUI\n/lmem summarize [message_count]  Суммировать сейчас или повторно обработать последние сообщения\n/lmem reset               Сбросить контекст памяти текущей сессии\n/lmem cleanup [preview|exec] Очистить фрагменты инъекции памяти из истории (по умолчанию preview)\n/lmem help                Показать эту справку\n\nРекомендации:\n• Используйте search для ежедневных запросов\n• При нехватке места выполните /lmem diag compact\n• Для сложного управления откройте Плагины -> LivingMemory -> Pages -> dashboard в панели AstrBot\n• Память автоматически сохраняется из диалогов\n• Используйте forget для удаления конфиденциальной информации\n• Выполняйте rebuild-index при несоответствии индекса\n• После включения графовой памяти выполните rebuild-graph\n• После обновления плагина выполните cleanup\n\nПримеры команды cleanup:\n  /lmem cleanup          # Режим предпросмотра, только статистика\n  /lmem cleanup preview  # То же самое\n  /lmem cleanup exec     # Выполнить реальную очистку\n\nПодробнее: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "Руководство по LivingMemory\n\nОсновные команды:\n/lmem status              Просмотр состояния системы\n/lmem diag                 Диагностика данных (БД/граф/бэкапы/размер); diag compact выполняет VACUUM\n/lmem trace [n|ID]        Показать последние трассировки recall; ID — подробности одной\n/lmem search <ключевое слово> [количество]  Поиск памяти (по умолчанию 5)\n/lmem forget <ID>          Удалить указанную память\n/lmem rebuild-index       Перестроить индекс (исправить несоответствие)\n/lmem rebuild-graph       Перестроить графовый индекс (заполнить старые данные)\n/lmem migrate-scope <target> [apply] [source]  Перенести старые памяти в область (по умолчанию предпросмотр)\n/lmem webui               Показать вход в панель управления WebUI\n/lmem summarize [message_count]  Суммировать сейчас или повторно обработать последние сообщения\n/lmem reset               Сбросить контекст памяти текущей сессии\n/lmem cleanup [preview|exec] Очистить фрагменты инъекции памяти из истории (по умолчанию preview)\n/lmem help                Показать эту справку\n\nРекомендации:\n• Используйте search для ежедневных запросов\n• При нехватке места выполните /lmem diag compact\n• Для сложного управления откройте Плагины -> LivingMemory -> Pages -> dashboard в панели AstrBot\n• Память автоматически сохраняется из диалогов\n• Используйте forget для удаления конфиденциальной информации\n• Выполняйте rebuild-index при несоответствии индекса\n• После включения графовой памяти выполните rebuild-graph\n• После обновления плагина выполните cleanup\n\nПримеры команды cleanup:\n  /lmem cleanup          # Режим предпросмотра, только статистика\n  /lmem cleanup preview  # То же самое\n  /lmem cleanup exec     # Выполнить реальную очистку\n\nПодробнее: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "Плагин готов. Используйте /lmem help для просмотра доступных команд.",
@@ -179,5 +179,22 @@
   "command": {
     "not_ready": "Обработчик команд не готов, текущая команда не может быть выполнена.\nВыполните /lmem status для проверки состояния плагина; при повторных сбоях проверьте логи инициализации.",
     "core_not_ready": "Основные компоненты плагина не инициализированы.\nВыполните /lmem status для проверки состояния; при повторных сбоях проверьте стек исключений в логах запуска."
+  },
+  "trace": {
+    "action_name": "Чтение трассировки recall",
+    "disabled": "Трассировка recall отключена. Включите trace_settings.enabled в расширенных настройках.",
+    "empty": "Записей трассировки recall пока нет.",
+    "header": "Последние трассировки recall ({count}):",
+    "item": "{index}. [{time}] id={id} сессия={session}\n   хеш запроса={query} | кэш={cache} | маршруты={routes}\n   кандидаты={candidates} внедрено={injected}/{chars} символов длительность={duration}ms",
+    "cache_hit": "попадание",
+    "cache_miss": "промах",
+    "not_found": "Трассировка не найдена: {id}",
+    "error": "Не удалось прочитать трассировку recall: {error}",
+    "detail_header": "Трассировка recall {id}\nвремя: {time}\nсессия: {session}\nхеш запроса: {query}\nпопадание в кэш: {cache}\nдлительность: {duration}ms\nкандидаты: {candidates}",
+    "detail_route": "маршрут {name}: кандидаты={candidates} ok={ok} мс={ms}{error}",
+    "detail_filters": "пороги: min_similarity={min_similarity} min_importance={min_importance}\nотклонено: {rejected}",
+    "detail_candidate": "кандидат #{doc_id}: оценка={score} bm25={bm25} vector={vector}",
+    "detail_injected": "внедрено: {count} шт. / {chars} символов",
+    "detail_notes": "заметки: {notes}"
   }
 }

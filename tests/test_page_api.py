@@ -1392,7 +1392,7 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 31
+        assert len(plugin._api_routes) == len(api._ROUTES)
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
@@ -1419,6 +1419,10 @@ class TestRouteRegistration:
         assert f"{prefix}/profiles/delete" in paths
         assert f"{prefix}/profiles/pending" in paths
         assert f"{prefix}/profiles/pending/resolve" in paths
+        assert f"{prefix}/traces" in paths
+        assert f"{prefix}/traces/stats" in paths
+        assert f"{prefix}/traces/<trace_id>" in paths
+        assert f"{prefix}/memories/<memory_id>/lineage" in paths
 
     def test_route_prefix_contains_plugin_name(self):
         assert PLUGIN_NAME in PAGE_API_PREFIX

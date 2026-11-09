@@ -169,7 +169,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem diag                 数据体检（DB/图谱/备份/体积），diag compact 执行 VACUUM\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 磁盘紧张时执行 /lmem diag compact 压缩数据库\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem diag                 数据体检（DB/图谱/备份/体积），diag compact 执行 VACUUM\n/lmem trace [n|ID]        查看最近召回追踪；带 ID 查看单条详情\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 磁盘紧张时执行 /lmem diag compact 压缩数据库\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",
@@ -179,5 +179,22 @@
   "command": {
     "not_ready": "命令处理器尚未就绪，当前命令无法执行。\n请先执行 /lmem status 查看插件状态；若持续失败，请检查初始化日志。",
     "core_not_ready": "插件核心组件未初始化。\n请先执行 /lmem status 查看初始化状态；如仍失败，请检查启动日志中的异常堆栈。"
+  },
+  "trace": {
+    "action_name": "读取召回追踪",
+    "disabled": "召回追踪已关闭。可在高级设置中开启 trace_settings.enabled。",
+    "empty": "暂无召回追踪记录。",
+    "header": "最近召回追踪（{count} 条）：",
+    "item": "{index}. [{time}] id={id} 会话={session}\n   查询哈希={query} | 缓存={cache} | 路由={routes}\n   候选={candidates} 注入={injected}条/{chars}字符 耗时={duration}ms",
+    "cache_hit": "命中",
+    "cache_miss": "未命中",
+    "not_found": "未找到追踪记录: {id}",
+    "error": "读取召回追踪失败: {error}",
+    "detail_header": "召回追踪 {id}\n时间: {time}\n会话: {session}\n查询哈希: {query}\n缓存命中: {cache}\n耗时: {duration}ms\n候选: {candidates}",
+    "detail_route": "路由 {name}: 候选={candidates} ok={ok} 耗时={ms}ms{error}",
+    "detail_filters": "过滤阈值: min_similarity={min_similarity} min_importance={min_importance}\n拒绝原因: {rejected}",
+    "detail_candidate": "候选 #{doc_id}: 分数={score} bm25={bm25} vector={vector}",
+    "detail_injected": "注入: {count} 条 / {chars} 字符",
+    "detail_notes": "备注: {notes}"
   }
 }

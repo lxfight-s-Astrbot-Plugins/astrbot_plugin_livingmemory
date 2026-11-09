@@ -14,6 +14,7 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 | `/lmem summarize [message_count]` | 立即总结当前会话；指定条数时重新总结最近 N 条消息 |
 | `/lmem reset` | 重置当前会话记忆上下文 |
 | `/lmem cleanup [preview\|exec]` | 清理历史消息中的旧记忆注入片段 |
+| `/lmem trace [n\|id]` | 查看最近召回追踪摘要；传入追踪 id 时显示单条详情（路由、过滤原因、候选与注入） |
 | `/lmem help` | 显示帮助 |
 
 ## 索引维护状态
