@@ -14,6 +14,7 @@ from astrbot.api import logger
 from .graph_store_read import GraphStoreReadMixin
 from .graph_store_write import GraphStoreWriteMixin
 from .schema import GRAPH_SCHEMA_STATEMENTS
+from .sqlite_connection import open_connection
 
 
 class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
@@ -104,11 +105,9 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
 
     @asynccontextmanager
     async def _connect(self):
-        """创建新的SQLite连接并启用WAL模式和busy_timeout。"""
-        db = await aiosqlite.connect(self.db_path)
+        """创建新的SQLite连接（busy_timeout 与 journal 策略由连接层统一设置）。"""
+        db = await open_connection(self.db_path)
         try:
-            await db.execute("PRAGMA journal_mode = WAL")
-            await db.execute("PRAGMA busy_timeout = 10000")
             await db.execute("PRAGMA foreign_keys = ON")
             yield db
         finally:
@@ -122,9 +121,7 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
                 yield db
             return
         if self._read_conn is None:
-            db = await aiosqlite.connect(self.db_path)
-            await db.execute("PRAGMA busy_timeout = 10000")
-            self._read_conn = db
+            self._read_conn = await open_connection(self.db_path)
         yield self._read_conn
 
     async def close(self) -> None:

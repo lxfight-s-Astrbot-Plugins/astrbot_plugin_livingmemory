@@ -14,6 +14,7 @@ from astrbot.core.provider.provider import EmbeddingProvider, Provider
 
 from ..storage.conversation_store import ConversationStore
 from ..storage.db_migration import DBMigration
+from ..storage.sqlite_connection import resolve_journal_mode
 from .astrbot_compat import get_using_provider
 from .base.config_manager import ConfigManager
 from .base.exceptions import InitializationError, ProviderNotReadyError
@@ -440,6 +441,10 @@ class PluginInitializer(InitializerFaissMixin):
             raise ProviderNotReadyError("Embedding Provider 未初始化")
         if not self.llm_provider or not isinstance(self.llm_provider, Provider):
             raise ProviderNotReadyError("LLM Provider 未初始化或类型不正确")
+
+        # 数据目录可能位于 Docker Desktop 共享挂载等不支持 WAL 共享内存的
+        # 文件系统上；必须在建立任何 SQLite 连接前确定 journal 策略。
+        await resolve_journal_mode(data_dir_path)
 
         # FAISS 运行时探测（subprocess）与整索引读取都是同步阻塞 I/O，
         # 放到线程池执行，避免阻塞 AstrBot 事件循环。

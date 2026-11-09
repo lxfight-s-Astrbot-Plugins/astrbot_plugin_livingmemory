@@ -21,6 +21,7 @@ from ..core.models.memory_atom import (
     compute_ttl,
 )
 from ..core.utils.json_utils import safe_json_dict
+from .sqlite_connection import open_connection
 
 
 class AtomStore:
@@ -33,10 +34,8 @@ class AtomStore:
 
     @asynccontextmanager
     async def _connect(self):
-        db = await aiosqlite.connect(self.db_path)
+        db = await open_connection(self.db_path)
         try:
-            await db.execute("PRAGMA journal_mode = WAL")
-            await db.execute("PRAGMA busy_timeout = 10000")
             yield db
         finally:
             await db.close()
