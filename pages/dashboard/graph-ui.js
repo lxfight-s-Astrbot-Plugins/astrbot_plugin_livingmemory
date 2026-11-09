@@ -14,6 +14,7 @@
     isLoading: false,
     hasLoadedOverview: false,
     isGraphReady: false,
+    is2DReady: false,
     overviewMode: null, /* "limited" | "full" | null */
     viewMode: "2d",
     renderer: null,
@@ -84,6 +85,42 @@
   }
 
   /* ================================================================
+     2D renderer lifecycle
+     ================================================================ */
+
+  /* 2D 布局在独立 Worker 中运行，热路径（画布、邻接索引、布局缓存）都按
+     大图规模分配。离开图谱页或切到 3D 时销毁，回来时按需重建。 */
+  function initGraph2D() {
+    if (!window.Graph2D || typeof window.Graph2D.init !== "function") {
+      setCanvasMessage(window.t("graph2d.moduleFail"), false);
+      return false;
+    }
+    state.renderer = window.Graph2D;
+    window.Graph2D.init(dom.view2D, {
+      onNodeClick: function(nodeId) {
+        selectNode(nodeId, false);
+      },
+      onNodeDblClick: function(nodeId) {
+        selectNode(nodeId, true);
+      },
+      onBackgroundClick: function() {
+        clearSelection();
+      },
+    });
+    state.is2DReady = true;
+    state.isGraphReady = true;
+    return true;
+  }
+
+  function releaseGraph2D() {
+    if (!window.Graph2D || !state.is2DReady) return;
+    if (typeof window.Graph2D.destroy === "function") window.Graph2D.destroy();
+    if (state.renderer === window.Graph2D) state.renderer = null;
+    state.is2DReady = false;
+    state.isGraphReady = false;
+  }
+
+  /* ================================================================
      Init
      ================================================================ */
   function init() {
@@ -140,24 +177,7 @@
       }
     });
 
-    /* Init Graph2D */
-    if (window.Graph2D && typeof window.Graph2D.init === "function") {
-      state.renderer = window.Graph2D;
-      window.Graph2D.init(dom.view2D, {
-        onNodeClick: function(nodeId) {
-          selectNode(nodeId, false);
-        },
-        onNodeDblClick: function(nodeId) {
-          selectNode(nodeId, true);
-        },
-        onBackgroundClick: function() {
-          clearSelection();
-        },
-      });
-      state.isGraphReady = true;
-    } else {
-      setCanvasMessage(window.t("graph2d.moduleFail"), false);
-    }
+    initGraph2D();
 
     window.addEventListener("languagechange", function() {
       initLabels();
@@ -222,7 +242,9 @@
 
   function releaseGraph3D() {
     if (!state.graph3D) return;
-    if (state.renderer === state.graph3D) state.renderer = window.Graph2D;
+    if (state.renderer === state.graph3D) {
+      state.renderer = state.is2DReady ? window.Graph2D : null;
+    }
     state.graph3D.destroy();
     state.graph3D = null;
     dom.view3D.hidden = true;
@@ -237,14 +259,16 @@
         return;
       }
     }
+    if (mode === "3d") releaseGraph2D();
     state.viewMode = mode;
+    if (mode === "2d" && !state.is2DReady) initGraph2D();
     state.renderer = mode === "3d" ? state.graph3D : window.Graph2D;
     dom.page.classList.toggle("graph-space-mode", mode === "3d");
     dom.view2D.hidden = mode !== "2d";
     dom.view3D.hidden = mode !== "3d";
     dom.spaceControls.hidden = mode !== "3d";
     setMotionButtonLabel();
-    state.isGraphReady = true;
+    state.isGraphReady = mode === "3d" ? Boolean(state.graph3D) : state.is2DReady;
     window.lmSetGraphActive(state.pageActive);
     setInteractionHint();
     if (state.payload) { renderScene(); renderLegend(state.payload); }
@@ -252,16 +276,19 @@
 
   window.lmSetGraphActive = function(active) {
     state.pageActive = active;
-    if (window.Graph2D) window.Graph2D.setActive(active && state.viewMode === "2d");
     if (!active) {
       releaseGraph3D();
+      releaseGraph2D();
       document.documentElement.dataset.graphView = "";
       return;
     }
     if (state.viewMode !== "3d") {
+      if (!state.is2DReady && initGraph2D() && state.payload) renderScene();
+      if (window.Graph2D && state.is2DReady && state.isGraphReady) window.Graph2D.setActive(true);
       document.documentElement.dataset.graphView = state.viewMode;
       return;
     }
+    if (window.Graph2D && state.isGraphReady) window.Graph2D.setActive(false);
     if (state.graph3D) {
       state.renderer = state.graph3D;
       state.graph3D.setActive(true);
@@ -585,13 +612,12 @@
 
     renderLegend(payload);
     if (state.isGraphReady) renderScene();
-
-    if (window.lmFetchGraphStats) window.lmFetchGraphStats();
   }
 
   function renderScene() {
     const renderer = state.renderer;
     const payload = state.payload;
+    if (!renderer || !payload) return;
     /* 回到图谱页时 3D 可能仍在按需重建：此时不加载数据，
        等实例就绪后由 lmSetGraphActive 重新调用 renderScene。 */
     if (state.viewMode === "3d" && !state.graph3D) return;

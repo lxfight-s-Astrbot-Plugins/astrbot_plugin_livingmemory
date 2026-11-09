@@ -79,7 +79,7 @@
     this._lastPositions = {};
     this._lastSimPositions = {};
     try {
-      this._worker = new Worker("./graph-layout-worker.js?protocol=2");
+      this._worker = new Worker("./assets/graph-layout-worker.min.js?protocol=2");
       this.isWorker = true;
       var self = this;
       this._worker.onmessage = function(e) { self._onMessage(e.data); };
@@ -815,6 +815,10 @@
     this.animator.setPageVisible(false);
     this.animator._layoutGeneration++;
     this.animator._onLayoutDone = null;
+    /* 布局缓存按图身份保存位置/社区数据；离开视图后不再需要，随 Worker 一起释放。 */
+    this.animator._layoutCache = {};
+    this.animator._layoutCacheOrder = [];
+    this.animator._lastLayoutSignature = null;
     if (this.animator._layout.destroy) this.animator._layout.destroy();
     this.interaction.destroy();
     if (this._resizeObserver) this._resizeObserver.disconnect();

@@ -11,6 +11,7 @@ import {
   SystemPage,
   PromptPage,
   SettingsPage,
+  NotReadyBanner,
   esc,
   unwrapResponse,
 } from "./modules/index.js";
@@ -49,6 +50,9 @@ import {
      Initialize Modules
      ================================================================ */
   const api = new ApiClient();
+  const notReadyBanner = new NotReadyBanner(api, { onReady: () => refreshCurrentPage() });
+  /* utils.unwrapResponse 在所有 Page API 响应上调用该钩子（含 graph-ui 直连请求）。 */
+  window.lmReportPluginNotReady = (response) => notReadyBanner.show(response);
   const peekPanel = new PeekPanel(state, api);
   const memoryPage = new MemoryPage(state, api, peekPanel);
   const recallPage = new RecallPage(state, api, peekPanel);
@@ -137,6 +141,22 @@ import {
     if (name === "system") systemPage.fetch();
     if (name === "prompts") promptPage.fetch();
     if (name === "settings") settingsPage.fetch();
+  }
+
+  /* 初始化完成后刷新当前页数据（横幅自动收起时调用）。 */
+  function refreshCurrentPage() {
+    if (state.page === "graph") {
+      fetchGraphStats();
+      if (window.ensureGraphScene) window.ensureGraphScene();
+    } else if (state.page === "memory") {
+      memoryPage.fetch();
+    } else if (state.page === "system") {
+      systemPage.fetch();
+    } else if (state.page === "prompts") {
+      promptPage.fetch();
+    } else if (state.page === "settings") {
+      settingsPage.fetch();
+    }
   }
 
   function normalizeLocale(locale) {
@@ -254,6 +274,8 @@ import {
           .map(id => '<option value="' + esc(String(id)) + '"></option>')
           .join("");
       }
+      /* /stats 依赖运行时组件：成功即代表插件已就绪，可立即收起横幅。 */
+      notReadyBanner.hide();
     } catch (e) {
       showToast(e.message || window.t("misc.statsFail"), true);
     }
@@ -265,6 +287,7 @@ import {
   async function init() {
     hydrateIcons();
     initMotionField();
+    notReadyBanner.init();
     window.LMAppearance.init();
     const context = await api.ready();
 

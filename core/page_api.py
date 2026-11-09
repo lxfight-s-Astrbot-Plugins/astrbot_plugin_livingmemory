@@ -64,6 +64,12 @@ class PluginPageApi:
 
     # (路径后缀, 处理方法, HTTP 方法, 描述)；按声明顺序注册
     _ROUTES = (
+        (
+            "readiness",
+            "get_readiness",
+            ["GET"],
+            "LivingMemory Page initialization readiness",
+        ),
         ("stats", "get_stats", ["GET"], "LivingMemory Page stats"),
         (
             "adapters/assign",
@@ -203,23 +209,37 @@ class PluginPageApi:
     # ==================== 路由处理方法 ====================
     # 所有方法都委托给相应的处理器
 
+    async def get_readiness(self):
+        """返回初始化/Provider 就绪状态（不等待，供前端横幅轮询）。"""
+        ready, message = await self.plugin._ensure_plugin_ready(wait=False)
+        initializer = getattr(self.plugin, "initializer", None)
+        is_failed = bool(getattr(initializer, "is_failed", False))
+        state = "ready" if ready else ("failed" if is_failed else "in_progress")
+        return self.utils.ok(
+            {
+                "ready": bool(ready),
+                "state": state,
+                "message": "" if ready else message,
+            }
+        )
+
     async def get_stats(self):
         """获取插件统计信息"""
-        ready, error = await self._ensure_plugin_ready()
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.stats_handler.get_stats(ready["memory_engine"])
 
     async def list_memories(self):
         """获取记忆列表（带分页和过滤）"""
-        ready, error = await self._ensure_plugin_ready()
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.memory_handler.list_memories(ready["memory_engine"])
 
     async def get_memory_detail(self):
         """获取单个记忆的完整详情"""
-        ready, error = await self._ensure_plugin_ready()
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.memory_handler.get_memory_detail(ready["memory_engine"])
@@ -241,8 +261,8 @@ class PluginPageApi:
         )
 
     async def export_memories(self):
-        """Export all or selected memories."""
-        ready, error = await self._ensure_plugin_ready()
+        """Export all or selected memories (read-only, never blocks on init)."""
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.memory_handler.export_memories(ready["memory_engine"])
@@ -276,22 +296,22 @@ class PluginPageApi:
         return await self.memory_handler.batch_update_memories(ready["memory_engine"])
 
     async def test_recall(self):
-        """测试记忆召回功能"""
-        ready, error = await self._ensure_plugin_ready()
+        """测试记忆召回功能（只读检索，不阻塞等待初始化）"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.recall_handler.test_recall(ready["memory_engine"])
 
     async def get_graph_overview(self):
         """获取图谱概览"""
-        ready, error = await self._ensure_plugin_ready()
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.graph_handler.get_graph_overview(ready["memory_engine"])
 
     async def query_graph(self):
-        """查询图谱"""
-        ready, error = await self._ensure_plugin_ready()
+        """查询图谱（只读检索，不阻塞等待初始化）"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.graph_handler.query_graph(ready["memory_engine"])
@@ -321,7 +341,7 @@ class PluginPageApi:
 
     async def get_consolidation_status(self):
         """获取记忆整合配置与统计"""
-        ready, error = await self._ensure_plugin_ready()
+        ready, error = await self._ensure_plugin_ready(wait=False)
         if error:
             return error
         return await self.consolidation_handler.get_status(
@@ -373,18 +393,32 @@ class PluginPageApi:
             return []
         return list(await list_session_ids())
 
-    async def _ensure_plugin_ready(self) -> tuple[dict[str, Any] | None, dict | None]:
-        """
-        确保插件已就绪
+    async def _ensure_plugin_ready(
+        self, *, wait: bool = True
+    ) -> tuple[dict[str, Any] | None, dict | None]:
+        """确保插件已就绪。
+
+        Args:
+            wait: True 时等待后台初始化完成（写操作/显式重试）；False 时只做
+                一次非阻塞检查，未就绪立即返回结构化 not_ready 错误，供读接口
+                避免页面请求被初始化卡住 30 秒。
 
         Returns:
             (ready_dict, error_dict) 元组
             - ready_dict: 包含 memory_engine 等组件的字典
             - error_dict: 错误响应字典（如果有错误）
         """
-        ready, message = await self.plugin._ensure_plugin_ready()
+        ready, message = await self.plugin._ensure_plugin_ready(wait=wait)
         if not ready:
-            return None, self.utils.error(message or "插件尚未就绪")
+            initializer = getattr(self.plugin, "initializer", None)
+            is_failed = bool(getattr(initializer, "is_failed", False))
+            return (
+                None,
+                self.utils.not_ready(
+                    message or "插件尚未就绪",
+                    init_state="failed" if is_failed else "in_progress",
+                ),
+            )
 
         return {
             "memory_engine": self.plugin.initializer.memory_engine,

@@ -352,3 +352,58 @@ test("batchEdit aborts without posting when the dialog is cancelled", async () =
   assert.equal(closed, true);
   assert.equal(state.memory.selectedIds.size, 1);
 });
+
+test("export surfaces truncation metadata in the transfer status", async () => {
+  const state = createState();
+  const statuses = [];
+  const clicks = [];
+  const elements = {
+    "mem-export": { disabled: false },
+    "mem-transfer-format": { value: "json" },
+  };
+  globalThis.window = { t: (key, ...args) => [key, ...args].join(" ") };
+  globalThis.document = {
+    getElementById: (id) => elements[id] || { disabled: false, value: "" },
+    createElement: () => ({
+      href: "",
+      download: "",
+      click() { clicks.push("click"); },
+      remove() {},
+    }),
+    body: { appendChild() {} },
+  };
+  globalThis.Blob = class Blob {
+    constructor(parts) { this.parts = parts; }
+  };
+  globalThis.URL = { createObjectURL: () => "blob:test", revokeObjectURL() {} };
+  try {
+    const page = new MemoryPage(
+      state,
+      {
+        post: async () => ({
+          content: "{}",
+          mime_type: "application/json",
+          filename: "out.json",
+          memory_count: 2,
+          truncated: true,
+          total_available: 5,
+        }),
+      },
+      {}
+    );
+    page.setTransferStatus = (message, isError) => statuses.push({ message, isError });
+    page.updateFeedback = () => {};
+
+    await page.exportMemories();
+
+    assert.equal(clicks.length, 1, "截断后仍应下载已导出的部分");
+    const last = statuses[statuses.length - 1];
+    assert.match(last.message, /transfer\.exportTruncated 2 5/);
+    assert.equal(last.isError, true, "截断时需要醒目的提示");
+  } finally {
+    delete globalThis.document;
+    delete globalThis.Blob;
+    delete globalThis.URL;
+    delete globalThis.window;
+  }
+});

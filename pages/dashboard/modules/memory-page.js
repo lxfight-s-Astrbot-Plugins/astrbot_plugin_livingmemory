@@ -66,12 +66,12 @@ export class MemoryPage {
         memory_id: item.id,
         doc_id: item.doc_id,
         summary:
-          (item.metadata && item.metadata.persona_summary) ||
           item.summary ||
+          (item.metadata && (item.metadata.persona_summary || item.metadata.canonical_summary)) ||
           item.text ||
           item.content ||
           "",
-        content: item.text || item.content,
+        content: item.summary || item.text || item.content,
         memory_type: (item.metadata && item.metadata.memory_type) || "GENERAL",
         importance: normalizeImportance(item.metadata && item.metadata.importance),
         importance_scale: "display",
@@ -86,9 +86,11 @@ export class MemoryPage {
             : item.updated_at || "--",
         origin: (item.metadata && item.metadata.memory_origin) || "",
         summary_quality: (item.metadata && item.metadata.summary_quality) || "",
-        consolidated_count: (item.metadata && Array.isArray(item.metadata.consolidated_from))
-          ? item.metadata.consolidated_from.length
-          : 0,
+        consolidated_count: item.consolidated_count != null
+          ? Number(item.consolidated_count) || 0
+          : (item.metadata && Array.isArray(item.metadata.consolidated_from))
+            ? item.metadata.consolidated_from.length
+            : 0,
         raw: item,
       }));
       this.state.memory.selectedIds.clear();
@@ -454,7 +456,16 @@ export class MemoryPage {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      this.setTransferStatus(window.t("transfer.exportSuccess", Number(result.memory_count || 0)));
+      const exportedCount = Number(result.memory_count || 0);
+      const availableCount = Number(result.total_available || exportedCount);
+      if (result.truncated) {
+        this.setTransferStatus(
+          window.t("transfer.exportTruncated", exportedCount, availableCount),
+          true
+        );
+      } else {
+        this.setTransferStatus(window.t("transfer.exportSuccess", exportedCount));
+      }
     } catch (error) {
       this.setTransferStatus(error.message || window.t("transfer.failed"), true);
     } finally {

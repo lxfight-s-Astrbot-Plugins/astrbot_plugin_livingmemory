@@ -67,6 +67,7 @@ function loadGraphUi(withGraph2D) {
   const elements = {};
   const docListeners = {};
   const g2dCalls = [];
+  const g2dLifecycle = { init: 0, destroy: 0, setActive: [] };
   let graphHandlers;
   const viewCalls = [];
   let lastHandler = null;
@@ -101,7 +102,12 @@ function loadGraphUi(withGraph2D) {
   (0, eval)(sharedSource);
   if (withGraph2D) {
     global.window.Graph2D = {
-      init(container, handlers) { graphHandlers = handlers; },
+      init(container, handlers) {
+        g2dLifecycle.init += 1;
+        graphHandlers = handlers;
+      },
+      destroy() { g2dLifecycle.destroy += 1; },
+      setActive(active) { g2dLifecycle.setActive.push(active); },
       loadData(payload, options) { g2dCalls.push({ payload, options }); },
       selection: null,
       renderer: { _selection: null },
@@ -127,7 +133,7 @@ function loadGraphUi(withGraph2D) {
     trigger(type, event) {
       (docListeners[type] || []).forEach((cb) => cb(event));
     },
-    documentElement: { getAttribute: () => "light" },
+    documentElement: { dataset: {}, getAttribute: () => "light" },
     createElement: () => new FakeElement(),
   };
 
@@ -135,7 +141,7 @@ function loadGraphUi(withGraph2D) {
 
   /* 手动触发 DOMContentLoaded，让 graph-ui init() 挂载事件监听。 */
   if (lastHandler) lastHandler();
-  return { calls, posts, elements, g2dCalls, viewCalls, graphHandlers };
+  return { calls, posts, elements, g2dCalls, g2dLifecycle, viewCalls, graphHandlers };
 }
 
 async function flushMicrotasks() {
@@ -451,4 +457,28 @@ test("focusing a memory from another page switches pages and queries by id", asy
   assert.equal(posts.length, 1);
   assert.equal(posts[0].path, "page/graph/query");
   assert.equal(posts[0].body.memory_id, 77, "记忆 ID 由调用方传入，不需要手输");
+});
+
+test("leaving the graph page destroys the 2D renderer and re-initializes on return", () => {
+  const { g2dLifecycle } = loadGraphUi(true);
+  assert.equal(g2dLifecycle.init, 1, "图谱页初始化时创建 2D renderer");
+
+  window.lmSetGraphActive(false);
+  assert.equal(g2dLifecycle.destroy, 1, "离开图谱页应销毁 2D renderer 与布局 Worker");
+
+  window.lmSetGraphActive(true);
+  assert.equal(g2dLifecycle.init, 2, "回到图谱页应按需重建 2D renderer");
+});
+
+test("rendering a graph payload does not re-fetch /stats", async () => {
+  loadGraphUi(true);
+  let statsCalls = 0;
+  window.lmFetchGraphStats = () => {
+    statsCalls += 1;
+  };
+
+  window.ensureGraphScene();
+  await flushMicrotasks();
+
+  assert.equal(statsCalls, 0, "图页统计只随页面打开刷新，不应在每次 render 后重拉");
 });
