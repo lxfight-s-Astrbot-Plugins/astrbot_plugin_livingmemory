@@ -80,6 +80,8 @@ GRAPH_SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_graph_entries_memory_id ON graph_entries(source_memory_id)",
     # 邻居扩展按 target_node_id 反查，缺少该索引时每次召回退化为全表扫描
     "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_node_id, status)",
+    # 全量快照从 active 边里按 weight 取前 N，缺少该索引时 20 万级边表要全表过滤
+    "CREATE INDEX IF NOT EXISTS idx_graph_edges_status_weight ON graph_edges(status, weight DESC)",
 )
 
 # Version bookkeeping tables are shared by the engine, migrations and validators;

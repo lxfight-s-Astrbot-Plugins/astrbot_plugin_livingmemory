@@ -779,16 +779,28 @@ class GraphStoreReadMixin:
         self,
         session_id: str | None = None,
         persona_id: str | None = None,
+        max_nodes: int = 5000,
+        max_edges: int = 20000,
+        max_memories: int | None = None,
     ) -> dict[str, Any]:
-        """Return the complete scoped graph and memory-node associations.
+        """Return the scoped graph and memory-node associations under hard caps.
+
+        Archived memories are skipped when the shared database also holds the
+        engine's ``documents`` table; graph-only databases keep every entry.
 
         Args:
             session_id: Optional session scope.
             persona_id: Optional persona scope.
+            max_nodes: Maximum nodes kept, most active first.
+            max_edges: Maximum active relations kept, heaviest first.
+            max_memories: Maximum memories kept; defaults to ``max_nodes``.
 
         Returns:
             Nodes, relations and memories with their associated node IDs.
         """
+        if max_memories is None:
+            max_memories = max_nodes
+
         filters: list[str] = []
         params: list[Any] = []
         if session_id is not None:
@@ -800,10 +812,37 @@ class GraphStoreReadMixin:
         ownership, ownership_params = adapter_sql("ge.metadata")
         filters.append(ownership)
         params.extend(ownership_params)
-        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
+            # Graph and documents share one SQLite file in the engine; standalone
+            # graph stores (shadow stores, tests) never create the documents table.
+            probe = await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
+            )
+            documents_available = await probe.fetchone() is not None
+
+            entry_where = f"WHERE {' AND '.join(filters)}"
+            edge_conditions = [
+                "EXISTS (SELECT 1 FROM graph_entries ge "
+                "WHERE ge.source_memory_id = edge.source_memory_id "
+                f"AND {' AND '.join(filters)})",
+                "edge.status = 'active'",
+            ]
+            if documents_available:
+                active_memory_exists = (
+                    "EXISTS (SELECT 1 FROM documents d WHERE d.id = {} "
+                    "AND COALESCE(json_extract(d.metadata, '$.status'), 'active') "
+                    "= 'active')"
+                )
+                entry_where += (
+                    f" AND {active_memory_exists.format('ge.source_memory_id')}"
+                )
+                edge_conditions.append(
+                    active_memory_exists.format("edge.source_memory_id")
+                )
+            edge_where = " AND ".join(edge_conditions)
+
             node_cursor = await db.execute(
                 f"""
                 SELECT gn.id, gn.node_key, gn.node_type, gn.node_value,
@@ -813,29 +852,26 @@ class GraphStoreReadMixin:
                 FROM graph_nodes gn
                 JOIN graph_entry_nodes gen ON gen.node_id = gn.id
                 JOIN graph_entries ge ON ge.id = gen.entry_id
-                {where_clause}
+                {entry_where}
                 GROUP BY gn.id
-                ORDER BY gn.id ASC
+                ORDER BY COUNT(ge.id) DESC, gn.id ASC
+                LIMIT ?
                 """,
-                tuple(params),
+                (*params, max_nodes),
             )
             node_rows = await node_cursor.fetchall()
 
             edge_cursor = await db.execute(
                 f"""
-                SELECT edge.id, edge.edge_key, edge.source_node_id,
-                                edge.target_node_id, edge.relation_type,
-                                edge.source_memory_id, edge.weight,
-                                edge.confidence, edge.status, edge.metadata
+                SELECT edge.id, edge.source_node_id, edge.target_node_id,
+                       edge.relation_type, edge.source_memory_id, edge.weight,
+                       edge.confidence
                 FROM graph_edges edge
-                WHERE EXISTS (
-                    SELECT 1 FROM graph_entries ge
-                    WHERE ge.source_memory_id = edge.source_memory_id
-                    {"AND " + " AND ".join(filters) if filters else ""}
-                )
-                ORDER BY edge.id ASC
+                WHERE {edge_where}
+                ORDER BY edge.weight DESC, edge.id ASC
+                LIMIT ?
                 """,
-                tuple(params),
+                (*params, max_edges),
             )
             edge_rows = await edge_cursor.fetchall()
 
@@ -847,7 +883,7 @@ class GraphStoreReadMixin:
                 JOIN (
                     SELECT ge.source_memory_id, MAX(ge.id) AS latest_entry_id
                     FROM graph_entries ge
-                    {where_clause}
+                    {entry_where}
                     GROUP BY ge.source_memory_id
                 ) latest ON latest.latest_entry_id = ge.id
                 ORDER BY ge.source_memory_id ASC
@@ -885,15 +921,12 @@ class GraphStoreReadMixin:
             edges.append(
                 {
                     "id": int(row["id"]),
-                    "key": row["edge_key"],
                     "source": source,
                     "target": target,
                     "relation_type": row["relation_type"],
                     "memory_id": int(row["source_memory_id"]),
                     "weight": float(row["weight"]),
                     "confidence": float(row["confidence"]),
-                    "status": row["status"],
-                    "metadata": safe_json_dict(row["metadata"]),
                 }
             )
             node_map[source]["degree"] += 1
@@ -907,10 +940,16 @@ class GraphStoreReadMixin:
                 4,
             )
 
+        referenced_memory_ids = set(memory_node_ids)
+        referenced_memory_ids.update(edge["memory_id"] for edge in edges)
         memories: list[dict[str, Any]] = []
         for row in memory_rows:
-            metadata = safe_json_dict(row["metadata"])
             memory_id = int(row["source_memory_id"])
+            if memory_id not in referenced_memory_ids:
+                continue
+            if len(memories) >= max_memories:
+                break
+            metadata = safe_json_dict(row["metadata"])
             summary = str(metadata.get("canonical_summary") or row["content"] or "")[
                 :500
             ]
@@ -921,7 +960,11 @@ class GraphStoreReadMixin:
                     "session_id": metadata.get("session_id") or row["session_id"],
                     "persona_id": metadata.get("persona_id") or row["persona_id"],
                     "importance": safe_float(metadata.get("importance"), 0.0),
-                    "node_ids": memory_node_ids.get(memory_id, []),
+                    "node_ids": sorted(
+                        node_id
+                        for node_id in memory_node_ids.get(memory_id, [])
+                        if node_id in node_map
+                    ),
                 }
             )
 

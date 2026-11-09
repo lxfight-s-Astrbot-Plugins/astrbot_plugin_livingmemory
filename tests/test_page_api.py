@@ -1010,7 +1010,7 @@ class TestGraphEndpoints:
         assert result["data"]["enabled"] is False
 
     @pytest.mark.asyncio
-    async def test_overview_full_graph_uses_unlimited_snapshot(self):
+    async def test_overview_full_graph_uses_bounded_snapshot(self):
         snapshot = {
             "nodes": [{"id": 1, "type": "topic", "label": "all"}],
             "edges": [],
@@ -1047,6 +1047,8 @@ class TestGraphEndpoints:
         graph_store.get_full_graph_snapshot.assert_awaited_once_with(
             session_id="scope-1",
             persona_id="persona-1",
+            max_nodes=5000,
+            max_edges=20000,
         )
         graph_store.get_graph_snapshot.assert_not_awaited()
 

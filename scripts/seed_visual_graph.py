@@ -1,4 +1,4 @@
-"""Add an isolated, archived visual fixture through the existing stores."""
+"""Add an isolated visual fixture through the existing stores."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import json
 import random
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -56,7 +55,7 @@ async def seed_visual_graph(
         data_dir: Existing plugin data directory containing livingmemory.db.
         nodes: Number of graph nodes, including a small isolated population.
         edges: Number of distinct directed relations.
-        memories: Number of archived, readable memory documents.
+        memories: Number of isolated synthetic memory documents.
         communities: Number of thematic groups, from one to twelve.
         session_id: Scope used to select the fixture in the dashboard.
 
@@ -80,7 +79,6 @@ async def seed_visual_graph(
     rng = random.Random(42)
     run = uuid4().hex
     now = time.time()
-    stamp = datetime.now(timezone.utc).isoformat()
     isolated = min(40, max(1, nodes // 250))
     connected = nodes - isolated
     weights = WEIGHTS[:communities]
@@ -155,8 +153,7 @@ async def seed_visual_graph(
                 {
                     "session_id": session_id,
                     "persona_id": "visual-test",
-                    "status": "archived",
-                    "archived_at": stamp,
+                    "status": "active",
                     "importance": importance,
                     "create_time": now,
                     "last_access_time": now,
@@ -195,7 +192,7 @@ async def seed_visual_graph(
                 kind,
                 owner,
                 weight=weight,
-                status="archived",
+                status="active",
                 metadata={"visual_fixture": run},
             )
         )

@@ -10,7 +10,7 @@ from astrbot.core.db.vec_db.faiss_impl.document_storage import DocumentStorage
 
 
 @pytest.mark.asyncio
-async def test_seed_adds_scoped_graph_and_archived_details_without_replacing_data(
+async def test_seed_adds_scoped_graph_and_active_details_without_replacing_data(
     tmp_path,
 ):
     path = tmp_path / "livingmemory.db"
@@ -68,7 +68,7 @@ async def test_seed_adds_scoped_graph_and_archived_details_without_replacing_dat
         assert original[0] == "Existing memory"
         count = await (
             await db.execute(
-                "SELECT count(*) FROM documents WHERE json_extract(metadata,'$.session_id') = 'visual-test' AND json_extract(metadata,'$.status') = 'archived'"
+                "SELECT count(*) FROM documents WHERE json_extract(metadata,'$.session_id') = 'visual-test' AND json_extract(metadata,'$.status') = 'active'"
             )
         ).fetchone()
         assert count[0] == 24

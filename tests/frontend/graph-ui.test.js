@@ -15,6 +15,8 @@ class FakeElement {
   constructor() {
     this._listeners = {};
     this._attrs = {};
+    this.children = [];
+    this.parentElement = null;
     this.value = "";
     this.textContent = "";
     this.style = {};
@@ -26,7 +28,26 @@ class FakeElement {
     this._listeners[type].push(cb);
   }
   trigger(type) {
-    (this._listeners[type] || []).forEach((cb) => cb({ preventDefault() {} }));
+    (this._listeners[type] || []).forEach((cb) =>
+      cb({ preventDefault() {}, stopImmediatePropagation() {}, target: this })
+    );
+  }
+  appendChild(child) {
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }
+  removeChild(child) {
+    const at = this.children.indexOf(child);
+    if (at !== -1) this.children.splice(at, 1);
+    child.parentElement = null;
+    return child;
+  }
+  remove() {
+    if (this.parentElement) this.parentElement.removeChild(this);
+  }
+  focus() {
+    global.document.activeElement = this;
   }
   setAttribute(name, value) {
     this._attrs[name] = value;
@@ -89,6 +110,8 @@ function loadGraphUi(withGraph2D) {
     };
   }
   global.document = {
+    body: new FakeElement(),
+    activeElement: null,
     getElementById(id) {
       if (!elements[id]) elements[id] = new FakeElement();
       return elements[id];
@@ -97,6 +120,12 @@ function loadGraphUi(withGraph2D) {
       if (type === "DOMContentLoaded") lastHandler = cb;
       if (!docListeners[type]) docListeners[type] = [];
       docListeners[type].push(cb);
+    },
+    removeEventListener(type, cb) {
+      docListeners[type] = (docListeners[type] || []).filter((item) => item !== cb);
+    },
+    trigger(type, event) {
+      (docListeners[type] || []).forEach((cb) => cb(event));
     },
     documentElement: { getAttribute: () => "light" },
     createElement: () => new FakeElement(),
@@ -111,6 +140,26 @@ function loadGraphUi(withGraph2D) {
 
 async function flushMicrotasks() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
+/* 测试辅助：按 id 在 Fake DOM 中查找动态创建的元素。 */
+function findById(root, id) {
+  if (!root) return null;
+  if (root.id === id) return root;
+  for (const child of root.children || []) {
+    const found = findById(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function confirmLayer() {
+  return findById(global.document.body, "graph-full-confirm");
+}
+
+function openFullConfirm(elements) {
+  elements["graph-overview-btn"].trigger("click");
+  return confirmLayer();
 }
 
 for (const association of ["entries", "memories"]) {
@@ -153,20 +202,173 @@ test("resetting the view does not request graph data", () => {
   assert.equal(calls.length, 0);
 });
 
-test("overview button toggles between full graph and limited view", async () => {
+test("overview button asks for confirmation, then toggles full graph and limited view", async () => {
   const { calls, elements } = loadGraphUi();
   const btn = elements["graph-overview-btn"];
 
-  btn.trigger("click");
+  const overlay = openFullConfirm(elements);
+  assert.ok(overlay, "点击全量图谱应出现确认弹层");
+  const dialog = overlay.children[0];
+  assert.equal(dialog.getAttribute("role"), "dialog");
+  assert.equal(dialog.getAttribute("aria-modal"), "true");
+  assert.equal(dialog.children[0].textContent, "graph.fullGraphConfirm", "确认层展示本地化说明");
+
+  findById(overlay, "graph-full-confirm-ok").trigger("click");
   await flushMicrotasks();
+  assert.equal(confirmLayer(), null, "确认后应关闭弹层");
   assert.equal(calls[0].params.full_graph, "true", "第一次点击应显式请求全量图");
   assert.equal(btn.getAttribute("data-i18n-aria"), "graph.limitedBtn", "全量模式下按钮应显示「受限概览」");
 
   btn.trigger("click");
   await flushMicrotasks();
+  assert.equal(confirmLayer(), null, "受限概览不应再次弹确认");
   assert.equal(calls.length, 2);
   assert.equal(calls[1].params.full_graph, undefined, "再点一次应切回受限概览（不传 full_graph）");
   assert.equal(btn.getAttribute("data-i18n-aria"), "graph.overviewBtn", "受限模式下按钮应显示「全量图谱」");
+});
+
+test("cancelling the confirmation skips the request and restores focus", async () => {
+  const { calls, elements } = loadGraphUi();
+  const btn = elements["graph-overview-btn"];
+  global.document.activeElement = btn;
+
+  const overlay = openFullConfirm(elements);
+  assert.ok(overlay);
+  findById(overlay, "graph-full-confirm-cancel").trigger("click");
+  await flushMicrotasks();
+
+  assert.equal(calls.length, 0, "取消后不应发起请求");
+  assert.equal(confirmLayer(), null, "取消后应移除弹层");
+  assert.equal(btn.disabled, false, "取消后按钮应保持可用");
+  assert.equal(global.document.activeElement, btn, "关闭后应把焦点还给触发按钮");
+});
+
+test("clicking the overlay or pressing Escape cancels the confirmation", async () => {
+  const { calls, elements } = loadGraphUi();
+
+  const first = openFullConfirm(elements);
+  assert.ok(first);
+  first.trigger("click");
+  await flushMicrotasks();
+  assert.equal(calls.length, 0, "点遮罩应取消");
+  assert.equal(confirmLayer(), null);
+
+  const second = openFullConfirm(elements);
+  assert.ok(second);
+  global.document.trigger("keydown", {
+    key: "Escape",
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  });
+  await flushMicrotasks();
+  assert.equal(calls.length, 0, "Escape 应取消");
+  assert.equal(confirmLayer(), null);
+});
+
+test("opening the confirmation twice reuses the single layer", async () => {
+  const { calls, elements } = loadGraphUi();
+  const first = openFullConfirm(elements);
+  const second = openFullConfirm(elements);
+  assert.equal(first, second, "重复点击复用同一弹层");
+  assert.equal(global.document.body.children.length, 1, "DOM 中只应有一个弹层");
+
+  findById(first, "graph-full-confirm-ok").trigger("click");
+  await flushMicrotasks();
+  assert.equal(calls.length, 1, "只发出一次全量图请求");
+});
+
+test("full graph loading shows elapsed time and cancellation clears it", async () => {
+  const { elements } = loadGraphUi(true);
+  const stateEl = elements["graph-canvas-state"];
+  const realNow = Date.now;
+  let finish;
+  let requested = null;
+  window.lmShowToast = (message) => {
+    stateEl.dataset = stateEl.dataset || {};
+    stateEl.dataset.toast = message;
+  };
+  window.AstrBotPluginPage.apiGet = (path, params) => {
+    requested = { path, params };
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+
+  try {
+    const overlay = openFullConfirm(elements);
+    findById(overlay, "graph-full-confirm-ok").trigger("click");
+    await flushMicrotasks();
+
+    assert.equal(requested.path, "page/graph/overview");
+    assert.equal(requested.params.full_graph, "true");
+    assert.equal(stateEl.textContent, "graph.loadingFullGraph 0", "加载初期显示 0 秒进度");
+    assert.equal(elements["graph-overview-btn"].disabled, true, "加载期间按钮禁用");
+
+    /* 模拟已过去 3 秒：500ms 定时器刷新耗时文案 */
+    Date.now = () => realNow() + 3000;
+    await new Promise((resolve) => setTimeout(resolve, 620));
+    assert.equal(stateEl.textContent, "graph.loadingFullGraph 3", "进度文案应持续刷新已耗时");
+    Date.now = realNow;
+
+    assert.equal(window.lmCancelGraphLoad(), true, "在途全量请求应可取消");
+    assert.equal(window.lmCancelGraphLoad(), false, "没有在途请求时取消返回 false");
+    assert.equal(stateEl.textContent, "", "取消后清掉加载文案");
+    assert.equal(elements["graph-overview-btn"].disabled, false, "取消后恢复按钮");
+    assert.equal(stateEl.dataset.toast, "graph.cancelled", "取消应给出提示");
+
+    /* 迟到的响应不得渲染，也不得改写按钮/画布状态 */
+    finish({
+      status: "ok",
+      data: {
+        enabled: true,
+        mode: "overview",
+        summary: {},
+        snapshot: { nodes: [{ id: 1, type: "fact", label: "迟到的节点", weight: 1 }], edges: [] },
+      },
+    });
+    await flushMicrotasks();
+    assert.equal(stateEl.textContent, "", "取消后的响应应被丢弃");
+    assert.equal(elements["graph-overview-btn"].getAttribute("data-i18n-aria"), "graph.overviewBtn");
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("cancelling restores the message shown before the full load", async () => {
+  const { elements } = loadGraphUi(true);
+  const stateEl = elements["graph-canvas-state"];
+
+  /* 先加载空快照，画布停在「无可视化数据」提示 */
+  window.ensureGraphScene();
+  await flushMicrotasks();
+  assert.equal(stateEl.textContent, "graph.canvasEmpty");
+
+  let finish;
+  window.AstrBotPluginPage.apiGet = () =>
+    new Promise((resolve) => {
+      finish = resolve;
+    });
+  const overlay = openFullConfirm(elements);
+  findById(overlay, "graph-full-confirm-ok").trigger("click");
+  await flushMicrotasks();
+  assert.equal(stateEl.textContent, "graph.loadingFullGraph 0");
+
+  assert.equal(window.lmCancelGraphLoad(), true);
+  assert.equal(stateEl.textContent, "graph.canvasEmpty", "取消后恢复加载前的画布提示");
+
+  finish({ status: "ok", data: { enabled: true, mode: "overview", summary: {}, snapshot: { nodes: [], edges: [] } } });
+  await flushMicrotasks();
+  assert.equal(stateEl.textContent, "graph.canvasEmpty", "迟到的响应不得覆盖取消后的状态");
+});
+
+test("limited overview never opens the confirmation layer", async () => {
+  const { calls } = loadGraphUi();
+  window.ensureGraphScene();
+  await flushMicrotasks();
+
+  assert.equal(confirmLayer(), null, "受限概览不需要确认");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].params.full_graph, undefined);
 });
 
 test("layout in progress shows localized loading message until layout done", async () => {
