@@ -171,6 +171,20 @@ class ExternalHandler:
             return {**self.utils.error("API key 不存在"), "code": "not_found"}
         return self.utils.ok({"key": record.to_public_dict()})
 
+    async def list_audit(self, ready: dict[str, Any]) -> dict[str, Any]:
+        """Return the newest external API audit records (sanitized, read-only)."""
+        service = self.get_service(ready.get("memory_engine"))
+        disabled = await self._disabled_response(service)
+        if disabled is not None:
+            return disabled
+        try:
+            limit = int(request.args.get("limit", 50))
+        except (TypeError, ValueError):
+            return {**self.utils.error("limit 必须是整数"), "code": "invalid_request"}
+        limit = max(1, min(limit, 200))
+        records = await service.recent_audit(limit)
+        return self.utils.ok({"records": records, "total": len(records)})
+
     # ==================== Bearer-authenticated external routes ====================
 
     async def handle_health(self) -> dict[str, Any]:

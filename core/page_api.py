@@ -18,6 +18,7 @@ from .memory_scope import adapter_access
 from .page_api_modules import (
     BackupHandler,
     ConsolidationHandler,
+    DiagnosticsHandler,
     ExternalHandler,
     GraphHandler,
     MemoryHandler,
@@ -54,6 +55,7 @@ class PluginPageApi:
         self.consolidation_handler = ConsolidationHandler(self.utils)
         self.settings_handler = SettingsHandler(self.utils, plugin)
         self.external_handler = ExternalHandler(self.utils, plugin)
+        self.diagnostics_handler = DiagnosticsHandler(self.utils)
 
         # BackupHandler 需要 data_dir，延迟初始化
         self._backup_handler = None
@@ -77,6 +79,8 @@ class PluginPageApi:
             "LivingMemory Page initialization readiness",
         ),
         ("stats", "get_stats", ["GET"], "LivingMemory Page stats"),
+        ("usage", "get_usage", ["GET"], "LivingMemory Page LLM usage"),
+        ("channels", "list_channels", ["GET"], "LivingMemory Page channel memories"),
         (
             "adapters/assign",
             "settings_handler.assign_adapter",
@@ -256,6 +260,12 @@ class PluginPageApi:
             "LivingMemory external API key revoke",
         ),
         (
+            "external/audit",
+            "external_handler.list_audit",
+            ["GET"],
+            "LivingMemory external API audit",
+        ),
+        (
             "external/health",
             "external_handler.handle_health",
             ["GET"],
@@ -347,6 +357,20 @@ class PluginPageApi:
         if error:
             return error
         return await self.stats_handler.get_stats(ready["memory_engine"])
+
+    async def get_usage(self):
+        """获取进程内 LLM 用量与 Provider 回退配置"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return self.diagnostics_handler.usage(ready["config_manager"])
+
+    async def list_channels(self):
+        """获取频道公共记忆作用域概览"""
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.diagnostics_handler.channels(ready["memory_engine"])
 
     async def list_memories(self):
         """获取记忆列表（带分页和过滤）"""
