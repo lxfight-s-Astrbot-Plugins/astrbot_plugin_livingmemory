@@ -818,6 +818,48 @@
             }
         }
     },
+    "channel_memory": {
+        "invisible": true,
+        "description": "群聊频道公共记忆",
+        "hint": "开启后群聊总结写入当前群共享的频道作用域，群内任何成员提问都能召回；召回时联合当前作用域与频道作用域，共享 top_k 预算。关闭时行为与旧版一致。",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "启用频道公共记忆",
+                "hint": "群聊总结写入 livingmemory:channel:<平台>:<群ID> 公共作用域，个人记忆（私聊总结、显式写入）仍按各自作用域保存。",
+                "type": "bool",
+                "default": false
+            },
+            "min_user_slots": {
+                "description": "个人作用域保底槽位",
+                "hint": "联合召回时至少保留的个人/会话作用域结果条数，不足时由频道结果补齐。（允许范围：0–5）",
+                "type": "int",
+                "default": 1,
+                "slider": {
+                    "min": 0,
+                    "max": 5,
+                    "step": 1
+                }
+            },
+            "min_channel_slots": {
+                "description": "频道作用域保底槽位",
+                "hint": "联合召回时至少保留的频道作用域结果条数，不足时由个人结果补齐。（允许范围：0–5）",
+                "type": "int",
+                "default": 1,
+                "slider": {
+                    "min": 0,
+                    "max": 5,
+                    "step": 1
+                }
+            },
+            "include_archived": {
+                "description": "频道召回包含归档记忆",
+                "hint": "默认关闭：归档记忆继续排除在召回之外。开启后仅对频道作用域结果放宽状态过滤。",
+                "type": "bool",
+                "default": false
+            }
+        }
+    },
     "migration_settings": {
         "invisible": true,
         "description": "数据库迁移",

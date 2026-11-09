@@ -238,11 +238,13 @@ class MemoryRecall:
                     f"[{session_id}] 开始记忆召回，查询='{query_for_search[:80]}...'"
                 )
 
+                channel_scope = recall_access.channel_scope
                 recalled_memories = await self.memory_engine.search_memories(
                     query=query_for_search,
                     k=self.config_manager.get("recall_engine.top_k", 5),
                     session_id=recall_session_id,
                     persona_id=recall_persona_id,
+                    extra_scopes=[channel_scope] if channel_scope else None,
                 )
 
                 if recalled_memories:

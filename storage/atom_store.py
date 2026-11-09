@@ -12,7 +12,7 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from ..core.memory_scope import adapter_sql
+from ..core.memory_scope import adapter_sql, memory_scope_sql
 from ..core.models.memory_atom import (
     AtomStatus,
     AtomType,
@@ -380,9 +380,10 @@ class AtomStore:
         params: list[Any] = [fts_query]
         if not include_expired:
             params.append(time.time())
-        if session_id is not None:
-            filters.append("ma.session_id = ?")
-            params.append(session_id)
+        scope_clause, scope_params = memory_scope_sql("ma.session_id", session_id)
+        if scope_clause:
+            filters.append(scope_clause)
+            params.extend(scope_params)
         if persona_id is not None:
             filters.append("ma.persona_id = ?")
             params.append(persona_id)
@@ -422,14 +423,14 @@ class AtomStore:
                 )
                 if not include_expired:
                     like_params_full.append(time.time())
-                session_filter = (
-                    "AND ma.session_id = ?" if session_id is not None else ""
+                scope_clause, scope_params = memory_scope_sql(
+                    "ma.session_id", session_id
                 )
+                session_filter = f"AND {scope_clause}" if scope_clause else ""
                 persona_filter = (
                     "AND ma.persona_id = ?" if persona_id is not None else ""
                 )
-                if session_id is not None:
-                    like_params_full.append(session_id)
+                like_params_full.extend(scope_params)
                 if persona_id is not None:
                     like_params_full.append(persona_id)
                 like_params_full.extend(ownership_params)

@@ -221,6 +221,10 @@ class MemoryConsolidationManager:
             "consolidated_from": [mem["id"] for mem in group],
             "consolidated_at": time.time(),
         }
+        for channel_key in ("scope_kind", "channel_id", "channel_platform"):
+            channel_value = group[0]["metadata"].get(channel_key)
+            if channel_value is not None:
+                metadata[channel_key] = channel_value
 
         async with self.write_lock:
             new_id = await self.memory_engine.add_memory(

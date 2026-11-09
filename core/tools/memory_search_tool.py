@@ -133,12 +133,16 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
 
                 limited_k = max(1, min(requested_k_int, max_k))
 
-                memories = await self.memory_engine.search_memories(
-                    query=cleaned_query,
-                    k=limited_k,
-                    session_id=recall_session_id,
-                    persona_id=recall_persona_id,
-                )
+                channel_scope = access.channel_scope
+                search_kwargs: dict[str, Any] = {
+                    "query": cleaned_query,
+                    "k": limited_k,
+                    "session_id": recall_session_id,
+                    "persona_id": recall_persona_id,
+                }
+                if channel_scope:
+                    search_kwargs["extra_scopes"] = [channel_scope]
+                memories = await self.memory_engine.search_memories(**search_kwargs)
 
                 serialized_results = []
                 for memory in memories:

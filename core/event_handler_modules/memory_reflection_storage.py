@@ -7,6 +7,7 @@ from typing import Any
 from astrbot.api import logger
 
 from ..base.exceptions import LowQualityMemoryError, MemoryParseError
+from ..memory_scope import channel_scope_parts, is_channel_scope
 from ..memory_source import serialize_source_messages
 
 _DEFAULT_MEMORY_SCOPE = object()
@@ -304,6 +305,11 @@ class MemoryReflectionStorageMixin:
                         "message_count": end_index - start_index,
                     }
                     metadata["source_session_id"] = session_id
+                    if is_channel_scope(memory_scope):
+                        channel_platform, channel_id = channel_scope_parts(memory_scope)
+                        metadata["scope_kind"] = "channel"
+                        metadata["channel_id"] = channel_id
+                        metadata["channel_platform"] = channel_platform
 
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "

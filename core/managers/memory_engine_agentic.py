@@ -7,7 +7,12 @@ from typing import Any
 
 from astrbot.api import logger
 
-from ..memory_scope import adapter_sql
+from ..memory_scope import (
+    adapter_sql,
+    memory_scope_sql,
+    memory_scope_visible,
+    merge_memory_scopes,
+)
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.recall_diagnostics import all_routes_failed, merge_route
 from ..retrieval.route_execution import search_route
@@ -46,6 +51,7 @@ class MemoryEngineAgenticMixin:
         k=5,
         session_id=None,
         persona_id=None,
+        extra_scopes: list[str] | None = None,
         identity_key=None,
         identity_candidates=None,
         start_ts=None,
@@ -64,6 +70,7 @@ class MemoryEngineAgenticMixin:
             return AgenticRecallOutcome(
                 [], "invalid_query", message="start_time exceeds end_time"
             )
+        scope_filter = merge_memory_scopes(session_id, extra_scopes)
         if target == "current_speaker":
             try:
                 decode_participant_cursor(cursor)
@@ -74,7 +81,7 @@ class MemoryEngineAgenticMixin:
                 return await self._agentic_search_by_participant(
                     query=query,
                     k=k,
-                    session_id=session_id,
+                    session_id=scope_filter,
                     persona_id=persona_id,
                     identity_key=identity_key,
                     identity_candidates=identity_candidates or [],
@@ -86,7 +93,7 @@ class MemoryEngineAgenticMixin:
             return await self._agentic_search_conversation(
                 query=query,
                 k=k,
-                session_id=session_id,
+                session_id=scope_filter,
                 persona_id=persona_id,
                 start_ts=start_ts,
                 end_ts=end_ts,
@@ -152,10 +159,7 @@ class MemoryEngineAgenticMixin:
                 results = [
                     result
                     for result in results
-                    if (
-                        session_id is None
-                        or result.metadata.get("session_id") == session_id
-                    )
+                    if memory_scope_visible(result.metadata, session_id)
                     and (
                         persona_id is None
                         or result.metadata.get("persona_id") == persona_id
@@ -247,7 +251,7 @@ class MemoryEngineAgenticMixin:
             )
             for document in loaded:
                 metadata = safe_json_dict(document.get("metadata"))
-                if session_id is not None and metadata.get("session_id") != session_id:
+                if not memory_scope_visible(metadata, session_id):
                     continue
                 if persona_id is not None and metadata.get("persona_id") != persona_id:
                     continue
@@ -356,10 +360,15 @@ class MemoryEngineAgenticMixin:
             "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'"
         ]
         params: list[Any] = []
-        for key, value in (("session_id", session_id), ("persona_id", persona_id)):
-            if value is not None:
-                conditions.append(f"json_extract(metadata, '$.{key}') = ?")
-                params.append(value)
+        scope_clause, scope_params = memory_scope_sql(
+            "json_extract(metadata, '$.session_id')", session_id
+        )
+        if scope_clause:
+            conditions.append(scope_clause)
+            params.extend(scope_params)
+        if persona_id is not None:
+            conditions.append("json_extract(metadata, '$.persona_id') = ?")
+            params.append(persona_id)
         ownership, ownership_params = adapter_sql("metadata")
         conditions.append(ownership)
         params.extend(ownership_params)

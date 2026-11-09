@@ -398,6 +398,26 @@
         "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage. Allowed range: 1-365."
       }
     },
+    "channel_memory": {
+      "description": "Group channel memory",
+      "hint": "When enabled, group summaries are stored in a shared channel scope so any member of the group can recall them; recall searches the current scope and the channel scope together within one top_k budget. Disabled keeps the previous behavior.",
+      "enabled": {
+        "description": "Enable channel memory",
+        "hint": "Group summaries are stored under livingmemory:channel:<platform>:<group id>; personal memories (private summaries and explicit writes) keep their own scopes."
+      },
+      "min_user_slots": {
+        "description": "Minimum personal slots",
+        "hint": "Personal/session results kept at minimum during merged recall; channel results fill any gap. (Allowed: 0-5)"
+      },
+      "min_channel_slots": {
+        "description": "Minimum channel slots",
+        "hint": "Channel results kept at minimum during merged recall; personal results fill any gap. (Allowed: 0-5)"
+      },
+      "include_archived": {
+        "description": "Include archived memories in channel recall",
+        "hint": "Off by default: archived memories stay excluded. When on, only channel-scope results relax the status filter."
+      }
+    },
     "migration_settings": {
       "description": "Database Migration",
       "hint": "Control database version upgrade behavior on plugin startup",

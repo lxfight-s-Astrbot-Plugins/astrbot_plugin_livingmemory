@@ -13,7 +13,7 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from ..core.memory_scope import adapter_sql
+from ..core.memory_scope import adapter_sql, memory_scope_sql
 from ..core.utils.json_utils import safe_json_dict
 from ..core.utils.number_utils import safe_float
 
@@ -201,9 +201,10 @@ class GraphStoreReadMixin:
         """Search graph entries through the FTS table."""
         filters: list[str] = []
         params: list[Any] = [fts_query]
-        if session_id is not None:
-            filters.append("ge.session_id = ?")
-            params.append(session_id)
+        scope_clause, scope_params = memory_scope_sql("ge.session_id", session_id)
+        if scope_clause:
+            filters.append(scope_clause)
+            params.extend(scope_params)
         if persona_id is not None:
             filters.append("ge.persona_id = ?")
             params.append(persona_id)
@@ -360,9 +361,10 @@ class GraphStoreReadMixin:
         filters: list[str] = []
         params: list[Any] = list(node_ids)
 
-        if session_id is not None:
-            filters.append("ge.session_id = ?")
-            params.append(session_id)
+        scope_clause, scope_params = memory_scope_sql("ge.session_id", session_id)
+        if scope_clause:
+            filters.append(scope_clause)
+            params.extend(scope_params)
         if persona_id is not None:
             filters.append("ge.persona_id = ?")
             params.append(persona_id)

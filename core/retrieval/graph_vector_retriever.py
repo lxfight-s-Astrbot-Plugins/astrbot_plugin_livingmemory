@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from ..memory_scope import normalize_memory_scopes
 from .vector_retriever import delete_faiss_documents_by_ids
 from .vector_search import retrieve_vectors
 
@@ -135,8 +136,9 @@ class GraphVectorRetriever:
             return []
 
         metadata_filters: dict[str, Any] = {}
-        if session_id is not None:
-            metadata_filters["session_id"] = session_id
+        scopes = normalize_memory_scopes(session_id)
+        if scopes is not None:
+            metadata_filters["session_id"] = scopes[0] if len(scopes) == 1 else scopes
         if persona_id is not None:
             metadata_filters["persona_id"] = persona_id
 

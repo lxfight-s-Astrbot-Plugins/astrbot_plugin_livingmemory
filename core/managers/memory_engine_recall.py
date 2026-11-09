@@ -18,6 +18,11 @@ from ..memory_scope import (
     adapter_sql,
     adapter_visible,
     current_adapter_access,
+    is_channel_scope,
+    memory_scope_sql,
+    memory_scope_visible,
+    merge_memory_scopes,
+    normalize_memory_scopes,
 )
 from ..memory_transfer import memory_import_key
 from ..retrieval.hybrid_retriever import HybridResult
@@ -69,6 +74,8 @@ class MemoryEngineRecallMixin:
         k: int = 5,
         session_id: str | None = None,
         persona_id: str | None = None,
+        *,
+        extra_scopes: list[str] | None = None,
     ) -> list[HybridResult]:
         """
         检索相关记忆
@@ -78,6 +85,7 @@ class MemoryEngineRecallMixin:
             k: 返回数量
             session_id: 会话ID过滤(可选,应传入unified_msg_origin完整格式)
             persona_id: 人格ID过滤(可选)
+            extra_scopes: 与主作用域并联检索的附加作用域（如频道公共记忆）。
 
         Returns:
             List[HybridResult]: 检索结果列表
@@ -85,7 +93,13 @@ class MemoryEngineRecallMixin:
         if not query or not query.strip():
             return []
 
-        cache_key = self._search_cache_key(query, k, session_id, persona_id)
+        # 主作用域 + 附加作用域合并为一次 IN 过滤；单作用域时保持 = ? 热路径。
+        scope_filter = merge_memory_scopes(session_id, extra_scopes)
+        extra_scope_values = normalize_memory_scopes(extra_scopes) or []
+        channel_scopes = [
+            scope for scope in extra_scope_values if is_channel_scope(scope)
+        ]
+        cache_key = self._search_cache_key(query, k, scope_filter, persona_id)
         cached_results = self._get_cached_search_results(cache_key)
         if cached_results is not None:
             cached_results = await self._apply_atom_policy(cached_results)
@@ -118,20 +132,20 @@ class MemoryEngineRecallMixin:
             results = await self.dual_route_retriever.search(
                 query,
                 k,
-                session_id,
+                scope_filter,
                 persona_id,
             )
         else:
             if self.hybrid_retriever is None:
                 raise RuntimeError("混合检索器未初始化")
             results = await self.hybrid_retriever.search(
-                query, k, session_id, persona_id
+                query, k, scope_filter, persona_id
             )
 
         if self.atom_retriever is not None:
             atom_results, _ = await search_route(
                 "atoms",
-                self.atom_retriever.search(query, k * 2, session_id, persona_id),
+                self.atom_retriever.search(query, k * 2, scope_filter, persona_id),
             )
             existing_ids = {result.doc_id for result in results}
             scores = {}
@@ -149,10 +163,7 @@ class MemoryEngineRecallMixin:
                 )
                 for document in documents:
                     metadata = safe_json_dict(document.get("metadata"))
-                    if (
-                        session_id is not None
-                        and metadata.get("session_id") != session_id
-                    ):
+                    if not memory_scope_visible(metadata, scope_filter):
                         continue
                     if (
                         persona_id is not None
@@ -175,16 +186,29 @@ class MemoryEngineRecallMixin:
                 results.sort(key=lambda result: result.final_score, reverse=True)
 
         results = await self._apply_atom_policy(results)
-        results = self._filter_by_retrieval_policy(results)
+        results = self._filter_by_retrieval_policy(
+            results,
+            archived_scopes=(
+                set(channel_scopes)
+                if channel_scopes and self.config.get("channel_include_archived")
+                else None
+            ),
+        )
         resolved_ids = {result.doc_id for result in results}
         results = await self._merge_recent_memories(
             results,
             k,
-            session_id,
+            scope_filter,
             persona_id,
         )
         # 只对合并进来的新候选做原子策略解析，避免重复查询已解析的文档
         results = await self._apply_atom_policy(results, skip_doc_ids=resolved_ids)
+        # 频道联合召回：保证 user/channel 各自的最小保底槽位后按分数补满。
+        results = self._apply_scope_slot_quota(
+            results,
+            k,
+            channel_scopes=channel_scopes,
+        )
 
         # 访问统计合并到窗口内异步写，不阻塞返回
         if results:
@@ -314,6 +338,8 @@ class MemoryEngineRecallMixin:
         keyword: str = "",
         status: str = "all",
         memory_type: str | None = None,
+        scope: str | None = None,
+        channel_id: str | None = None,
         sort_key: str = "created_desc",
         page: int = 1,
         page_size: int = 20,
@@ -364,6 +390,20 @@ class MemoryEngineRecallMixin:
         if memory_type:
             where_clauses.append(f"{type_expr} = ?")
             params.append(memory_type.upper())
+
+        if scope:
+            scope_kind = scope.strip().casefold()
+            if scope_kind == "channel":
+                where_clauses.append(
+                    "json_extract(metadata, '$.scope_kind') = 'channel'"
+                )
+            else:
+                where_clauses.append("json_extract(metadata, '$.session_id') = ?")
+                params.append(scope)
+
+        if channel_id:
+            where_clauses.append("json_extract(metadata, '$.channel_id') = ?")
+            params.append(channel_id)
 
         if keyword:
             keyword_like = f"%{keyword}%"
@@ -690,15 +730,16 @@ class MemoryEngineRecallMixin:
         self,
         query: str,
         k: int,
-        session_id: str | None,
+        scope_filter: str | list[str] | None,
         persona_id: str | None,
     ) -> tuple[Any, ...]:
+        scopes = tuple(normalize_memory_scopes(scope_filter) or ())
         return (
             self._search_cache_generation,
             adapter_cache_key(),
             self._normalize_cache_query(query),
             int(k),
-            session_id or "",
+            scopes,
             persona_id or "",
             bool(self.dual_route_retriever is not None),
             round(float(self.config.get("document_route_weight", 0.65)), 4),
@@ -716,8 +757,74 @@ class MemoryEngineRecallMixin:
             int(self.config.get("recall_candidate_multiplier", 3)),
         )
 
+    def _apply_scope_slot_quota(
+        self,
+        results: list[HybridResult],
+        k: int,
+        *,
+        channel_scopes: list[str],
+    ) -> list[HybridResult]:
+        """Keep minimum per-pool slots for user/channel recall, then fill by score.
+
+        Args:
+            results: Fused candidates after policy filters.
+            k: Total recall budget.
+            channel_scopes: Shared channel scopes merged into this request.
+
+        Returns:
+            At most ``k`` results; each non-empty pool keeps its configured
+            minimum slot count and the remainder is filled by final score.
+        """
+        if not results or not channel_scopes or k <= 0:
+            return results[:k]
+        min_user = max(0, int(self.config.get("channel_min_user_slots", 1) or 0))
+        min_channel = max(0, int(self.config.get("channel_min_channel_slots", 1) or 0))
+        if min_user <= 0 and min_channel <= 0:
+            return results[:k]
+
+        channel_set = set(channel_scopes)
+        ordered = sorted(results, key=lambda item: item.final_score, reverse=True)
+        user_pool = [
+            item
+            for item in ordered
+            if (item.metadata or {}).get("session_id") not in channel_set
+        ]
+        channel_pool = [
+            item
+            for item in ordered
+            if (item.metadata or {}).get("session_id") in channel_set
+        ]
+
+        selected: list[HybridResult] = []
+        selected_ids: set[int] = set()
+
+        def take(pool: list[HybridResult], limit: int) -> None:
+            for item in pool:
+                if limit <= 0 or len(selected) >= k:
+                    return
+                if item.doc_id in selected_ids:
+                    continue
+                selected.append(item)
+                selected_ids.add(item.doc_id)
+                limit -= 1
+
+        take(channel_pool, min_channel)
+        take(user_pool, min_user)
+        for item in ordered:
+            if len(selected) >= k:
+                break
+            if item.doc_id in selected_ids:
+                continue
+            selected.append(item)
+            selected_ids.add(item.doc_id)
+        selected.sort(key=lambda item: item.final_score, reverse=True)
+        return selected[:k]
+
     def _filter_by_retrieval_policy(
-        self, results: list[HybridResult]
+        self,
+        results: list[HybridResult],
+        *,
+        archived_scopes: set[str] | None = None,
     ) -> list[HybridResult]:
         importance_threshold = clamp_float(
             self.config.get("min_importance_for_retrieval"), default=0.0
@@ -733,7 +840,10 @@ class MemoryEngineRecallMixin:
             metadata = getattr(result, "metadata", {})
             if not isinstance(metadata, dict):
                 metadata = {}
-            if str(metadata.get("status") or "active") != "active":
+            status = str(metadata.get("status") or "active")
+            if status != "active" and not (
+                archived_scopes and metadata.get("session_id") in archived_scopes
+            ):
                 continue
             # 被新总结取代的旧记忆只保留在存储中供审计，不再参与任何召回
             # （显式 /lmem search 与自动注入共用本过滤）。
@@ -773,7 +883,7 @@ class MemoryEngineRecallMixin:
     async def _get_recent_memory_results(
         self,
         count: int,
-        session_id: str | None,
+        session_id: str | list[str] | None,
         persona_id: str | None,
     ) -> list[HybridResult]:
         """按创建时间倒序取当前范围内的近期记忆，作为相关性不足时的补位候选。
@@ -796,9 +906,12 @@ class MemoryEngineRecallMixin:
             "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active'"
         ]
         params: list[Any] = []
-        if session_id is not None:
-            conditions.append("json_extract(metadata, '$.session_id') = ?")
-            params.append(session_id)
+        scope_clause, scope_params = memory_scope_sql(
+            "json_extract(metadata, '$.session_id')", session_id
+        )
+        if scope_clause:
+            conditions.append(scope_clause)
+            params.extend(scope_params)
         if persona_id is not None:
             conditions.append("json_extract(metadata, '$.persona_id') = ?")
             params.append(persona_id)
@@ -840,7 +953,7 @@ class MemoryEngineRecallMixin:
         self,
         results: list[HybridResult],
         k: int,
-        session_id: str | None,
+        session_id: str | list[str] | None,
         persona_id: str | None,
     ) -> list[HybridResult]:
         """仅在相关性结果不足 k 条时用近期记忆补位。
