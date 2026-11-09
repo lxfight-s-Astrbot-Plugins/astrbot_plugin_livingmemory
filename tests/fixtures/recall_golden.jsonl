@@ -1,0 +1,42 @@
+{"type": "memory", "id": "m01", "content": "用户喜欢手冲咖啡，偏爱浅烘焙的耶加雪菲，喝咖啡从不加糖。", "session": "s1", "importance": 0.8, "age_days": 20, "kind": "preference"}
+{"type": "memory", "id": "m02", "content": "用户养了一只三花猫叫布丁，今年三岁，布丁晚上喜欢睡在床头。", "session": "s1", "importance": 0.7, "age_days": 15, "kind": "preference"}
+{"type": "memory", "id": "m03", "content": "张三不能吃辣，点菜时要避开重辣，尤其不吃麻辣火锅。", "session": "s1", "importance": 0.75, "age_days": 30, "kind": "relation"}
+{"type": "memory", "id": "m04", "content": "李四换到一家做跨境电商的公司，负责供应链相关工作。", "session": "s1", "importance": 0.6, "age_days": 45, "kind": "fact"}
+{"type": "memory", "id": "m05", "content": "Project Alpha 的检索层用 SQLite FTS5 做稀疏检索，向量层用 FAISS。", "session": "s1", "importance": 0.85, "age_days": 10, "kind": "fact"}
+{"type": "memory", "id": "m06", "content": "Alpha 的数据迁移在 v4 完成，旧表 documents_fts 需要清理。", "session": "s1", "importance": 0.7, "age_days": 12, "kind": "fact"}
+{"type": "memory", "id": "m07", "content": "周末和张三去爬香山，山顶风很大，下山后一起吃了炸酱面。", "session": "s1", "importance": 0.5, "age_days": 25, "kind": "event"}
+{"type": "memory", "id": "m08", "content": "上周六又去爬了西山，这次带了登山杖，膝盖舒服很多。", "session": "s1", "importance": 0.5, "age_days": 8, "kind": "event", "near_dup_of": "m07"}
+{"type": "memory", "id": "m09", "content": "群里约好周三晚上八点开语音会，讨论下季度项目排期。", "session": "s1", "importance": 0.7, "age_days": 3, "kind": "event"}
+{"type": "memory", "id": "m10", "content": "团建定在下个月第二个周六，地点选在怀柔的民宿。", "session": "s1", "importance": 0.6, "age_days": 6, "kind": "event"}
+{"type": "memory", "id": "m11", "content": "用户习惯深夜写代码，通常 23 点后效率最高，早上起不来。", "session": "s1", "importance": 0.6, "age_days": 40, "kind": "preference"}
+{"type": "memory", "id": "m12", "content": "用户不喜欢被频繁打断，除非是紧急事项，消息最好集中发。", "session": "s1", "importance": 0.65, "age_days": 35, "kind": "preference"}
+{"type": "memory", "id": "m13", "content": "用户生日是 3 月 14 日，喜欢白色百合花。", "session": "s1", "importance": 0.8, "age_days": 60, "kind": "fact"}
+{"type": "memory", "id": "m14", "content": "李四是张三年会认识的同事，两人都喜欢打羽毛球。", "session": "s1", "importance": 0.55, "age_days": 50, "kind": "relation"}
+{"type": "memory", "id": "m15", "content": "用户最近在学日语，目标是 N3，每天背三十个单词。", "session": "s1", "importance": 0.6, "age_days": 18, "kind": "fact"}
+{"type": "memory", "id": "m16", "content": "用户对花生过敏，外出吃饭要确认菜品不含花生。", "session": "s1", "importance": 0.9, "age_days": 22, "kind": "fact"}
+{"type": "memory", "id": "m17", "content": "上次讨论的检索缓存 TTL 定为 45 秒，写入时主动失效。", "session": "s1", "importance": 0.65, "age_days": 14, "kind": "fact"}
+{"type": "memory", "id": "m18", "content": "用户计划五一去云南大理旅行，想住洱海边的民宿。", "session": "s1", "importance": 0.6, "age_days": 28, "kind": "event"}
+{"type": "query", "id": "q01", "query": "耶加雪菲 手冲咖啡 浅烘焙 不加糖", "expect": ["m01"], "graded": {"m01": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q02", "query": "家里那只三花猫布丁今年几岁了", "expect": ["m02"], "graded": {"m02": 2}, "negative": false, "kind": "paraphrase"}
+{"type": "query", "id": "q03", "query": "张三 不能吃辣 麻辣火锅 忌口", "expect": ["m03"], "graded": {"m03": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q04", "query": "李四现在在跨境电商公司负责供应链", "expect": ["m04"], "graded": {"m04": 2}, "negative": false, "kind": "paraphrase"}
+{"type": "query", "id": "q05", "query": "Project Alpha 检索层 FTS5 FAISS 向量", "expect": ["m05"], "graded": {"m05": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q06", "query": "Alpha v4 数据迁移 documents_fts 旧表清理", "expect": ["m06"], "graded": {"m06": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q07", "query": "香山 爬山 炸酱面 山顶", "expect": ["m07"], "graded": {"m07": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q08", "query": "上次爬西山带登山杖 膝盖还舒服吗", "expect": ["m08", "m07"], "graded": {"m08": 2, "m07": 1}, "negative": false, "kind": "temporal"}
+{"type": "query", "id": "q09", "query": "周三晚上八点语音会讨论排期", "expect": ["m09"], "graded": {"m09": 2}, "negative": false, "kind": "temporal"}
+{"type": "query", "id": "q10", "query": "团建 下个月第二个周六 怀柔民宿", "expect": ["m10"], "graded": {"m10": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q11", "query": "我一般深夜写代码，几点效率最高", "expect": ["m11"], "graded": {"m11": 2}, "negative": false, "kind": "paraphrase"}
+{"type": "query", "id": "q12", "query": "不喜欢被人频繁打断，消息最好集中发", "expect": ["m12"], "graded": {"m12": 2}, "negative": false, "kind": "paraphrase"}
+{"type": "query", "id": "q13", "query": "生日 3 月 14 日 白色百合花", "expect": ["m13"], "graded": {"m13": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q14", "query": "李四和张三怎么认识的 都打羽毛球", "expect": ["m14"], "graded": {"m14": 2}, "negative": false, "kind": "relational"}
+{"type": "query", "id": "q15", "query": "学日语 N3 每天背单词", "expect": ["m15"], "graded": {"m15": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q16", "query": "花生过敏 外出吃饭要确认", "expect": ["m16"], "graded": {"m16": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q17", "query": "检索缓存 TTL 45 秒 主动失效", "expect": ["m17"], "graded": {"m17": 2}, "negative": false, "kind": "keyword"}
+{"type": "query", "id": "q18", "query": "五一去云南大理旅行 洱海边民宿", "expect": ["m18"], "graded": {"m18": 2}, "negative": false, "kind": "temporal"}
+{"type": "query", "id": "q19", "query": "量子纠缠的退相干与贝尔不等式", "expect": [], "graded": {}, "negative": true, "kind": "negative"}
+{"type": "query", "id": "q20", "query": "股票K线图的支撑位和压力位", "expect": [], "graded": {}, "negative": true, "kind": "negative"}
+{"type": "query", "id": "q21", "query": "火箭发射窗口的轨道倾角计算", "expect": [], "graded": {}, "negative": true, "kind": "negative"}
+{"type": "query", "id": "q22", "query": "光合作用里叶绿体的电子传递链", "expect": [], "graded": {}, "negative": true, "kind": "negative"}
+{"type": "query", "id": "q23", "query": "梵高星空的后印象派绘画技法", "expect": [], "graded": {}, "kind": "negative", "negative": true}
+{"type": "query", "id": "q24", "query": "鲸鱼靠回声定位在深海捕食", "expect": [], "graded": {}, "negative": true, "kind": "negative"}

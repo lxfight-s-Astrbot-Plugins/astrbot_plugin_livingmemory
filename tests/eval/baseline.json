@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-11-09T15:43:48+0800",
+  "recall@5": 1.0,
+  "mrr@10": 1.0,
+  "ndcg@5": 0.9903,
+  "negative_injection_rate": 0.0,
+  "p50_ms": 4.25,
+  "p95_ms": 15.65,
+  "positive_queries": 18,
+  "negative_queries": 6,
+  "memories": 18,
+  "failures": []
+}
