@@ -65,3 +65,51 @@ test("the plugin view bridge takes precedence over the legacy page alias", async
     delete globalThis.window;
   }
 });
+
+test("PUT and DELETE use their dedicated bridge methods", async () => {
+  const calls = [];
+  globalThis.window = {
+    AstrBotPluginPage: {
+      apiGet() {
+        return { status: "ok", data: {} };
+      },
+      apiPost() {
+        return { status: "ok", data: {} };
+      },
+      apiPut(path, body) {
+        calls.push({ method: "PUT", path, body });
+        return { status: "ok", data: { version: 3 } };
+      },
+      apiDelete(path, body) {
+        calls.push({ method: "DELETE", path, body });
+        return { status: "ok", data: { deleted: true } };
+      },
+    },
+  };
+  try {
+    const api = new ApiClient();
+    assert.deepEqual(await api.put("profiles/1", { profile: { basic: {} } }), { version: 3 });
+    assert.deepEqual(await api.delete("profiles/1"), { deleted: true });
+    assert.equal(calls[0].method, "PUT");
+    assert.equal(calls[0].path, "page/profiles/1");
+    assert.deepEqual(calls[0].body, { profile: { basic: {} } });
+    assert.equal(calls[1].method, "DELETE");
+    assert.equal(calls[1].path, "page/profiles/1");
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("PUT/DELETE fail clearly when the host bridge has no such method", async () => {
+  globalThis.window = {
+    t: (key) => key,
+    AstrBotPluginPage: {},
+  };
+  try {
+    const api = new ApiClient();
+    await assert.rejects(api.put("profiles/1", {}), /misc\.requestFailed|PUT/);
+    await assert.rejects(api.delete("profiles/1"), /misc\.requestFailed|DELETE/);
+  } finally {
+    delete globalThis.window;
+  }
+});

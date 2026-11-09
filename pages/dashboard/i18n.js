@@ -82,6 +82,7 @@
     "nav.recall":         { zh: "召回测试", en: "Recall Test", ru: "Тест поиска" },
     "nav.prompts":        { zh: "提示词管理", en: "Prompts", ru: "Промпты" },
     "nav.settings":       { zh: "设置", en: "Settings", ru: "Настройки" },
+    "nav.profile":        { zh: "用户档案", en: "Profiles", ru: "Профили" },
     "settings.reloadHint": { zh: "高级配置集中在插件页面，保存后请重载插件使全部组件生效。", en: "Advanced settings live here instead of the AstrBot plugin config page. Reload the plugin after saving so every component picks them up.", ru: "Расширенные настройки находятся на этой странице; после сохранения перезагрузите плагин." },
     "settings.save":      { zh: "保存设置", en: "Save", ru: "Сохранить" },
     "settings.adapterUnassigned": {"zh":"未归属","en":"Unassigned","ru":"Не назначено"},
@@ -108,6 +109,8 @@
     "settings.collapseAll": { zh: "收起全部", en: "Collapse all", ru: "Свернуть всё" },
     "settings.noMatches": { zh: "没有匹配的配置项", en: "No matching settings", ru: "Нет подходящих настроек" },
     "settings.quickTitle": { zh: "常用设置", en: "Common settings", ru: "Частые настройки" },
+
+    /* ---- User profiles ---- */
     "settings.advancedTitle": { zh: "高级设置（按类别折叠）", en: "Advanced settings (grouped and collapsed)", ru: "Расширенные настройки (по категориям)" },
     "settings.catMemory": { zh: "记忆生成与生命周期", en: "Memory generation and lifecycle", ru: "Создание и жизненный цикл памяти" },
     "settings.catRecall": { zh: "召回与工具", en: "Recall and tools", ru: "Поиск и инструменты" },
@@ -654,6 +657,7 @@
     "nav.memory": "記憶管理",
     "nav.prompts": "プロンプト管理",
     "nav.settings": "設定",
+    "nav.profile": "ユーザープロファイル",
     "settings.reloadHint": "詳細設定はこのプラグインページにあります。保存後にプラグインを再読み込みするとすべてのコンポーネントに反映されます。",
     "settings.save": "保存",
     "settings.adapterUnassigned": "未割当",
@@ -901,6 +905,18 @@
 
   window.getLanguage = function () {
     return currentLang;
+  };
+
+  /**
+   * 懒加载页面在首次进入时注册自己的文案（主表保持首屏最小）。
+   * @param {Object<string, {zh:string,en:string,ru:string,ja:string}>} messages
+   */
+  window.lmRegisterMessages = function (messages) {
+    if (!messages || typeof messages !== "object") return;
+    Object.keys(messages).forEach(function (key) {
+      MSG[key] = Object.assign({}, MSG[key], messages[key]);
+    });
+    applyI18n();
   };
 
   function applyI18n() {

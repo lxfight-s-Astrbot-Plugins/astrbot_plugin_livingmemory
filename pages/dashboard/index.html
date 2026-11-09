@@ -38,6 +38,10 @@
             <i data-lucide="braces" aria-hidden="true"></i>
             <span data-i18n="nav.prompts">Prompts</span>
           </button>
+          <button class="nav-item" data-page="profile" data-i18n-aria="nav.profile">
+            <i data-lucide="user" aria-hidden="true"></i>
+            <span data-i18n="nav.profile">Profiles</span>
+          </button>
           <button class="nav-item" data-page="settings" data-i18n-aria="nav.settings">
             <i data-lucide="palette" aria-hidden="true"></i>
             <span data-i18n="nav.settings">Settings</span>
@@ -368,10 +372,24 @@
           </div>
         </section>
 
+        <!-- Page: Profiles (lazy-loaded module renders into #profile-container) -->
+        <section class="page" id="page-profile">
+          <header class="page-header">
+            <div class="page-heading"><span class="page-index">06</span><span class="page-title" data-i18n="nav.profile">Profiles</span></div>
+          </header>
+          <div class="page-body">
+            <div id="profile-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
+              <span id="profile-feedback-message"></span>
+              <button id="profile-retry" class="btn btn-sm btn-secondary" type="button" data-i18n="common.retry" hidden>Retry</button>
+            </div>
+            <div id="profile-container"></div>
+          </div>
+        </section>
+
         <!-- Page: Settings (advanced config moved out of the host page) -->
         <section class="page" id="page-settings">
           <header class="page-header">
-            <div class="page-heading"><span class="page-index">06</span><span class="page-title" data-i18n="nav.settings">Settings</span></div>
+            <div class="page-heading"><span class="page-index">07</span><span class="page-title" data-i18n="nav.settings">Settings</span></div>
           </header>
           <div class="page-body">
             <div id="settings-feedback" class="request-feedback" role="status" aria-live="polite" hidden>
