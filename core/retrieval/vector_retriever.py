@@ -118,7 +118,11 @@ class VectorRetriever:
         return content[:head_chars] + _TRUNCATED_CONTENT_MARKER + content[-tail_chars:]
 
     async def add_document(
-        self, content: str, metadata: dict[str, Any] | None = None
+        self,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        *,
+        embedding: list[float] | None = None,
     ) -> int:
         """
         添加文档到向量库
@@ -127,6 +131,9 @@ class VectorRetriever:
             content: 文档内容
             metadata: 文档元数据(必须包含:importance, create_time, last_access_time,
                      session_id, persona_id)
+            embedding: 可选预计算向量（同一文本在做近重复检测时已算过 embedding 的
+                场景直接复用，避免重复调用 Embedding Provider）；为 None 时按原路径
+                由宿主向量库生成向量。
 
         Returns:
             int: 文档ID
@@ -168,7 +175,9 @@ class VectorRetriever:
                 insert_content,
                 _MAX_CONTENT_CHARS,
             )
-        if insert_content == content:
+
+        # 无预计算向量且无需截断时，沿用宿主向量库的完整插入路径
+        if embedding is None and insert_content == content:
             return await self.faiss_db.insert(content=content, metadata=metadata)
 
         # The document is the source of truth; only the embedding input is bounded.
@@ -177,10 +186,11 @@ class VectorRetriever:
 
         import numpy as np
 
-        vector = np.asarray(
-            await self.faiss_db.embedding_provider.get_embedding(insert_content),
-            dtype=np.float32,
-        )
+        if embedding is None:
+            embedding = await self.faiss_db.embedding_provider.get_embedding(
+                insert_content
+            )
+        vector = np.asarray(embedding, dtype=np.float32)
         storage = self.faiss_db.embedding_storage
         if vector.ndim != 1 or vector.shape[0] != storage.dimension:
             raise ValueError("Embedding dimension does not match the vector index")

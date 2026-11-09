@@ -12,6 +12,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
 from .base.config_manager import ConfigManager
+from .base.usage_metrics import get_usage_snapshot
 from .i18n_backend import t, t_list
 from .managers.conversation_manager import ConversationManager
 from .managers.memory_engine import MemoryEngine
@@ -109,6 +110,14 @@ class CommandHandler:
                 session_count=session_count,
                 last_update=last_update,
                 db_size=db_size,
+            )
+
+            usage = get_usage_snapshot()
+            message += t(
+                "status.usage",
+                calls=usage["calls"],
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
             )
 
             maintenance = stats.get("index_maintenance") or {}

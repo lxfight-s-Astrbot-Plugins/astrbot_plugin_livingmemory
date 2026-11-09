@@ -5,7 +5,7 @@ Tests for MemoryProcessor.
 import tempfile
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
@@ -732,3 +732,183 @@ def test_format_conversation_uses_placeholder_for_image_only_group_message():
     assert "张三" in formatted
     assert "[图片消息]" in formatted
     assert "image_url" not in formatted
+
+
+# ==================== R3-a 重试策略 / R3-d usage 采集 ====================
+
+
+class _CountingLLMProvider:
+    """按顺序返回响应或抛异常，并统计 text_chat 调用次数。"""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+
+    async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
+        self.calls += 1
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+class _HttpStatusError(Exception):
+    """模拟带 HTTP 状态码的 Provider 异常。"""
+
+    def __init__(self, status_code: int):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+class _StreamLLMProvider:
+    """流式 Provider：逐块返回增量，最后返回完整响应。"""
+
+    def __init__(self, final_text: str, usage=None):
+        self.final_text = final_text
+        self.usage = usage
+        self.stream_calls = 0
+
+    async def text_chat(self, prompt=None, system_prompt=None, **_kwargs):
+        raise AssertionError("always 流式模式不应调用 text_chat")
+
+    async def text_chat_stream(self, prompt=None, system_prompt=None, **_kwargs):
+        self.stream_calls += 1
+        yield SimpleNamespace(is_chunk=True, completion_text="部分", usage=None)
+        yield SimpleNamespace(
+            is_chunk=False, completion_text=self.final_text, usage=self.usage
+        )
+
+
+async def _call_without_backoff(processor):
+    """调用 _call_llm_with_retry，并跳过真实退避等待。"""
+    with patch(
+        "astrbot_plugin_livingmemory.core.processors.memory_processor.asyncio.sleep",
+        new_callable=AsyncMock,
+    ) as sleep:
+        text = await processor._call_llm_with_retry("prompt", "system")
+    return text, sleep
+
+
+@pytest.mark.asyncio
+async def test_transient_error_is_retried_then_succeeds():
+    provider = _CountingLLMProvider(
+        [
+            ConnectionResetError("connection reset by peer"),
+            SimpleNamespace(completion_text='{"summary":"ok"}'),
+        ]
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    text, sleep = await _call_without_backoff(processor)
+
+    assert text == '{"summary":"ok"}'
+    assert provider.calls == 2
+    sleep.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_http_429_is_retried():
+    provider = _CountingLLMProvider(
+        [_HttpStatusError(429), SimpleNamespace(completion_text='{"summary":"ok"}')]
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    text, _sleep = await _call_without_backoff(processor)
+
+    assert text == '{"summary":"ok"}'
+    assert provider.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_non_transient_error_is_not_retried():
+    provider = _CountingLLMProvider([_HttpStatusError(400)])
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    with pytest.raises(_HttpStatusError):
+        await _call_without_backoff(processor)
+
+    assert provider.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_is_not_retried():
+    provider = _CountingLLMProvider([RuntimeError("JSON 解析失败: invalid json")])
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    with pytest.raises(RuntimeError):
+        await _call_without_backoff(processor)
+
+    assert provider.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_transient_error_stops_after_two_attempts():
+    """内部重试收敛为 2 次尝试（首调 + 1 次重试）。"""
+    provider = _CountingLLMProvider(
+        [ConnectionError("connection reset"), ConnectionError("connection reset")]
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    with pytest.raises(ConnectionError):
+        await _call_without_backoff(processor)
+
+    assert provider.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_always_stream_mode_uses_stream_without_text_chat():
+    provider = _StreamLLMProvider('{"summary":"流式"}')
+    processor = MemoryProcessor(
+        llm_provider=provider,
+        config={"llm_stream_mode": "always"},
+        context=None,
+    )
+
+    text = await processor._call_llm_with_retry("prompt", "system")
+
+    assert text == '{"summary":"流式"}'
+    assert provider.stream_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_non_stream_call_records_provider_usage(monkeypatch):
+    usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+    provider = _CountingLLMProvider(
+        [SimpleNamespace(completion_text="响应文本", usage=usage)]
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+    recorded: list[tuple] = []
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.processors.memory_processor.record_llm_usage",
+        lambda usage, **kwargs: recorded.append((usage, kwargs)),
+    )
+
+    text = await processor._call_llm_with_retry("prompt", "system")
+
+    assert text == "响应文本"
+    assert recorded == [
+        (usage, {"prompt_text": "prompt", "completion_text": "响应文本"})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_call_records_final_chunk_usage(monkeypatch):
+    usage = SimpleNamespace(input=60, output=10, total=70)
+    provider = _StreamLLMProvider("流式响应", usage=usage)
+    processor = MemoryProcessor(
+        llm_provider=provider,
+        config={"llm_stream_mode": "always"},
+        context=None,
+    )
+    recorded: list[tuple] = []
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.processors.memory_processor.record_llm_usage",
+        lambda usage, **kwargs: recorded.append((usage, kwargs)),
+    )
+
+    text = await processor._call_llm_with_retry("prompt", "system")
+
+    assert text == "流式响应"
+    assert recorded == [
+        (usage, {"prompt_text": "prompt", "completion_text": "流式响应"})
+    ]

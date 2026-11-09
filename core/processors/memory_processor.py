@@ -12,6 +12,7 @@ from typing import Any
 from astrbot.api import logger
 
 from ..astrbot_compat import get_using_provider
+from ..base.usage_metrics import record_llm_usage
 from ..models.conversation_models import Message
 from ..models.memory_atom import MemoryAtom
 from .atom_classifier import classify_atoms
@@ -27,6 +28,76 @@ from .memory_processor_parse import (
     validate_importance,
     validate_summary_quality,
 )
+
+# 瞬时错误类型名标记（httpx/openai/aiohttp 等连接与协议异常）
+_TRANSIENT_ERROR_TYPE_MARKERS = (
+    "timeout",
+    "connect",
+    "network",
+    "transport",
+    "protocol",
+)
+# 瞬时错误消息标记：没有状态码/异常类型可用时兜底匹配
+_TRANSIENT_ERROR_MESSAGE_MARKERS = (
+    "429",
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+    "internal server error",
+    "bad gateway",
+    "gateway timeout",
+    "service unavailable",
+    "temporarily unavailable",
+    "overloaded",
+    "timeout",
+    "timed out",
+    "connection",
+    "connect error",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "network error",
+)
+
+
+def _extract_http_status(exc: BaseException) -> int | None:
+    """从异常对象上提取 HTTP 状态码（兼容 httpx/openai/aiohttp 风格）。"""
+    candidates = (
+        getattr(exc, "status_code", None),
+        getattr(getattr(exc, "response", None), "status_code", None),
+        getattr(exc, "status", None),
+        getattr(getattr(exc, "response", None), "status", None),
+    )
+    for value in candidates:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _is_transient_llm_error(exc: BaseException) -> bool:
+    """判断 LLM 调用异常是否为可重试的瞬时错误。
+
+    仅超时、HTTP 429/5xx 与连接类错误可重试；解析失败、校验失败、
+    参数/鉴权错误等立即失败，避免同一错误反复消耗 LLM 调用额度。
+    """
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
+        return True
+    status = _extract_http_status(exc)
+    if status is not None:
+        return status == 429 or 500 <= status < 600
+    type_names = {cls.__name__.lower() for cls in type(exc).__mro__}
+    if any(
+        marker in type_name
+        for type_name in type_names
+        for marker in _TRANSIENT_ERROR_TYPE_MARKERS
+    ):
+        return True
+    message = str(exc).lower()
+    return any(marker in message for marker in _TRANSIENT_ERROR_MESSAGE_MARKERS)
 
 
 class MemoryProcessor:
@@ -297,10 +368,14 @@ class MemoryProcessor:
         )
 
     async def _call_llm_with_retry(
-        self, prompt: str, system_prompt: str, max_retries: int = 3
+        self, prompt: str, system_prompt: str, max_retries: int = 2
     ) -> str:
         """
         带指数退避的 LLM 调用
+
+        仅对瞬时错误（超时、HTTP 429/5xx、连接错误）重试；解析/校验失败、
+        参数/鉴权错误立即抛出，避免同一失败反复消耗 LLM 调用。默认共 2 次
+        尝试（首次调用 + 1 次重试）。
 
         按配置 `llm_stream_mode` 选择调用方式（issue #265）：
         `never` 始终非流式（旧行为），`always` 始终流式，`auto` 优先非流式，
@@ -309,7 +384,7 @@ class MemoryProcessor:
         Args:
             prompt: 提示词
             system_prompt: 系统提示词
-            max_retries: 最大重试次数
+            max_retries: 最大尝试次数（含首次调用），默认 2
 
         Returns:
             LLM 响应文本
@@ -345,7 +420,13 @@ class MemoryProcessor:
                         response = await provider.text_chat(
                             prompt=prompt, system_prompt=system_prompt
                         )
-                        return response.completion_text
+                        completion_text = response.completion_text
+                        record_llm_usage(
+                            getattr(response, "usage", None),
+                            prompt_text=prompt,
+                            completion_text=completion_text or "",
+                        )
+                        return completion_text
                     except Exception as e:
                         # 仅当错误明确表示"不支持非流式"时才降级到流式
                         message = str(e).lower()
@@ -363,21 +444,28 @@ class MemoryProcessor:
                 # is_chunk=False 的完整响应；只有完整响应才可作为结果。
                 # 中断、超时或缺少完整响应时按失败处理，避免写入不完整记忆。
                 completion_text = None
+                final_usage = None
                 async for chunk in provider.text_chat_stream(
                     prompt=prompt, system_prompt=system_prompt
                 ):
                     if not getattr(chunk, "is_chunk", True) and chunk.completion_text:
                         completion_text = chunk.completion_text
+                        final_usage = getattr(chunk, "usage", None)
                 if not completion_text:
                     raise RuntimeError("流式调用未返回完整响应，已按失败处理")
+                record_llm_usage(
+                    final_usage,
+                    prompt_text=prompt,
+                    completion_text=completion_text,
+                )
                 return completion_text
             except Exception as e:
                 last_error = e
-                if attempt == max_retries - 1:
+                if not _is_transient_llm_error(e) or attempt == max_retries - 1:
                     raise
                 wait_time = (2**attempt) + random.uniform(0, 1)
                 logger.warning(
-                    f"[MemoryProcessor] LLM 调用失败，{wait_time:.1f}s 后重试 "
+                    f"[MemoryProcessor] LLM 调用遇到瞬时错误，{wait_time:.1f}s 后重试 "
                     f"({attempt + 1}/{max_retries}): {e}"
                 )
                 await asyncio.sleep(wait_time)

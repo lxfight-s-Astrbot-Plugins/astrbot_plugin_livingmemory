@@ -64,6 +64,7 @@
   "status": {
     "action_name": "Получение статуса",
     "report": "Отчёт о состоянии LivingMemory\n\nВсего памяти: {total}\nСессий: {session_count}\nПоследнее обновление: {last_update}\nРазмер БД: {db_size:.2f} MB\n\nДоступные операции:\n- /lmem search <ключевое слово>",
+    "usage": "\n\nВызовы LLM: {calls} / входные токены: {input_tokens} / выходные токены: {output_tokens}",
     "index_maintenance": "\n\nОбслуживание индекса: {state} ({current}/{total})\n{message}"
   },
   "search": {

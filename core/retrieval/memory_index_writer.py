@@ -33,13 +33,19 @@ class MemoryIndexWriter:
         self._write_transaction = write_transaction
 
     async def add_memory(
-        self, content: str, metadata: dict[str, Any] | None = None
+        self,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        *,
+        embedding: list[float] | None = None,
     ) -> int:
         """添加记忆到两个索引。
 
         Args:
             content: 记忆内容。
             metadata: 元数据（缺少时补默认值）。
+            embedding: 可选预计算向量，透传给向量写入路径以复用去重阶段的
+                embedding。
 
         Returns:
             int: 两个索引中一致的文档 ID。
@@ -57,7 +63,13 @@ class MemoryIndexWriter:
             metadata["persona_id"] = None
 
         # 先添加到向量库获取 doc_id，再用同一 ID 写入 BM25。
-        doc_id = await self.vector_retriever.add_document(content, metadata)
+        # 无预计算向量时保持原有调用形态，兼容只接受两个参数的检索器替身。
+        if embedding is None:
+            doc_id = await self.vector_retriever.add_document(content, metadata)
+        else:
+            doc_id = await self.vector_retriever.add_document(
+                content, metadata, embedding=embedding
+            )
 
         # BM25 失败时必须清理已写入的向量和文档记录，否则调用方无法得知残留 ID。
         try:

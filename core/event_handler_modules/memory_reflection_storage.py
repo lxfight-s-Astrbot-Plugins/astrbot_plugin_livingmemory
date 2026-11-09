@@ -68,14 +68,21 @@ class MemoryReflectionStorageMixin:
             except (TypeError, ValueError):
                 enabled, threshold, limit = True, 0.92, 3
 
+            # 去重检测算过的查询向量直接复用给写入路径，避免同一文本二次 embedding
+            embedding: list[float] | None = None
             if enabled:
                 try:
-                    duplicate = await engine.find_similar_memory(
+                    similar = await engine.find_similar_memory(
                         content,
                         session_id=memory_scope,
                         persona_id=persona_id,
                         threshold=threshold,
                         limit=limit,
+                        return_embedding=True,
+                    )
+                    # 兼容不支持 return_embedding 的旧引擎/测试替身
+                    duplicate, embedding = (
+                        similar if isinstance(similar, tuple) else (similar, None)
                     )
                     if duplicate is not None:
                         merged = await engine.merge_duplicate_memory(
@@ -109,6 +116,7 @@ class MemoryReflectionStorageMixin:
                 metadata=metadata,
                 atoms=atoms,
                 source_messages=source_messages,
+                embedding=embedding,
             )
             return memory_id, True, None
 

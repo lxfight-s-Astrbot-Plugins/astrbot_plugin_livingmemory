@@ -72,6 +72,28 @@ async def test_handle_status_returns_report(handler, mock_event):
 
 
 @pytest.mark.asyncio
+async def test_handle_status_appends_llm_usage_line(handler, mock_event, monkeypatch):
+    """R3-d：状态报告追加一行进程内 LLM 用量。"""
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.command_handler.get_usage_snapshot",
+        lambda: {
+            "calls": 3,
+            "input_tokens": 1200,
+            "output_tokens": 300,
+            "total_tokens": 1500,
+            "estimated_calls": 0,
+        },
+    )
+
+    messages = [msg async for msg in handler.handle_status(mock_event)]
+
+    assert len(messages) == 1
+    assert "LLM 调用：3 次" in messages[0]
+    assert "输入 1200 tokens" in messages[0]
+    assert "输出 300 tokens" in messages[0]
+
+
+@pytest.mark.asyncio
 async def test_handle_status_error_contains_suggestions(
     handler, mock_event, memory_engine
 ):
@@ -259,9 +281,7 @@ def _parse_like_astrbot(handler_fn, args_text: str) -> dict[str, str]:
 
 async def _run_migrate_scope(handler, event, args_text: str) -> list[str]:
     params = _parse_like_astrbot(handler.handle_migrate_scope, args_text)
-    return [
-        message async for message in handler.handle_migrate_scope(event, **params)
-    ]
+    return [message async for message in handler.handle_migrate_scope(event, **params)]
 
 
 async def _make_migration_handler(
@@ -270,9 +290,7 @@ async def _make_migration_handler(
     """建最小库（documents + 可选 memory_atoms）并组装带真实连接的 CommandHandler。"""
     db_path = tmp_path / "lm.db"
     conn = await aiosqlite.connect(db_path)
-    await conn.execute(
-        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
-    )
+    await conn.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)")
     for index, scope in enumerate(doc_scopes, start=1):
         await conn.execute(
             "INSERT INTO documents (id, metadata) VALUES (?, ?)",
@@ -375,9 +393,7 @@ async def test_handle_migrate_scope_applies_only_requested_source(tmp_path, mock
 async def test_handle_migrate_scope_all_source_tokens_mean_bulk(
     tmp_path, mock_event, source_token
 ):
-    handler, conn, _ = await _make_migration_handler(
-        tmp_path, [OLD_SCOPE, OTHER_SCOPE]
-    )
+    handler, conn, _ = await _make_migration_handler(tmp_path, [OLD_SCOPE, OTHER_SCOPE])
     try:
         messages = await _run_migrate_scope(
             handler, mock_event, f"global apply {source_token}"
@@ -443,17 +459,13 @@ async def test_handle_migrate_scope_user_target_honours_identity_aliases(
     try:
         messages = await _run_migrate_scope(handler, mock_event, "user apply")
         assert "迁移完成" in "\n".join(messages)
-        assert await _doc_scopes(conn) == {
-            "livingmemory:user:test:canonical-user": 1
-        }
+        assert await _doc_scopes(conn) == {"livingmemory:user:test:canonical-user": 1}
     finally:
         await conn.close()
 
 
 @pytest.mark.asyncio
-async def test_handle_migrate_scope_notes_missing_optional_tables(
-    tmp_path, mock_event
-):
+async def test_handle_migrate_scope_notes_missing_optional_tables(tmp_path, mock_event):
     """M1：图记忆关闭（缺 memory_atoms / graph_entries）时命令仍可用并提示跳过。"""
     handler, conn, _ = await _make_migration_handler(tmp_path, [OLD_SCOPE])
     try:

@@ -31,9 +31,7 @@ def _configure_processor(handler, *, side_effect=None):
     async def _summary(*args, **kwargs):
         return "summary", {"topics": ["t1"]}, 0.6
 
-    processor.process_conversation = AsyncMock(
-        side_effect=side_effect or _summary
-    )
+    processor.process_conversation = AsyncMock(side_effect=side_effect or _summary)
     processor.classify_atoms_from_metadata = Mock(return_value=[])
 
 
@@ -80,17 +78,22 @@ async def test_backlog_consumes_all_day_segments_in_one_run(tmp_path):
         await _run_scheduled(handler, plan)
 
         assert handler.memory_processor.process_conversation.await_count == 2
-        assert await manager.get_session_metadata(
-            session_id, "last_summarized_index", 0
-        ) == 8
-        assert await manager.get_session_metadata(session_id, "pending_summary", None) is None
+        assert (
+            await manager.get_session_metadata(session_id, "last_summarized_index", 0)
+            == 8
+        )
+        assert (
+            await manager.get_session_metadata(session_id, "pending_summary", None)
+            is None
+        )
         windows = [
             call.kwargs["metadata"]["source_window"]
             for call in handler.memory_engine.add_memory.await_args_list
         ]
-        assert [
-            (window["start_index"], window["end_index"]) for window in windows
-        ] == [(0, 4), (4, 8)]
+        assert [(window["start_index"], window["end_index"]) for window in windows] == [
+            (0, 4),
+            (4, 8),
+        ]
     finally:
         await handler.shutdown()
         await store.close()
@@ -124,9 +127,10 @@ async def test_backlog_respects_segment_budget(tmp_path):
         await _run_scheduled(handler, plan)
 
         assert handler.memory_processor.process_conversation.await_count == 1
-        assert await manager.get_session_metadata(
-            session_id, "last_summarized_index", 0
-        ) == 4
+        assert (
+            await manager.get_session_metadata(session_id, "last_summarized_index", 0)
+            == 4
+        )
     finally:
         await handler.shutdown()
         await store.close()
@@ -158,13 +162,133 @@ async def test_backlog_stops_when_segment_fails(tmp_path):
         await _run_scheduled(handler, plan)
 
         assert handler.memory_processor.process_conversation.await_count == 1
-        assert await manager.get_session_metadata(
-            session_id, "last_summarized_index", 0
-        ) == 0
+        assert (
+            await manager.get_session_metadata(session_id, "last_summarized_index", 0)
+            == 0
+        )
         assert await manager.get_session_metadata(
             session_id, "pending_summary", None
         ) == {"start_index": 0, "end_index": 4, "retry_count": 1}
         handler.memory_engine.add_memory.assert_not_awaited()
+    finally:
+        await handler.shutdown()
+        await store.close()
+
+
+# ==================== R3-b 全局反思并发上限 ====================
+
+
+@pytest.mark.asyncio
+async def test_reflection_concurrency_capped_at_two(tmp_path):
+    """3 个反思任务并发时最多 2 个同时进入受保护的总结阶段。"""
+    from astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection import (
+        _ReflectionPlan,
+    )
+
+    handler, _manager, store = await _make_real_handler(tmp_path)
+    reflection = handler._memory_reflection
+
+    started = 0
+    peak = 0
+    two_entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _probe(plan):
+        nonlocal started, peak
+        started += 1
+        peak = max(peak, started)
+        if started >= 2:
+            two_entered.set()
+        try:
+            await release.wait()
+        finally:
+            started -= 1
+
+    reflection._consume_reflection_segments = _probe
+    plans = [
+        _ReflectionPlan(
+            session_id=f"test:group:concurrency-{index}",
+            history_messages=[],
+            persona_id=None,
+            start_index=0,
+            end_index=2,
+            retry_count=0,
+            memory_scope=f"test:group:concurrency-{index}",
+            expected_revision=None,
+        )
+        for index in range(3)
+    ]
+    try:
+        for plan in plans:
+            await reflection._schedule_reflection(plan)
+
+        await asyncio.wait_for(two_entered.wait(), timeout=2)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        # 第 3 个任务必须阻塞在信号量上，不能进入受保护段
+        assert started == 2
+        assert peak == 2
+
+        release.set()
+        await asyncio.gather(*list(handler._storage_tasks))
+        assert peak == 2
+    finally:
+        release.set()
+        await handler.shutdown()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_reflection_slot_released_after_task_failure(tmp_path):
+    """任务异常退出时信号量额度必须释放，后续反思仍可执行。"""
+    from astrbot_plugin_livingmemory.core.event_handler_modules.memory_reflection import (
+        _ReflectionPlan,
+    )
+
+    handler, _manager, store = await _make_real_handler(tmp_path)
+    reflection = handler._memory_reflection
+    failed = asyncio.Event()
+
+    async def _failing_probe(plan):
+        failed.set()
+        raise RuntimeError("summary failed")
+
+    reflection._consume_reflection_segments = _failing_probe
+    plan = _ReflectionPlan(
+        session_id="test:group:failure-release",
+        history_messages=[],
+        persona_id=None,
+        start_index=0,
+        end_index=2,
+        retry_count=0,
+        memory_scope="test:group:failure-release",
+        expected_revision=None,
+    )
+    try:
+        await reflection._schedule_reflection(plan)
+        await asyncio.wait_for(failed.wait(), timeout=2)
+        await asyncio.gather(*list(handler._storage_tasks), return_exceptions=True)
+
+        entered = asyncio.Event()
+
+        async def _probe(_plan):
+            entered.set()
+
+        reflection._consume_reflection_segments = _probe
+        await reflection._schedule_reflection(
+            _ReflectionPlan(
+                session_id="test:group:after-failure",
+                history_messages=[],
+                persona_id=None,
+                start_index=0,
+                end_index=2,
+                retry_count=0,
+                memory_scope="test:group:after-failure",
+                expected_revision=None,
+            )
+        )
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        await asyncio.gather(*list(handler._storage_tasks))
     finally:
         await handler.shutdown()
         await store.close()

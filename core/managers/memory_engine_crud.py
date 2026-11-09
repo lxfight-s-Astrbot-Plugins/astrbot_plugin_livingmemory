@@ -63,6 +63,8 @@ class MemoryEngineCrudMixin:
         atoms: list | None = None,
         preserve_create_time: bool = False,
         source_messages: list[dict[str, Any]] | None = None,
+        *,
+        embedding: list[float] | None = None,
     ) -> int:
         """添加新记忆。
 
@@ -75,6 +77,7 @@ class MemoryEngineCrudMixin:
             atoms: 记忆原子列表。
             preserve_create_time: 物理替换时保留原记忆的时间轴位置。
             source_messages: 原文消息。
+            embedding: 可选预计算向量（写入路径复用去重阶段的 embedding）。
 
         Returns:
             int: 记忆 ID（doc_id）。
@@ -107,7 +110,9 @@ class MemoryEngineCrudMixin:
                 self.config.get("adapter_instances"),
             )
         )
-        doc_id = await self.index_writer.add_memory(content, full_metadata)
+        doc_id = await self.index_writer.add_memory(
+            content, full_metadata, embedding=embedding
+        )
         await self._write_memory_atoms(
             doc_id, session_id, persona_id, atoms, full_metadata.get("adapter_id")
         )
