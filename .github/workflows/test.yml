@@ -71,6 +71,12 @@ jobs:
         working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
         run: python -m pytest -q
 
+      # 召回排序/相关性门槛的离线回归门禁：合成数据 + 确定性 embedding，
+      # 无网络、无 API 费用，基线见 tests/eval/baseline.json。
+      - name: Run offline recall quality evaluation
+        working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
+        run: python -m pytest -q -m eval
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
