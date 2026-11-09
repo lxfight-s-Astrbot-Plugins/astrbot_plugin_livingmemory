@@ -26,8 +26,8 @@ def _reflection_with_engine(engine: SimpleNamespace) -> MemoryReflection:
     reflection.config_manager = SimpleNamespace(
         get=lambda key, default=None: {
             "memory_dedup.enabled": True,
-            "memory_dedup.similarity_threshold": 0.92,
-            "memory_dedup.max_candidates": 3,
+            "memory_dedup.similarity_threshold": 0.82,
+            "memory_dedup.max_candidates": 5,
         }.get(key, default)
     )
     return reflection
@@ -114,7 +114,7 @@ async def test_merge_duplicate_memory_updates_metadata_and_sources() -> None:
         ],
     )
 
-    assert merged is True
+    assert merged == 5
     memory_id, payload = engine.update_memory.await_args.args
     assert memory_id == 5
     assert payload["importance"] == pytest.approx(0.9)
@@ -133,7 +133,7 @@ async def test_merge_duplicate_memory_updates_metadata_and_sources() -> None:
 async def test_persist_summary_memory_merges_near_duplicate() -> None:
     engine = SimpleNamespace(
         find_similar_memory=AsyncMock(return_value={"id": 7, "similarity": 0.95}),
-        merge_duplicate_memory=AsyncMock(return_value=True),
+        merge_duplicate_memory=AsyncMock(return_value=7),
         add_memory=AsyncMock(return_value=8),
     )
     reflection = _reflection_with_engine(engine)
@@ -152,6 +152,7 @@ async def test_persist_summary_memory_merges_near_duplicate() -> None:
 
     assert result == (7, False, 0.95)
     engine.merge_duplicate_memory.assert_awaited_once()
+    assert engine.merge_duplicate_memory.await_args.kwargs["content"] == "summary"
     engine.add_memory.assert_not_awaited()
 
 
@@ -159,7 +160,7 @@ async def test_persist_summary_memory_merges_near_duplicate() -> None:
 async def test_persist_summary_memory_creates_when_no_duplicate() -> None:
     engine = SimpleNamespace(
         find_similar_memory=AsyncMock(return_value=None),
-        merge_duplicate_memory=AsyncMock(return_value=True),
+        merge_duplicate_memory=AsyncMock(return_value=7),
         add_memory=AsyncMock(return_value=11),
     )
     reflection = _reflection_with_engine(engine)
@@ -184,7 +185,7 @@ async def test_persist_summary_memory_creates_when_no_duplicate() -> None:
 async def test_persist_summary_memory_falls_back_when_merge_fails() -> None:
     engine = SimpleNamespace(
         find_similar_memory=AsyncMock(return_value={"id": 7, "similarity": 0.95}),
-        merge_duplicate_memory=AsyncMock(return_value=False),
+        merge_duplicate_memory=AsyncMock(return_value=None),
         add_memory=AsyncMock(return_value=12),
     )
     reflection = _reflection_with_engine(engine)
@@ -375,3 +376,108 @@ async def test_precomputed_embedding_insert_matches_host_fallback(tmp_path):
     finally:
         await engine.close()
         await faiss_db.close()
+# ── Merge body rebuild (R2-a): text union + index rebuild path ──────────────
+
+
+def test_merge_memory_text_prefers_more_complete_body() -> None:
+    merge = MemoryEngine._merge_memory_text
+
+    assert (
+        merge("the user likes tea", "the user likes tea and coffee")
+        == "the user likes tea and coffee"
+    )
+    assert merge("用户喜欢喝茶。用户住在杭州。", "用户喜欢喝茶。") == (
+        "用户喜欢喝茶。用户住在杭州。"
+    )
+    assert merge("", "仅新正文。") == "仅新正文。"
+    assert merge("仅旧正文。", "") == "仅旧正文。"
+
+
+def test_merge_memory_text_concatenates_new_sentences() -> None:
+    merged = MemoryEngine._merge_memory_text("用户喜欢喝茶。", "用户住在杭州。")
+
+    assert merged == "用户喜欢喝茶。用户住在杭州。"
+
+
+def test_merge_memory_text_respects_union_length_cap() -> None:
+    left = "左" * 700 + "。"
+    right = "右" * 700 + "。"
+
+    merged = MemoryEngine._merge_memory_text(left, right)
+
+    assert merged in {left, right}
+    assert len(merged) <= len(left)
+
+
+@pytest.mark.asyncio
+async def test_merge_duplicate_memory_rebuilds_changed_body() -> None:
+    engine = MemoryEngine.__new__(MemoryEngine)
+    engine.db_connection = Mock()
+    engine.atom_enabled = False
+    engine.atom_store = None
+    engine.config = {"memory_dedup": {"merge_sources": False}}
+    engine.get_memory = AsyncMock(
+        return_value={
+            "id": 5,
+            "text": "用户喜欢喝茶。",
+            "metadata": {"importance": 0.4, "topics": ["饮品"]},
+        }
+    )
+    engine.replace_memory = AsyncMock(return_value=9)
+    engine.update_memory = AsyncMock(return_value=True)
+
+    merged = await engine.merge_duplicate_memory(
+        5,
+        content="用户住在杭州。",
+        importance=0.9,
+        metadata={"topics": ["居住地"], "key_facts": ["用户住在杭州"]},
+    )
+
+    assert merged == 9
+    engine.update_memory.assert_not_awaited()
+    old_id, kwargs = (
+        engine.replace_memory.await_args.args[0],
+        engine.replace_memory.await_args.kwargs,
+    )
+    assert old_id == 5
+    assert kwargs["content"] == "用户喜欢喝茶。用户住在杭州。"
+    assert kwargs["metadata"]["canonical_summary"] == kwargs["content"]
+    assert kwargs["metadata"]["topics"] == ["饮品", "居住地"]
+    assert kwargs["metadata"]["dedup_merge_count"] == 1
+    assert kwargs["importance"] == pytest.approx(0.9)
+
+
+@pytest.mark.asyncio
+async def test_merge_duplicate_memory_marks_rebuild_when_replace_fails() -> None:
+    from contextlib import asynccontextmanager
+
+    marker_connection = AsyncMock()
+
+    @asynccontextmanager
+    async def fake_write_transaction():
+        yield marker_connection
+
+    engine = MemoryEngine.__new__(MemoryEngine)
+    engine.db_connection = Mock()
+    engine.atom_enabled = False
+    engine.atom_store = None
+    engine.config = {"memory_dedup": {"merge_sources": False}}
+    engine.get_memory = AsyncMock(
+        return_value={
+            "id": 5,
+            "text": "用户喜欢喝茶。",
+            "metadata": {"importance": 0.4},
+        }
+    )
+    engine.replace_memory = AsyncMock(side_effect=RuntimeError("embedding down"))
+    engine.update_memory = AsyncMock(return_value=True)
+    engine._write_transaction = fake_write_transaction
+
+    merged = await engine.merge_duplicate_memory(
+        5, content="用户住在杭州。", importance=0.9
+    )
+
+    assert merged is None
+    sql, params = marker_connection.execute.await_args.args
+    assert "INSERT OR REPLACE INTO migration_status" in sql
+    assert params == ("needs_index_rebuild", "true")

@@ -1414,3 +1414,221 @@ async def test_hybrid_rerank_candidates_clamped_to_config_bounds():
         rerank_provider_resolver=lambda: None,
     )
     assert retriever.rerank_candidates == 100
+
+
+# ==================== R1: 召回连接复用 / networkx 懒加载 ====================
+
+
+@pytest.mark.asyncio
+async def test_bm25_read_connection_is_reused_until_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """开启 cache_reads 后查询复用同一条连接，close 之后可重新建立。"""
+    import astrbot_plugin_livingmemory.core.retrieval.bm25_retriever as bm25_mod
+
+    db_path = str(tmp_path / "bm25_reuse.db")
+    retriever = BM25Retriever(db_path, TextProcessor(), cache_reads=True)
+    await retriever.initialize()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS documents "
+            "(id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+        )
+        await db.execute(
+            "INSERT INTO documents(id, text, metadata) VALUES (?, ?, ?)",
+            (1, "我喜欢编程和Python", json.dumps({"session_id": "s1"})),
+        )
+        await db.commit()
+    await retriever.add_document(1, "我喜欢编程和Python", {"session_id": "s1"})
+
+    real_open = bm25_mod.open_connection
+    opened: list[object] = []
+
+    async def spy_open(target: str, **kwargs):
+        connection = await real_open(target, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(bm25_mod, "open_connection", spy_open)
+
+    await retriever.search("编程", limit=5)
+    await retriever.search("Python", limit=5)
+    assert len(opened) == 1
+
+    await retriever.close()
+    await retriever.search("编程", limit=5)
+    assert len(opened) == 2
+    await retriever.close()
+
+
+@pytest.mark.asyncio
+async def test_bm25_default_opens_one_connection_per_search(tmp_path: Path):
+    """未开启 cache_reads 的短生命周期实例保持每次查询独立建连。"""
+    db_path = str(tmp_path / "bm25_default.db")
+    retriever = BM25Retriever(db_path, TextProcessor())
+    await retriever.initialize()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS documents "
+            "(id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+        )
+        await db.execute(
+            "INSERT INTO documents(id, text, metadata) VALUES (?, ?, ?)",
+            (1, "我喜欢编程和Python", "{}"),
+        )
+        await db.commit()
+    await retriever.add_document(1, "我喜欢编程和Python", {})
+    assert retriever._read_conn is None
+    assert retriever._cache_reads is False
+    await retriever.search("编程", limit=5)
+    assert retriever._read_conn is None
+    await retriever.close()
+
+
+def test_graph_handler_imports_networkx_lazily(monkeypatch: pytest.MonkeyPatch):
+    """导入图谱处理器时不应加载 networkx，只有分配社区时才导入。"""
+    import importlib
+    import sys
+
+    graph_handler = importlib.import_module(
+        "astrbot_plugin_livingmemory.core.page_api_modules.graph_handler"
+    )
+
+    evicted = {
+        name: module
+        for name, module in list(sys.modules.items())
+        if name == "networkx" or name.startswith("networkx.")
+    }
+    for name in evicted:
+        monkeypatch.delitem(sys.modules, name)
+
+    reloaded = importlib.reload(graph_handler)
+    assert "networkx" not in sys.modules
+
+    snapshot = {
+        "nodes": [{"id": 0}, {"id": 1}, {"id": 2}],
+        "edges": [
+            {"source": 0, "target": 1, "weight": 1.0},
+            {"source": 1, "target": 2, "weight": 1.0},
+        ],
+    }
+    reloaded.GraphHandler._assign_communities(snapshot)
+
+    assert "networkx" in sys.modules
+    assert [node["community"] for node in snapshot["nodes"]] == [0, 0, 0]
+
+
+# ── R2-b: graph-route presence floor in dual-route fusion ───────────────────
+
+
+def _doc_route_results(
+    count: int, top_score: float = 1.0, bottom_score: float = 0.6
+) -> list[HybridResult]:
+    step = 0.0 if count < 2 else (top_score - bottom_score) / (count - 1)
+    scores = [top_score - index * step for index in range(count)]
+    return [
+        HybridResult(
+            doc_id=index + 1,
+            final_score=score,
+            rrf_score=score,
+            bm25_score=score,
+            vector_score=None,
+            content=f"document {index + 1}",
+            metadata={"status": "active"},
+        )
+        for index, score in enumerate(scores)
+    ]
+
+
+def _graph_route_results(doc_ids: list[int]) -> list[GraphResult]:
+    return [
+        GraphResult(
+            doc_id=doc_id,
+            final_score=1.0,
+            rrf_score=1.0,
+            keyword_score=1.0,
+            vector_score=None,
+            content=f"graph {doc_id}",
+            metadata={"status": "active"},
+        )
+        for doc_id in doc_ids
+    ]
+
+
+def _dual_route(
+    doc_results: list[HybridResult], graph_results: list[GraphResult]
+) -> DualRouteRetriever:
+    class _DocRoute:
+        async def search(self, query, k, session_id=None, persona_id=None, **kwargs):
+            return doc_results
+
+    class _GraphRoute:
+        async def search(self, query, k, session_id=None, persona_id=None, **kwargs):
+            return graph_results
+
+    async def loader(memory_id):
+        return {"text": f"memory {memory_id}", "metadata": {}}
+
+    return DualRouteRetriever(
+        document_retriever=cast(HybridRetriever, _DocRoute()),
+        graph_retriever=cast(object, _GraphRoute()),
+        memory_loader=loader,
+        config={
+            "document_route_weight": 0.65,
+            "graph_route_weight": 0.35,
+            "cross_route_bonus": 0,
+            "dynamic_route_weighting": False,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_dual_route_keeps_graph_only_result_in_top_k():
+    retriever = _dual_route(_doc_route_results(5), _graph_route_results([99]))
+    diagnostics: dict[str, Any] = {}
+
+    results = await retriever.search("query", k=5, diagnostics=diagnostics)
+
+    doc_ids = [result.doc_id for result in results]
+    assert len(doc_ids) == 5
+    assert doc_ids.count(99) == 1, "graph-exclusive result must survive fusion"
+    assert doc_ids[:4] == [1, 2, 3, 4], "fused head order must stay stable"
+    assert doc_ids[4] == 99
+    assert diagnostics["graph_presence_injected"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dual_route_quota_scales_with_k():
+    retriever = _dual_route(
+        _doc_route_results(10), _graph_route_results([101, 102, 103])
+    )
+
+    results = await retriever.search("query", k=10)
+
+    doc_ids = [result.doc_id for result in results]
+    assert len(doc_ids) == 10
+    assert doc_ids[:8] == [index + 1 for index in range(8)]
+    assert doc_ids[8:] == [101, 102], "max(1, k // 5) == 2 graph slots"
+    assert len(set(doc_ids)) == len(doc_ids)
+
+
+@pytest.mark.asyncio
+async def test_dual_route_skips_quota_below_min_k():
+    retriever = _dual_route(_doc_route_results(2), _graph_route_results([99]))
+    diagnostics: dict[str, Any] = {}
+
+    results = await retriever.search("query", k=2, diagnostics=diagnostics)
+
+    assert [result.doc_id for result in results] == [1, 2]
+    assert "graph_presence_injected" not in diagnostics
+
+
+@pytest.mark.asyncio
+async def test_dual_route_does_not_inject_when_graph_overlaps_documents():
+    retriever = _dual_route(_doc_route_results(5), _graph_route_results([2]))
+    diagnostics: dict[str, Any] = {}
+
+    results = await retriever.search("query", k=5, diagnostics=diagnostics)
+
+    assert [result.doc_id for result in results] == [2, 1, 3, 4, 5]
+    assert "graph_presence_injected" not in diagnostics

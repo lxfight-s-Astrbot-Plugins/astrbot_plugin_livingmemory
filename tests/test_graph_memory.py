@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import aiosqlite
 import pytest
 from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
     GraphMemoryManager,
@@ -811,3 +812,155 @@ async def test_graph_store_batch_delete_memories(tmp_path: Path):
     assert stats_after["graph_entries"] < stats_before["graph_entries"]
 
     await engine.close()
+
+
+# ── R2-b: archived-memory filtering and hub penalty in graph retrieval ──────
+
+
+async def _seed_documents(db_path: Path, rows: list[tuple[int, str]]) -> None:
+    """Create the host ``documents`` table with explicit per-memory status."""
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS documents ("
+            "id INTEGER PRIMARY KEY, metadata TEXT)"
+        )
+        await db.executemany(
+            "INSERT OR REPLACE INTO documents(id, metadata) VALUES (?, ?)",
+            [(memory_id, json.dumps({"status": status})) for memory_id, status in rows],
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_graph_retrieval_skips_archived_memory_entries(tmp_path):
+    db_path = tmp_path / "graph_archived.db"
+    store = GraphStore(str(db_path))
+    await store.initialize()
+    await _seed_documents(db_path, [(1, "active"), (2, "archived")])
+
+    active_node = GraphNode("topic", "杭州活跃", "杭州活跃")
+    archived_node = GraphNode("topic", "杭州归档", "杭州归档")
+    node_ids = await store.upsert_nodes([active_node, archived_node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="active-entry",
+            source_memory_id=1,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="杭州 active",
+            node_keys=[active_node.node_key],
+        ),
+        node_ids,
+    )
+    await store.add_entry(
+        GraphEntry(
+            entry_key="archived-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="杭州 archived",
+            node_keys=[archived_node.node_key],
+        ),
+        node_ids,
+    )
+
+    bm25_hits = await store.search_entries_by_bm25('"杭州"', 10)
+    assert [hit["source_memory_id"] for hit in bm25_hits] == [1]
+
+    nodes = await store.search_nodes_by_tokens(["杭州"], limit=10)
+    assert {node["node_key"] for node in nodes} == {active_node.node_key}
+
+    expansion_hits = await store.get_entries_for_node_ids(
+        list(node_ids.values()), limit=10
+    )
+    assert [hit["source_memory_id"] for hit in expansion_hits] == [1]
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_retrieval_without_documents_table_keeps_all_entries(tmp_path):
+    """Standalone graph databases (rebuild shadow/test stores) degrade to no filter."""
+    store = GraphStore(str(tmp_path / "graph_standalone.db"))
+    await store.initialize()
+    node = GraphNode("topic", "杭州", "杭州")
+    node_ids = await store.upsert_nodes([node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="standalone-entry",
+            source_memory_id=77,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="杭州 独立",
+            node_keys=[node.node_key],
+        ),
+        node_ids,
+    )
+
+    assert [
+        hit["source_memory_id"]
+        for hit in await store.search_entries_by_bm25('"杭州"', 10)
+    ] == [77]
+    assert await store.search_nodes_by_tokens(["杭州"], limit=10)
+    assert [
+        hit["source_memory_id"]
+        for hit in await store.get_entries_for_node_ids(
+            [node_ids[node.node_key]], limit=10
+        )
+    ] == [77]
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_penalizes_high_degree_hub_nodes(tmp_path):
+    store = GraphStore(str(tmp_path / "graph_hub.db"))
+    await store.initialize()
+
+    hub = GraphNode("topic", "hub", "hub")
+    leaf = GraphNode("topic", "leaf", "leaf")
+    spokes = [GraphNode("topic", f"spoke{i}", f"spoke{i}") for i in range(10)]
+    node_ids = await store.upsert_nodes([hub, leaf, *spokes])
+    await store.add_edges(
+        [GraphEdge(hub.node_key, spoke.node_key, "related", 1) for spoke in spokes],
+        node_ids,
+    )
+    hub_entry_id = await store.add_entry(
+        GraphEntry(
+            entry_key="hub-entry",
+            source_memory_id=1,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="hub entry",
+            node_keys=[hub.node_key],
+        ),
+        node_ids,
+    )
+    leaf_entry_id = await store.add_entry(
+        GraphEntry(
+            entry_key="leaf-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="leaf entry",
+            node_keys=[leaf.node_key],
+        ),
+        node_ids,
+    )
+
+    hits = await store.get_entries_for_node_ids(
+        [node_ids[hub.node_key], node_ids[leaf.node_key]], limit=5
+    )
+    by_entry = {hit["entry_id"]: hit for hit in hits}
+
+    assert hits[0]["entry_id"] == leaf_entry_id, "leaf expansion must rank first"
+    assert by_entry[hub_entry_id]["hub_penalty"] < 1.0
+    assert by_entry[leaf_entry_id]["hub_penalty"] == pytest.approx(1.0)
+    assert by_entry[hub_entry_id]["score"] < by_entry[leaf_entry_id]["score"]
+
+    await store.close()

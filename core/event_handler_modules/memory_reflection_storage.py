@@ -54,19 +54,19 @@ class MemoryReflectionStorageMixin:
                 return None, False, None
 
             enabled = True
-            threshold = 0.92
-            limit = 3
+            threshold = 0.82
+            limit = 5
             try:
                 enabled = bool(self.config_manager.get("memory_dedup.enabled", True))
                 threshold = float(
-                    self.config_manager.get("memory_dedup.similarity_threshold", 0.92)
-                    or 0.92
+                    self.config_manager.get("memory_dedup.similarity_threshold", 0.82)
+                    or 0.82
                 )
                 limit = int(
-                    self.config_manager.get("memory_dedup.max_candidates", 3) or 3
+                    self.config_manager.get("memory_dedup.max_candidates", 5) or 5
                 )
             except (TypeError, ValueError):
-                enabled, threshold, limit = True, 0.92, 3
+                enabled, threshold, limit = True, 0.82, 5
 
             # 去重检测算过的查询向量直接复用给写入路径，避免同一文本二次 embedding
             embedding: list[float] | None = None
@@ -85,16 +85,17 @@ class MemoryReflectionStorageMixin:
                         similar if isinstance(similar, tuple) else (similar, None)
                     )
                     if duplicate is not None:
-                        merged = await engine.merge_duplicate_memory(
+                        merged_id = await engine.merge_duplicate_memory(
                             int(duplicate["id"]),
+                            content=content,
                             importance=importance,
                             metadata=metadata,
                             atoms=atoms,
                             source_messages=source_messages,
                         )
-                        if merged:
+                        if merged_id is not None:
                             return (
-                                int(duplicate["id"]),
+                                int(merged_id),
                                 False,
                                 float(duplicate.get("similarity") or 0.0),
                             )

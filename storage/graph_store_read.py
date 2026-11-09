@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import aiosqlite
@@ -16,12 +17,109 @@ from ..core.memory_scope import adapter_sql
 from ..core.utils.json_utils import safe_json_dict
 from ..core.utils.number_utils import safe_float
 
+# 扩展候选先按 3 倍 limit 取回，再按 hub 惩罚重排后截断；
+# 3 倍足以让低 degree 邻居/入口挤进前 limit，不会放大成全表扫描。
+_EXPANSION_OVERFETCH = 3
+
 
 class GraphStoreReadMixin:
     """GraphStore 的读取方法与图快照组装。"""
 
     # 宿主共享常量契约
     _NODE_TOKEN_QUERY_BATCH_SIZE: int
+
+    # initialize() 之后按需探测：只有宿主 documents 表存在时才过滤 archived 记忆；
+    # 独立图谱库（重建 shadow / 单元测试）没有该表，退化为不过滤。
+    _documents_table_available: bool = False
+
+    async def _documents_table_exists(self, db: aiosqlite.Connection) -> bool:
+        """Return whether the shared database carries the host ``documents`` table."""
+        if getattr(self, "_documents_table_available", False):
+            return True
+        cursor = await db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'documents' LIMIT 1"
+        )
+        self._documents_table_available = await cursor.fetchone() is not None
+        return self._documents_table_available
+
+    # Non-active sources in the host ``documents`` table. Malformed JSON counts
+    # as active so a broken legacy row cannot silently hide graph memories.
+    _NON_ACTIVE_DOCUMENTS_SQL: str = (
+        "SELECT d.id FROM documents d WHERE "
+        "CASE WHEN json_valid(d.metadata) THEN "
+        "COALESCE(json_extract(d.metadata, '$.status'), 'active') "
+        "ELSE 'active' END <> 'active'"
+    )
+
+    async def _archived_memory_exclusion(
+        self, db: aiosqlite.Connection, column: str
+    ) -> str | None:
+        """Predicate excluding entries whose source memory is archived/deleted.
+
+        Uses an exclusion (not an inclusion) predicate on purpose: graph entries
+        whose source document is missing from ``documents`` (rebuild shadow rows,
+        fake/partial stores, half-written migrations) stay retrievable instead of
+        being silently dropped. Malformed JSON metadata counts as active.
+
+        Args:
+            db: Open read connection used to probe the schema.
+            column: Column holding the source memory id (e.g. ``ge.source_memory_id``).
+
+        Returns:
+            ``"<column> NOT IN (SELECT ... non-active documents)"`` or ``None``
+            when the database has no host ``documents`` table.
+        """
+        if not await self._documents_table_exists(db):
+            return None
+        return f"{column} NOT IN ({self._NON_ACTIVE_DOCUMENTS_SQL})"
+
+    @staticmethod
+    def _hub_penalty(degree: int) -> float:
+        """Weight multiplier for a node with the given active-edge degree."""
+        return 1.0 / (1.0 + math.log1p(max(0, int(degree))))
+
+    async def _node_hub_factors(
+        self, db: aiosqlite.Connection, node_ids: list[int]
+    ) -> dict[int, float]:
+        """Return normalized ``1/(1+log1p(degree))`` factors for expansion nodes.
+
+        Degrees are computed from active edges so hub nodes (high degree) expand
+        with a lower weight than specific leaf nodes. Factors are normalized by
+        the maximum so the most specific node keeps weight 1.0 and results stay
+        in the same score range as before.
+
+        Args:
+            db: Open read connection.
+            node_ids: Nodes being expanded from.
+
+        Returns:
+            Mapping ``node_id -> factor`` in ``(0, 1]``; missing nodes mean degree 0.
+        """
+        unique_ids = sorted({int(node_id) for node_id in node_ids})
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" * len(unique_ids))
+        cursor = await db.execute(
+            f"""
+            SELECT node_id, COUNT(*) AS degree
+            FROM (
+                SELECT source_node_id AS node_id FROM graph_edges
+                WHERE status = 'active' AND source_node_id IN ({placeholders})
+                UNION ALL
+                SELECT target_node_id AS node_id FROM graph_edges
+                WHERE status = 'active' AND target_node_id IN ({placeholders})
+            )
+            GROUP BY node_id
+            """,
+            (*unique_ids, *unique_ids),
+        )
+        degrees = {int(row[0]): int(row[1]) for row in await cursor.fetchall()}
+        raw = {
+            node_id: self._hub_penalty(degrees.get(node_id, 0))
+            for node_id in unique_ids
+        }
+        peak = max(raw.values(), default=1.0) or 1.0
+        return {node_id: value / peak for node_id, value in raw.items()}
 
     async def list_vector_doc_ids(self) -> list[int]:
         async with self._read_connect() as db:
@@ -113,10 +211,14 @@ class GraphStoreReadMixin:
         filters.append(ownership)
         params.extend(ownership_params)
 
-        where_clause = f"AND {' AND '.join(filters)}" if filters else ""
-
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
+            archived_exclusion = await self._archived_memory_exclusion(
+                db, "ge.source_memory_id"
+            )
+            if archived_exclusion is not None:
+                filters.append(archived_exclusion)
+            where_clause = f"AND {' AND '.join(filters)}" if filters else ""
             try:
                 cursor = await db.execute(
                     f"""
@@ -174,14 +276,29 @@ class GraphStoreReadMixin:
             return []
 
         ownership, ownership_params = adapter_sql("ge.metadata")
-        node_filter = (
-            f"id IN (SELECT gen.node_id FROM graph_entry_nodes gen JOIN graph_entries ge ON ge.id=gen.entry_id WHERE {ownership})"
-            if ownership_params
-            else "1"
-        )
+        node_filters: list[str] = []
+        if ownership_params:
+            node_filters.append(
+                "id IN (SELECT gen.node_id FROM graph_entry_nodes gen "
+                "JOIN graph_entries ge ON ge.id=gen.entry_id "
+                f"WHERE {ownership})"
+            )
         rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
+            archived_exclusion = await self._archived_memory_exclusion(
+                db, "ge.source_memory_id"
+            )
+            if archived_exclusion is not None:
+                # 只排除“仅挂在 archived 记忆上”的节点；没有入口关联或入口
+                # 指向缺失文档的节点继续可检索，避免图谱重建中途静默丢节点。
+                node_filters.append(
+                    "id NOT IN ("
+                    "SELECT gen.node_id FROM graph_entry_nodes gen "
+                    "JOIN graph_entries ge ON ge.id = gen.entry_id "
+                    f"WHERE ge.source_memory_id IN ({self._NON_ACTIVE_DOCUMENTS_SQL}))"
+                )
+            node_filter = " AND ".join(node_filters) if node_filters else "1"
             for start in range(
                 0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE
             ):
@@ -252,14 +369,22 @@ class GraphStoreReadMixin:
         ownership, ownership_params = adapter_sql("ge.metadata")
         filters.append(ownership)
         params.extend(ownership_params)
-        where_clause = f"AND {' AND '.join(filters)}" if filters else ""
 
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
+            archived_exclusion = await self._archived_memory_exclusion(
+                db, "ge.source_memory_id"
+            )
+            if archived_exclusion is not None:
+                filters.append(archived_exclusion)
+            where_clause = f"AND {' AND '.join(filters)}" if filters else ""
+            factors = await self._node_hub_factors(db, node_ids)
             cursor = await db.execute(
                 f"""
                 SELECT ge.id, ge.source_memory_id, ge.content, ge.metadata,
-                       ge.entry_type, ge.relation_type, COUNT(DISTINCT gen.node_id) AS hit_count
+                       ge.entry_type, ge.relation_type,
+                       COUNT(DISTINCT gen.node_id) AS hit_count,
+                       GROUP_CONCAT(DISTINCT gen.node_id) AS linked_node_ids
                 FROM graph_entry_nodes gen
                 JOIN graph_entries ge ON ge.id = gen.entry_id
                 WHERE gen.node_id IN ({placeholders}) {where_clause}
@@ -267,13 +392,25 @@ class GraphStoreReadMixin:
                 ORDER BY hit_count DESC, ge.id DESC
                 LIMIT ?
                 """,
-                (*params, limit),
+                (*params, max(1, limit) * _EXPANSION_OVERFETCH),
             )
             rows = await cursor.fetchall()
 
         hits: list[dict[str, Any]] = []
         for row in rows:
             metadata = safe_json_dict(row["metadata"])
+            linked_node_ids = [
+                int(value)
+                for value in str(row["linked_node_ids"] or "").split(",")
+                if value
+            ]
+            # 从低 degree 节点扩展出来的入口权重更高；hub 节点命中多但信息泛，
+            # 用最大因子（最具体的那条路径）避免多路径命中被过度惩罚。
+            penalty = max(
+                (factors.get(node_id, 1.0) for node_id in linked_node_ids),
+                default=1.0,
+            )
+            base_score = min(1.0, 0.35 + 0.15 * int(row["hit_count"]))
             hits.append(
                 {
                     "entry_id": int(row["id"]),
@@ -282,11 +419,13 @@ class GraphStoreReadMixin:
                     "metadata": metadata,
                     "entry_type": row["entry_type"],
                     "relation_type": row["relation_type"],
-                    "score": min(1.0, 0.35 + 0.15 * int(row["hit_count"])),
+                    "score": min(1.0, base_score * penalty),
                     "hit_count": int(row["hit_count"]),
+                    "hub_penalty": round(penalty, 4),
                 }
             )
-        return hits
+        hits.sort(key=lambda hit: (hit["score"], hit["entry_id"]), reverse=True)
+        return hits[: max(1, limit)]
 
     async def get_neighbor_node_ids(
         self,
@@ -333,12 +472,22 @@ class GraphStoreReadMixin:
                     *normalized_ids,
                     *ownership_params,
                     *normalized_ids,
-                    limit,
+                    max(1, limit) * _EXPANSION_OVERFETCH,
                 ),
             )
             rows = await cursor.fetchall()
+            factors = await self._node_hub_factors(db, [int(row[0]) for row in rows])
 
-        return [int(row[0]) for row in rows]
+        # 按“边权 × hub 惩罚”重排：邻居本身是 hub 时扩展噪声大，
+        # 让更具体的邻居优先进入 limit，避免 24 条扩展名额被 hub 占满。
+        ranked = sorted(
+            (
+                (float(row[1] or 0.0) * factors.get(int(row[0]), 1.0), int(row[0]))
+                for row in rows
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        return [neighbor_id for _, neighbor_id in ranked[: max(1, limit)]]
 
     async def get_memory_entry_stats(self) -> dict[str, int]:
         """Return graph storage counts for status reporting."""

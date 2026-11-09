@@ -66,6 +66,8 @@ class BM25Retriever:
         db_path: str,
         text_processor: TextProcessor,
         config: dict[str, Any] | None = None,
+        *,
+        cache_reads: bool = False,
     ):
         """
         初始化BM25检索器
@@ -80,6 +82,10 @@ class BM25Retriever:
         self.config = config or {}
         self.fts_table = "livingmemory_memories_fts"
         self.doc_table = "documents"
+        # 召回链路每次查询都建连 + PRAGMA 会在并发下被 WAL 锁串行化；
+        # 长生命周期实例（MemoryEngine）复用一条只读连接，写路径仍独立建连。
+        self._cache_reads = cache_reads
+        self._read_conn: aiosqlite.Connection | None = None
 
     @asynccontextmanager
     async def _connect(self):
@@ -89,6 +95,23 @@ class BM25Retriever:
             yield db
         finally:
             await db.close()
+
+    @asynccontextmanager
+    async def _read_connect(self):
+        """复用长期只读连接；未开启缓存时退回按操作建连。"""
+        if not self._cache_reads:
+            async with self._connect() as db:
+                yield db
+            return
+        if self._read_conn is None:
+            self._read_conn = await open_connection(self.db_path)
+        yield self._read_conn
+
+    async def close(self) -> None:
+        """关闭复用的只读连接（插件卸载 / 重新初始化前调用，幂等）。"""
+        if self._read_conn is not None:
+            await self._read_conn.close()
+            self._read_conn = None
 
     async def initialize(self):
         """
@@ -221,7 +244,7 @@ class BM25Retriever:
             params.append(persona_id)
         params.append(max(0, limit))
 
-        async with self._connect() as db:
+        async with self._read_connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT d.id, d.text, {metadata_sql}, bm25({self.fts_table}) AS score

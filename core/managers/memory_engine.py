@@ -215,7 +215,7 @@ class MemoryEngine(
         self.rrf_fusion = RRFFusion(k=self.config.get("rrf_k", 60))
 
         self.bm25_retriever = BM25Retriever(
-            self.db_path, self.text_processor, self.config
+            self.db_path, self.text_processor, self.config, cache_reads=True
         )
         await self.bm25_retriever.initialize()
         self.vector_retriever = VectorRetriever(self.faiss_db, self.config)
@@ -235,7 +235,11 @@ class MemoryEngine(
         self.graph_store = GraphStore(self.db_path, cache_reads=True)
         await self.graph_store.initialize()
 
-        self.atom_store = AtomStore(self.db_path)
+        self.atom_store = AtomStore(
+            self.db_path,
+            cache_reads=True,
+            text_processor=self.text_processor,
+        )
         await self.atom_store.initialize()
 
         if self.atom_enabled:
@@ -294,8 +298,16 @@ class MemoryEngine(
             await self.db_connection.close()
         if self.graph_store is not None:
             await self.graph_store.close()
+        await self._close_read_connections()
         if self.graph_vector_db is not None:
             await self.graph_vector_db.close()
+
+    async def _close_read_connections(self) -> None:
+        """Close reusable retrieval read connections (test doubles are skipped)."""
+        for component in (self.atom_store, self.bm25_retriever):
+            close = getattr(component, "close", None)
+            if close is not None and asyncio.iscoroutinefunction(close):
+                await close()
 
     @asynccontextmanager
     async def _write_transaction(self):
