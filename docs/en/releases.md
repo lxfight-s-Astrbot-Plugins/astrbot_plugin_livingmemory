@@ -1,5 +1,39 @@
 # Releases and Upgrades
 
+## 2.10.0 · November 9, 2026
+
+2.10.0 fixes recall noise and the memory-retention policy, cuts summary and injection cost, adds data diagnostics, recall-quality evaluation and engineering gates, and fixes lost tool-call turns, unbounded full-graph loads and ever-growing backups. Several defaults changed; read "Behavior changes" before upgrading.
+
+[Download 2.10.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.10.0)
+
+### What changed
+
+- **Recall**: default similarity gate 0.45, recent-memory slots off by default and a 3000/400 injection budget; reflection templates are ~70% smaller, so unrelated memories are no longer injected in bulk.
+- **Lifecycle**: cleanup now archives by default (120 days / importance 0.25), with 0.005 decay and a 0.6 protection threshold; a supersede data path is available; failed parsing and low-quality summaries are no longer stored.
+- **Cost and performance**: only transient errors retry, reflection concurrency is capped at 2 and writes reuse the dedup embedding; BM25/atom retrieval reuse read connections; Atom FTS, networkx and FAISS startup paths are fixed; an optional builtin tokenizer is available.
+- **Ops and diagnostics**: new `/lmem diag` and `/lmem diag compact`; pages fail fast with a banner while unready; backups are pruned at startup (2 newest version backups, 512 MB total cap).
+- **Graph and UI**: full graph excludes archived memories and caps at 5000 nodes / 20000 relations, with confirm, progress and cancel; first-load gzip −15.2%; settings and accessibility improvements.
+- **Engineering**: main.py coverage 97%, backend coverage 86%; offline recall-quality evaluation plus coverage/docs CI gates; dependency upper bounds and a declared host version range.
+
+### Behavior changes
+
+- Low-importance memories are archived instead of deleted; recall-gate and recent-slot defaults changed and can be reverted through configuration.
+- Full graph no longer shows archived memories and truncates above the caps; assistant text from tool-call turns is now stored.
+- The first startup after upgrading prunes historical backups, so back up the full data directory first; switching to the builtin tokenizer requires a rebuild-index.
+- Agentic recall defaults shrink to 3 calls / 6000 characters per request; an idle session gets one catch-up summary on its next turn after about 60 minutes.
+
+### Verification
+
+The complete suite passes 1,375 backend and 179 frontend tests with 86% coverage; Ruff, the dashboard bundle check, the VitePress build and docs checks pass.
+
+### Install and upgrade
+
+1. Stop the plugin and manually back up the full data directory (this version starts pruning old backups).
+2. Update to `2.10.0`, restart AstrBot and reopen the plugin views; no database migration is required.
+3. If recall becomes too sparse, set `recall_engine.min_similarity_for_retrieval` back to `0` and `recent_memory_count` back to `2`.
+4. If you switch to the `builtin` tokenizer, run `/lmem rebuild-index` once; the default `jieba` needs no rebuild.
+5. Run `/lmem diag` to inspect database, backup and index status; `/lmem diag compact` compacts the database file.
+
 ## 2.9.2 · November 9, 2026
 
 2.9.2 consolidates the plugin's internal modules and fixes memory writes failing when SQLite WAL is unavailable on Docker Desktop shared mounts. Commands, configuration keys, page APIs, agent tools and the database schema are unchanged; no migration is required.

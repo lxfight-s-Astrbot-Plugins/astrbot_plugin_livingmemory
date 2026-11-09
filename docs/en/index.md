@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.9.2
+      text: Get 2.10.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.9.2 is released
+## 2.10.0 is released
 
-2.9.2 consolidates the plugin's internal modules, fixes memory writes failing when SQLite WAL is unavailable on Docker Desktop shared mounts, and makes imported memories with retired platform prefixes recallable again. Commands, configuration and the database schema are unchanged. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.10.0 fixes recall noise and the memory-retention policy, cuts summary and injection cost, adds data diagnostics, recall-quality evaluation and engineering gates, and fixes lost tool-call turns, unbounded full-graph loads and ever-growing backups. Some defaults changed. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 

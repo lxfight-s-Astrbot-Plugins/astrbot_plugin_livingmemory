@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.9.2 稳定版
+      text: 2.10.0 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.9.2 已发布
+## 2.10.0 已发布
 
-2.9.2 收敛插件内部模块结构，修复 Docker Desktop 共享挂载上 SQLite WAL 不可用导致的记忆写入失败，并让旧平台前缀的导入记忆重新可召回。命令、配置和数据库结构保持不变。[版本与升级](/releases)提供下载和升级说明。
+2.10.0 修正召回噪声与记忆保留策略，降低总结与注入成本，新增数据体检、召回质量评测与工程门禁，并修复工具调用轮次丢失、全量图谱失控与备份无限增长等问题。部分默认值有调整。[版本与升级](/releases)提供下载和升级说明。
 
 ## 这份文档适合谁？
 
