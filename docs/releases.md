@@ -1,5 +1,27 @@
 # 版本与升级
 
+## 2.9.2 · 2026-11-09
+
+2.9.2 收敛插件内部模块结构并修复 Docker Desktop 共享挂载上 SQLite WAL 不可用导致的记忆写入失败。命令、配置项、页面 API、Agent 工具与数据库结构保持不变，无需迁移数据库。
+
+[下载 2.9.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.9.2)
+
+### 本次更新
+
+- **Docker/WAL 回退**：数据库目录位于 Docker Desktop 宿主盘 bind mount（9p/drvfs、gRPC-FUSE、virtiofs）或网络共享时，SQLite 无法可靠映射 WAL 的 `-shm` 共享内存索引，新建连接会报 `SQLITE_IOERR`（`disk I/O error`），记忆写入随之中断。现在启动时识别挂载类型并探测 WAL，不可用时自动把已有 WAL 库安全转回 rollback journal 并提示迁移数据目录；迁移到 Docker 命名卷或本地磁盘后自动恢复 WAL。见 [#398](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/398)。
+- **连接策略**：journal mode 在启动期对每个库设置一次，BM25、原子、图谱与会话存储的热路径连接只设置 `busy_timeout`，避免新连接在并发提交时立即返回 `database is locked`。
+- **旧平台导入**：导入或迁移的记忆会把已停用的平台前缀重映射为当前平台标识，旧数据导入后仍能按会话召回。见 [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396)。
+- **内部重构**：合并拆散的存储与处理器模块，`MemoryEngine` 按职责拆分，初始化器 3 个文件收敛为 2 个，页面路由改为声明式注册，删除未使用导出与死代码，生产 Python 代码减少约 1,849 行；检索写入并入引擎写事务，CI 增加 Ruff 门禁，3D 图谱场景改为懒加载。见 [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396)。
+
+以上改动由 [@lxfight](https://github.com/lxfight) 贡献。最新完整测试：后端 1,210 项、前端 150 项通过；新增回归覆盖文件系统 WAL 探测与回退转换、热路径连接策略和旧平台前缀导入。
+
+### 安装与升级
+
+1. 停止插件并备份完整数据目录，更新至 `2.9.2` 后重新启动 AstrBot 并重新打开插件视图。无需数据库迁移。
+2. 数据目录位于 Docker Desktop 宿主盘 bind mount 或网络共享时，启动日志会提示回退 rollback journal；把 `/AstrBot/data` 迁移到 Docker 命名卷或本地磁盘后会自动恢复 WAL。
+3. 配置存在非法值时，本版本启动会直接失败并给出 `ConfigurationError`，请修正后再启动；旧注入方式配置值仍可读取，设置页统一为 `extra_user_content`。
+4. [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的 `unable to open database file` 是文件打开失败，与本版本处理的 `disk I/O error` 仍属两类问题，保持开放。
+
 ## 2.9.1 · 2026-11-05
 
 2.9.1 修复记忆注入缺少参与者稳定标识，以及定时任务、后台任务等合成唤醒混入真实对话记忆的问题。无需迁移数据库或调整配置。

@@ -5,6 +5,47 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.9.2] - 2026-11-09
+
+2.9.2 是内部重构与稳定性维护版本：收敛插件模块结构与重复实现，修复 Docker 共享挂载上 SQLite WAL 不可用导致的记忆写入失败，并修复旧平台前缀数据导入后无法召回的问题。公开命令、页面 API、Agent 工具、配置项、注入格式与数据库结构保持不变，无需迁移数据库。
+
+### SQLite 与 Docker 部署
+
+- **WAL 文件系统回退**：数据库目录位于 Docker Desktop 的宿主盘 bind mount（9p/drvfs、gRPC-FUSE、virtiofs）或网络共享时，SQLite 无法可靠映射 WAL 的 `-shm` 共享内存索引，新建连接会报 `SQLITE_IOERR`（`disk I/O error`），记忆写入随之失败。现在启动时识别挂载类型并探测 WAL，不可用时自动把已有 WAL 库安全转回 rollback journal，并提示迁移数据目录；迁移到 Docker 命名卷或本地磁盘后自动恢复 WAL。见 [#398](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/398)。
+- **连接策略收敛**：journal mode 在启动期对每个库设置一次，BM25、原子、图谱与会话存储的热路径连接只设置 `busy_timeout`，避免新连接在并发提交时立即返回 `database is locked`。
+
+### 导入修复
+
+- **旧平台前缀**：导入或迁移的记忆会把已停用的平台前缀重映射为当前平台标识，旧数据导入后仍能按会话召回。见 [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396)。
+
+### 内部重构
+
+- **模块收敛**：合并拆散的会话/图谱存储与处理器模块，`MemoryEngine` 按职责拆分，初始化器由 3 个文件收敛为 2 个，页面路由改为声明式注册；删除未使用导出、重复实现与死代码，生产 Python 代码减少约 1,849 行（33,214 → 31,365）。
+- **检索与写事务**：`documents` 表写入并入引擎写事务，FAISS 分析持有读锁，统一元数据解析；索引维护收敛为单一重建入口。
+- **配置与提示词**：配置改为 fail-fast，非法值启动时直接报错而不是静默修正或回写；`core/prompts/*.txt` 成为唯一提示词来源，移除旧注入适配器。
+- **CI 与前端**：CI 增加 Ruff 门禁并拆分后端/前端任务；3D 图谱场景改为懒加载（首屏资源减少约 65%），前端入口打包并清理死代码。
+
+见 [#396](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/396)，贡献者 [@lxfight](https://github.com/lxfight)。
+
+### 行为变化
+
+1. 配置值非法或越界时，插件启动会直接失败并给出 `ConfigurationError`，不再自动夹取默认值并回写宿主配置；请先修正配置。
+2. 旧注入方式配置值仍可读取，但设置页只提供 `extra_user_content`，启动时规范化并提示一次。
+3. 启动时不再执行全表索引一致性扫描；索引维护仅在 Embedding Provider 指纹变化、迁移遗留数据或图索引需要重建时运行，`/lmem rebuild-index` 始终走单一重建路径。
+4. 管理面板记忆详情不再渲染小图谱缩略图，“定位到图谱”操作保留。
+
+### 验证
+
+- 完整后端测试 1,210 项、前端测试 150 项通过；Ruff、文档检查、Dashboard 产物检查与 VitePress 构建通过。
+- 新增回归覆盖文件系统 WAL 能力探测、已有 WAL 库回退转换（数据保留）、热路径连接策略与旧平台前缀导入。
+
+### 升级说明
+
+1. 停止插件并备份完整数据目录，更新至 `2.9.2` 后重新启动 AstrBot 并重新打开插件视图。无需数据库迁移，数据库版本保持 v8。
+2. 数据目录位于 Docker Desktop 宿主盘 bind mount 或网络共享时，启动日志会提示已回退 rollback journal；把 `/AstrBot/data` 迁移到 Docker 命名卷或本地磁盘后会自动恢复 WAL。该修复不涉及 AstrBot 宿主自身的数据库。
+3. 配置存在非法值时升级后会启动失败，请按 `ConfigurationError` 提示修正后再启动；此前的静默修正行为不再保留。
+4. [#345](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/345) 的 `unable to open database file`（文件打开失败）与本版本处理的 `disk I/O error`（WAL 共享内存不可用）仍属两类问题，保持开放。
+
 ## [2.9.1] - 2026-11-05
 
 2.9.1 修复记忆注入缺少参与者稳定标识，以及定时任务、后台任务等框架合成唤醒混入真实对话记忆的问题。无需调整配置或迁移数据库。
