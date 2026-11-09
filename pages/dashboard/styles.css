@@ -1666,6 +1666,68 @@ body {
   background: var(--border-focus);
 }
 
+/* ----- Settings extras (defaults / reset / reload badge) ------ */
+.settings-default {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.settings-default-value {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tint);
+  overflow-wrap: anywhere;
+}
+
+.settings-reload-badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* ----- Graph node list (accessible fallback for the 2D canvas) ----- */
+.graph-node-list {
+  max-height: min(52vh, 420px);
+  margin: 8px 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.graph-node-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-node-list-item:hover,
+.graph-node-list-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.graph-node-list-type {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 /* ----- Responsive ---------------------------------------------- */
 @media (max-width: 768px) {
   :root {

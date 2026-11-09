@@ -83,6 +83,7 @@
                 <option value="3d" data-i18n="graph.view3d">3D</option>
               </select>
               <button class="btn btn-secondary btn-sm" id="graph-reset-view" data-i18n="graph.resetView">Reset view</button>
+              <button class="btn btn-secondary btn-sm" id="graph-node-list-btn" type="button" data-i18n="graph.nodeList">Node list</button>
               <input type="text" id="graph-session-filter" list="graph-session-options" data-i18n-aria="graph.sessionPh" class="input input-sm" data-i18n-placeholder="graph.sessionPh" placeholder="Session ID" style="width:180px" />
               <datalist id="graph-session-options"></datalist>
               <button class="btn btn-secondary btn-sm" id="graph-overview-btn" data-i18n-aria="graph.overviewBtn">
@@ -99,7 +100,7 @@
               <div class="stat-pill"><div class="stat-pill-value" id="gs-sessions">--</div><div class="stat-pill-label" data-i18n="stats.sessions">sessions</div></div>
             </div>
             <div class="graph-canvas-container" style="flex:1">
-              <div class="graph-canvas-state" id="graph-canvas-state"></div>
+              <div class="graph-canvas-state" id="graph-canvas-state" role="status" aria-live="polite"></div>
               <div id="graph-canvas" class="graph-canvas">
                 <div id="graph-view-2d" class="graph-view"></div>
                 <div id="graph-view-3d" class="graph-view" data-module="./assets/graph-3d.min.js" hidden></div>
@@ -403,6 +404,27 @@
       </form>
     </dialog>
 
+    <!-- 通用二次确认（设置等页面的危险操作；原生 dialog，不依赖 window.confirm） -->
+    <dialog id="action-dialog" class="discard-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-message">
+      <form method="dialog">
+        <h2 id="action-dialog-title"></h2>
+        <p id="action-dialog-message"></p>
+        <div class="discard-actions">
+          <button class="btn btn-secondary" value="cancel" autofocus data-i18n="common.cancel">Cancel</button>
+          <button class="btn btn-danger" id="action-dialog-confirm" value="confirm" data-i18n="common.confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 2D 图谱的无障碍替代入口：按节点列出并可定位 -->
+    <dialog id="graph-node-list-dialog" class="discard-dialog" aria-labelledby="graph-node-list-title">
+      <h2 id="graph-node-list-title" data-i18n="graph.nodeListTitle">Graph node list</h2>
+      <ul id="graph-node-list" class="graph-node-list"></ul>
+      <div class="discard-actions">
+        <button class="btn btn-secondary" id="graph-node-list-close" autofocus data-i18n="common.close">Close</button>
+      </div>
+    </dialog>
+
     <!-- Appearance preferences apply immediately and remain local to this browser. -->
     <dialog id="appearance-dialog" class="appearance-dialog" aria-labelledby="appearance-title" aria-describedby="appearance-hint">
       <form method="dialog">
@@ -455,7 +477,7 @@
 
     <!-- Peek Panel -->
     <div class="peek-overlay" id="peek-overlay"></div>
-    <aside class="peek-panel" id="peek-panel" aria-hidden="true" inert>
+    <aside class="peek-panel" id="peek-panel" role="dialog" aria-modal="true" aria-labelledby="peek-title" aria-hidden="true" inert>
       <div class="peek-header">
         <div>
           <div id="peek-badge"></div>

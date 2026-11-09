@@ -19,7 +19,7 @@
   --border-color: var(--border-light);
   --text-primary: #1c2f2e;
   --text-secondary: #566f6b;
-  --text-tertiary: #80948f;
+  --text-tertiary: #5f736e;
   --text-inverse: #fbfdf9;
   --accent: #245d61;
   --accent-color: #245d61;
@@ -73,7 +73,7 @@
   --border-focus: #b7f34a;
   --text-primary: #f2f4ec;
   --text-secondary: #aab2a3;
-  --text-tertiary: #737d6e;
+  --text-tertiary: #7d8878;
   --text-inverse: #0d0f0c;
   --accent: #b7f34a;
   --accent-color: #b7f34a;
@@ -128,7 +128,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--signal);
+  outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
 

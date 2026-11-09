@@ -10,7 +10,7 @@ Open AstrBot WebUI:
 
 AstrBot `4.24.2` or later is recommended. Older versions can still run the plugin, but the dashboard may be unavailable.
 
-The 3D module is preloaded when the page opens; its scene is created only when switching to 3D. AstrBot rewrites the asset URL with its access credentials. Reopen the view after updating the plugin so an old page does not retain an expired asset URL ([#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)).
+The 3D module is loaded on demand when switching to the 3D view, and its scene is created at that point. AstrBot rewrites the asset URL with its access credentials. Reopen the view after updating the plugin so an old page does not retain an expired asset URL ([#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)).
 
 ## Settings
 

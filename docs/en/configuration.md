@@ -6,7 +6,7 @@
 LivingMemory defaults work for most users. The settings you usually need to touch are model providers, recall size, memory isolation, graph retrieval, backup, and cleanup.
 
 > [!NOTE]
-> Every numeric config item has a hard allowed range, shown on the dashboard Settings page as a slider plus number field and in the tables below. The plugin validates the whole configuration against its Pydantic model on startup: out-of-range values, wrong types or invalid enums fail startup with an error instead of being clamped or reset to defaults; fix the reported item and restart.
+> Every numeric config item has a hard allowed range, shown on the dashboard Settings page as a number field with its allowed range, and in the tables below. The plugin validates the whole configuration against its Pydantic model on startup: out-of-range values, wrong types or invalid enums fail startup with an error instead of being clamped or reset to defaults; fix the reported item and restart.
 
 ## Recommended profiles
 

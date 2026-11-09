@@ -114,6 +114,7 @@ import {
       showToast(window.t("flow.waitForSave"));
       return;
     }
+    if (state.page === "settings" && !await settingsPage.canLeave()) return;
     const generation = ++navigationGeneration;
     if (state.page === "prompts" && !await promptPage.canLeave()) return;
     if (!await peekPanel.requestClose() || generation !== navigationGeneration) return;
@@ -161,7 +162,7 @@ import {
 
   function normalizeLocale(locale) {
     const lang = String(locale || "").split("-")[0];
-    return ["zh", "en", "ru"].includes(lang) ? lang : "zh";
+    return ["zh", "en", "ru", "ja"].includes(lang) ? lang : "zh";
   }
 
   function getCurrentLanguage() {
@@ -322,7 +323,7 @@ import {
       }
     });
     window.addEventListener("beforeunload", event => {
-      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || memoryPage._bulkBusy || memoryPage._transferBusy) {
+      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || memoryPage._bulkBusy || memoryPage._transferBusy) {
         event.preventDefault();
         event.returnValue = "";
       }

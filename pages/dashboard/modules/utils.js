@@ -212,6 +212,39 @@ export function confirmDiscardChanges() {
 }
 
 /**
+ * 页面内通用确认框（原生 <dialog>，宿主 iframe 没有 allow-modals，不能用 window.confirm）。
+ *
+ * @param {Object} options
+ * @param {string} options.title - 标题
+ * @param {string} options.message - 正文（可含换行）
+ * @param {string} [options.confirmLabel] - 确认按钮文案，默认 common.confirm
+ * @param {boolean} [options.destructive] - true 时确认按钮用危险色
+ * @returns {Promise<boolean>} 用户是否确认
+ */
+export function confirmAction(options = {}) {
+  const dialog = document.getElementById("action-dialog");
+  if (!dialog) return Promise.resolve(false);
+  const titleEl = document.getElementById("action-dialog-title");
+  const messageEl = document.getElementById("action-dialog-message");
+  const confirmBtn = document.getElementById("action-dialog-confirm");
+  if (!titleEl || !messageEl || !confirmBtn) return Promise.resolve(false);
+  const previousFocus = document.activeElement || null;
+  titleEl.textContent = options.title || "";
+  messageEl.textContent = options.message || "";
+  confirmBtn.textContent = options.confirmLabel || window.t("common.confirm");
+  confirmBtn.classList.toggle("btn-danger", options.destructive !== false);
+  confirmBtn.classList.toggle("btn-primary", options.destructive === false);
+  dialog.returnValue = "cancel";
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      resolve(dialog.returnValue === "confirm");
+      if (previousFocus && typeof previousFocus.focus === "function") previousFocus.focus();
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
+/**
  * 获取 Atom 类型的显示文本
  * @param {string} type - Atom 类型
  * @returns {string} 显示文本
