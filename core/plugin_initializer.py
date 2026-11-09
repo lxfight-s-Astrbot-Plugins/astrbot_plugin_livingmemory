@@ -644,6 +644,11 @@ class PluginInitializer(InitializerFaissMixin):
             "index_rebuild_max_failure_ratio": get(
                 "index_rebuild_settings.max_failure_ratio", 0.02
             ),
+            "profile_enabled": get("profile_settings.enabled", True),
+            "profile_max_chars": get("profile_settings.max_chars", 300),
+            "profile_min_confidence": get("profile_settings.min_confidence", 0.6),
+            "profile_history_limit": get("profile_settings.history_limit", 20),
+            "profile_max_pending": get("profile_settings.max_pending", 50),
         }
 
     async def _init_conversation_layer(self, storage: dict[str, Any]) -> None:

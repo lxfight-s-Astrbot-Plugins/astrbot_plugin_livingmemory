@@ -152,3 +152,47 @@ DOCUMENTS_DOC_ID_INDEX_STATEMENT = """
     CREATE INDEX IF NOT EXISTS idx_documents_doc_id
     ON documents(doc_id)
     """
+
+
+# User profile tables are plugin-owned (the host ``documents`` table stays
+# untouched). ``scope`` is the resolved memory scope (session/user/global) and
+# history keeps every applied version so manual edits and reflection updates
+# remain auditable.
+PROFILE_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS memory_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        persona_id TEXT,
+        profile_json TEXT NOT NULL DEFAULT '{}',
+        pending_json TEXT NOT NULL DEFAULT '[]',
+        version INTEGER NOT NULL DEFAULT 0,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        UNIQUE(scope, persona_id)
+    )
+    """,
+    # SQLite treats NULL values as distinct in a UNIQUE constraint, so the
+    # expression index is required to keep "scope + no persona" single-row.
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_scope_persona
+    ON memory_profiles(scope, COALESCE(persona_id, ''))
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS memory_profile_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        profile_json TEXT NOT NULL,
+        changed_fields TEXT NOT NULL DEFAULT '[]',
+        evidence_memory_ids TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL DEFAULT 'reflection',
+        created_at REAL NOT NULL,
+        FOREIGN KEY(profile_id) REFERENCES memory_profiles(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_history_profile
+    ON memory_profile_history(profile_id, created_at DESC)
+    """,
+)

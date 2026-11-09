@@ -340,6 +340,10 @@
       "agentic_recall_max_result_chars": {
         "description": "自主回忆单次返回长度上限（字符）",
         "hint": "Beta 记忆工具单次返回内容的最大字符数，超出部分可分页续读，建议 4000-30000。（允许范围：500–100000）"
+      },
+      "enable_profile_tool": {
+        "description": "启用用户档案工具",
+        "hint": "开启后注册 update_user_profile，允许 Agent 主动写入用户档案；写入走相同的证据与置信度规则并记录历史版本。默认关闭。"
       }
     },
     "graph_memory": {
@@ -580,6 +584,30 @@
       "max_source_messages": {
         "description": "来源消息上限",
         "hint": "合并后单条记忆最多保留的来源消息条数。"
+      }
+    },
+    "profile_settings": {
+      "description": "用户档案",
+      "hint": "按「记忆作用域 + 人格」维护结构化、可版本化的用户档案；总结时增量更新，召回时作为固定短块注入。默认开启，不额外增加 LLM 调用。",
+      "enabled": {
+        "description": "启用用户档案",
+        "hint": "开启后总结产出会合并进用户档案，并在每次召回时注入档案短块；关闭后完全不读写档案。"
+      },
+      "max_chars": {
+        "description": "档案注入字符上限",
+        "hint": "档案注入文本的最大字符数，独立于记忆注入预算。越大信息越全，占用的上下文也越多。（50–2000）"
+      },
+      "min_confidence": {
+        "description": "最低置信度",
+        "hint": "档案更新达到该置信度且证据有效时才直接生效；否则进入待确认候选。（0–1）"
+      },
+      "history_limit": {
+        "description": "历史版本上限",
+        "hint": "每个档案保留的历史版本条数，超出后清理最旧版本，不删除当前档案。（1–200）"
+      },
+      "max_pending": {
+        "description": "待确认候选上限",
+        "hint": "低置信度或证据不足的档案更新进入待确认列表，最多保留条数。（1–500）"
       }
     }
   },

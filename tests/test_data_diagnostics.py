@@ -56,7 +56,7 @@ async def test_get_diagnostics_reports_health_and_storage(tmp_path: Path):
 
     diagnostics = await engine.get_diagnostics()
 
-    assert diagnostics["db_version"] == 8
+    assert diagnostics["db_version"] == 9
     assert diagnostics["quick_check"] == "ok"
     assert diagnostics["documents"] == {
         "total": 1,

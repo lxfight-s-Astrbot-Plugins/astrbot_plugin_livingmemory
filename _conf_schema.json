@@ -674,6 +674,12 @@
                     "max": 100000,
                     "step": 500
                 }
+            },
+            "enable_profile_tool": {
+                "description": "启用用户档案工具",
+                "hint": "开启后注册 update_user_profile，允许 Agent 主动写入用户档案（基础信息/偏好/当前状态/任务偏好）。写入走与自动总结相同的证据与置信度规则，并记录历史版本。默认关闭。",
+                "type": "bool",
+                "default": false
             }
         }
     },
@@ -1207,6 +1213,64 @@
                     "min": 0.0,
                     "max": 1.0,
                     "step": 0.01
+                }
+            }
+        }
+    },
+    "profile_settings": {
+        "invisible": true,
+        "description": "用户档案",
+        "hint": "按「记忆作用域 + 人格」维护结构化、可版本化的用户档案；总结时增量更新，召回时作为固定短块注入。默认开启，注入预算固定，不额外增加 LLM 调用。",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "启用用户档案",
+                "hint": "开启后总结产出会合并进用户档案，并在每次召回时注入档案短块；关闭后完全不读写档案。",
+                "type": "bool",
+                "default": true
+            },
+            "max_chars": {
+                "description": "档案注入字符上限",
+                "hint": "档案注入文本的最大字符数，独立于记忆注入预算（记忆 3000 字符）。越大信息越全，但会占用更多上下文。（允许范围：50–2000）",
+                "type": "int",
+                "default": 300,
+                "slider": {
+                    "min": 50,
+                    "max": 2000,
+                    "step": 10
+                }
+            },
+            "min_confidence": {
+                "description": "最低置信度",
+                "hint": "总结产出的档案更新只有达到该置信度且证据有效时才直接生效；否则进入待确认候选。（允许范围：0–1）",
+                "type": "float",
+                "default": 0.6,
+                "slider": {
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05
+                }
+            },
+            "history_limit": {
+                "description": "历史版本上限",
+                "hint": "每个档案保留的历史版本条数，超出后自动清理最旧版本；不会删除当前档案。（允许范围：1–200）",
+                "type": "int",
+                "default": 20,
+                "slider": {
+                    "min": 1,
+                    "max": 200,
+                    "step": 1
+                }
+            },
+            "max_pending": {
+                "description": "待确认候选上限",
+                "hint": "低置信度或证据不足的档案更新进入待确认列表，最多保留的候选条数，超出后丢弃最旧候选。（允许范围：1–500）",
+                "type": "int",
+                "default": 50,
+                "slider": {
+                    "min": 1,
+                    "max": 500,
+                    "step": 1
                 }
             }
         }

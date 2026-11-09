@@ -17,6 +17,7 @@ from .schema import (
     DOCUMENTS_INDEX_STATEMENTS,
     GRAPH_SCHEMA_STATEMENTS,
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
+    PROFILE_SCHEMA_STATEMENTS,
 )
 
 
@@ -24,7 +25,7 @@ class DBMigration:
     """数据库迁移管理器"""
 
     # 当前数据库版本
-    CURRENT_VERSION = 8
+    CURRENT_VERSION = 9
 
     # 版本历史记录
     VERSION_HISTORY = {
@@ -36,6 +37,7 @@ class DBMigration:
         6: "插件 FTS 表统一 livingmemory 前缀，旧 documents_fts 安全重命名备份",
         7: "Storage indexes and FTS optimization for graph and atom data",
         8: "Write-operation log and access-aware metadata indexes",
+        9: "User profile tables - structured, versioned profile + history",
     }
 
     def __init__(self, db_path: str):
@@ -245,6 +247,7 @@ class DBMigration:
                     (5, self._migrate_v5_to_v6),
                     (6, self._migrate_v6_to_v7),
                     (7, self._migrate_v7_to_v8),
+                    (8, self._migrate_v8_to_v9),
                 ]
                 for from_version, step in steps:
                     if current_version <= from_version:
@@ -508,6 +511,14 @@ class DBMigration:
                 """
             )
 
+            await db.commit()
+
+    async def _migrate_v8_to_v9(self):
+        """Create the versioned user-profile tables (idempotent)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA busy_timeout = 10000")
+            for statement in PROFILE_SCHEMA_STATEMENTS:
+                await db.execute(statement)
             await db.commit()
 
     async def _copy_fts_rows_if_exists(

@@ -37,6 +37,7 @@ from .core.tools import (
     MemoryMemorizeTool,
     MemoryReadTool,
     MemorySearchTool,
+    UpdateUserProfileTool,
 )
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
@@ -274,6 +275,14 @@ class LivingMemoryPlugin(Star):
         if self.config_manager.get("agent_tools.enable_forget_tool", False):
             tools.append(
                 MemoryForgetTool(
+                    context=self.context,
+                    config_manager=self.config_manager,
+                    memory_engine=self.initializer.memory_engine,
+                )
+            )
+        if self.config_manager.get("agent_tools.enable_profile_tool", False):
+            tools.append(
+                UpdateUserProfileTool(
                     context=self.context,
                     config_manager=self.config_manager,
                     memory_engine=self.initializer.memory_engine,

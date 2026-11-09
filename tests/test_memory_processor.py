@@ -958,3 +958,83 @@ async def test_stream_call_records_final_chunk_usage(monkeypatch):
             },
         )
     ]
+
+
+# ---------------------------------------------------------------------------
+# 可选 profile_updates（用户档案增量更新）
+# ---------------------------------------------------------------------------
+
+
+def _profile_processor():
+    from astrbot_plugin_livingmemory.core.processors.memory_processor import (
+        MemoryProcessor,
+    )
+
+    return MemoryProcessor(context=None, llm_provider=None, config={})
+
+
+def test_profile_updates_missing_keeps_metadata_unchanged():
+    processor = _profile_processor()
+    content, metadata, _ = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户聊了周末安排",
+            "topics": ["周末"],
+            "key_facts": ["周末去爬山"],
+            "sentiment": "neutral",
+            "importance": 0.6,
+        }
+    )
+    assert content
+    assert "profile_updates" not in metadata
+
+
+def test_profile_updates_are_normalized_into_metadata():
+    processor = _profile_processor()
+    _, metadata, _ = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户介绍了自己的偏好",
+            "topics": ["偏好"],
+            "key_facts": ["用户喜欢燕麦拿铁"],
+            "sentiment": "neutral",
+            "importance": 0.6,
+            "profile_updates": [
+                {
+                    "section": "basic",
+                    "field": "称呼",
+                    "value": "小林",
+                    "operation": "set",
+                    "evidence": [3, "bad", -1],
+                    "confidence": 1.7,
+                },
+                {
+                    "section": "preferences",
+                    "field": "饮品",
+                    "value": "燕麦拿铁",
+                    "operation": "append",
+                },
+                {"section": "bad", "field": "x", "value": "y"},
+                {"section": "basic", "field": "x", "operation": "remove"},
+            ],
+        }
+    )
+    updates = metadata["profile_updates"]
+    assert len(updates) == 2
+    assert updates[0]["evidence"] == [3]
+    assert updates[0]["confidence"] == 1.0
+    assert updates[1]["section"] == "preferences"
+    assert updates[1]["operation"] == "append"
+
+
+def test_profile_updates_invalid_only_is_dropped():
+    processor = _profile_processor()
+    _, metadata, _ = processor.build_memory_from_structured_data(
+        {
+            "summary": "用户聊了天气",
+            "topics": ["天气"],
+            "key_facts": ["今天下雨"],
+            "sentiment": "neutral",
+            "importance": 0.5,
+            "profile_updates": [{"section": "bad", "field": "x", "value": "y"}],
+        }
+    )
+    assert "profile_updates" not in metadata

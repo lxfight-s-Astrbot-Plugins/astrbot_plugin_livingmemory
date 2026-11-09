@@ -123,6 +123,57 @@ class MemoryReflectionStorageMixin:
             )
             return memory_id, True, None
 
+    def _profile_manager(self):
+        """Return the engine profile manager, ignoring mocks/test doubles."""
+        from ..managers.profile_manager import ProfileManager
+
+        manager = getattr(self.memory_engine, "profile_manager", None)
+        return manager if isinstance(manager, ProfileManager) else None
+
+    async def _apply_profile_updates(
+        self,
+        session_id: str,
+        memory_scope: str,
+        persona_id: Any,
+        updates: list[dict[str, Any]],
+        memory_id: int,
+    ) -> None:
+        """Apply one summary's profile updates after the memory is committed.
+
+        Profile failures are best-effort: they must never fail memory storage
+        or change the summary cursor.
+
+        Args:
+            session_id: Conversation session id (logging only).
+            memory_scope: Resolved memory scope stored in profile rows.
+            persona_id: Persona id for the profile row.
+            updates: Normalised profile updates from the summary metadata.
+            memory_id: Memory written by this summary (evidence id).
+        """
+        manager = self._profile_manager()
+        if manager is None or not updates or not manager.enabled:
+            return
+        try:
+            result = await manager.apply_updates(
+                memory_scope,
+                persona_id,
+                updates,
+                evidence_memory_ids=[int(memory_id)],
+                source="reflection",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                f"[{session_id}] 用户档案更新失败（不影响记忆入库）",
+                exc_info=True,
+            )
+            return
+        logger.info(
+            f"[{session_id}] 用户档案更新: applied={result.get('applied', 0)}, "
+            f"pending={result.get('pending', 0)}, version={result.get('version')}"
+        )
+
     async def _read_session_revision(self, session_id: str) -> int | None:
         """读取会话修订号；不可用（老版本/Mock）时返回 None，退化为不校验。"""
         manager = self.conversation_manager
@@ -223,6 +274,8 @@ class MemoryReflectionStorageMixin:
         # 记忆 id 在 try 外初始化：取消可能发生在赋值之前，异常分支需要它
         memory_id: int | None = None
         memory_created = False
+        # 档案增量更新：先与 documents metadata 分离，提交成功后再生效
+        profile_updates: list[dict[str, Any]] = []
         async with OperationContext("记忆存储", session_id):
             try:
                 # 如果其他任务已经推进了总结进度，本任务可能已过期，直接跳过
@@ -310,6 +363,7 @@ class MemoryReflectionStorageMixin:
                         metadata["scope_kind"] = "channel"
                         metadata["channel_id"] = channel_id
                         metadata["channel_platform"] = channel_platform
+                    profile_updates = metadata.pop("profile_updates", []) or []
 
                     logger.info(
                         f"[{session_id}] 已使用LLM生成结构化记忆, "
@@ -402,6 +456,14 @@ class MemoryReflectionStorageMixin:
                 )
                 if not committed and memory_id is not None and memory_created:
                     await self._compensate_rolled_back_memory(session_id, memory_id)
+                if committed and memory_id is not None:
+                    await self._apply_profile_updates(
+                        session_id,
+                        memory_scope,
+                        persona_id,
+                        profile_updates,
+                        memory_id,
+                    )
                 return committed
 
             except asyncio.CancelledError:

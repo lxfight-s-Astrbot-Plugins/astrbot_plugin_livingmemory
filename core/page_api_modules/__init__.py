@@ -6,6 +6,7 @@ from .backup_handler import BackupHandler
 from .consolidation_handler import ConsolidationHandler
 from .graph_handler import GraphHandler
 from .memory_handler import MemoryHandler
+from .profile_handler import ProfileHandler
 from .prompt_handler import PromptHandler
 from .recall_handler import RecallHandler
 from .settings_handler import SettingsHandler
@@ -20,6 +21,7 @@ __all__ = [
     "GraphHandler",
     "BackupHandler",
     "PromptHandler",
+    "ProfileHandler",
     "ConsolidationHandler",
     "PageApiUtils",
 ]

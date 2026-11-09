@@ -46,6 +46,18 @@ Before manually transferring a batch, pause the affected adapters and wait for r
 
 Management APIs accept an `adapter_id` query parameter to select the configured range; `page/memories?adapter_id=qq-main` still intersects existing session filters. `POST page/adapters/assign` accepts the target `adapter_id`, old `source_adapter_id` and `session_id`: a null source adapter assigns unowned records for that old scope; a specified source transfers that instance's records. The endpoint uses AstrBot Plugin Views authentication.
 
+## User profile
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `profile_settings.enabled` | `true` | Enable the structured user profile per memory scope + persona |
+| `profile_settings.max_chars` | `300` | Character budget for the injected profile text, independent of the memory budget |
+| `profile_settings.min_confidence` | `0.6` | Minimum confidence for a profile update to apply directly; lower values become pending candidates |
+| `profile_settings.history_limit` | `20` | Number of history versions kept per profile |
+| `profile_settings.max_pending` | `50` | Maximum pending candidates kept per profile |
+
+During summarization the model may optionally output `profile_updates` in the same summary JSON (sections `basic` / `preferences` / `status` / `task_preferences`): `set` requires evidence and confidence, `append` de-duplicates into preference lists, and `remove` requires evidence. Every applied update writes a history version, and the profile can be viewed, edited, deleted and its pending candidates resolved from the dashboard user-profile page. The profile does not consume recall `top_k` slots but counts toward the injection character budget; disabling `profile_settings.enabled` stops all profile reads and writes.
+
 ## Model providers
 
 | Key | Default | Description |
