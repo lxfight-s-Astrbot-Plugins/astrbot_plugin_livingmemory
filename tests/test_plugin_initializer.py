@@ -47,6 +47,8 @@ async def test_ensure_initialized_timeout(initializer):
 @pytest.mark.asyncio
 async def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp_path):
     class DummyEmbeddingProvider:
+        provider_config = {"id": "dummy-embedding"}
+
         def get_dim(self):
             return 768
 
@@ -79,6 +81,89 @@ async def test_initialize_providers_with_fallback(monkeypatch, mock_context, tmp
     assert init.embedding_provider is emb
     assert init.llm_provider is llm
     mock_context.get_using_provider_async.assert_awaited_once_with(None)
+
+
+@pytest.mark.asyncio
+async def test_initialize_providers_adopts_fallback_when_primary_missing(
+    monkeypatch, mock_context, tmp_path
+):
+    """主 Provider 与宿主默认都缺失时，初始化阶段先采用可用备用 Provider。"""
+
+    class DummyEmbeddingProvider:
+        provider_config = {"id": "dummy-embedding"}
+
+        def get_dim(self):
+            return 768
+
+    class DummyProvider:
+        pass
+
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.plugin_initializer.EmbeddingProvider",
+        DummyEmbeddingProvider,
+    )
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
+        DummyProvider,
+    )
+
+    emb = DummyEmbeddingProvider()
+    fallback = DummyProvider()
+    mock_context.get_all_embedding_providers.return_value = [emb]
+    mock_context.get_all_providers.return_value = [fallback]
+    mock_context.get_using_provider_async = AsyncMock(return_value=None)
+    mock_context.get_provider_by_id = Mock(
+        side_effect=lambda provider_id: fallback if provider_id == "backup" else None
+    )
+
+    init = PluginInitializer(
+        mock_context,
+        ConfigManager(
+            {"provider_settings": {"llm_fallback_provider_ids": ["missing", "backup"]}}
+        ),
+        str(tmp_path),
+    )
+    await init._initialize_providers(silent=False)
+
+    assert init.llm_provider is fallback
+
+
+@pytest.mark.asyncio
+async def test_initialize_providers_keeps_failing_without_any_provider(
+    monkeypatch, mock_context, tmp_path
+):
+    class DummyEmbeddingProvider:
+        provider_config = {"id": "dummy-embedding"}
+
+        def get_dim(self):
+            return 768
+
+    class DummyProvider:
+        pass
+
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.plugin_initializer.EmbeddingProvider",
+        DummyEmbeddingProvider,
+    )
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.plugin_initializer.Provider",
+        DummyProvider,
+    )
+
+    mock_context.get_all_embedding_providers.return_value = [DummyEmbeddingProvider()]
+    mock_context.get_using_provider_async = AsyncMock(return_value=None)
+    mock_context.get_provider_by_id = Mock(return_value=None)
+
+    init = PluginInitializer(
+        mock_context,
+        ConfigManager(
+            {"provider_settings": {"llm_fallback_provider_ids": ["missing"]}}
+        ),
+        str(tmp_path),
+    )
+    await init._initialize_providers(silent=False)
+
+    assert init.llm_provider is None
 
 
 def test_check_faiss_runtime_raises_actionable_error(monkeypatch, initializer):
@@ -299,6 +384,8 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     created_vec_dbs = []
 
     class DummyEmbeddingProvider:
+        provider_config = {"id": "dummy-embedding"}
+
         def get_dim(self):
             return 768
 
@@ -468,6 +555,8 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
     created_vec_dbs = []
 
     class DummyEmbeddingProvider:
+        provider_config = {"id": "dummy-embedding"}
+
         def get_dim(self):
             return 768
 

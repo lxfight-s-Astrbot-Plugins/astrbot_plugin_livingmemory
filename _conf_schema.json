@@ -55,6 +55,23 @@
                 "_special": "select_provider",
                 "default": ""
             },
+            "llm_fallback_provider_ids": {
+                "description": "备用 LLM 模型列表",
+                "hint": "按顺序尝试的备用 Provider ID（JSON 数组，如 [\"openai_gpt-4o\",\"gemini-2.5-pro\"]）。主 Provider 超时、限流（429）、5xx 或鉴权失败时自动切换；解析/格式错误不切换。留空不启用回退。",
+                "type": "list",
+                "default": []
+            },
+            "llm_call_timeout_seconds": {
+                "description": "单次 LLM 调用超时（秒）",
+                "hint": "每个 Provider 单次调用的超时时间，超时后视为不可用并切换到下一个 Provider。（允许范围：5–600）",
+                "type": "int",
+                "default": 60,
+                "slider": {
+                    "min": 5,
+                    "max": 600,
+                    "step": 1
+                }
+            },
             "llm_stream_mode": {
                 "description": "使用流式调用",
                 "hint": "记忆处理调用 LLM 的方式。auto（默认）：优先非流式，遇到“模型不支持非流式请求”错误时自动改用流式；always：始终流式（适用于仅接受 stream=true 的服务）；never：始终非流式（旧行为）。",

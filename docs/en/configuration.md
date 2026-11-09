@@ -53,12 +53,16 @@ Management APIs accept an `adapter_id` query parameter to select the configured 
 | `provider_settings.embedding_provider_id` | empty (not recommended) | Generates memory vectors; fill in an enabled Embedding Provider ID. An empty value only falls back to the first available provider, which may pick the wrong model or break vector/graph index initialization |
 | `provider_settings.llm_provider_id` | empty | Summarizes conversations and evaluates memory importance. Empty means AstrBot's default LLM |
 | `provider_settings.llm_stream_mode` | `auto` | How memory processing calls the LLM: `auto` tries non-streaming first and switches to streaming when the provider reports non-stream requests are unsupported; `always` always streams; `never` always uses non-streaming (previous behavior) |
+| `provider_settings.llm_fallback_provider_ids` | `[]` | Ordered fallback Provider IDs tried when the primary LLM fails (JSON array). Switches on timeout, rate limit (429), 5xx or authentication failures; parsing/format errors do not switch. Empty disables fallback |
+| `provider_settings.llm_call_timeout_seconds` | `60` | Timeout for each provider's single call (seconds, 5-600). A timeout treats that provider as unavailable and switches to the next one |
 
 Try to keep the embedding model stable. If you change it and old memories recall poorly, run `/lmem rebuild-index`.
 
 See [Embedding Models and BGE-M3](/en/guide/embedding-model) for the SiliconFlow free BGE-M3 parameters, locating the Provider ID, and verification steps.
 
 Providers that only accept streaming requests (`stream=true`) are switched to streaming automatically in `auto` mode; set `always` to force streaming. An interrupted stream, timeout, or missing complete response is treated as a failure, so incomplete results are never written to memory.
+
+With fallback providers configured, the primary provider switches to the next fallback ID on timeout, rate limits, 5xx or authentication failures. Within one provider only transient errors are retried once; JSON parsing, validation or request-format errors never switch providers. Fallback calls record the actual provider ID and fallback count, and `/lmem status` shows the fallback count.
 
 ## Session management
 

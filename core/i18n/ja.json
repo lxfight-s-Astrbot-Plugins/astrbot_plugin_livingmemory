@@ -70,7 +70,7 @@
   "status": {
     "action_name": "ステータス取得",
     "report": "LivingMemory ステータスレポート\n\n総記憶数: {total}\nセッション数: {session_count}\n最終更新: {last_update}\nデータベースサイズ: {db_size:.2f} MB\n\n使用可能な操作:\n- /lmem search <キーワード>",
-    "usage": "\n\nLLM 呼び出し: {calls} 回 / 入力 {input_tokens} tokens / 出力 {output_tokens} tokens",
+    "usage": "\n\nLLM 呼び出し: {calls} 回 / 入力 {input_tokens} tokens / 出力 {output_tokens} tokens / フォールバック {fallback_calls} 回",
     "index_maintenance": "\n\nインデックス保守: {state} ({current}/{total})\n{message}"
   },
   "diag": {

@@ -173,6 +173,8 @@ async def test_handle_status_appends_llm_usage_line(handler, mock_event, monkeyp
             "output_tokens": 300,
             "total_tokens": 1500,
             "estimated_calls": 0,
+            "providers": {"primary": 2, "backup": 1},
+            "fallback_calls": 1,
         },
     )
 
@@ -182,6 +184,7 @@ async def test_handle_status_appends_llm_usage_line(handler, mock_event, monkeyp
     assert "LLM 调用：3 次" in messages[0]
     assert "输入 1200 tokens" in messages[0]
     assert "输出 300 tokens" in messages[0]
+    assert "回退 1 次" in messages[0]
 
 
 @pytest.mark.asyncio

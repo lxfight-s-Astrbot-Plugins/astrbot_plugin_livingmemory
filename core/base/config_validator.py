@@ -126,6 +126,10 @@ class ProviderConfig(BaseModel):
     embedding_provider_id: str | None = None
     llm_provider_id: str | None = None
     llm_stream_mode: str = "auto"
+    # 主 LLM 不可用时按顺序尝试的备用 Provider ID；空列表表示不启用回退。
+    llm_fallback_provider_ids: list[str] = Field(default_factory=list)
+    # 单个 Provider 单次调用的超时（秒）；超时按该 Provider 不可用处理。
+    llm_call_timeout_seconds: int = Field(default=60, ge=5, le=600)
 
 
 class ImportanceDecayConfig(BaseModel):
