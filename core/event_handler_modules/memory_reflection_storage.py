@@ -54,19 +54,19 @@ class MemoryReflectionStorageMixin:
                 return None, False, None
 
             enabled = True
-            threshold = 0.82
+            threshold = 0.92
             limit = 5
             try:
                 enabled = bool(self.config_manager.get("memory_dedup.enabled", True))
                 threshold = float(
-                    self.config_manager.get("memory_dedup.similarity_threshold", 0.82)
-                    or 0.82
+                    self.config_manager.get("memory_dedup.similarity_threshold", 0.92)
+                    or 0.92
                 )
                 limit = int(
                     self.config_manager.get("memory_dedup.max_candidates", 5) or 5
                 )
             except (TypeError, ValueError):
-                enabled, threshold, limit = True, 0.82, 5
+                enabled, threshold, limit = True, 0.92, 5
 
             # 去重检测算过的查询向量直接复用给写入路径，避免同一文本二次 embedding
             embedding: list[float] | None = None

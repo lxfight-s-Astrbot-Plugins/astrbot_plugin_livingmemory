@@ -26,7 +26,7 @@ def _reflection_with_engine(engine: SimpleNamespace) -> MemoryReflection:
     reflection.config_manager = SimpleNamespace(
         get=lambda key, default=None: {
             "memory_dedup.enabled": True,
-            "memory_dedup.similarity_threshold": 0.82,
+            "memory_dedup.similarity_threshold": 0.92,
             "memory_dedup.max_candidates": 5,
         }.get(key, default)
     )

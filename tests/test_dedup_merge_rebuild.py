@@ -24,8 +24,8 @@ _CONTENT_OLD = "用户喜欢喝茶。"
 _CONTENT_NEW = "用户住在杭州。"
 _CONTENT_MERGED = "用户喜欢喝茶。用户住在杭州。"
 # 1 - squared_l2 / 2 == cosine for unit vectors, so the angle sets the dedup score.
-_COS_DUPLICATE = 0.90
-_COS_DISTINCT = 0.70
+_COS_DUPLICATE = 0.95
+_COS_DISTINCT = 0.85
 
 
 def _unit(angle: float) -> list[float]:
@@ -143,7 +143,7 @@ async def test_near_duplicate_merge_rebuilds_body_and_indexes(dedup_stack):
     )
     assert await _count_active(engine) == 1
 
-    reflection = _reflection(engine, threshold=0.82, max_candidates=5)
+    reflection = _reflection(engine, threshold=0.92, max_candidates=5)
     memory_id, created, similarity = await MemoryReflection._persist_summary_memory(
         reflection,
         session_id=scope,
@@ -205,7 +205,7 @@ async def test_below_threshold_summary_is_stored_as_new_memory(dedup_stack):
         {"topics": ["饮品"]},
     )
 
-    reflection = _reflection(engine, threshold=0.82, max_candidates=5)
+    reflection = _reflection(engine, threshold=0.92, max_candidates=5)
     memory_id, created, similarity = await MemoryReflection._persist_summary_memory(
         reflection,
         session_id=scope,

@@ -1017,7 +1017,7 @@
                 "description": "候选数量",
                 "hint": "每次检测比较的最近记忆条数。（允许范围：1–20）",
                 "type": "int",
-                "default": 3,
+                "default": 5,
                 "slider": {
                     "min": 1,
                     "max": 20,

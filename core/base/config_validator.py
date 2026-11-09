@@ -204,7 +204,7 @@ class MemoryDedupConfig(BaseModel):
 
     enabled: bool = True
     similarity_threshold: float = Field(default=0.92, ge=0.0, le=1.0)
-    max_candidates: int = Field(default=3, ge=1, le=20)
+    max_candidates: int = Field(default=5, ge=1, le=20)
     merge_sources: bool = True
     max_source_messages: int = Field(default=50, ge=1, le=500)
 
