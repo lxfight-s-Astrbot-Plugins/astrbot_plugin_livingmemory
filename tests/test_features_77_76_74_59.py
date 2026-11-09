@@ -18,6 +18,7 @@ from astrbot_plugin_livingmemory.core.command_handler import CommandHandler
 from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
     ConversationManager,
 )
+from astrbot_plugin_livingmemory.core.base.exceptions import LowQualityMemoryError
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import VectorRetriever
@@ -750,7 +751,7 @@ async def test_group_memory_format_contains_nicknames():
 
 @pytest.mark.asyncio
 async def test_group_memory_quality_low_for_group_member_generic_term():
-    """summary containing '群成员' should be flagged as low quality."""
+    """summary containing '群成员' should be rejected as low quality."""
     llm = _DummyLLMProvider(
         """{
             "summary": "群成员讨论了一些话题",
@@ -763,10 +764,9 @@ async def test_group_memory_quality_low_for_group_member_generic_term():
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    _, metadata, _ = await processor.process_conversation(
-        messages=_make_group_messages(),
-        is_group_chat=True,
-        persona_id=None,
-    )
-
-    assert metadata.get("summary_quality") == "low"
+    with pytest.raises(LowQualityMemoryError):
+        await processor.process_conversation(
+            messages=_make_group_messages(),
+            is_group_chat=True,
+            persona_id=None,
+        )

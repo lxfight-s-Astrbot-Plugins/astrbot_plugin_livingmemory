@@ -6,6 +6,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..base.exceptions import LowQualityMemoryError, MemoryParseError
 from ..memory_source import serialize_source_messages
 
 _DEFAULT_MEMORY_SCOPE = object()
@@ -310,6 +311,24 @@ class MemoryReflectionStorageMixin:
                         f"重要性={importance:.2f}"
                     )
 
+                except (MemoryParseError, LowQualityMemoryError) as e:
+                    # 解析失败/低质量总结：不落库，保留窗口按现有 pending retry
+                    # 机制重试；达到上限后由 _build_reflection_plan_for_cursor
+                    # 放弃该范围，不会无限重试。
+                    logger.warning(
+                        f"[{session_id}] 记忆总结被拒绝（可重试）: "
+                        f"reason={type(e).__name__}, "
+                        f"range=[{start_index}:{end_index}], "
+                        f"retry={retry_count + 1}/3, error={e}"
+                    )
+                    await self._record_pending_summary(
+                        session_id,
+                        start_index,
+                        end_index,
+                        retry_count,
+                        expected_revision,
+                    )
+                    return False
                 except Exception as e:
                     # LLM处理失败，记录待重试信息
                     logger.error(

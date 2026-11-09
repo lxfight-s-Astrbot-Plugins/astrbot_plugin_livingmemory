@@ -12,6 +12,7 @@ from typing import Any
 from astrbot.api import logger
 
 from ..astrbot_compat import get_using_provider
+from ..base.exceptions import LowQualityMemoryError
 from ..base.usage_metrics import record_llm_usage
 from ..models.conversation_models import Message
 from ..models.memory_atom import MemoryAtom
@@ -28,6 +29,15 @@ from .memory_processor_parse import (
     validate_importance,
     validate_summary_quality,
 )
+
+# 进程内低质量总结拒绝计数（不落盘；用于观察 LLM 输出质量）
+_low_quality_rejections = 0
+
+
+def get_low_quality_rejection_count() -> int:
+    """返回当前进程拒绝写入的低质量总结累计次数。"""
+    return _low_quality_rejections
+
 
 # 瞬时错误类型名标记（httpx/openai/aiohttp 等连接与协议异常）
 _TRANSIENT_ERROR_TYPE_MARKERS = (
@@ -496,7 +506,10 @@ class MemoryProcessor:
                 - importance: 重要性评分(0-1)
 
         Raises:
-            Exception: 处理失败时抛出异常
+            ValueError: 消息列表为空。
+            MemoryParseError: LLM 响应无法解析为结构化记忆（调用方应重试，不落库）。
+            LowQualityMemoryError: 总结质量不达标（调用方应重试，不落库）。
+            Exception: 其他 LLM 调用或处理失败。
         """
         if not messages:
             raise ValueError("消息列表不能为空")
@@ -541,11 +554,19 @@ class MemoryProcessor:
             # 4. 解析LLM响应
             structured_data = parse_llm_response(llm_response_text, is_group_chat)
 
-            # 4.5 质量校验
+            # 4.5 质量校验：低质量总结默认不写入主库，由调用方按可重试失败处理
             quality = self._validate_summary_quality(structured_data)
             if quality == "low":
+                global _low_quality_rejections
+                _low_quality_rejections += 1
                 logger.warning(
-                    "[MemoryProcessor] 总结质量不达标（low），将标记但仍写入"
+                    "[MemoryProcessor] 总结质量不达标（low），拒绝写入主库: "
+                    f"summary={(structured_data.get('summary') or '')[:60]!r}, "
+                    f"key_facts={len(structured_data.get('key_facts') or [])}, "
+                    f"rejected_total={_low_quality_rejections}"
+                )
+                raise LowQualityMemoryError(
+                    "总结质量不达标（summary/key_facts/importance 校验失败）"
                 )
             structured_data["_quality"] = quality
 

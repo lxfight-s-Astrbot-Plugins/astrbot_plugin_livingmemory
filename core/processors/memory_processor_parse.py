@@ -11,6 +11,7 @@ from typing import Any
 
 from astrbot.api import logger
 
+from ..base.exceptions import MemoryParseError
 from ..models.conversation_models import Message
 
 
@@ -86,6 +87,10 @@ def parse_llm_response(response_text: str, is_group_chat: bool) -> dict[str, Any
 
     Returns:
         解析后的字典数据
+
+    Raises:
+        MemoryParseError: 响应无法解析为包含 summary 的结构化数据时抛出；
+            调用方（反思存储任务）按可重试失败处理，不再回退占位内容入库。
     """
     logger.debug(f"[MemoryProcessor] 开始解析 LLM 响应，长度={len(response_text)}")
 
@@ -126,14 +131,19 @@ def parse_llm_response(response_text: str, is_group_chat: bool) -> dict[str, Any
             logger.debug(f"[MemoryProcessor] JSON 修复后仍无法解析: {fix_err}")
 
         logger.info("[MemoryProcessor] 尝试使用正则表达式提取 JSON")
-        return extract_by_regex(response_text, is_group_chat)
+        fallback_data = extract_by_regex(response_text, is_group_chat)
+        if fallback_data is None:
+            raise MemoryParseError(
+                f"LLM 响应无法解析为记忆 JSON（{type(e).__name__}: {e}）"
+            ) from e
+        return fallback_data
     except Exception as e:
         logger.error(f"[MemoryProcessor]  解析 LLM 响应时发生异常: {e}", exc_info=True)
         logger.debug(f"[MemoryProcessor] 异常发生时的响应内容: {response_text[:200]}")
-        return get_default_structured_data(is_group_chat)
+        raise MemoryParseError(f"解析 LLM 响应失败: {e}") from e
 
 
-def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any]:
+def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any] | None:
     """
     使用正则表达式从文本中提取结构化数据(备用方案)
 
@@ -142,10 +152,12 @@ def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any]:
         is_group_chat: 是否为群聊
 
     Returns:
-        提取的结构化数据
+        提取的结构化数据；完全无法提取到 summary 时返回 None，由调用方按
+        解析失败处理（不再返回占位内容）。
     """
     logger.debug("[MemoryProcessor] 开始使用正则表达式提取结构化数据")
     data = get_default_structured_data(is_group_chat)
+    extracted = False
 
     try:
         # 先尝试找到完整的 JSON 块
@@ -160,16 +172,18 @@ def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any]:
                         f"[MemoryProcessor]  成功从第 {i + 1} 个 JSON 块中解析数据"
                     )
                     data = parsed
+                    extracted = True
                     break
             except json.JSONDecodeError:
                 continue
 
         # 如果没有找到完整的 JSON，尝试单独提取字段
-        if data == get_default_structured_data(is_group_chat):
+        if not extracted:
             # 提取summary
             summary_match = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
             if summary_match:
                 data["summary"] = summary_match.group(1)
+                extracted = True
 
             # 提取importance
             importance_match = re.search(r'"importance"\s*:\s*([0-9.]+)', text)
@@ -195,14 +209,18 @@ def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any]:
                 facts = re.findall(r'"([^"]+)"', facts_str)
                 data["key_facts"] = facts[:5]
 
-        logger.info(
-            f"[MemoryProcessor] 正则提取完成，提取到的字段: {list(data.keys())}"
-        )
+        if extracted:
+            logger.info(
+                f"[MemoryProcessor] 正则提取完成，提取到的字段: {list(data.keys())}"
+            )
+        else:
+            logger.warning("[MemoryProcessor] 正则提取未能获得任何可用字段")
 
     except Exception as e:
         logger.error(f"[MemoryProcessor]  正则提取失败: {e}", exc_info=True)
+        return None
 
-    return data
+    return data if extracted else None
 
 
 def normalize_parsed_data(data: dict, is_group_chat: bool) -> dict[str, Any]:
@@ -231,11 +249,33 @@ def normalize_parsed_data(data: dict, is_group_chat: bool) -> dict[str, Any]:
     data["key_facts"] = ensure_list(data.get("key_facts", []))[:5]
     data["sentiment"] = validate_sentiment(data.get("sentiment", "neutral"))
     data["importance"] = validate_importance(data.get("importance", 0.5))
+    # 可选字段：LLM 可声明本条总结取代了哪些旧记忆（不产出时保持缺失）
+    if "superseded_memory_ids" in data:
+        data["superseded_memory_ids"] = normalize_memory_ids(
+            data["superseded_memory_ids"]
+        )
 
     if is_group_chat:
         data["participants"] = ensure_list(data.get("participants", []))
 
     return data
+
+
+def normalize_memory_ids(value: Any) -> list[int]:
+    """把 LLM 输出的记忆 id 列表归一化为去重后的正整数列表。"""
+    if not isinstance(value, (list, tuple)):
+        return []
+    ids: list[int] = []
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0 and parsed not in ids:
+            ids.append(parsed)
+    return ids
 
 
 def ensure_list(value: Any) -> list[str]:
@@ -384,6 +424,9 @@ def build_storage_format(
         "summary_schema_version": "v2",
         # summary_quality 由 process_conversation 中的 SummaryValidator 覆盖写入
     }
+    superseded_ids = structured_data.get("superseded_memory_ids")
+    if superseded_ids:
+        metadata["superseded_memory_ids"] = list(superseded_ids)
 
     if is_group_chat and "participants" in structured_data:
         metadata["participants"] = structured_data["participants"]

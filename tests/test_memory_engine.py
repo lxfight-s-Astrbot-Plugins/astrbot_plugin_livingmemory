@@ -856,6 +856,102 @@ async def test_recent_memory_count_zero_does_not_append(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_add_memory_marks_superseded_memories(tmp_path: Path):
+    """新记忆带 superseded_memory_ids 时，旧记忆被标记但不删除、不归档。"""
+    faiss = _FakeFaissDB()
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "supersede.db"),
+        faiss_db=faiss,
+        config={
+            "atom_enabled": False,
+            "graph_memory_enabled": False,
+            "search_cache_enabled": False,
+        },
+    )
+    await engine.initialize()
+    try:
+        old_id = await engine.add_memory(
+            "旧约定：周五下午复盘",
+            session_id="s1",
+            importance=0.8,
+        )
+
+        # 测试替身不支持 SQLAlchemy session：用内存同步模拟真实元数据更新
+        async def _update_metadata(doc_id, patch):
+            faiss.docs[int(doc_id)]["metadata"].update(patch)
+            return True
+
+        engine.index_writer.update_metadata = _update_metadata
+        new_id = await engine.add_memory(
+            "新约定：复盘改到周六下午",
+            session_id="s1",
+            importance=0.8,
+            metadata={"superseded_memory_ids": [old_id]},
+        )
+
+        old_memory = await engine.get_memory(old_id)
+        assert old_memory is not None  # 不删除、不归档
+        assert old_memory["metadata"]["superseded_by"] == new_id
+        assert isinstance(old_memory["metadata"]["superseded_at"], float)
+        assert old_memory["metadata"]["status"] == "active"
+
+        new_memory = await engine.get_memory(new_id)
+        assert new_memory["metadata"]["superseded_memory_ids"] == [old_id]
+
+        # 无 superseded 字段的新记忆不受影响
+        normal_id = await engine.add_memory(
+            "普通记忆：用户喜欢手冲咖啡", session_id="s1"
+        )
+        normal_metadata = (await engine.get_memory(normal_id))["metadata"]
+        assert "superseded_by" not in normal_metadata
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_search_memories_filters_superseded_results(tmp_path: Path):
+    """召回（含显式 search）过滤被取代记忆，未取代记忆正常返回。"""
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "supersede_filter.db"),
+        faiss_db=_FakeFaissDB(),
+        config={"search_cache_enabled": False, "recent_memory_count": 0},
+    )
+    active = HybridResult(
+        doc_id=1,
+        final_score=0.8,
+        rrf_score=0.8,
+        bm25_score=None,
+        vector_score=0.8,
+        content="仍然有效的记忆",
+        metadata={"status": "active", "importance": 0.8, "session_id": "s1"},
+        score_breakdown={},
+    )
+    superseded = HybridResult(
+        doc_id=2,
+        final_score=0.9,
+        rrf_score=0.9,
+        bm25_score=None,
+        vector_score=0.9,
+        content="已被取代的记忆",
+        metadata={
+            "status": "active",
+            "importance": 0.9,
+            "session_id": "s1",
+            "superseded_by": 3,
+            "superseded_at": time.time(),
+        },
+        score_breakdown={},
+    )
+    engine.hybrid_retriever = Mock()
+    engine.hybrid_retriever.search = AsyncMock(return_value=[superseded, active])
+
+    results = await engine.search_memories("query", k=5, session_id="s1")
+
+    assert [result.doc_id for result in results] == [1]
+    await asyncio.gather(*engine._pending_tasks)
+
+
+@pytest.mark.asyncio
 async def test_memory_engine_search_cache_reuses_results_and_invalidates_on_write(
     tmp_path: Path,
 ):
