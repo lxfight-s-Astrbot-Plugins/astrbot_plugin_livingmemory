@@ -115,7 +115,7 @@ flowchart LR
 - Atom retrieval participates in the main recall: only atoms whose `expires_at` is in the future and whose status is active survive; an atom-backed memory injects only live facts, and a memory whose atoms are all expired is dropped instead of injecting empty text.
 - The retrieval cache expires after 45 seconds and is invalidated by writes, updates and deletes; it caches document-level candidates, and the atom policy still runs on a cache hit so expired facts are never injected.
 - Vector candidates expand on demand and are capped at 8192 vectors; embedding input is truncated to model limits, but full text always stays in `documents`, so inspection, export and rebuilds are unaffected.
-- A single injection is capped at 6000 characters and each memory at 800 characters; graph-node substring search depends on SQLite trigram support, and queries shorter than three characters use plain matching.
+- A single injection is capped at 3000 characters and each memory at 400 characters; graph-node substring search depends on SQLite trigram support, and queries shorter than three characters use plain matching.
 
 ## Writes and consistency
 
@@ -198,7 +198,7 @@ An immutable request-local `ContextVar` carries adapter access, resets after eve
 ## Budgets and known limits
 
 - Automatic recall defaults to `top_k=5` and `max_k=10`; each route has a 10-second timeout and the dual-route total is twice that plus one second.
-- A single injection is capped at 6000 characters and each memory at 800; agent memory tools default to 4 calls, 20 seconds and 12000 characters of output per request.
+- A single injection is capped at 3000 characters and each memory at 400; agent memory tools default to 4 calls, 20 seconds and 12000 characters of output per request.
 - Embedding rebuilds default to batch size 8, concurrency 1, up to 5 retries, a 30-second exponential backoff base and 5-second request delays, which adapt to TPM rate limits.
 - Known limits: asynchronous flushes are debounced, so a hard kill may lose the last flush; trigram search depends on the SQLite build; SQLite still allows a single writer, so very large imports execute serially.
 

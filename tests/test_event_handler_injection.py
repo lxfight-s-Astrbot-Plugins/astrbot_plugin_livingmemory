@@ -611,6 +611,36 @@ async def test_top_k_0_cleans_livingmemory_temp_extra_parts(
 
 
 @pytest.mark.asyncio
+async def test_compact_injection_markers_are_cleanup_recognized(handler):
+    """压缩后的注入文本仍带定界标记，可被 _remove_injected_memories_from_context 清理。"""
+    from astrbot.core.agent.message import TextPart
+    from astrbot_plugin_livingmemory.core.base.constants import (
+        MEMORY_INJECTION_FOOTER,
+        MEMORY_INJECTION_HEADER,
+    )
+    from astrbot_plugin_livingmemory.core.utils import format_memories_for_injection
+
+    injected = format_memories_for_injection(
+        [{"content": "用户喜欢吃火锅", "metadata": {"importance": 0.9}}]
+    )
+    assert MEMORY_INJECTION_HEADER in injected
+    assert MEMORY_INJECTION_FOOTER in injected
+
+    req = _make_req("hello")
+    req.extra_user_content_parts = [TextPart(text=injected).mark_as_temp()]
+    req.system_prompt = f"你是助手。\n{injected}\n请回答。"
+
+    removed = handler._memory_recall._remove_injected_memories_from_context(
+        req, "session-1"
+    )
+
+    assert removed == 2
+    assert req.extra_user_content_parts == []
+    assert MEMORY_INJECTION_HEADER not in req.system_prompt
+    assert req.system_prompt == "你是助手。\n\n请回答。"
+
+
+@pytest.mark.asyncio
 async def test_top_k_0_leaves_history_content_parts_untouched(
     memory_engine, memory_processor, conversation_manager
 ):
