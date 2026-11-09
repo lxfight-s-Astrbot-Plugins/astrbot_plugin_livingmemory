@@ -169,7 +169,7 @@ class MemoryRecall:
                 # 若 top_k <= 0，跳过记忆检索和注入，但上述清理和消息存储已执行
                 top_k = self.config_manager.get("recall_engine.top_k", 5)
                 if top_k <= 0:
-                    logger.info(
+                    logger.debug(
                         f"[{session_id}] top_k={top_k} <= 0，跳过记忆检索和注入"
                     )
                     return
@@ -225,7 +225,7 @@ class MemoryRecall:
                             if context_parts:
                                 expanded = " | ".join(context_parts)
                                 query_for_search = expanded + " " + actual_query
-                                logger.info(
+                                logger.debug(
                                     f"[{session_id}] 上下文扩展查询: "
                                     f"{len(context_parts)}条历史消息 + 当前消息，"
                                     f"按时间跳过={skipped_by_age}条"
@@ -234,7 +234,7 @@ class MemoryRecall:
                         logger.warning(f"[{session_id}] 获取上下文扩展失败: {e}")
 
                 # 执行记忆召回
-                logger.info(
+                logger.debug(
                     f"[{session_id}] 开始记忆召回，查询='{query_for_search[:80]}...'"
                 )
 
@@ -246,7 +246,7 @@ class MemoryRecall:
                 )
 
                 if recalled_memories:
-                    logger.info(
+                    logger.debug(
                         f"[{session_id}] 检索到 {len(recalled_memories)} 条记忆"
                     )
 
@@ -279,12 +279,12 @@ class MemoryRecall:
                     req.extra_user_content_parts.append(
                         TextPart(text=memory_str).mark_as_temp()
                     )
-                    logger.info(
+                    logger.debug(
                         f"[{session_id}] 成功向用户消息末尾注入 "
                         f"{len(recalled_memories)} 条记忆"
                     )
                 else:
-                    logger.info(f"[{session_id}] 未找到相关记忆")
+                    logger.debug(f"[{session_id}] 未找到相关记忆")
 
         except asyncio.CancelledError:
             raise

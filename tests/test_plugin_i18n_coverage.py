@@ -35,6 +35,10 @@ EXPECTED_OPTION_LABELS = {
             "all": "All Memories",
             "event_only": "Events and Facts",
         },
+        "recall_engine.tokenizer": {
+            "jieba": "jieba word segmentation",
+            "builtin": "Built-in tokenizer (low memory)",
+        },
         "filtering_settings.memory_scope_mode": {
             "legacy": "Legacy",
             "session": "Per Session",
@@ -76,6 +80,10 @@ EXPECTED_OPTION_LABELS = {
         "recall_engine.memory_type_filter": {
             "all": "Все воспоминания",
             "event_only": "События и факты",
+        },
+        "recall_engine.tokenizer": {
+            "jieba": "Сегментация jieba",
+            "builtin": "Встроенный токенизатор (меньше памяти)",
         },
         "filtering_settings.memory_scope_mode": {
             "legacy": "Legacy",
@@ -119,6 +127,10 @@ EXPECTED_OPTION_LABELS = {
             "all": "全部记忆",
             "event_only": "事件与事实",
         },
+        "recall_engine.tokenizer": {
+            "jieba": "jieba 词级分词",
+            "builtin": "内置分词（省内存）",
+        },
         "filtering_settings.memory_scope_mode": {
             "legacy": "Legacy（旧版）",
             "session": "按会话隔离",
@@ -160,6 +172,10 @@ EXPECTED_OPTION_LABELS = {
         "recall_engine.memory_type_filter": {
             "all": "すべての記憶",
             "event_only": "出来事と事実",
+        },
+        "recall_engine.tokenizer": {
+            "jieba": "jieba 単語分割",
+            "builtin": "組み込みトークナイザー（省メモリ）",
         },
         "filtering_settings.memory_scope_mode": {
             "legacy": "Legacy（旧版）",

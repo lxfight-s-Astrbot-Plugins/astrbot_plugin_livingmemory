@@ -83,6 +83,7 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.recent_memory_count` | `0` | 相关性结果不足时用近期记忆补位的条数；不再保留固定槽位 |
 | `recall_engine.recent_memory_max_age_hours` | `72` | 近期记忆保底的时间窗口 |
 | `recall_engine.memory_type_filter` | `all` | 设为 `event_only` 可排除明确的纯偏好/关系记忆 |
+| `recall_engine.tokenizer` | `jieba` | 中文分词器：`jieba` 词级分词；`builtin` 内置分词、不导入 jieba、省约 55 MB 内存；切换后需 `/lmem rebuild-index` |
 | `recall_engine.fallback_to_vector` | `true` | 混合检索失败时降级到向量检索 |
 | `recall_engine.rerank_enabled` | `false` | 启用 Rerank 模型对融合候选按查询相关性重排序 |
 | `recall_engine.rerank_provider_id` | `""` | AstrBot 中 Rerank 类型提供商的 ID，留空则跳过 |
@@ -145,9 +146,9 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `agent_tools.forget_tool_max_memories` | `3` | 遗忘工具单次最多归档的记忆条数（1–10），超出整批拒绝 |
 | `agent_tools.forget_tool_cooldown_seconds` | `60` | 同一会话两次成功归档的最小间隔（0–3600），`0` 表示不限制 |
 | `agent_tools.enable_agentic_recall_beta` | `false` | 启用自主多轮回忆（Beta），需同时开启 `enable_recall_tool` |
-| `agent_tools.agentic_recall_max_calls` | `4` | 单次请求内记忆搜索/深读工具共享的最大调用次数（1–20） |
+| `agent_tools.agentic_recall_max_calls` | `3` | 单次请求内记忆搜索/深读工具共享的最大调用次数（1–20） |
 | `agent_tools.agentic_recall_time_budget_seconds` | `20` | 单次请求内记忆工具累计可工作秒数（1–300） |
-| `agent_tools.agentic_recall_max_result_chars` | `12000` | Beta 记忆工具单次返回的最大字符数（500–100000），超出部分可按游标续读 |
+| `agent_tools.agentic_recall_max_result_chars` | `6000` | Beta 记忆工具单次返回的最大字符数（500–100000），超出部分可按游标续读 |
 
 主动写入工具更强，也更需要模型自律。建议先只开启主动回忆，确认效果稳定后再启用主动写入。
 

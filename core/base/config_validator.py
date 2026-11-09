@@ -32,6 +32,7 @@ class RecallEngineConfig(BaseModel):
     recent_memory_count: int = Field(default=0, ge=0, le=20)
     recent_memory_max_age_hours: int = Field(default=72, ge=0, le=8760)
     memory_type_filter: str = Field(default="all", pattern="^(all|event_only)$")
+    tokenizer: Literal["jieba", "builtin"] = "jieba"
     fallback_to_vector: bool = True
     rerank_enabled: bool = False
     rerank_provider_id: str = ""
@@ -51,7 +52,7 @@ class RecallEngineConfig(BaseModel):
     recent_context_max_age_seconds: int = Field(default=7200, ge=0, le=604800)
     search_cache_enabled: bool = True
     search_cache_ttl_seconds: float = Field(default=45.0, ge=0.0, le=600.0)
-    search_cache_max_size: int = Field(default=256, ge=0, le=10000)
+    search_cache_max_size: int = Field(default=32, ge=0, le=10000)
     fusion_mode: str = "score"
     fusion_bm25_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     recall_candidate_multiplier: int = Field(default=3, ge=1, le=10)
@@ -85,9 +86,9 @@ class AgentToolsConfig(BaseModel):
     enable_forget_tool: bool = False
     forget_tool_max_memories: int = Field(default=3, ge=1, le=10)
     forget_tool_cooldown_seconds: int = Field(default=60, ge=0, le=3600)
-    agentic_recall_max_calls: int = Field(default=4, ge=1, le=20)
+    agentic_recall_max_calls: int = Field(default=3, ge=1, le=20)
     agentic_recall_time_budget_seconds: int = Field(default=20, ge=1, le=300)
-    agentic_recall_max_result_chars: int = Field(default=12000, ge=500, le=100000)
+    agentic_recall_max_result_chars: int = Field(default=6000, ge=500, le=100000)
 
 
 class ForgettingAgentConfig(BaseModel):

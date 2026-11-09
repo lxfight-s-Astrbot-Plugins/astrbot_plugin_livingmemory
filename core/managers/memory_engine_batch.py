@@ -712,15 +712,15 @@ class MemoryEngineBatchMixin:
                 self.config.get("access_count_decay_multiplier", 0.5)
             )
             protected_threshold = clamp_float(
-                self.config.get("protected_importance_threshold"), default=1.0
+                self.config.get("protected_importance_threshold"), default=0.6
             )
             access_window_start = time.time() - max(1.0, access_window_days) * 86400.0
-            cursor = await self.db_connection.execute(
-                "SELECT id, metadata FROM documents WHERE json_extract(metadata, '$.importance') IS NOT NULL OR metadata LIKE '%\"importance\"%'"
+            decay_filter = (
+                "json_extract(metadata, '$.importance') IS NOT NULL "
+                "OR metadata LIKE '%\"importance\"%'"
             )
-            rows = await cursor.fetchall()
 
-            def _compute_updates() -> list[tuple[float, int]]:
+            def _compute_batch(rows: list[Any]) -> list[tuple[float, int]]:
                 updates: list[tuple[float, int]] = []
                 for row in rows:
                     metadata = safe_json_dict(row["metadata"])
@@ -741,8 +741,23 @@ class MemoryEngineBatchMixin:
                     updates.append((decay_factor, int(row["id"])))
                 return updates
 
-            # 卸载逐行 JSON 解析与数值计算，避免阻塞事件循环。
-            updates = await asyncio.to_thread(_compute_updates)
+            # Keyset 分批读取，避免全表 fetchall 在 10 万级文档时占用上百 MB；
+            # 逐批解析后只保留 (factor, id)，最后仍用同一个写事务落库。
+            updates: list[tuple[float, int]] = []
+            batch_size = 500
+            last_id = 0
+            while True:
+                cursor = await self.db_connection.execute(
+                    "SELECT id, metadata FROM documents WHERE id > ? AND ("
+                    + decay_filter
+                    + ") ORDER BY id LIMIT ?",
+                    (last_id, batch_size),
+                )
+                rows = await cursor.fetchall()
+                if not rows:
+                    break
+                last_id = int(rows[-1]["id"])
+                updates.extend(await asyncio.to_thread(_compute_batch, list(rows)))
 
             if not updates:
                 return 0

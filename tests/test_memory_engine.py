@@ -1151,6 +1151,9 @@ async def test_memory_engine_access_count_increments_and_slows_decay(tmp_path: P
             "access_decay_window_days": 30,
             "access_decay_max_count": 10,
             "access_count_decay_multiplier": 0.5,
+            # This case exercises access-based decay itself; the shipping default
+            # (0.6) would protect both 0.8 memories from decaying.
+            "protected_importance_threshold": 1.0,
         },
     )
     await engine.initialize()

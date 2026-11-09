@@ -190,6 +190,8 @@ class DBMigration:
     async def migrate(
         self,
         progress_callback: Callable[[str, int, int], None] | None = None,
+        *,
+        create_backup: bool = True,
     ) -> dict[str, Any]:
         """
         执行数据库迁移
@@ -223,14 +225,16 @@ class DBMigration:
                     f"开始数据库迁移: v{current_version} -> v{self.CURRENT_VERSION}"
                 )
 
-                # 迁移前自动备份，确保数据安全
-                backup_path = await self.create_backup()
-                if backup_path:
-                    logger.info(f"迁移前备份已创建: {backup_path}")
-                else:
-                    logger.warning(
-                        "迁移前备份失败，迁移将继续执行。请确认磁盘空间与文件权限。"
-                    )
+                # 迁移前自动备份，确保数据安全；调用方已完成备份时跳过
+                backup_path = None
+                if create_backup:
+                    backup_path = await self.create_backup()
+                    if backup_path:
+                        logger.info(f"迁移前备份已创建: {backup_path}")
+                    else:
+                        logger.warning(
+                            "迁移前备份失败，迁移将继续执行。请确认磁盘空间与文件权限。"
+                        )
 
                 # 版本 → 步骤声明：数据库版本 <= 起始版本时执行该步骤。
                 # v2 -> v3 是纯版本号升级（空步骤），已删除，故 v2 直接进入 v3 -> v4。

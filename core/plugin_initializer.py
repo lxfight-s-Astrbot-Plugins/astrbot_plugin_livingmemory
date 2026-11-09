@@ -581,6 +581,7 @@ class PluginInitializer(InitializerFaissMixin):
                 "forgetting_agent.auto_archived_enabled", False
             ),
             "stopwords_path": str(storage["stopwords_dir"]),
+            "tokenizer": get("recall_engine.tokenizer", "jieba"),
             "graph_memory_enabled": graph_memory_enabled,
             "document_route_weight": get("graph_memory.document_route_weight", 0.65),
             "graph_route_weight": get("graph_memory.graph_route_weight", 0.35),
@@ -730,7 +731,9 @@ class PluginInitializer(InitializerFaissMixin):
             else:
                 logger.warning("迁移前备份失败，按配置继续迁移。")
 
-            result = await self.db_migration.migrate(progress_callback=None)
+            result = await self.db_migration.migrate(
+                progress_callback=None, create_backup=False
+            )
 
             if result.get("success"):
                 logger.info(f"数据库迁移结果: {result.get('message')}")

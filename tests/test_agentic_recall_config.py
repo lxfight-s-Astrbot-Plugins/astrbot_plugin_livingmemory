@@ -30,9 +30,9 @@ def test_beta_defaults_false_and_missing_field_off():
 
 def test_budget_defaults():
     config = AgentToolsConfig()
-    assert config.agentic_recall_max_calls == 4
+    assert config.agentic_recall_max_calls == 3
     assert config.agentic_recall_time_budget_seconds == 20
-    assert config.agentic_recall_max_result_chars == 12000
+    assert config.agentic_recall_max_result_chars == 6000
 
 
 def test_memorize_default_unchanged():

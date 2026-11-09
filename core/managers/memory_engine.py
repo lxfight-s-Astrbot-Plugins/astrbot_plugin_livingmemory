@@ -217,7 +217,10 @@ class MemoryEngine(
     async def _init_document_route(self) -> None:
         """装配文本处理、BM25、向量、混合检索与写侧索引维护器。"""
         stopwords_path = self.config.get("stopwords_path")
-        self.text_processor = TextProcessor(stopwords_path)
+        self.text_processor = TextProcessor(
+            stopwords_path,
+            tokenizer=str(self.config.get("tokenizer", "jieba")),
+        )
 
         self.rrf_fusion = RRFFusion(k=self.config.get("rrf_k", 60))
 
