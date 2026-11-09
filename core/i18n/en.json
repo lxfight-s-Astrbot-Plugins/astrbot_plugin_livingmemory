@@ -64,6 +64,7 @@
   "status": {
     "action_name": "Status fetch",
     "report": "LivingMemory Status Report\n\nTotal memories: {total}\nSessions: {session_count}\nLast update: {last_update}\nDatabase size: {db_size:.2f} MB\n\nAvailable operations:\n- /lmem search <keyword>",
+    "usage": "\n\nLLM calls: {calls} / input tokens: {input_tokens} / output tokens: {output_tokens}",
     "index_maintenance": "\n\nIndex maintenance: {state} ({current}/{total})\n{message}"
   },
   "search": {

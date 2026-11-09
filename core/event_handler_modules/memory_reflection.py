@@ -22,6 +22,10 @@ from .memory_reflection_storage import MemoryReflectionStorageMixin
 
 _DEFAULT_MEMORY_SCOPE = object()
 
+# 后台反思任务的全局并发上限：避免多会话同时爆发时齐刷刷调用 LLM/写嵌入。
+# 仅限制反思总结（LLM + 记忆写入）阶段，不限制消息入库。
+_MAX_CONCURRENT_REFLECTIONS = 2
+
 
 def _message_timestamp(message: Any) -> float | None:
     """读取已入库消息的时间戳；缺失或非法时返回 None（该相邻对不参与切分）。"""
@@ -121,6 +125,8 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         )
         self.consolidation_manager = consolidation_manager
         self._shutting_down = False
+        # 全局反思并发额度：跨会话共享，限制同时进行的 LLM 总结数量
+        self._reflection_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REFLECTIONS)
 
     def _schedule_consolidation(self) -> None:
         """反思触发时在后台顺带检查记忆整合（带冷却，不会频繁执行）。"""
@@ -522,6 +528,15 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             memory_scope,
         )
 
+    async def _run_reflection_task(self, plan: _ReflectionPlan) -> None:
+        """获取全局并发额度后执行反思任务。
+
+        信号量用 ``async with`` 管理，任务被取消或总结抛异常时都会自动释放
+        额度，不会出现额度泄漏导致后续反思永久排队。
+        """
+        async with self._reflection_semaphore:
+            await self._consume_reflection_segments(plan)
+
     async def _consume_reflection_segments(self, plan: _ReflectionPlan) -> None:
         """在同一后台任务内逐段消费积压，直到清空或达到单次片段预算。"""
         committed_any = False
@@ -575,7 +590,7 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             self._storage_sessions_inflight.add(plan.session_id)
 
         try:
-            task = asyncio.create_task(self._consume_reflection_segments(plan))
+            task = asyncio.create_task(self._run_reflection_task(plan))
         except Exception:
             self._storage_sessions_inflight.discard(plan.session_id)
             raise

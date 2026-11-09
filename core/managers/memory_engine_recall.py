@@ -22,7 +22,7 @@ from ..memory_scope import (
 from ..memory_transfer import memory_import_key
 from ..retrieval.hybrid_retriever import HybridResult
 from ..retrieval.route_execution import search_route
-from ..retrieval.vector_search import retrieve_documents
+from ..retrieval.vector_search import query_embeddings, retrieve_documents
 from ..utils.json_utils import safe_json_dict
 from ..utils.number_utils import clamp_float
 from .agentic_recall_types import AgenticRecallOutcome as AgenticRecallOutcome
@@ -478,7 +478,8 @@ class MemoryEngineRecallMixin:
         persona_id: str | None = None,
         threshold: float = 0.92,
         limit: int = 3,
-    ) -> dict[str, Any] | None:
+        return_embedding: bool = False,
+    ) -> dict[str, Any] | tuple[dict[str, Any] | None, list[float] | None] | None:
         """Return the most similar active memory in the same scope, if any.
 
         Args:
@@ -487,24 +488,56 @@ class MemoryEngineRecallMixin:
             persona_id: Persona filter used by the vector retriever.
             threshold: Minimum cosine similarity to treat as a duplicate.
             limit: Number of candidates fetched from the vector index.
+            return_embedding: 为 True 时返回 ``(duplicate, embedding)``，其中
+                embedding 是本次检索已计算出的查询向量，供写入路径直接复用；
+                索引为空、旧宿主适配器或文本超出检索截断预算时为 None。
 
         Returns:
-            The best matching ``{"id", "similarity"}`` above the threshold, else None.
+            The best matching ``{"id", "similarity"}`` above the threshold, else
+            None; ``return_embedding=True`` 时返回 ``(duplicate, embedding)``。
         """
         if not content or not content.strip() or self.vector_retriever is None:
-            return None
+            return (None, None) if return_embedding else None
+        # 复用 retrieve_vectors 的查询向量缓存：同一 (provider, query) 只计算一次，
+        # 检索结束后取出该向量交给写入路径，避免同一文本二次调用 embedding。
+        outer_cache = query_embeddings.get()
+        cache = outer_cache if outer_cache is not None else {}
+        token = query_embeddings.set(cache) if outer_cache is None else None
         try:
-            results = await self.vector_retriever.search(
-                content,
-                max(1, min(int(limit), 20)),
-                session_id=session_id,
-                persona_id=persona_id,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.warning("[MemoryEngine] 近重复检测失败，按新记忆写入", exc_info=True)
-            return None
+            try:
+                results = await self.vector_retriever.search(
+                    content,
+                    max(1, min(int(limit), 20)),
+                    session_id=session_id,
+                    persona_id=persona_id,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "[MemoryEngine] 近重复检测失败，按新记忆写入", exc_info=True
+                )
+                return (None, None) if return_embedding else None
+
+            embedding: list[float] | None = None
+            # 检索只对前 2000 字符做 embedding；超出时与写入输入不一致，不复用
+            if return_embedding and len(content) <= 2000:
+                faiss_db = getattr(self.vector_retriever, "faiss_db", None)
+                provider = getattr(faiss_db, "embedding_provider", None)
+                task = cache.get((id(provider), content))
+                if task is not None and task.done() and not task.cancelled():
+                    try:
+                        embedding = [float(value) for value in task.result()]
+                    except Exception:
+                        embedding = None
+        finally:
+            if token is not None:
+                query_embeddings.reset(token)
+                for pending in cache.values():
+                    if not pending.done():
+                        pending.cancel()
+                if cache:
+                    await asyncio.gather(*cache.values(), return_exceptions=True)
 
         best: dict[str, Any] | None = None
         for result in results or []:
@@ -516,6 +549,8 @@ class MemoryEngineRecallMixin:
                 continue
             if best is None or score > best["similarity"]:
                 best = {"id": doc_id, "similarity": score}
+        if return_embedding:
+            return best, embedding
         return best
 
     async def get_memory_source(self, memory_id: int) -> list[dict[str, Any]]:
