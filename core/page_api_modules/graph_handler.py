@@ -13,6 +13,11 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from .utils import PageApiUtils
 
+# Hard limits for the full-graph snapshot: prevent a single request from
+# reading every archived edge and pushing the process peak into hundreds of MB.
+FULL_GRAPH_MAX_NODES = 5000
+FULL_GRAPH_MAX_EDGES = 20000
+
 
 class GraphHandler:
     """图谱查询处理器"""
@@ -143,6 +148,8 @@ class GraphHandler:
                 snapshot = await graph_store.get_full_graph_snapshot(
                     session_id=session_id,
                     persona_id=persona_id,
+                    max_nodes=FULL_GRAPH_MAX_NODES,
+                    max_edges=FULL_GRAPH_MAX_EDGES,
                 )
             else:
                 snapshot = await graph_store.get_graph_snapshot(

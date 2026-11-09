@@ -91,7 +91,7 @@ Community representatives stay fixed as stellar anchors. Topics prefer the most 
 
 Representative stars have an outer corona. Each source memory rated at least 8/10 prefers a summary node for its pulsing halo and rotating beams, using a fact when no summary exists; entity connection counts do not determine memory value. Star dust provides background density and never participates in counts, picking or retrieval. Overview rotation uses the community-weighted center; focus rotation uses the actual node or selected-memory-node center. Projection offsets reserve room for details without moving the rotation pivot. Pausing motion also pauses corona and pulsar time.
 
-For development, append visual fixtures to an initialized plugin data directory. The command below defaults to 10,000 nodes, 200,000 relations and 1,200 archived synthetic memories, including varied thematic groups, weak bridges and isolates; no embeddings are generated. Reload the plugin and hard-refresh, select `livingmemory:visual:galaxy` in the session field, then load **Full graph**. Existing records remain intact; running the script again appends another fixture.
+For development, append visual fixtures to an initialized plugin data directory. The command below defaults to 10,000 nodes, 200,000 relations and 1,200 isolated synthetic memories scoped to a dedicated session, including varied thematic groups, weak bridges and isolates; no embeddings are generated and they exist only for graph demonstrations. Reload the plugin and hard-refresh, select `livingmemory:visual:galaxy` in the session field, then load **Full graph**. Existing records remain intact; running the script again appends another fixture.
 
 ```bash
 python scripts/seed_visual_graph.py --data-dir "<plugin_data_dir>"
@@ -105,7 +105,7 @@ python scripts/seed_visual_graph.py --data-dir "<plugin_data_dir>"
 | Aging risk | Low-importance relationships that have not been accessed for a long time |
 
 ::: tip
-The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). **Full Graph** loads all nodes, relations and associated memories in the selected session and persona scope. Full requests no longer truncate at fixed counts; the current display level controls how many links are visible in 3D.
+The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). **Full Graph** loads the selected session and persona scope, excluding archived memories, and is bounded by server-side caps (5,000 nodes / 20,000 relations by default); when truncated, the legend shows the visible count and total. The current display level controls how many links are visible in 3D.
 :::
 
 In 2.7.0-beta.1, zoomed reading, hover and node selection pause ambient movement and stabilize label priority and collision bounds. Settled reading stops idle drawing; overview motion resumes when zoomed out with no hover or selection. Lower-priority labels may be omitted when space is limited; select a node to read its full details.
