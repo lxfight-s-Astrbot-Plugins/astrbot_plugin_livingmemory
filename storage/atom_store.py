@@ -42,7 +42,7 @@ class AtomStore:
         db_path: str,
         *,
         cache_reads: bool = False,
-        text_processor: "TextProcessor | None" = None,
+        text_processor: TextProcessor | None = None,
     ):
         self.db_path = db_path
         # 召回链路每次查询都建连 + PRAGMA 会在并发下被 WAL 锁串行化；长生命
