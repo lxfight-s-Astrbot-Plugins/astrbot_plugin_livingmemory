@@ -278,6 +278,10 @@
         "description": "Source Retention Importance Threshold",
         "hint": "Store original messages separately when summary importance reaches this value, enabling verification, detailed Agent recall, and re-summarization. Range 0-1; 1 keeps only maximum-importance memories."
       },
+      "max_segments_per_run": {
+        "description": "Max reflection segments per run",
+        "hint": "Maximum number of day/idle-split segments summarized in one trigger. Remaining backlog is consumed on the next trigger. (Allowed range: 1–50)"
+      },
       "max_messages_per_segment": {
         "description": "Messages per summary segment"
       }

@@ -482,3 +482,35 @@ test("rendering a graph payload does not re-fetch /stats", async () => {
 
   assert.equal(statsCalls, 0, "图页统计只随页面打开刷新，不应在每次 render 后重拉");
 });
+
+test("2D canvas exposes an aria label and the node list mirrors the payload", async () => {
+  const { elements } = loadGraphUi(true);
+  window.AstrBotPluginPage.apiGet = async () => ({
+    status: "ok",
+    data: {
+      enabled: true,
+      mode: "overview",
+      summary: {},
+      snapshot: {
+        nodes: [
+          { id: 7, type: "fact", label: "Alice" },
+          { id: 8, type: "topic", label: "Coffee" },
+        ],
+        edges: [],
+      },
+    },
+  });
+
+  window.ensureGraphScene();
+  await flushMicrotasks();
+
+  const canvas = elements["graph-view-2d"]._span;
+  assert.equal(canvas.getAttribute("role"), "img");
+  assert.equal(canvas.getAttribute("aria-label"), "graph.canvasAria 2 0");
+
+  elements["graph-node-list-btn"].trigger("click");
+  const listHtml = elements["graph-node-list"].innerHTML;
+  assert.match(listHtml, /data-node-id="7"/);
+  assert.match(listHtml, /Alice/);
+  assert.match(listHtml, /Coffee/);
+});

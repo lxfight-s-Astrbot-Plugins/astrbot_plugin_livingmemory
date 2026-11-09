@@ -190,13 +190,21 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _iter_schema_items(
     schema: dict[str, Any], prefix: str = ""
 ) -> list[tuple[str, dict[str, Any]]]:
+    """Yield every schema item that is rendered somewhere in the UI.
+
+    Dashboard-rendered groups are marked ``invisible`` on the host config page,
+    but their fields are still served by ``page/config`` and rendered by the
+    dashboard Settings page. Recurse into groups regardless of visibility and
+    only skip the leaves that are explicitly hidden.
+    """
     items: list[tuple[str, dict[str, Any]]] = []
     for key, meta in schema.items():
-        if not isinstance(meta, dict) or meta.get("invisible"):
+        if not isinstance(meta, dict):
             continue
 
         path = f"{prefix}.{key}" if prefix else key
-        items.append((path, meta))
+        if not meta.get("invisible"):
+            items.append((path, meta))
 
         if meta.get("type") == "object" and isinstance(meta.get("items"), dict):
             items.extend(_iter_schema_items(meta["items"], path))
@@ -218,6 +226,17 @@ def test_plugin_i18n_covers_visible_schema_text() -> None:
     locale_paths = sorted(I18N_DIR.glob("*.json"))
 
     assert locale_paths, "缺少插件 i18n locale 文件"
+
+    schema_paths = {path for path, _ in schema_items}
+    # 守卫必须真正覆盖 Dashboard 渲染的隐藏分组 + 宿主配置页字段。
+    assert len(schema_paths) >= 100, f"schema 覆盖疑似回退: {len(schema_paths)} 项"
+    for required in (
+        "provider_settings.embedding_provider_id",
+        "access_control.identity_aliases",
+        "reflection_engine.max_segments_per_run",
+        "filtering_settings.memory_scope_mode",
+    ):
+        assert required in schema_paths, f"守卫未覆盖 {required}"
 
     for locale_path in locale_paths:
         locale_config = _load_json(locale_path).get("config", {})
@@ -251,7 +270,9 @@ def test_plugin_i18n_covers_option_labels() -> None:
 
         for config_path, meta in option_items:
             locale_item = _get_path(locale_config, config_path)
-            labels = locale_item.get("labels") if isinstance(locale_item, dict) else None
+            labels = (
+                locale_item.get("labels") if isinstance(locale_item, dict) else None
+            )
             if not isinstance(labels, list) or len(labels) != len(meta["options"]):
                 bad_labels.append(config_path)
                 continue

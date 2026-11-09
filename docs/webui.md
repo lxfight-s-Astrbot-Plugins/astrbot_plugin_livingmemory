@@ -10,7 +10,7 @@ LivingMemory 使用 AstrBot 官方插件视图（Views，旧版称 Pages）提�
 
 建议 AstrBot 版本为 `4.24.2` 或更高。旧版本如果没有官方插件视图能力，插件仍可运行，但管理页面可能不可用。
 
-3D 模块在打开页面时预加载，切换到 3D 后才创建场景。资源地址由 AstrBot 插件视图改写并携带访问凭据；更新插件后请重新打开视图，避免旧页面继续使用失效的资源地址（[#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)）。
+3D 模块在切换到 3D 视图时才按需加载并创建场景。资源地址由 AstrBot 插件视图改写并携带访问凭据；更新插件后请重新打开视图，避免旧页面继续使用失效的资源地址（[#371](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/371)）。
 
 ## 设置
 

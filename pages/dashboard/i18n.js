@@ -95,6 +95,14 @@
     "settings.loadFailed": { zh: "加载配置失败", en: "Failed to load settings", ru: "Не удалось загрузить настройки" },
     "settings.empty":     { zh: "暂无可配置项", en: "No settings available", ru: "Нет доступных настроек" },
     "settings.invalidValue": { zh: "配置项 {0} 的值无效", en: "Invalid value for {0}", ru: "Недопустимое значение для {0}" },
+    "settings.defaultValue": { zh: "默认值", en: "Default", ru: "По умолчанию" },
+    "settings.restoreDefault": { zh: "恢复默认", en: "Restore default", ru: "Сбросить" },
+    "settings.reloadRequired": { zh: "需重载插件", en: "Reload required", ru: "Нужна перезагрузка" },
+    "settings.dangerTitle": { zh: "确认保存危险配置？", en: "Save risky settings?", ru: "Сохранить опасные настройки?" },
+    "settings.dangerKeepOriginal": { zh: "记忆整合会直接删除被合并的旧记忆，无法恢复。", en: "Consolidation will delete merged source memories; this cannot be undone.", ru: "Интеграция удалит исходные памяти без возможности восстановления." },
+    "settings.dangerAutoCleanup": { zh: "自动清理会永久删除久远且低重要性的记忆。", en: "Auto-cleanup permanently deletes old, low-importance memories.", ru: "Автоочистка навсегда удалит старые малозначимые памяти." },
+    "settings.dangerGraphOff": { zh: "关闭图记忆会停用图谱检索与图谱视图。", en: "Disabling graph memory turns off graph retrieval and the graph view.", ru: "Отключение графа памяти отключит графовый поиск и просмотр графа." },
+    "settings.saveCancelled": { zh: "已取消保存", en: "Save cancelled", ru: "Сохранение отменено" },
     "settings.searchPlaceholder": { zh: "搜索配置项…", en: "Search settings…", ru: "Поиск настроек…" },
     "settings.expandAll": { zh: "展开全部", en: "Expand all", ru: "Развернуть всё" },
     "settings.collapseAll": { zh: "收起全部", en: "Collapse all", ru: "Свернуть всё" },
@@ -235,6 +243,10 @@
     "graph.view2d":       { zh: "2D 平面", en: "2D Plane", ru: "2D Плоскость" },
     "graph.view3d":       { zh: "3D 空间", en: "3D Space", ru: "3D Пространство" },
     "graph.resetView":    { zh: "重置视角", en: "Reset view", ru: "Сбросить вид" },
+    "graph.nodeList":     { zh: "节点列表", en: "Node list", ru: "Список узлов" },
+    "graph.nodeListTitle":{ zh: "图谱节点列表", en: "Graph node list", ru: "Узлы графа" },
+    "graph.nodeListEmpty":{ zh: "当前视图没有节点", en: "No nodes in the current view", ru: "В текущем представлении нет узлов" },
+    "graph.canvasAria":   { zh: "知识图谱画布：{0} 个节点，{1} 条关系", en: "Knowledge graph canvas: {0} nodes, {1} relations", ru: "Холст графа знаний: {0} узлов, {1} связей" },
     "graph.allRelations": { zh: "全部关系", en: "All relations", ru: "Все связи" },
     "graph.pauseMotion":  { zh: "暂停运转", en: "Pause motion", ru: "Остановить движение" },
     "graph.resumeMotion": { zh: "继续运转", en: "Resume motion", ru: "Продолжить движение" },
@@ -344,6 +356,8 @@
     "system.consolidationTitle":{ zh: "记忆整合", en: "Memory Consolidation", ru: "Консолидация памяти" },
     "system.consolidatedCount":{ zh: "已整合", en: "Consolidated", ru: "Консолидировано" },
     "system.consolidationRun":{ zh: "立即整合", en: "Run Now", ru: "Запустить" },
+    "system.consConfirmTitle": { zh: "确认执行记忆整合？", en: "Run memory consolidation?", ru: "Запустить интеграцию памяти?" },
+    "system.consConfirmMessage": { zh: "将立即执行一轮整合：按当前配置合并记忆，并归档或删除原始记忆。", en: "This runs one consolidation pass now: memories are merged and source records are archived or deleted according to the current configuration.", ru: "Сейчас будет запущена одна интеграция: памяти объединяются, а исходные записи архивируются или удаляются согласно текущей конфигурации." },
     "system.consStatus":  { zh: "状态", en: "Status", ru: "Статус" },
     "system.consTrigger": { zh: "触发", en: "Trigger", ru: "Запуск" },
     "system.consTriggerDaily":{ zh: "每日", en: "Daily", ru: "Ежедневно" },
@@ -578,6 +592,7 @@
     "flow.waitForSave": "処理中です。完了してから移動してください。",
     "flow.working": "処理中です。しばらくお待ちください…",
     "graph.bridgeError": "このページは AstrBot 公式プラグイン View 内で実行する必要があります。",
+    "graph.canvasAria": "知識グラフのキャンバス：{0} ノード、{1} 関係",
     "graph.cancelled": "読み込みをキャンセルしました",
     "graph.canvasEmpty": "現在の範囲に表示可能なグラフデータがありません。",
     "graph.disabledMsg": "このインスタンスではグラフ記憶が無効です。グラフ記憶を有効にしてインデックスを完了してください。",
@@ -588,6 +603,9 @@
     "graph.fullGraphConfirm": "全量グラフには多数のノードが含まれる場合があり、読み込みに時間がかかり、サーバー側で切り詰められる可能性があります。続行しますか？",
     "graph.layouting": "グラフレイアウトを生成中...",
     "graph.legendEmpty": "グラフ接続なし",
+    "graph.nodeList": "ノード一覧",
+    "graph.nodeListEmpty": "現在の表示にノードがありません",
+    "graph.nodeListTitle": "グラフのノード一覧",
     "graph.limitedBtn": "制限付き概要",
     "graph.viewMode": "グラフの次元",
     "graph.view2d": "2D 平面",
@@ -645,6 +663,14 @@
     "settings.adapterCount": "{0} 件の記憶",
     "settings.saved": "保存しました。プラグインを再読み込みしてください",
     "settings.saveFailed": "設定の保存に失敗しました",
+    "settings.defaultValue": "既定値",
+    "settings.restoreDefault": "既定値に戻す",
+    "settings.reloadRequired": "再読み込みが必要",
+    "settings.dangerTitle": "危険な設定を保存しますか？",
+    "settings.dangerKeepOriginal": "記憶の統合により、統合元の古い記憶が削除され元に戻せません。",
+    "settings.dangerAutoCleanup": "自動クリーンアップにより、古く重要度の低い記憶が完全に削除されます。",
+    "settings.dangerGraphOff": "グラフ記憶を無効にすると、グラフ検索とグラフ表示が使えなくなります。",
+    "settings.saveCancelled": "保存をキャンセルしました",
     "settings.loading": "設定を読み込み中…",
     "settings.loadFailed": "設定の読み込みに失敗しました",
     "settings.empty": "設定できる項目がありません",
@@ -735,6 +761,8 @@
     "system.consTriggerReflection": "リフレクション時",
     "system.consolidatedCount": "統合済み",
     "system.consolidationRun": "今すぐ統合",
+    "system.consConfirmTitle": "記憶の統合を実行しますか？",
+    "system.consConfirmMessage": "今すぐ 1 回分の統合を実行します。現在の設定に従って記憶を統合し、元の記憶をアーカイブまたは削除します。",
     "system.consolidationTitle": "記憶統合",
     "system.fetchFailed": "システムデータの取得に失敗しました",
     "system.files": "ファイル",
@@ -866,10 +894,7 @@
     if (options.persist !== false) {
       try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* ignore */ }
     }
-    document.documentElement.setAttribute(
-      "lang",
-      lang === "zh" ? "zh-CN" : lang === "ru" ? "ru" : lang === "ja" ? "ja" : "en"
-    );
+    document.documentElement.setAttribute("lang", languageTag(lang));
     applyI18n();
     window.dispatchEvent(new CustomEvent("languagechange", { detail: { lang, source: options.source || "local" } }));
   };
@@ -897,9 +922,14 @@
     });
   }
 
+  /** 把界面语言映射到 <html lang>；ja 之前漏掉会回落成 en。 */
+  function languageTag(lang) {
+    return lang === "zh" ? "zh-CN" : lang === "ru" ? "ru" : lang === "ja" ? "ja" : "en";
+  }
+
   // bootstrap
   currentLang = detectLanguage();
-  document.documentElement.setAttribute("lang", currentLang === "zh" ? "zh-CN" : currentLang === "ru" ? "ru" : "en");
+  document.documentElement.setAttribute("lang", languageTag(currentLang));
   document.addEventListener("DOMContentLoaded", () => {
     applyI18n();
     listenBridgeLocale();

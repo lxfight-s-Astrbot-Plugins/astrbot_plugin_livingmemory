@@ -223,7 +223,11 @@ def test_dashboard_hides_inactive_panels_from_keyboard_navigation() -> None:
     peek_panel = (DASHBOARD / "modules" / "peek-panel.js").read_text(encoding="utf-8")
 
     assert 'id="modal-overlay"' not in index
-    assert 'id="peek-panel" aria-hidden="true" inert' in index
+    assert re.search(
+        r'id="peek-panel"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-hidden="true"[^>]*inert',
+        index,
+    ), "peek 面板应同时声明 dialog 语义与隐藏状态"
+
     assert 'panel.removeAttribute("inert")' in peek_panel
     assert 'panel.setAttribute("aria-hidden", "false")' in peek_panel
     assert 'panel.setAttribute("inert", "")' in peek_panel

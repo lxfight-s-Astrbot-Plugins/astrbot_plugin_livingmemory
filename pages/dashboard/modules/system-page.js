@@ -3,7 +3,7 @@
  * 负责展示系统概览和统计信息
  */
 
-import { esc, atomLabel } from "./utils.js";
+import { esc, atomLabel, confirmAction } from "./utils.js";
 
 export class SystemPage {
   constructor(state, apiClient) {
@@ -289,6 +289,16 @@ export class SystemPage {
   async runConsolidation() {
     const button = document.getElementById("cons-run-btn");
     const resultEl = document.getElementById("cons-run-result");
+    /* 整合会按配置归档或删除原记忆，启用时先二次确认；宿主 iframe 不能用 window.confirm。 */
+    if (this.state._consolidationEnabled) {
+      const confirmed = await confirmAction({
+        title: window.t("system.consConfirmTitle"),
+        message: window.t("system.consConfirmMessage"),
+        confirmLabel: window.t("system.consolidationRun"),
+        destructive: false,
+      });
+      if (!confirmed) return;
+    }
     if (button) button.disabled = true;
     if (resultEl) resultEl.textContent = window.t("system.consRunning");
     try {

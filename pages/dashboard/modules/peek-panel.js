@@ -35,6 +35,9 @@ export class PeekPanel {
     this._batchEditResolve = null;
     this._detailGeneration = 0;
     this._prevPeekContent = null;
+    this._previousFocus = null;
+    this._trapBound = false;
+    this._confirmPreviousFocus = null;
   }
 
   /**
@@ -44,6 +47,9 @@ export class PeekPanel {
    */
   open(isWide = false, withOverlay = true) {
     const panel = document.getElementById("peek-panel");
+    if (!panel.classList.contains("visible")) {
+      this._previousFocus = document.activeElement || null;
+    }
     panel.removeAttribute("inert");
     panel.setAttribute("aria-hidden", "false");
     panel.classList.add("visible");
@@ -54,6 +60,36 @@ export class PeekPanel {
     }
     if (withOverlay) {
       document.getElementById("peek-overlay").classList.add("visible");
+    }
+    if (!this._trapBound && typeof panel.addEventListener === "function") {
+      panel.addEventListener("keydown", (event) => this._trapFocus(event));
+      this._trapBound = true;
+    }
+    const closeButton = document.getElementById("peek-close");
+    if (closeButton && typeof closeButton.focus === "function") {
+      closeButton.focus({ preventScroll: true });
+    }
+  }
+
+  /** 把 Tab 焦点限制在打开的面板内，避免跑到背后的页面。 */
+  _trapFocus(event) {
+    if (!event || event.key !== "Tab") return;
+    const panel = document.getElementById("peek-panel");
+    if (!panel || typeof panel.querySelectorAll !== "function") return;
+    const focusable = Array.from(
+      panel.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => !element.disabled && element.getAttribute?.("aria-hidden") !== "true");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   }
 
@@ -80,6 +116,9 @@ export class PeekPanel {
     this.state._nodeDetailCache = null;
     // 使在途详情请求失效，防止面板关闭后被慢响应重新打开
     this._detailGeneration++;
+    const previous = this._previousFocus;
+    this._previousFocus = null;
+    if (previous && typeof previous.focus === "function") previous.focus();
   }
 
   hasUnsavedChanges() {
@@ -644,7 +683,8 @@ export class PeekPanel {
       this._confirmResolve = resolve;
       this._prevPeekContent = document.getElementById("peek-body").innerHTML;
 
-      let html = '<div class="confirm-dialog">';
+      this._confirmPreviousFocus = document.activeElement || null;
+      let html = '<div class="confirm-dialog" role="dialog" aria-modal="true" aria-label="' + esc(title) + '">';
       html += '<div class="confirm-dialog-title">' + esc(title) + '</div>';
       html += '<div class="confirm-dialog-message">' + esc(message) + '</div>';
       html += '<div class="confirm-dialog-actions">';
@@ -658,7 +698,10 @@ export class PeekPanel {
       const okBtn = document.getElementById("confirm-ok-btn");
       const cancelBtn = document.getElementById("confirm-cancel-btn");
       if (okBtn) okBtn.addEventListener("click", () => this._closeConfirmDialog(true));
-      if (cancelBtn) cancelBtn.addEventListener("click", () => this._closeConfirmDialog(false));
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => this._closeConfirmDialog(false));
+        cancelBtn.focus();
+      }
     });
   }
 
@@ -683,6 +726,9 @@ export class PeekPanel {
       this._confirmResolve(!!result);
       this._confirmResolve = null;
     }
+    const previous = this._confirmPreviousFocus;
+    this._confirmPreviousFocus = null;
+    if (previous && typeof previous.focus === "function") previous.focus();
   }
 
   /**
@@ -700,7 +746,8 @@ export class PeekPanel {
       this._batchEditResolve = resolve;
       this._prevPeekContent = document.getElementById("peek-body").innerHTML;
 
-      let html = '<div class="confirm-dialog">';
+      this._confirmPreviousFocus = document.activeElement || null;
+      let html = '<div class="confirm-dialog" role="dialog" aria-modal="true" aria-label="' + esc(title) + '">';
       html += '<div class="confirm-dialog-title">' + esc(window.t("batchEdit.title", count)) + '</div>';
       html += '<div class="batch-edit-form">';
       html += '<label class="batch-edit-label" for="batch-edit-field">' + esc(window.t("batchEdit.field")) + '</label>';

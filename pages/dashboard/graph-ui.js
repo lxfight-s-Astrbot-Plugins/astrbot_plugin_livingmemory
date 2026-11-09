@@ -140,6 +140,10 @@
     dom.page = document.getElementById("page-graph");
     dom.view2D = document.getElementById("graph-view-2d");
     dom.view3D = document.getElementById("graph-view-3d");
+    dom.nodeListButton = document.getElementById("graph-node-list-btn");
+    dom.nodeListDialog = document.getElementById("graph-node-list-dialog");
+    dom.nodeList = document.getElementById("graph-node-list");
+    dom.nodeListClose = document.getElementById("graph-node-list-close");
 
     if (!dom.canvas) return;
 
@@ -155,6 +159,9 @@
       if (state.isGraphReady) state.renderer.resetView();
       if (window.lmClosePeek) window.lmClosePeek();
     });
+    if (dom.nodeListButton) dom.nodeListButton.addEventListener("click", openNodeList);
+    if (dom.nodeListClose) dom.nodeListClose.addEventListener("click", closeNodeList);
+    if (dom.nodeList) dom.nodeList.addEventListener("click", onNodeListClick);
     dom.relationsButton.addEventListener("click", function() {
       state.graph3D.setShowAllRelations(!state.graph3D.showAllRelations);
       dom.relationsButton.setAttribute("aria-pressed", String(state.graph3D.showAllRelations));
@@ -184,7 +191,11 @@
       setOverviewButtonLabel();
       setInteractionHint();
       setMotionButtonLabel();
-      if (state.payload) renderLegend(state.payload);
+      if (state.payload) {
+        renderLegend(state.payload);
+        updateCanvasA11yFromPayload();
+        if (dom.nodeListDialog && dom.nodeListDialog.open) renderNodeList();
+      }
     });
 
     /* app.js starts loading after the host Bridge reports ready. */
@@ -565,6 +576,93 @@
   };
 
   /* ================================================================
+     Accessibility helpers — 2D canvas fallback + node list dialog
+     ================================================================ */
+
+  var ESCAPE_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  function escapeNodeText(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function(ch) {
+      return ESCAPE_MAP[ch];
+    });
+  }
+
+  function payloadCounts() {
+    var snapshot = (state.payload && state.payload.snapshot) || {};
+    return [(snapshot.nodes || []).length, (snapshot.edges || []).length];
+  }
+
+  function updateCanvasA11y(nodeCount, edgeCount) {
+    var canvas = dom.view2D && dom.view2D.querySelector ? dom.view2D.querySelector("canvas") : null;
+    if (!canvas || typeof canvas.setAttribute !== "function") return;
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", window.t("graph.canvasAria", nodeCount, edgeCount));
+  }
+
+  function updateCanvasA11yFromPayload() {
+    var counts = payloadCounts();
+    updateCanvasA11y(counts[0], counts[1]);
+  }
+
+  function renderNodeList() {
+    if (!dom.nodeList) return;
+    var snapshot = (state.payload && state.payload.snapshot) || {};
+    var nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes.slice(0, 300) : [];
+    if (!nodes.length) {
+      dom.nodeList.innerHTML =
+        '<li class="table-empty">' + escapeNodeText(window.t("graph.nodeListEmpty")) + "</li>";
+      return;
+    }
+    dom.nodeList.innerHTML = nodes
+      .map(function(node) {
+        var label = node.label || node.canonical_value || node.key || "#" + node.id;
+        return (
+          '<li><button type="button" class="graph-node-list-item" data-node-id="' +
+          escapeNodeText(node.id) +
+          '"><span class="graph-node-list-label">' +
+          escapeNodeText(label) +
+          '</span><span class="graph-node-list-type">' +
+          escapeNodeText(typeLabel(node.type)) +
+          "</span></button></li>"
+        );
+      })
+      .join("");
+  }
+
+  function openNodeList() {
+    renderNodeList();
+    if (
+      dom.nodeListDialog &&
+      typeof dom.nodeListDialog.showModal === "function" &&
+      !dom.nodeListDialog.open
+    ) {
+      dom.nodeListDialog.showModal();
+    }
+  }
+
+  function closeNodeList() {
+    if (
+      dom.nodeListDialog &&
+      typeof dom.nodeListDialog.close === "function" &&
+      dom.nodeListDialog.open
+    ) {
+      dom.nodeListDialog.close();
+    }
+    if (dom.nodeListButton && typeof dom.nodeListButton.focus === "function") {
+      dom.nodeListButton.focus({ preventScroll: true });
+    }
+  }
+
+  function onNodeListClick(event) {
+    var target = event && event.target && event.target.closest
+      ? event.target.closest("[data-node-id]")
+      : null;
+    if (!target) return;
+    var nodeId = numericId(target.getAttribute("data-node-id"));
+    closeNodeList();
+    if (nodeId !== null) selectNode(nodeId, true);
+  }
+
+  /* ================================================================
      Render Pipeline
      ================================================================ */
   function setLoading(loading) {
@@ -583,6 +681,7 @@
     }
     state.payload = payload;
     state.graphIndex = buildGraphIndex(snapshot);
+    updateCanvasA11y((snapshot.nodes || []).length, (snapshot.edges || []).length);
 
     if (!payload.enabled) {
       state.selectedNodeId = state.selectedMemoryId = null;
