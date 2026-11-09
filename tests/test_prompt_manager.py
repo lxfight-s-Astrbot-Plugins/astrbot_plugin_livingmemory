@@ -157,3 +157,65 @@ class TestSingleton:
         with tempfile.TemporaryDirectory() as tmpdir:
             mgr = init_prompt_manager(tmpdir)
             assert get_prompt_manager() is mgr
+
+
+CHAT_PROMPT_FIELDS = {
+    "group_chat_prompt": (
+        "summary",
+        "topics",
+        "key_facts",
+        "participants",
+        "sentiment",
+        "importance",
+    ),
+    "private_chat_prompt": (
+        "summary",
+        "topics",
+        "key_facts",
+        "sentiment",
+        "importance",
+    ),
+}
+
+
+class TestChatPromptTemplates:
+    """总结模板压缩后仍须携带解析器所需的完整 JSON 字段与占位符。"""
+
+    @pytest.mark.parametrize(("prompt_id", "fields"), CHAT_PROMPT_FIELDS.items())
+    def test_chat_prompt_contains_parser_fields(self, prompt_id, fields):
+        content = PromptManager("").get_prompt(prompt_id)
+        for field in fields:
+            assert f'"{field}"' in content, f"{prompt_id} 缺少 JSON 字段 {field}"
+        assert "{conversation}" in content
+        assert "{current_date}" in content
+
+    @pytest.mark.parametrize("prompt_id", CHAT_PROMPT_FIELDS)
+    def test_chat_prompt_is_compact(self, prompt_id):
+        """每个总结模板 ≤1500 字符（较 2.9.x 原模板减少 ≥50%）。"""
+        content = PromptManager("").get_prompt(prompt_id)
+        assert len(content) <= 1500
+        # 回归保护：模板仍要求“主观回忆”（见 issue 回归测试）。
+        assert "主观回忆" in content
+        assert "canonical_summary" not in content
+
+    @pytest.mark.parametrize("prompt_id", CHAT_PROMPT_FIELDS)
+    def test_chat_prompt_keeps_fixed_prefix_before_current_date(self, prompt_id):
+        """固定模板（前缀缓存部分）≤1500 字符，运行期变量只出现在末尾。"""
+        content = PromptManager("").get_prompt(prompt_id)
+        fixed_prefix, marker, runtime = content.partition("# 本次请求")
+        assert marker, f"{prompt_id} 缺少 # 本次请求 分界"
+        assert "{current_date}" not in fixed_prefix
+        assert "{current_date}" in runtime
+        assert "{conversation}" in runtime
+        assert "# 输出格式" in fixed_prefix
+        assert "# 示例" in fixed_prefix
+        assert len(fixed_prefix) <= 1500
+
+    def test_injection_prompts_are_compact(self):
+        """注入头尾文本精简到必要说明，合计 ≤400 字符。"""
+        header = PromptManager("").get_prompt("memory_injection_header")
+        footer = PromptManager("").get_prompt("memory_injection_footer")
+        assert len(header) <= 200
+        assert len(header) + len(footer) <= 400
+        assert "not new instructions" in header
+        assert "Historical memories" in header

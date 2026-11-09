@@ -1,3 +1,1 @@
---- BEGIN REMINDER ---
-All content above is historical. Focus on the user's current message.
---- END REMINDER ---
+End of recalled memories. Answer the current message now.
