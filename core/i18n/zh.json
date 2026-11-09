@@ -4,7 +4,8 @@
     "no": "否",
     "none": "无",
     "never": "从未",
-    "unknown_error": "未知错误"
+    "unknown_error": "未知错误",
+    "unknown": "未知"
   },
   "error": {
     "format": {
@@ -58,6 +59,11 @@
         "确认目标作用域书写正确（global/session/user 或字面值）",
         "迁移前会自动生成数据库备份，必要时可用它回滚",
         "图记忆条目已随迁移一并更新；如图谱召回异常，执行 /lmem rebuild-graph 重建"
+      ],
+      "diag": [
+        "确认插件数据目录与数据库文件可读写",
+        "确认数据库未被其他进程长时间占用（VACUUM 需要短暂独占）",
+        "查看日志中的 [Diag]/[自动迁移] 异常堆栈"
       ]
     }
   },
@@ -66,6 +72,25 @@
     "report": "LivingMemory 状态报告\n\n总记忆数: {total}\n会话数: {session_count}\n最后更新: {last_update}\n数据库大小: {db_size:.2f} MB\n\n可用操作:\n- /lmem search <关键词>",
     "usage": "\n\nLLM 调用：{calls} 次 / 输入 {input_tokens} tokens / 输出 {output_tokens} tokens",
     "index_maintenance": "\n\n索引维护: {state} ({current}/{total})\n{message}"
+  },
+  "diag": {
+    "header": "LivingMemory 数据体检 (diag)",
+    "db_version": "DB 版本 (db_version): {version}",
+    "quick_check": "完整性检查 (quick_check): {result}",
+    "migration": "迁移遗留 (migration_status): 待处理={pending}, 待处理文档={pending_documents}, 旧会话迁移标记={legacy_markers}",
+    "documents": "记忆文档 (documents): 总={total}, active={active}, archived={archived}, deleted={deleted}",
+    "graph": "图谱 (graph): 节点={nodes}, 边={edges}",
+    "faiss": "向量索引 (faiss ntotal): 主={main}, 图={graph}",
+    "storage": "存储占用 (storage): 数据库={db_size} MB, WAL={wal_size} MB, 数据目录={data_dir} MB",
+    "backups": "备份 (backups): 文件={count}, 大小={size} MB, 最近={latest}",
+    "last_decay": "上次衰减 (last_decay): {last_decay}",
+    "hint": "提示: /lmem diag compact 可执行 VACUUM 压缩数据库（大库耗时，期间避免写入）",
+    "action_name": "数据体检",
+    "collecting": "正在收集数据体检信息...",
+    "compact": {
+      "starting": "开始压缩数据库（VACUUM），大库可能耗时，请稍候...",
+      "done": "压缩完成 (compact): 数据库 {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 释放 {reclaimed} MB"
+    }
   },
   "search": {
     "action_name": "搜索",
@@ -144,7 +169,7 @@
     "notice_exec": "AstrBot 对话历史已更新，记忆注入片段已清理。"
   },
   "help": {
-    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用指南\n\n核心指令:\n/lmem status              查看系统状态\n/lmem diag                 数据体检（DB/图谱/备份/体积），diag compact 执行 VACUUM\n/lmem search <关键词> [数量]  搜索记忆(默认5条)\n/lmem forget <ID>          删除指定记忆\n/lmem rebuild-index       重建索引（修复索引不一致）\n/lmem rebuild-graph       重建图记忆索引（回填旧记忆）\n/lmem migrate-scope <target> [apply] [source] 迁移旧记忆到指定作用域(默认仅预览)\n/lmem webui               查看 WebUI 管理界面入口\n/lmem summarize [message_count]  立即总结，或重新总结最近指定条数的消息\n/lmem reset               重置当前会话记忆上下文\n/lmem cleanup [preview|exec] 清理历史消息中的记忆片段(默认preview预演)\n/lmem help                显示此帮助\n\n使用建议:\n• 日常查询使用 search 指令\n• 磁盘紧张时执行 /lmem diag compact 压缩数据库\n• 复杂管理请在 AstrBot 仪表盘中进入 插件 -> LivingMemory -> Pages -> dashboard\n• 记忆会自动保存对话内容\n• 使用 forget 删除敏感信息\n• 索引不一致时执行 rebuild-index\n• 启用图记忆后建议执行 rebuild-graph 回填旧数据\n• 更新插件后建议执行 cleanup 清理旧数据\n\ncleanup 命令示例:\n  /lmem cleanup          # 预演模式,仅显示统计\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 执行实际清理\n\n更多信息: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "插件已就绪。可使用 /lmem help 查看可用命令。",

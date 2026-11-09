@@ -142,6 +142,135 @@ class CommandHandler:
                 )
             )
 
+    @staticmethod
+    def _format_size_mb(value: int | None) -> str:
+        """把字节数格式化为两位小数 MB；None 表示未知。"""
+        if value is None:
+            return t("common.unknown")
+        return f"{value / (1024 * 1024):.2f}"
+
+    @staticmethod
+    def _format_timestamp(value: int | float | None) -> str:
+        """把 epoch 秒格式化为本地时间；缺失/非法值显示 unknown。"""
+        if not isinstance(value, (int, float)) or value <= 0:
+            return t("common.unknown")
+        return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _format_diag_report(self, diagnostics: dict) -> str:
+        """把诊断字典渲染成多行文本（缺失字段显示 unknown）。"""
+        unknown = t("common.unknown")
+        documents = diagnostics.get("documents")
+        if isinstance(documents, dict):
+            doc_values = {
+                key: documents.get(key, unknown)
+                for key in ("total", "active", "archived", "deleted")
+            }
+        else:
+            doc_values = dict.fromkeys(
+                ("total", "active", "archived", "deleted"), unknown
+            )
+
+        graph = diagnostics.get("graph")
+        graph_nodes = (
+            graph.get("nodes", unknown) if isinstance(graph, dict) else unknown
+        )
+        graph_edges = (
+            graph.get("edges", unknown) if isinstance(graph, dict) else unknown
+        )
+
+        faiss = diagnostics.get("faiss") or {}
+        faiss_main = faiss.get("main") if faiss.get("main") is not None else unknown
+        faiss_graph = faiss.get("graph") if faiss.get("graph") is not None else unknown
+
+        migration = diagnostics.get("migration") or {}
+        pending = migration.get("pending") or []
+        pending_text = (
+            ", ".join(str(item) for item in pending) if pending else t("common.none")
+        )
+        pending_documents = migration.get("pending_documents")
+        if pending_documents is None:
+            pending_documents = unknown
+        legacy_markers = migration.get("legacy_session_markers", unknown)
+
+        backups = diagnostics.get("backups") or {}
+        backup_count = backups.get("count", unknown)
+        backup_size = self._format_size_mb(backups.get("bytes"))
+        backup_latest = self._format_timestamp(backups.get("latest_at"))
+
+        last_decay = diagnostics.get("last_decay") or {}
+        last_decay_text = last_decay.get("date") or self._format_timestamp(
+            last_decay.get("timestamp")
+        )
+
+        db_version = diagnostics.get("db_version")
+        if db_version is None:
+            db_version = unknown
+
+        return "\n".join(
+            [
+                t("diag.header"),
+                t("diag.db_version", version=db_version),
+                t("diag.quick_check", result=diagnostics.get("quick_check") or unknown),
+                t(
+                    "diag.migration",
+                    pending=pending_text,
+                    pending_documents=pending_documents,
+                    legacy_markers=legacy_markers,
+                ),
+                t("diag.documents", **doc_values),
+                t("diag.graph", nodes=graph_nodes, edges=graph_edges),
+                t("diag.faiss", main=faiss_main, graph=faiss_graph),
+                t(
+                    "diag.storage",
+                    db_size=self._format_size_mb(diagnostics.get("db_bytes")),
+                    wal_size=self._format_size_mb(diagnostics.get("wal_bytes")),
+                    data_dir=self._format_size_mb(diagnostics.get("data_dir_bytes")),
+                ),
+                t(
+                    "diag.backups",
+                    count=backup_count,
+                    size=backup_size,
+                    latest=backup_latest,
+                ),
+                t("diag.last_decay", last_decay=last_decay_text),
+                t("diag.hint"),
+            ]
+        )
+
+    async def handle_diag(
+        self, event: AstrMessageEvent, mode: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """处理 /lmem diag 命令：数据体检；``compact`` 模式执行 VACUUM 压缩。"""
+        normalized = (mode or "").strip().casefold()
+        try:
+            if normalized in {"compact", "vacuum"}:
+                yield event.plain_result(t("diag.compact.starting"))
+                result = await self.memory_engine.compact_storage()
+                yield event.plain_result(
+                    t(
+                        "diag.compact.done",
+                        db_before=self._format_size_mb(result.get("db_size_before")),
+                        db_after=self._format_size_mb(result.get("db_size_after")),
+                        wal_before=self._format_size_mb(result.get("wal_size_before")),
+                        wal_after=self._format_size_mb(result.get("wal_size_after")),
+                        reclaimed=self._format_size_mb(result.get("bytes_reclaimed")),
+                    )
+                )
+                return
+
+            yield event.plain_result(t("diag.collecting"))
+            diagnostics = await self.memory_engine.get_diagnostics()
+            yield event.plain_result(self._format_diag_report(diagnostics))
+        except Exception as e:
+            logger.error(f"数据体检失败: {e}", exc_info=True)
+            yield event.plain_result(
+                self._format_error_message(
+                    t("diag.action_name"),
+                    e,
+                    t_list("error.suggestions.diag"),
+                )
+            )
+
     async def handle_search(
         self, event: AstrMessageEvent, query: str, k: int = 5
     ) -> AsyncGenerator[MessageEventResult, None]:

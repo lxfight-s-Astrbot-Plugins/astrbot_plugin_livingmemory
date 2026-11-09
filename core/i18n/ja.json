@@ -4,7 +4,8 @@
     "no": "いいえ",
     "none": "なし",
     "never": "一度もない",
-    "unknown_error": "不明なエラー"
+    "unknown_error": "不明なエラー",
+    "unknown": "不明"
   },
   "error": {
     "format": {
@@ -58,6 +59,11 @@
         "移行先スコープの記述が正しいことを確認（global/session/user またはリテラル）",
         "移行前にデータベースのバックアップが自動作成されます。必要ならそれでロールバックできます",
         "グラフ記憶の項目も移行済みです。グラフ検索が異常な場合は /lmem rebuild-graph で再構築してください"
+      ],
+      "diag": [
+        "プラグインのデータディレクトリとデータベースファイルが読み書き可能か確認してください",
+        "他のプロセスがデータベースを長時間占有していないか確認してください（VACUUM は短時間の排他ロックが必要です）",
+        "ログの [Diag]/[自動移行] のスタックトレースを確認してください"
       ]
     }
   },
@@ -66,6 +72,25 @@
     "report": "LivingMemory ステータスレポート\n\n総記憶数: {total}\nセッション数: {session_count}\n最終更新: {last_update}\nデータベースサイズ: {db_size:.2f} MB\n\n使用可能な操作:\n- /lmem search <キーワード>",
     "usage": "\n\nLLM 呼び出し: {calls} 回 / 入力 {input_tokens} tokens / 出力 {output_tokens} tokens",
     "index_maintenance": "\n\nインデックス保守: {state} ({current}/{total})\n{message}"
+  },
+  "diag": {
+    "header": "LivingMemory データ診断 (diag)",
+    "db_version": "DB バージョン (db_version): {version}",
+    "quick_check": "整合性チェック (quick_check): {result}",
+    "migration": "移行残り (migration_status): 保留={pending}, 保留ドキュメント={pending_documents}, 旧セッション移行マーカー={legacy_markers}",
+    "documents": "記憶ドキュメント (documents): 合計={total}, active={active}, archived={archived}, deleted={deleted}",
+    "graph": "グラフ (graph): ノード={nodes}, エッジ={edges}",
+    "faiss": "ベクトルインデックス (faiss ntotal): メイン={main}, グラフ={graph}",
+    "storage": "ストレージ (storage): データベース={db_size} MB, WAL={wal_size} MB, データディレクトリ={data_dir} MB",
+    "backups": "バックアップ (backups): ファイル={count}, サイズ={size} MB, 最新={latest}",
+    "last_decay": "前回の減衰 (last_decay): {last_decay}",
+    "hint": "ヒント: /lmem diag compact で VACUUM を実行してデータベースを圧縮できます（大規模データでは時間がかかり、実行中は書き込みを避けてください）",
+    "action_name": "データ診断",
+    "collecting": "データ診断情報を収集中...",
+    "compact": {
+      "starting": "データベースを圧縮しています (VACUUM)。大規模データでは時間がかかる場合があります...",
+      "done": "圧縮完了 (compact): データベース {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 解放 {reclaimed} MB"
+    }
   },
   "search": {
     "action_name": "検索",
@@ -144,7 +169,7 @@
     "notice_exec": "AstrBot の会話履歴を更新し、記憶注入フラグメントを整理しました。"
   },
   "help": {
-    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
+    "text": "LivingMemory 使用ガイド\n\n主なコマンド:\n/lmem status              システム状態を表示\n/lmem diag                 データ診断（DB/グラフ/バックアップ/サイズ）、diag compact で VACUUM\n/lmem search <キーワード> [件数]  記憶を検索（既定 5 件）\n/lmem forget <ID>          指定した記憶を削除\n/lmem rebuild-index       インデックス再構築（不整合の修復）\n/lmem rebuild-graph       グラフ記憶インデックス再構築（旧記憶のバックフィル）\n/lmem migrate-scope <target> [apply] [source] 旧記憶を指定スコープへ移行（既定はプレビューのみ）\n/lmem webui                WebUI 管理画面の入口を表示\n/lmem summarize [message_count]  今すぐ要約、または直近の指定件数を再要約\n/lmem reset               現在のセッションの記憶コンテキストをリセット\n/lmem cleanup [preview|exec] 履歴メッセージ内の記憶フラグメントを整理（既定は preview）\n/lmem help                このヘルプを表示\n\nヒント:\n• 日常的な検索には search コマンドを使用\n• ディスク容量が厳しい場合は /lmem diag compact を実行\n• 詳細な管理は AstrBot ダッシュボードの プラグイン -> LivingMemory -> Pages -> dashboard から\n• 会話内容は自動的に記憶として保存されます\n• 機密情報の削除には forget を使用\n• インデックス不整合時は rebuild-index を実行\n• グラフ記憶を有効にした後は rebuild-graph で旧データを補完することを推奨\n• プラグイン更新後は cleanup で旧データを整理することを推奨\n\ncleanup コマンド例:\n  /lmem cleanup          # プレビューモード（統計表示のみ）\n  /lmem cleanup preview  # 同上\n  /lmem cleanup exec     # 実際に整理を実行\n\n詳細: https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory"
   },
   "init": {
     "ready": "プラグインの準備ができました。使用可能なコマンドは /lmem help で確認できます。",
