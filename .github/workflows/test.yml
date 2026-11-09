@@ -67,9 +67,22 @@ jobs:
           python -m ruff check .
           python -m ruff format --check .
 
-      - name: Run test suite
+      - name: Run test suite with coverage
         working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
-        run: python -m pytest -q
+        run: python -m coverage run -m pytest -q
+
+      - name: Check coverage threshold
+        working-directory: AstrBot/data/plugins/astrbot_plugin_livingmemory
+        run: |
+          python -m coverage report --fail-under=84
+          python -m coverage xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: AstrBot/data/plugins/astrbot_plugin_livingmemory/coverage.xml
+          if-no-files-found: error
 
       # 召回排序/相关性门槛的离线回归门禁：合成数据 + 确定性 embedding，
       # 无网络、无 API 费用，基线见 tests/eval/baseline.json。
@@ -99,3 +112,6 @@ jobs:
 
       - name: Check dashboard bundles
         run: node scripts/build_dashboard.mjs --check
+
+      - name: Build documentation
+        run: npm run docs:build

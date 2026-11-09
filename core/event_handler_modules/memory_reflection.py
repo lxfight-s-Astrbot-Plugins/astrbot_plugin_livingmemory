@@ -169,7 +169,18 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             return
         task = asyncio.create_task(self.consolidation_manager.maybe_run("reflection"))
         self._storage_tasks.add(task)
-        task.add_done_callback(self._storage_tasks.discard)
+        task.add_done_callback(self._on_auxiliary_task_done)
+
+    def _on_auxiliary_task_done(self, task: asyncio.Task) -> None:
+        """取回后台任务异常并记录，避免静默失败。"""
+        self._storage_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                f"[MemoryReflection] Background task failed: {exc}", exc_info=exc
+            )
 
     @staticmethod
     def _find_window_split_boundary(
@@ -323,8 +334,9 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         if callable(get_extra):
             try:
                 checkpoint_id = get_extra("llm_checkpoint_id")
-            except Exception:
+            except Exception as exc:
                 checkpoint_id = None
+                logger.debug(f"Failed to read llm_checkpoint_id from event: {exc}")
         if not (isinstance(checkpoint_id, str) and checkpoint_id):
             return False
 

@@ -74,3 +74,14 @@ def test_bump_version_script_updates_every_hardcoded_file(tmp_path: Path) -> Non
     assert '"1.3.0"' in (
         tmp_path / "core" / "managers" / "backup_manager.py"
     ).read_text("utf-8")
+
+
+def test_metadata_declares_supported_astrbot_range() -> None:
+    """metadata.yaml 必须声明宿主版本范围，且下界与 main.py 的最低版本一致。"""
+    metadata = (ROOT / "metadata.yaml").read_text("utf-8")
+    match = re.search(r'^astrbot_version:\s*"([^"]+)"\s*$', metadata, re.M)
+    assert match, "metadata.yaml 缺少 astrbot_version 声明"
+
+    from astrbot_plugin_livingmemory.main import _MIN_ASTRBOT_VERSION
+
+    assert match.group(1) == f">={_MIN_ASTRBOT_VERSION},<5"
