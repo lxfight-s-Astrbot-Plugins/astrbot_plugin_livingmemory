@@ -1,0 +1,15 @@
+# Coverage gate for PR-6: the backend CI job runs `coverage run -m pytest -q`
+# and fails under 84% statement coverage. Tests, fixture scripts and docs are
+# excluded so the metric tracks shipped plugin code only.
+
+[run]
+source = .
+relative_files = True
+omit =
+    tests/*
+    scripts/*
+    docs/*
+
+[report]
+fail_under = 84
+skip_covered = True

@@ -3,3 +3,8 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 ruff==0.15.22
+coverage==7.16.1
+
+# Test-only dependency moved out of production requirements (no production code
+# imports pytz); tests keep using its timezone data.
+pytz>=2021.3,<2027
