@@ -188,6 +188,7 @@
     "transfer.exportTitle":{ zh: "有选中项时导出所选，否则导出全部", en: "Export selected memories, or all when none are selected", ru: "Экспортировать выбранные или все записи" },
     "transfer.importTitle":{ zh: "导入 JSON 或 CSV 记忆文件", en: "Import a JSON or CSV memory file", ru: "Импорт файла памяти JSON или CSV" },
     "transfer.exportSuccess":{ zh: "已导出 {0} 条记忆", en: "Exported {0} memories", ru: "Экспортировано записей: {0}" },
+    "transfer.exportTruncated":{ zh: "数据量较大：已导出前 {0} 条（共 {1} 条），可用筛选或减少选中后分批导出。", en: "The library is large: exported the first {0} of {1} memories. Narrow the filters or selection and export in batches.", ru: "Библиотека большая: экспортировано {0} из {1} памятей. Сузьте фильтры или выберите меньше записей и экспортируйте пакетами." },
     "transfer.importPreviewTitle":{ zh: "确认导入记忆", en: "Confirm Memory Import", ru: "Подтвердить импорт памяти" },
     "transfer.importPreview":{ zh: "有效 {0} 条，计划导入 {1} 条，重复 {2} 条，无效 {3} 条，需要 LLM 总结 {4} 条。", en: "Valid: {0}; planned: {1}; duplicates: {2}; invalid: {3}; requiring LLM summaries: {4}.", ru: "Корректно: {0}; к импорту: {1}; дубликаты: {2}; ошибки: {3}; требуют LLM: {4}." },
     "transfer.importSuccess":{ zh: "已导入 {0} 条，跳过重复 {1} 条，失败 {2} 条", en: "Imported {0}; skipped {1} duplicates; failed {2}", ru: "Импортировано: {0}; пропущено дубликатов: {1}; ошибок: {2}" },
@@ -323,6 +324,7 @@
     "misc.requestFailed": { zh: "请求失败", en: "Request failed", ru: "Ошибка запроса" },
     "misc.statsFail":     { zh: "获取统计信息失败", en: "Failed to fetch stats", ru: "Не удалось получить статистику" },
     "misc.fetchMemoriesFail":{ zh: "获取记忆失败", en: "Failed to fetch memories", ru: "Не удалось загрузить память" },
+    "notReady.message":   { zh: "插件尚未初始化完成：请在 AstrBot 配置中启用 Embedding Provider，保存后等待初始化完成。", en: "The plugin is not ready yet: enable an Embedding Provider in the AstrBot configuration and wait for initialization.", ru: "Плагин ещё не готов: включите Embedding Provider в конфигурации AstrBot и дождитесь инициализации." },
 
     /* ---- System ---- */
     "system.importanceDistribution":{ zh: "重要性分布", en: "Importance Distribution", ru: "Распределение важности" },
@@ -629,6 +631,7 @@
     "misc.fetchMemoriesFail": "記憶の取得に失敗しました",
     "misc.requestFailed": "リクエストに失敗しました",
     "misc.statsFail": "統計情報の取得に失敗しました",
+    "notReady.message": "プラグインはまだ初期化中です。AstrBot の設定で Embedding Provider を有効にし、初期化の完了をお待ちください。",
     "nav.graph": "ナレッジグラフ",
     "nav.memory": "記憶管理",
     "nav.prompts": "プロンプト管理",
@@ -757,6 +760,7 @@
     "transfer.duplicateTitle": "インポート時の重複処理",
     "transfer.export": "エクスポート",
     "transfer.exportSuccess": "{0} 件の記憶をエクスポートしました",
+    "transfer.exportTruncated": "データ量が多いため、先頭 {0} 件（全 {1} 件）のみエクスポートしました。フィルターや選択範囲を絞って分割エクスポートしてください。",
     "transfer.exportTitle": "選択項目がある場合は選択分を、なければすべてをエクスポート",
     "transfer.failed": "記憶のインポートまたはエクスポートに失敗しました",
     "transfer.fileTooLarge": "インポートファイルは 50 MiB 以下にしてください",

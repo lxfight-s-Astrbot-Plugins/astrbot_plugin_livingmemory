@@ -4,6 +4,7 @@ Tests for PluginPageApi — WebUI REST API endpoints and helpers.
 
 from __future__ import annotations
 
+import importlib
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -38,6 +39,15 @@ class FakeMemoryEngine:
 
     async def get_statistics(self):
         return self.stats
+
+    async def list_memories_page(self, **kwargs):
+        return {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": kwargs.get("page_size", 20),
+            "has_more": False,
+        }
 
     async def search_memories(self, query, k=5, session_id=None, persona_id=None):
         return []
@@ -80,24 +90,42 @@ class FakeMemoryEngine:
 
 
 class FakeInitializer:
-    def __init__(self):
+    def __init__(self, *, initialized: bool = True, failed: bool = False):
         self.memory_engine = FakeMemoryEngine()
         self.conversation_manager = None
         self.index_validator = None
         self.memory_processor = None
         self.data_dir = "/tmp/test_plugin"
+        self.is_initialized = initialized
+        self.is_failed = failed
 
 
 class FakePlugin:
-    def __init__(self, *, ready=True, memory_engine=None):
+    def __init__(
+        self,
+        *,
+        ready=True,
+        memory_engine=None,
+        initialized=None,
+        failed=False,
+        block_waiting=False,
+    ):
         self._ready = ready
         self._fail_message = "" if ready else "插件尚未就绪"
-        self.initializer = FakeInitializer()
+        self._block_waiting = block_waiting
+        self.readiness_waits: list[bool] = []
+        self.initializer = FakeInitializer(
+            initialized=ready if initialized is None else initialized,
+            failed=failed,
+        )
         if memory_engine:
             self.initializer.memory_engine = memory_engine
         self._api_routes = []
 
-    async def _ensure_plugin_ready(self):
+    async def _ensure_plugin_ready(self, *, wait: bool = True):
+        self.readiness_waits.append(wait)
+        if wait and self._block_waiting:
+            raise AssertionError("read endpoint must not wait for initialization")
         return self._ready, self._fail_message
 
     @property
@@ -476,7 +504,16 @@ class TestGetStats:
     async def test_plugin_not_ready(self, api_not_ready):
         result = await api_not_ready.get_stats()
         assert result["status"] == "error"
+        assert result["code"] == "not_ready"
+        assert result["init_state"] == "in_progress"
         assert "尚未就绪" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_failed_init_marks_not_ready_state(self):
+        api = PluginPageApi(FakePlugin(ready=False, failed=True))
+        result = await api.get_stats()
+        assert result["code"] == "not_ready"
+        assert result["init_state"] == "failed"
 
 
 class TestListMemories:
@@ -564,6 +601,63 @@ class TestListMemories:
         assert kwargs["sort_key"] == "created_desc"
         assert kwargs["page"] == 2
         assert kwargs["page_size"] == 20
+
+    @pytest.mark.asyncio
+    async def test_list_items_omit_full_text_and_trim_metadata(self, api):
+        engine = api.plugin.initializer.memory_engine
+        long_text = "长" * 400
+        engine.list_memories_page = AsyncMock(
+            return_value={
+                "items": [
+                    {
+                        "id": 5,
+                        "doc_id": "uuid-5",
+                        "text": long_text,
+                        "metadata": json.dumps(
+                            {
+                                "memory_type": "FACT",
+                                "importance": 0.7,
+                                "status": "active",
+                                "persona_summary": "摘要文本",
+                                "consolidated_from": [1, 2],
+                                "debug_only": "should-not-leak",
+                            }
+                        ),
+                        "created_at": "c",
+                        "updated_at": "u",
+                    },
+                    {
+                        "id": 6,
+                        "doc_id": "uuid-6",
+                        "text": long_text,
+                        "metadata": "{}",
+                        "created_at": "c",
+                        "updated_at": "u",
+                    },
+                ],
+                "total": 2,
+                "page": 1,
+                "page_size": 20,
+                "has_more": False,
+                "sort": "created_desc",
+            }
+        )
+        req = _mock_page_request(args={"page": "1", "page_size": "20"})
+        with _patch_page_request(req):
+            result = await api.list_memories()
+
+        first = result["data"]["items"][0]
+        assert first["summary"] == "摘要文本"
+        assert "text" not in first, "列表不应携带完整正文"
+        assert first["consolidated_count"] == 2
+        assert first["metadata"] == {
+            "memory_type": "FACT",
+            "importance": 0.7,
+            "status": "active",
+        }
+        second = result["data"]["items"][1]
+        assert second["metadata"] == {}
+        assert len(second["summary"]) == 281 and second["summary"].endswith("…")
 
     @pytest.mark.asyncio
     async def test_plugin_not_ready(self, api_not_ready):
@@ -1229,6 +1323,64 @@ class TestEnsurePluginReady:
         assert components is None
         assert error is not None
         assert error["status"] == "error"
+        assert error["code"] == "not_ready"
+
+    @pytest.mark.asyncio
+    async def test_not_ready_can_skip_waiting(self, api_not_ready):
+        components, error = await api_not_ready._ensure_plugin_ready(wait=False)
+        assert components is None
+        assert error["code"] == "not_ready"
+        assert api_not_ready.plugin.readiness_waits == [False]
+
+
+class TestReadiness:
+    @pytest.mark.asyncio
+    async def test_ready_reports_ready_without_message(self, api):
+        result = await api.get_readiness()
+        assert result["status"] == "ok"
+        assert result["data"] == {"ready": True, "state": "ready", "message": ""}
+        assert api.plugin.readiness_waits == [False]
+
+    @pytest.mark.asyncio
+    async def test_in_progress_reports_message(self, api_not_ready):
+        result = await api_not_ready.get_readiness()
+        assert result["data"]["ready"] is False
+        assert result["data"]["state"] == "in_progress"
+        assert "尚未就绪" in result["data"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_failed_reports_failed_state(self):
+        api = PluginPageApi(FakePlugin(ready=False, failed=True))
+        result = await api.get_readiness()
+        assert result["data"]["ready"] is False
+        assert result["data"]["state"] == "failed"
+
+
+class TestReadEndpointsDoNotWait:
+    @pytest.mark.asyncio
+    async def test_get_stats_fast_fails_on_not_ready_plugin(self):
+        api = PluginPageApi(FakePlugin(ready=False, block_waiting=True))
+        result = await api.get_stats()
+        assert result["code"] == "not_ready"
+        assert api.plugin.readiness_waits == [False]
+
+    @pytest.mark.asyncio
+    async def test_get_graph_overview_fast_fails_when_not_ready(self):
+        api = PluginPageApi(FakePlugin(ready=False, block_waiting=True))
+        result = await api.get_graph_overview()
+        assert result["code"] == "not_ready"
+        assert api.plugin.readiness_waits == [False]
+
+    @pytest.mark.asyncio
+    async def test_write_endpoint_keeps_waiting(self):
+        api = PluginPageApi(FakePlugin(block_waiting=False))
+        req = _mock_page_request(
+            get_json={"memory_id": 3, "field": "status", "value": "active"}
+        )
+        with _patch_page_request(req):
+            await api.update_memory()
+        assert api.plugin.readiness_waits == [True]
+
 
 # ---------------------------------------------------------------------------
 # Route registration
@@ -1240,10 +1392,11 @@ class TestRouteRegistration:
         plugin = FakePlugin()
         api = PluginPageApi(plugin)
         api.register_routes()
-        assert len(plugin._api_routes) == 23
+        assert len(plugin._api_routes) == 24
 
         paths = {route for route, _, _, _ in plugin._api_routes}
         prefix = PAGE_API_PREFIX
+        assert f"{prefix}/readiness" in paths
         assert f"{prefix}/stats" in paths
         assert f"{prefix}/memories" in paths
         assert f"{prefix}/memories/update" in paths
@@ -1379,6 +1532,83 @@ async def test_export_memories_returns_native_json_content():
     assert exported["format"] == "livingmemory"
     assert exported["memories"][0]["content"] == "portable summary"
     engine.get_memory_transfer_records.assert_awaited_once_with([7])
+
+
+@pytest.mark.asyncio
+async def test_export_all_limits_entries_and_reports_truncation(monkeypatch):
+    io_module = importlib.import_module(
+        "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
+    )
+    monkeypatch.setattr(io_module, "MAX_EXPORT_ENTRIES", 2)
+    engine = FakeMemoryEngine()
+    engine.list_memories_page = AsyncMock(
+        side_effect=[
+            {
+                "items": [{"id": 1}, {"id": 2}],
+                "total": 5,
+                "has_more": True,
+            }
+        ]
+    )
+    engine.get_memory_transfer_records = AsyncMock(
+        return_value=[
+            {"original_id": 1, "content": "a"},
+            {"original_id": 2, "content": "b"},
+        ]
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    req = _mock_page_request(get_json={"format": "json"})
+    with _patch_page_request(req):
+        result = await api.export_memories()
+
+    data = result["data"]
+    assert data["truncated"] is True
+    assert data["memory_count"] == 2
+    assert data["total_available"] == 5
+    assert data["limit"] == 2
+    engine.get_memory_transfer_records.assert_awaited_once_with([1, 2])
+
+
+@pytest.mark.asyncio
+async def test_export_selected_ids_are_capped(monkeypatch):
+    io_module = importlib.import_module(
+        "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
+    )
+    monkeypatch.setattr(io_module, "MAX_EXPORT_ENTRIES", 1)
+    engine = FakeMemoryEngine()
+    engine.get_memory_transfer_records = AsyncMock(
+        return_value=[{"original_id": 7, "content": "portable"}]
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    req = _mock_page_request(get_json={"format": "json", "memory_ids": [7, 8]})
+    with _patch_page_request(req):
+        result = await api.export_memories()
+
+    assert result["data"]["truncated"] is True
+    assert result["data"]["total_available"] == 2
+    engine.get_memory_transfer_records.assert_awaited_once_with([7])
+
+
+@pytest.mark.asyncio
+async def test_export_stops_when_serialized_payload_exceeds_budget(monkeypatch):
+    io_module = importlib.import_module(
+        "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
+    )
+    monkeypatch.setattr(io_module, "MAX_EXPORT_APPROX_BYTES", 10)
+    engine = FakeMemoryEngine()
+    engine.get_memory_transfer_records = AsyncMock(
+        return_value=[
+            {"original_id": 1, "content": "x" * 100},
+            {"original_id": 2, "content": "y" * 100},
+        ]
+    )
+    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    req = _mock_page_request(get_json={"format": "json", "memory_ids": [1, 2]})
+    with _patch_page_request(req):
+        result = await api.export_memories()
+
+    assert result["data"]["truncated"] is True
+    assert result["data"]["memory_count"] == 1
 
 
 @pytest.mark.asyncio

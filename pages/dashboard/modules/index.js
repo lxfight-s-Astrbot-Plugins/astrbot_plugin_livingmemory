@@ -3,6 +3,7 @@
  */
 
 export { ApiClient } from "./api-client.js";
+export { NotReadyBanner } from "./not-ready.js";
 export { PeekPanel } from "./peek-panel.js";
 export { MemoryPage } from "./memory-page.js";
 export { RecallPage } from "./recall-page.js";

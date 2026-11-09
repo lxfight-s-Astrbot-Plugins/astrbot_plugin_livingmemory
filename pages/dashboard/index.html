@@ -67,6 +67,12 @@
       <!-- Main Content -->
       <main class="main-content">
 
+        <!-- 插件初始化/Provider 未就绪时的全局指引，就绪后自动收起 -->
+        <div id="not-ready-banner" class="request-feedback" role="status" aria-live="polite" hidden>
+          <span id="not-ready-banner-message"></span>
+          <button type="button" class="btn btn-sm btn-secondary" id="not-ready-retry" data-i18n="common.retry">Retry</button>
+        </div>
+
         <!-- Page: Graph -->
         <section class="page active" id="page-graph">
           <header class="page-header">

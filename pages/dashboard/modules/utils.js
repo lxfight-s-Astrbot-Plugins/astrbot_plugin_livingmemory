@@ -143,6 +143,15 @@ export function unwrapResponse(response) {
     return response.data;
   }
   if (response && response.status === "error") {
+    if (response.code === "not_ready") {
+      /* 初始化未完成：交给全局横幅展示指引（重试/自动恢复），调用方仍收到错误。 */
+      if (typeof window !== "undefined" && typeof window.lmReportPluginNotReady === "function") {
+        window.lmReportPluginNotReady(response);
+      }
+      const notReadyError = new Error(response.message || window.t("misc.requestFailed"));
+      notReadyError.code = "not_ready";
+      throw notReadyError;
+    }
     throw new Error(response.message || window.t("misc.requestFailed"));
   }
   return response || {};

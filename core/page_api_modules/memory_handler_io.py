@@ -4,6 +4,7 @@ MemoryHandler 的 MemoryHandlerIoMixin 拆分模块
 """
 
 import asyncio
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -14,7 +15,6 @@ from astrbot.api import logger
 
 from ..memory_source import restore_source_messages
 from ..memory_transfer import (
-    MAX_IMPORT_ENTRIES,
     memory_import_key,
     parse_transfer_content,
     plan_session_id_remap,
@@ -22,9 +22,60 @@ from ..memory_transfer import (
     serialize_transfer_json,
 )
 
+# 全量导出上限：条数与序列化后的大致字节数（避免一次性把整库塞进响应）。
+MAX_EXPORT_ENTRIES = 5000
+MAX_EXPORT_APPROX_BYTES = 24 * 1024 * 1024
+EXPORT_PAGE_SIZE = 500
+
+
+def _record_approx_bytes(record: Any) -> int:
+    """Estimate one transfer record's serialized size without double serializing."""
+    return len(json.dumps(record, ensure_ascii=False, default=str))
+
+
+def _fit_export_records(
+    records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Trim records until the serialized payload stays under the byte budget."""
+    fitted: list[dict[str, Any]] = []
+    approx = 0
+    for record in records:
+        size = _record_approx_bytes(record)
+        if fitted and approx + size > MAX_EXPORT_APPROX_BYTES:
+            return fitted, True
+        fitted.append(record)
+        approx += size
+    return fitted, False
+
 
 class MemoryHandlerIoMixin:
     """MemoryHandler 拆分模块：MemoryHandlerIoMixin"""
+
+    async def _collect_export_memory_ids(
+        self, memory_engine
+    ) -> tuple[list[int], int, bool]:
+        """Collect IDs for "export all" without loading every memory body first."""
+        ids: list[int] = []
+        page = 1
+        total = 0
+        while len(ids) < MAX_EXPORT_ENTRIES:
+            page_size = min(EXPORT_PAGE_SIZE, MAX_EXPORT_ENTRIES - len(ids))
+            page_data = await memory_engine.list_memories_page(
+                page=page,
+                page_size=page_size,
+                status="all",
+                sort_key="updated_desc",
+            )
+            total = int(page_data.get("total") or 0)
+            items = page_data.get("items") or []
+            if not items:
+                break
+            ids.extend(int(item["id"]) for item in items)
+            if not page_data.get("has_more"):
+                break
+            page += 1
+        ids = ids[:MAX_EXPORT_ENTRIES]
+        return ids, total, total > len(ids)
 
     async def export_memories(self, memory_engine) -> dict[str, Any]:
         """Export all or selected memories as portable JSON/CSV content."""
@@ -34,18 +85,29 @@ class MemoryHandlerIoMixin:
             return self.utils.error("导出格式仅支持 JSON 或 CSV")
 
         raw_ids = payload.get("memory_ids")
-        memory_ids: list[int] | None = None
-        if raw_ids is not None:
+        truncated = False
+        total_available = 0
+        if raw_ids is None:
+            (
+                memory_ids,
+                total_available,
+                truncated,
+            ) = await self._collect_export_memory_ids(memory_engine)
+        else:
             if not isinstance(raw_ids, list):
                 return self.utils.error("memory_ids 必须是整数列表")
             try:
                 memory_ids = [int(item) for item in raw_ids]
             except (TypeError, ValueError):
                 return self.utils.error("memory_ids 必须是整数列表")
-            if len(memory_ids) > MAX_IMPORT_ENTRIES:
-                return self.utils.error(f"单次最多导出 {MAX_IMPORT_ENTRIES} 条记忆")
+            total_available = len(memory_ids)
+            if len(memory_ids) > MAX_EXPORT_ENTRIES:
+                memory_ids = memory_ids[:MAX_EXPORT_ENTRIES]
+                truncated = True
 
         records = await memory_engine.get_memory_transfer_records(memory_ids)
+        records, size_truncated = _fit_export_records(records)
+        truncated = truncated or size_truncated
         exported_at = datetime.now(timezone.utc).isoformat()
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         # 序列化可能涉及上万条记录（含完整 source_messages），卸载到线程避免阻塞事件循环
@@ -64,6 +126,9 @@ class MemoryHandlerIoMixin:
                 "mime_type": mime_type,
                 "content": content,
                 "memory_count": len(records),
+                "truncated": truncated,
+                "total_available": total_available,
+                "limit": MAX_EXPORT_ENTRIES,
             }
         )
 

@@ -23,6 +23,24 @@ class PageApiUtils:
         return {"status": "error", "message": str(message)}
 
     @staticmethod
+    def not_ready(message: str, *, init_state: str = "in_progress") -> dict[str, Any]:
+        """构造未就绪错误响应（前端据此显示全局指引横幅）。
+
+        Args:
+            message: 面向用户的就绪状态说明。
+            init_state: ``in_progress`` / ``failed``，便于前端区分文案。
+
+        Returns:
+            带 ``code="not_ready"`` 的结构化错误响应。
+        """
+        return {
+            "status": "error",
+            "code": "not_ready",
+            "init_state": str(init_state),
+            "message": str(message),
+        }
+
+    @staticmethod
     def optional_text(value: Any) -> str | None:
         """Normalize optional request text without preserving empty sentinel values."""
         if value is None:

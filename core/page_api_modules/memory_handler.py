@@ -19,6 +19,20 @@ if TYPE_CHECKING:
 class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
     """记忆管理处理器"""
 
+    # 列表页只渲染摘要与少量元数据；完整正文/元数据由详情接口返回。
+    LIST_SUMMARY_MAX_CHARS = 280
+    LIST_METADATA_KEYS = (
+        "memory_type",
+        "importance",
+        "status",
+        "create_time",
+        "updated_at",
+        "memory_origin",
+        "summary_quality",
+        "session_id",
+        "persona_id",
+    )
+
     def __init__(self, utils: "PageApiUtils"):
         """
         初始化记忆管理处理器
@@ -122,14 +136,34 @@ class MemoryHandler(MemoryHandlerUpdateMixin, MemoryHandlerIoMixin):
 
         items: list[dict[str, Any]] = []
         for row in page_data["items"]:
+            metadata = self.utils.normalize_metadata(row["metadata"])
+            summary = str(
+                metadata.get("persona_summary")
+                or metadata.get("canonical_summary")
+                or row["text"]
+                or ""
+            )
+            if len(summary) > self.LIST_SUMMARY_MAX_CHARS:
+                summary = summary[: self.LIST_SUMMARY_MAX_CHARS] + "…"
+            consolidated_from = metadata.get("consolidated_from")
             items.append(
                 {
                     "id": row["id"],
                     "doc_id": row["doc_id"],
-                    "text": row["text"],
-                    "metadata": self.utils.normalize_metadata(row["metadata"]),
+                    "summary": summary,
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
+                    "consolidated_count": (
+                        len(consolidated_from)
+                        if isinstance(consolidated_from, list)
+                        else 0
+                    ),
+                    # 列表只回 UI 需要的元数据；正文走详情接口，避免分页响应膨胀。
+                    "metadata": {
+                        key: metadata[key]
+                        for key in self.LIST_METADATA_KEYS
+                        if key in metadata
+                    },
                 }
             )
 
