@@ -28,8 +28,8 @@ class RecallEngineConfig(BaseModel):
     max_k: int = Field(default=10, ge=1, le=50)
     importance_weight: float = Field(default=1.0, ge=0.0, le=10.0)
     min_importance_for_retrieval: float = Field(default=0.0, ge=0.0, le=1.0)
-    min_similarity_for_retrieval: float = Field(default=0.0, ge=0.0, le=1.0)
-    recent_memory_count: int = Field(default=2, ge=0, le=20)
+    min_similarity_for_retrieval: float = Field(default=0.45, ge=0.0, le=1.0)
+    recent_memory_count: int = Field(default=0, ge=0, le=20)
     recent_memory_max_age_hours: int = Field(default=72, ge=0, le=8760)
     memory_type_filter: str = Field(default="all", pattern="^(all|event_only)$")
     fallback_to_vector: bool = True
@@ -94,9 +94,9 @@ class ForgettingAgentConfig(BaseModel):
     """遗忘代理配置"""
 
     auto_cleanup_enabled: bool = True
-    auto_archived_enabled: bool = False
-    cleanup_days_threshold: int = Field(default=30, ge=1, le=3650)
-    cleanup_importance_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    auto_archived_enabled: bool = True
+    cleanup_days_threshold: int = Field(default=120, ge=1, le=3650)
+    cleanup_importance_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
 
 
 class FilteringConfig(BaseModel):
@@ -130,11 +130,11 @@ class ProviderConfig(BaseModel):
 class ImportanceDecayConfig(BaseModel):
     """重要性衰减配置"""
 
-    decay_rate: float = Field(default=0.01, ge=0.0, le=1.0)
+    decay_rate: float = Field(default=0.005, ge=0.0, le=1.0)
     access_decay_window_days: float = Field(default=30.0, ge=1.0, le=3650.0)
     access_decay_max_count: int = Field(default=10, ge=1, le=10000)
     access_count_decay_multiplier: float = Field(default=0.5, ge=0.0, le=1.0)
-    protected_importance_threshold: float = Field(default=1.0, ge=0.0, le=1.0)
+    protected_importance_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
 class MigrationSettings(BaseModel):

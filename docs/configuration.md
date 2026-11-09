@@ -79,8 +79,8 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.max_k` | `10` | Agent 主动检索工具允许返回的最大数量 |
 | `recall_engine.importance_weight` | `1.0` | 重要性在最终排序中的权重 |
 | `recall_engine.min_importance_for_retrieval` | `0.0` | 最低重要性阈值，`0` 表示不过滤 |
-| `recall_engine.min_similarity_for_retrieval` | `0.0` | 最低向量相似度；纯关键词命中不受影响 |
-| `recall_engine.recent_memory_count` | `2` | 每次召回为近期记忆保留的槽位数 |
+| `recall_engine.min_similarity_for_retrieval` | `0.45` | 最低向量相似度；纯关键词命中不受影响；`0` 关闭过滤 |
+| `recall_engine.recent_memory_count` | `0` | 相关性结果不足时用近期记忆补位的条数；不再保留固定槽位 |
 | `recall_engine.recent_memory_max_age_hours` | `72` | 近期记忆保底的时间窗口 |
 | `recall_engine.memory_type_filter` | `all` | 设为 `event_only` 可排除明确的纯偏好/关系记忆 |
 | `recall_engine.fallback_to_vector` | `true` | 混合检索失败时降级到向量检索 |
@@ -124,10 +124,10 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `reflection_engine.window_split_gap_minutes` | `180` | 相邻消息空闲间隔超过该分钟数时只总结最老片段；`0` 关闭空闲间隔切分 |
 | `reflection_engine.include_source_time_tags` | `true` | 从原始消息时间写入来源日期标签 |
 | `reflection_engine.source_retention_importance_threshold` | `0.8` | 达到阈值时独立保留原始消息 |
-| `importance_decay.decay_rate` | `0.01` | 每日重要性衰减比例 |
+| `importance_decay.decay_rate` | `0.005` | 每日重要性衰减比例（默认每天 0.5%） |
 | `importance_decay.access_decay_window_days` | `30.0` | 访问强化的时间窗口 |
 | `importance_decay.access_decay_max_count` | `10` | 最大访问强化次数 |
-| `importance_decay.protected_importance_threshold` | `1.0` | 达到阈值的记忆不参与每日衰减 |
+| `importance_decay.protected_importance_threshold` | `0.6` | 达到阈值的记忆不参与每日衰减 |
 
 如果你希望机器人更快记住短期上下文，可以降低 `summary_trigger_rounds`；如果希望减少 LLM 调用成本，可以提高它。
 
@@ -178,13 +178,13 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `migration_settings.auto_migrate` | `true` | 启动时自动迁移旧数据库 |
 | `migration_settings.create_backup` | `true` | 迁移前自动备份 |
 | `backup_settings.enabled` | `true` | 每日自动备份数据库 |
-| `backup_settings.keep_days` | `7` | 自动备份保留天数 |
+| `backup_settings.keep_days` | `7` | 每日备份保留天数；版本备份额外只保留最近 2 份，备份总量上限 512 MB |
 | `forgetting_agent.auto_cleanup_enabled` | `true` | 每日清理久远且低重要性记忆 |
-| `forgetting_agent.auto_archived_enabled` | `false` | 将清理候选归档并移出检索索引，而非永久删除 |
-| `forgetting_agent.cleanup_days_threshold` | `30` | 进入清理候选的天数 |
-| `forgetting_agent.cleanup_importance_threshold` | `0.3` | 清理候选的重要性阈值 |
+| `forgetting_agent.auto_archived_enabled` | `true` | 将清理候选归档并移出检索索引，而非永久删除 |
+| `forgetting_agent.cleanup_days_threshold` | `120` | 进入清理候选的天数 |
+| `forgetting_agent.cleanup_importance_threshold` | `0.25` | 清理候选的重要性阈值 |
 
-生产使用建议保持备份和迁移备份开启。启用自动归档后，原始文档仍可在 Dashboard 查看和恢复，恢复时会重新生成 Embedding 并重建 BM25、图谱和记忆原子索引。
+生产使用建议保持备份和迁移备份开启。自动归档默认开启，原始文档仍可在 Dashboard 查看和恢复，恢复时会重新生成 Embedding 并重建 BM25、图谱和记忆原子索引。启动和每日备份后会按保留策略自动清理过期备份（版本备份保留最近 2 份、备份总量上限 512 MB）。
 
 ## 记忆库整合
 

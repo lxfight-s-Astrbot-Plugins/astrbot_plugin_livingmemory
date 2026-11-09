@@ -148,6 +148,14 @@ class LivingMemoryPlugin(Star):
             # 版本变更时自动备份数据（在任何数据库操作之前，通过线程池避免阻塞事件循环）
             await self._backup_manager.backup_if_needed_async()
 
+            # 启动时清理历史备份（版本/适配器/作用域迁移/每日备份）；失败不阻断初始化
+            try:
+                await self._backup_manager.prune_async(
+                    keep_days=self.config_manager.get("backup_settings.keep_days", 7)
+                )
+            except Exception as e:
+                logger.warning(f"[BackupManager] 备份清理失败: {e}")
+
             # 执行初始化
             success = await self.initializer.initialize()
 

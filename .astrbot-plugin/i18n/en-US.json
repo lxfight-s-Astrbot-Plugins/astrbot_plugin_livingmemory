@@ -107,11 +107,11 @@
       },
       "min_similarity_for_retrieval": {
         "description": "Minimum Vector Similarity",
-        "hint": "Filter vector candidates below this similarity. Keyword-only matches remain eligible. Range: 0-1; 0 disables the filter."
+        "hint": "Filter vector candidates below this similarity. Keyword-only matches remain eligible. Default 0.45; set to 0 to disable the filter."
       },
       "recent_memory_count": {
         "description": "Reserved Recent Memories",
-        "hint": "Reserve this many recall slots for recent memories in the current scope. Set to 0 to disable. Allowed range: 0-20."
+        "hint": "Only fill remaining slots with recent memories in the current scope when relevant results are fewer than the requested count. Fixed slots are no longer reserved. Default 0 (disabled)."
       },
       "recent_memory_max_age_hours": {
         "description": "Recent Memory Window (hours)",
@@ -198,7 +198,7 @@
       "hint": "Gradually reduce the importance of old memories over time to prevent outdated information from retaining high weight indefinitely",
       "decay_rate": {
         "description": "Daily Decay Rate",
-        "hint": "The proportion of memory importance decayed per day. 0.01 means a 1% decrease daily. Set to 0 to disable decay. Allowed range: 0-1."
+        "hint": "Proportion of memory importance decayed per day. Default 0.005 means a 0.5% decrease daily; access reduces the effective decay rate. Set to 0 to disable decay. Allowed range: 0-1."
       },
       "access_decay_window_days": {
         "description": "Access Reinforcement Window (days)",
@@ -214,7 +214,7 @@
       },
       "protected_importance_threshold": {
         "description": "Protected Importance Threshold",
-        "hint": "Memories at or above this importance do not participate in daily importance decay. Allowed range: 0-1."
+        "hint": "Memories at or above this importance do not participate in daily importance decay. Default 0.6 protects memories at 60%+ importance. Allowed range: 0-1."
       }
     },
     "fusion_strategy": {
@@ -436,34 +436,34 @@
     },
     "backup_settings": {
       "description": "Periodic Backup",
-      "hint": "Automatically back up the memory database daily to prevent accidental data loss",
+      "hint": "Create daily memory backups and prune daily backups past retention plus stale version backups so the data directory cannot grow without bound",
       "enabled": {
         "description": "Enable Daily Auto Backup",
         "hint": "Automatically back up the database after daily decay tasks. Recommended to keep enabled."
       },
       "keep_days": {
         "description": "Backup Retention Days",
-        "hint": "Backup files older than this number of days will be automatically deleted. Default is 7 days. Allowed range: 1-365."
+        "hint": "Retention days for daily and version backups. Version backups additionally keep only the 2 most recent ones, and total backup size is pruned from the oldest when it exceeds 512 MB. Default 7 days. Allowed range: 1-365."
       }
     },
     "forgetting_agent": {
       "description": "Auto Cleanup Settings",
-      "hint": "Periodically clean up old memories that are both outdated and low importance to control memory store size",
+      "hint": "Archive (by default, instead of deleting) aged low-importance memories to keep the memory store and indexes bounded",
       "auto_cleanup_enabled": {
         "description": "Enable Daily Auto Cleanup",
         "hint": "Automatically clean up eligible old memories after daily importance decay."
       },
       "auto_archived_enabled": {
         "description": "Archive Instead of Delete",
-        "hint": "Move cleanup candidates out of retrieval indexes while retaining restorable archived documents."
+        "hint": "Enabled by default: cleanup candidates are removed from retrieval indexes and kept as restorable archived documents. Disable to delete them instead."
       },
       "cleanup_days_threshold": {
         "description": "Cleanup Age Threshold (days)",
-        "hint": "Memories older than this many days become cleanup candidates. They will only be deleted if their importance is also below the threshold. Allowed range: 1-3650."
+        "hint": "Memories older than this many days become cleanup candidates. Default 120 days; they are processed only if importance is also below the threshold. Allowed range: 1-3650."
       },
       "cleanup_importance_threshold": {
         "description": "Cleanup Importance Threshold",
-        "hint": "Only memories with importance below this value will be cleaned up. 0.3 means memories below 30% importance. Allowed range: 0-1."
+        "hint": "Only memories with importance below this value are cleaned up. Default 0.25 means memories below 25% importance. Allowed range: 0-1."
       }
     },
     "memory_consolidation": {

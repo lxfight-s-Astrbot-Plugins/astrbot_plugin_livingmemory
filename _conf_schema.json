@@ -189,9 +189,9 @@
             },
             "min_similarity_for_retrieval": {
                 "description": "召回最低向量相似度",
-                "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。范围 0-1，设为 0 表示不过滤。",
+                "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。默认 0.45，设为 0 表示不过滤。",
                 "type": "float",
-                "default": 0.0,
+                "default": 0.45,
                 "slider": {
                     "min": 0.0,
                     "max": 1.0,
@@ -200,9 +200,9 @@
             },
             "recent_memory_count": {
                 "description": "近期记忆保留数量",
-                "hint": "在每次召回中为当前范围内的近期记忆保留槽位，避免只依赖向量相似度。设为 0 可关闭。",
+                "hint": "仅在相关性结果不足单次召回数量时，用当前范围内的近期记忆补位；不再为它们保留固定槽位。默认 0（关闭）。",
                 "type": "int",
-                "default": 2,
+                "default": 0,
                 "slider": {
                     "min": 0,
                     "max": 20,
@@ -372,9 +372,9 @@
         "items": {
             "decay_rate": {
                 "description": "每日衰减率",
-                "hint": "每天对记忆重要性的衰减比例。0.01 表示每天降低 1%。设为 0 可禁用衰减。（允许范围：0–1）",
+                "hint": "每天对记忆重要性的衰减比例。默认 0.005 表示每天降低 0.5%；访问会降低有效衰减率。设为 0 可禁用衰减。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.01,
+                "default": 0.005,
                 "slider": {
                     "min": 0.0,
                     "max": 1.0,
@@ -416,9 +416,9 @@
             },
             "protected_importance_threshold": {
                 "description": "重要记忆保护阈值",
-                "hint": "重要性达到该值的记忆不参与每日重要性衰减。范围 0-1，默认 1.0 仅保护满分记忆。",
+                "hint": "重要性达到该值的记忆不参与每日重要性衰减。默认 0.6，保护重要性 60% 以上的记忆。（允许范围：0–1）",
                 "type": "float",
-                "default": 1.0,
+                "default": 0.6,
                 "slider": {
                     "min": 0.0,
                     "max": 1.0,
@@ -927,7 +927,7 @@
     "backup_settings": {
         "invisible": true,
         "description": "定期备份",
-        "hint": "每日自动备份记忆数据库，防止数据意外丢失",
+        "hint": "每日自动备份记忆数据库，并自动清理超过保留天数的每日备份与过期版本备份，防止数据目录无限增长",
         "type": "object",
         "items": {
             "enabled": {
@@ -938,7 +938,7 @@
             },
             "keep_days": {
                 "description": "备份保留天数",
-                "hint": "超过该天数的旧备份文件将被自动删除。默认保留 7 天。（允许范围：1–365）",
+                "hint": "每日备份与版本备份的保留天数；版本备份额外只保留最近 2 份，备份总量超过 512 MB 时从最旧开始清理。默认保留 7 天。（允许范围：1–365）",
                 "type": "int",
                 "default": 7,
                 "slider": {
@@ -952,7 +952,7 @@
     "forgetting_agent": {
         "invisible": true,
         "description": "自动清理设置",
-        "hint": "定期清理时间久远且重要性低的旧记忆，控制记忆库规模",
+        "hint": "定期将时间久远且重要性低的旧记忆归档（默认不删除），控制记忆库与索引规模",
         "type": "object",
         "items": {
             "auto_cleanup_enabled": {
@@ -963,15 +963,15 @@
             },
             "auto_archived_enabled": {
                 "description": "自动归档而非删除",
-                "hint": "开启后，自动清理候选会从检索索引移除并保留为 archived 文档，可在 Dashboard 中恢复。",
+                "hint": "默认开启：自动清理候选会从检索索引移除并保留为 archived 文档，可在 Dashboard 中恢复；关闭后会直接删除。",
                 "type": "bool",
-                "default": false
+                "default": true
             },
             "cleanup_days_threshold": {
                 "description": "清理天数阈值（天）",
-                "hint": "记忆创建超过该天数后进入清理候选。需同时满足重要性低于阈值才会被删除。（允许范围：1–3650）",
+                "hint": "记忆创建超过该天数后进入清理候选。默认 120 天，需同时满足重要性低于阈值才处理。（允许范围：1–3650）",
                 "type": "int",
-                "default": 30,
+                "default": 120,
                 "slider": {
                     "min": 1,
                     "max": 3650,
@@ -980,9 +980,9 @@
             },
             "cleanup_importance_threshold": {
                 "description": "清理重要性阈值",
-                "hint": "重要性低于该值的旧记忆才会被清理。0.3 表示重要性低于 30% 的记忆。（允许范围：0–1）",
+                "hint": "重要性低于该值的旧记忆才会被清理。默认 0.25 表示重要性低于 25% 的记忆。（允许范围：0–1）",
                 "type": "float",
-                "default": 0.3,
+                "default": 0.25,
                 "slider": {
                     "min": 0.0,
                     "max": 1.0,

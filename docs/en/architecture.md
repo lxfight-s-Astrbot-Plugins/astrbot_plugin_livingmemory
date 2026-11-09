@@ -179,11 +179,12 @@ flowchart TB
 ## Lifecycle and forgetting
 
 - Summarization triggers once unsummarized rounds reach the threshold (default 10); a day change or long idle gap (default 180 minutes) splits the window, and the background task consumes oldest segments until the backlog is empty or `max_segments_per_run` is reached, so a multi-day conversation is not compressed into one memory.
-- Long-term memory importance decays daily by `importance_decay.decay_rate` (default 0.01); memories accessed inside the window get a reduced effective decay based on access count, and the count itself is multiplied by 0.5 after each daily decay so an old hotspot cannot avoid decay forever.
+- Long-term memory importance decays daily by `importance_decay.decay_rate` (default 0.005); memories accessed inside the window get a reduced effective decay based on access count, and the count itself is multiplied by 0.5 after each daily decay so an old hotspot cannot avoid decay forever.
 - Atoms have type-specific TTLs: 7 days for episodes, 2 for plans, 180 for facts, 90 for relations, 60 for preferences and 30 for unknown atoms; importance and reinforcement enlarge the TTL, and decay types are linear, exponential or step.
 - Atom states are active, dormant, superseded, expired and forgotten; access reinforces new atoms, expiry first soft-deletes and later cleans up, and graph plus FTS rows are updated together.
 - Memory consolidation runs daily or during reflection, groups by session or semantic similarity (threshold default 0.7) and merges; the retention policy archives or deletes originals, and archived memories can be restored from the dashboard.
-- Version backups are created when the plugin version changes and kept for seven days; database migration and high-risk batch operations also take a backup first.
+- Automatic cleanup archives (rather than deletes) aged low-importance memories by default (`forgetting_agent.auto_archived_enabled=true`, 120 days and importance below 0.25); archived documents are restorable from the dashboard.
+- Version backups are created when the plugin version changes and keep the 2 most recent copies; daily backups follow `backup_settings.keep_days` (default 7 days), and total backup size is capped at 512 MB. Database migration and high-risk batch operations also take a backup first.
 
 ## Scope and isolation
 

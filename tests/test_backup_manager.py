@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from astrbot_plugin_livingmemory.core.managers.backup_manager import (
+    _BACKUP_INFO_FILE,
     PLUGIN_VERSION,
     BackupManager,
-    _BACKUP_INFO_FILE,
 )
 
 
@@ -135,9 +136,7 @@ def test_list_backups_with_data(tmp_path: Path) -> None:
         "backup_timestamp": "2025-01-01T00:00:00+00:00",
         "files_copied": 1,
     }
-    (backup_root / _BACKUP_INFO_FILE).write_text(
-        json.dumps(info, ensure_ascii=False)
-    )
+    (backup_root / _BACKUP_INFO_FILE).write_text(json.dumps(info, ensure_ascii=False))
 
     result = BackupManager.list_backups(str(tmp_path))
     assert len(result) == 1
@@ -271,8 +270,12 @@ def test_backup_info_json_contains_all_fields(tmp_path: Path) -> None:
         (Path(backup_dir) / _BACKUP_INFO_FILE).read_text(encoding="utf-8")
     )
     required_fields = [
-        "plugin_version", "previous_version", "backup_timestamp",
-        "backup_unix_time", "files_copied", "data_dir",
+        "plugin_version",
+        "previous_version",
+        "backup_timestamp",
+        "backup_unix_time",
+        "files_copied",
+        "data_dir",
     ]
     for field in required_fields:
         assert field in info, f"Missing field: {field}"
@@ -295,3 +298,162 @@ def test_pluigin_version_constant_matches_metadata() -> None:
         f"PLUGIN_VERSION ({PLUGIN_VERSION}) must match metadata.yaml "
         f"({metadata['version']}). Update backup_manager.py."
     )
+
+
+def _set_mtime(path: Path, timestamp: float) -> None:
+    """将文件或目录的 mtime 固定到指定时间戳。"""
+    os.utime(path, (timestamp, timestamp))
+
+
+def test_prune_keeps_latest_entries_per_category(tmp_path: Path) -> None:
+    """版本目录、适配器目录、作用域迁移文件按数量保留最新若干份。"""
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    now = time.time()
+
+    for i, name in enumerate(("v1.0.0", "v2.0.0", "v3.0.0")):
+        version_dir = backups / name
+        version_dir.mkdir()
+        (version_dir / "livingmemory.db").write_bytes(b"v" * 10)
+        _set_mtime(version_dir, now - 300 + i)
+
+    for i, name in enumerate(
+        ("adapter_ownership_a", "adapter_ownership_b", "adapter_ownership_c")
+    ):
+        adapter_dir = backups / name
+        adapter_dir.mkdir()
+        (adapter_dir / "livingmemory.db").write_bytes(b"a" * 20)
+        _set_mtime(adapter_dir, now - 300 + i)
+
+    for i in range(5):
+        scope_file = backups / f"scope_migration_2024010{i}.db"
+        scope_file.write_bytes(b"s" * 5)
+        _set_mtime(scope_file, now - 300 + i)
+
+    old_daily = backups / "livingmemory_backup_20240101_000000.db"
+    old_daily.write_bytes(b"o" * 7)
+    _set_mtime(old_daily, now - 10 * 86400)
+    new_daily = backups / "livingmemory_backup_20240102_000000.db"
+    new_daily.write_bytes(b"n" * 9)
+    _set_mtime(new_daily, now - 60)
+
+    stats = BackupManager.prune(str(tmp_path), keep_days=7)
+
+    assert stats == {
+        "files_removed": 3,
+        "dirs_removed": 3,
+        "bytes_removed": 67,
+        "total_bytes": 64,
+    }
+    assert sorted(p.name for p in backups.iterdir()) == [
+        "adapter_ownership_c",
+        "livingmemory_backup_20240102_000000.db",
+        "scope_migration_20240102.db",
+        "scope_migration_20240103.db",
+        "scope_migration_20240104.db",
+        "v2.0.0",
+        "v3.0.0",
+    ]
+
+
+def test_prune_total_size_cap_keeps_protected_entries(tmp_path: Path) -> None:
+    """超过总量上限时从旧到新删除，但保留最新版本目录与最新每日备份。"""
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    now = time.time()
+
+    for i, name in enumerate(("v1.0.0", "v2.0.0")):
+        version_dir = backups / name
+        version_dir.mkdir()
+        (version_dir / "livingmemory.db").write_bytes(b"v" * 4096)
+        _set_mtime(version_dir, now - 100 + i)
+
+    adapter_dir = backups / "adapter_ownership_deadbeef"
+    adapter_dir.mkdir()
+    (adapter_dir / "livingmemory.db").write_bytes(b"a" * 4096)
+    _set_mtime(adapter_dir, now - 50)
+
+    for i in range(2):
+        scope_file = backups / f"scope_migration_2024010{i}.db"
+        scope_file.write_bytes(b"s" * 2048)
+        _set_mtime(scope_file, now - 40 + i)
+
+    old_daily = backups / "livingmemory_backup_20240101_000000.db"
+    old_daily.write_bytes(b"o" * 1024)
+    _set_mtime(old_daily, now - 10 * 86400)
+    new_daily = backups / "livingmemory_backup_20240102_000000.db"
+    new_daily.write_bytes(b"n" * 1024)
+    _set_mtime(new_daily, now - 30)
+
+    before = sum(p.stat().st_size for p in backups.rglob("*") if p.is_file())
+    stats = BackupManager.prune(str(tmp_path), keep_days=7, max_total_mb=0)
+
+    assert sorted(p.name for p in backups.iterdir()) == [
+        "livingmemory_backup_20240102_000000.db",
+        "v2.0.0",
+    ]
+    remaining = sum(p.stat().st_size for p in backups.rglob("*") if p.is_file())
+    assert stats["total_bytes"] == remaining == 4096 + 1024
+    assert stats["bytes_removed"] == before - remaining
+    assert stats["dirs_removed"] == 2
+    assert stats["files_removed"] == 3
+
+
+def test_prune_does_not_touch_paths_outside_backups(tmp_path: Path) -> None:
+    """data_dir 下的数据文件与 backups 外的同名文件不受清理影响。"""
+    backups = tmp_path / "backups"
+    for i, name in enumerate(("v1.0.0", "v2.0.0", "v3.0.0")):
+        (backups / name).mkdir(parents=True)
+        (backups / name / "livingmemory.db").write_text("backup")
+        _set_mtime(backups / name, time.time() - 100 + i)
+
+    data_file = tmp_path / "livingmemory.db"
+    data_file.write_text("live data")
+    outside_scope = tmp_path / "scope_migration_20240101.db"
+    outside_scope.write_text("outside backups")
+    outside_daily = tmp_path / "livingmemory_backup_20200101_000000.db"
+    outside_daily.write_text("expired but outside")
+
+    stats = BackupManager.prune(str(tmp_path), keep_days=7)
+
+    assert stats["dirs_removed"] == 1
+    assert data_file.read_text() == "live data"
+    assert outside_scope.read_text() == "outside backups"
+    assert outside_daily.read_text() == "expired but outside"
+    assert not (backups / "v1.0.0").exists()
+    assert (backups / "v2.0.0").exists()
+    assert (backups / "v3.0.0").exists()
+
+
+def test_prune_is_idempotent(tmp_path: Path) -> None:
+    """连续调用两次时，第二次不再删除任何内容。"""
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    now = time.time()
+    for i in range(3):
+        version_dir = backups / f"v{i}.0.0"
+        version_dir.mkdir()
+        (version_dir / "livingmemory.db").write_bytes(b"x" * 10)
+        _set_mtime(version_dir, now - 100 + i)
+
+    first = BackupManager.prune(str(tmp_path))
+    assert first["dirs_removed"] == 1
+    second = BackupManager.prune(str(tmp_path))
+
+    assert second == {
+        "files_removed": 0,
+        "dirs_removed": 0,
+        "bytes_removed": 0,
+        "total_bytes": first["total_bytes"],
+    }
+    assert sorted(p.name for p in backups.iterdir()) == ["v1.0.0", "v2.0.0"]
+
+
+def test_prune_without_backups_dir_returns_zero_stats(tmp_path: Path) -> None:
+    """backups 目录不存在时返回全零统计。"""
+    assert BackupManager.prune(str(tmp_path)) == {
+        "files_removed": 0,
+        "dirs_removed": 0,
+        "bytes_removed": 0,
+        "total_bytes": 0,
+    }

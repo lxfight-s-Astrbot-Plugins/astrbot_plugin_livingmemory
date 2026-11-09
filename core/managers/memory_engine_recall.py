@@ -666,7 +666,7 @@ class MemoryEngineRecallMixin:
             int(self.config.get("graph_expansion_hops", 1)),
             round(float(self.config.get("min_importance_for_retrieval", 0.0)), 4),
             round(float(self.config.get("min_similarity_for_retrieval", 0.0)), 4),
-            int(self.config.get("recent_memory_count", 2)),
+            int(self.config.get("recent_memory_count", 0)),
             int(self.config.get("recent_memory_max_age_hours", 72)),
             str(self.config.get("memory_type_filter", "all")),
             bool(self.config.get("rerank_enabled", False)),
@@ -732,6 +732,19 @@ class MemoryEngineRecallMixin:
         session_id: str | None,
         persona_id: str | None,
     ) -> list[HybridResult]:
+        """按创建时间倒序取当前范围内的近期记忆，作为相关性不足时的补位候选。
+
+        结果固定 final_score=0.6 并标记 score_breakdown["recent_memory"]，
+        使其排序始终低于正常相关性结果，只在相关性结果不足时被补入。
+
+        Args:
+            count: 最多返回的近期记忆条数。
+            session_id: 会话过滤条件，None 表示不限制。
+            persona_id: 人格过滤条件，None 表示不限制。
+
+        Returns:
+            最多 count 条近期记忆结果，按时间从新到旧排列。
+        """
         if count <= 0 or self.db_connection is None:
             return []
 
@@ -767,13 +780,13 @@ class MemoryEngineRecallMixin:
         recent = [
             HybridResult(
                 doc_id=int(row["id"]),
-                final_score=1.0,
+                final_score=0.6,
                 rrf_score=0.0,
                 bm25_score=None,
                 vector_score=None,
                 content=str(row["text"] or ""),
                 metadata=safe_json_dict(row["metadata"]),
-                score_breakdown={"recent_memory": 1.0},
+                score_breakdown={"recent_memory": 0.6},
             )
             for row in rows
         ]
@@ -786,29 +799,37 @@ class MemoryEngineRecallMixin:
         session_id: str | None,
         persona_id: str | None,
     ) -> list[HybridResult]:
-        recent_count = min(max(0, int(self.config.get("recent_memory_count", 2))), k)
-        if recent_count <= 0:
+        """仅在相关性结果不足 k 条时用近期记忆补位。
+
+        近期记忆不预留固定槽位：相关性结果已足够时直接返回，避免无关的
+        最新记忆挤占召回结果；不足时才按时间顺序补入，且跳过已存在的 doc_id。
+
+        Args:
+            results: 已过滤的相关性结果，按得分降序排列。
+            k: 单次召回的目标数量。
+            session_id: 会话过滤条件，None 表示不限制。
+            persona_id: 人格过滤条件，None 表示不限制。
+
+        Returns:
+            最多 k 条结果：优先保留相关性结果，不足时补入近期记忆。
+        """
+        recent_count = min(max(0, int(self.config.get("recent_memory_count", 0))), k)
+        if recent_count <= 0 or len(results) >= k:
             return results[:k]
 
         recent = await self._get_recent_memory_results(
             recent_count, session_id, persona_id
         )
-        if not recent:
-            return results[:k]
-
-        selected = list(results[: max(0, k - recent_count)])
+        selected = list(results)
         selected_ids = {result.doc_id for result in selected}
         for result in recent:
-            if result.doc_id not in selected_ids:
-                selected.append(result)
-                selected_ids.add(result.doc_id)
-        for result in results:
             if len(selected) >= k:
                 break
-            if result.doc_id not in selected_ids:
-                selected.append(result)
-                selected_ids.add(result.doc_id)
-        return selected[:k]
+            if result.doc_id in selected_ids:
+                continue
+            selected.append(result)
+            selected_ids.add(result.doc_id)
+        return selected
 
     def _get_cached_search_results(
         self,
