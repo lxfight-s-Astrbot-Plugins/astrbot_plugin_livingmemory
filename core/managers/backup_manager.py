@@ -20,7 +20,7 @@ from typing import NamedTuple
 from astrbot.api import logger
 
 # Match metadata.yaml; backup manifests use this plugin version.
-PLUGIN_VERSION = "2.9.2"
+PLUGIN_VERSION = "2.10.0"
 
 # Retention policies enforced by BackupManager.prune().
 KEEP_VERSION_BACKUPS = 2
