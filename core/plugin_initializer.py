@@ -329,6 +329,28 @@ class PluginInitializer(InitializerFaissMixin):
                     logger.debug(f"获取默认 LLM Provider 失败: {e}")
                 self.llm_provider = None
 
+        # 主 Provider 与宿主默认均不可用时，初始化阶段先采用第一个可解析的
+        # 备用 Provider，避免配置了回退仍无法启动；运行期仍按完整回退链调用。
+        if not self.llm_provider:
+            fallback_ids = (
+                self.config_manager.get(
+                    "provider_settings.llm_fallback_provider_ids", []
+                )
+                or []
+            )
+            for fallback_id in fallback_ids:
+                if not isinstance(fallback_id, str) or not fallback_id.strip():
+                    continue
+                provider = self._get_provider_by_id(fallback_id.strip(), silent=silent)
+                if provider and isinstance(provider, Provider):
+                    self.llm_provider = provider
+                    if not silent:
+                        logger.warning(
+                            "主 LLM Provider 不可用，初始化阶段暂用备用 Provider: "
+                            f"{fallback_id.strip()}"
+                        )
+                    break
+
     def _get_provider_by_id(self, provider_id: str, *, silent: bool):
         """静默检查阶段绕过会打印 warning 的 AstrBot 查询接口。"""
         if not provider_id:
@@ -660,6 +682,12 @@ class PluginInitializer(InitializerFaissMixin):
                 ),
                 "llm_stream_mode": self.config_manager.get(
                     "provider_settings.llm_stream_mode", "auto"
+                ),
+                "llm_fallback_provider_ids": self.config_manager.get(
+                    "provider_settings.llm_fallback_provider_ids", []
+                ),
+                "llm_call_timeout_seconds": self.config_manager.get(
+                    "provider_settings.llm_call_timeout_seconds", 60
                 ),
             },
         )

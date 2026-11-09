@@ -2,6 +2,7 @@
 
 仅统计当前进程生命周期内的调用次数与 token 数：Provider 响应携带 usage 时
 采用真实值，否则按字符数估算（约 2 字符/token），估算次数单独计数以便区分。
+同时按实际处理调用的 Provider ID 计数，并记录由回退 Provider 处理的调用次数。
 """
 
 import json
@@ -18,6 +19,8 @@ _calls = 0
 _input_tokens = 0
 _output_tokens = 0
 _estimated_calls = 0
+_providers: dict[str, int] = {}
+_fallback_calls = 0
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -79,6 +82,8 @@ def record_llm_usage(
     *,
     prompt_text: str = "",
     completion_text: str = "",
+    provider_id: str = "",
+    fallback_used: bool = False,
 ) -> None:
     """记录一次成功的 LLM 调用。
 
@@ -86,9 +91,16 @@ def record_llm_usage(
         usage: Provider 响应上的 usage（dict 或对象）；None 或无法识别时按文本估算。
         prompt_text: 输入文本，仅在缺少 usage 时用于估算。
         completion_text: 输出文本，仅在缺少 usage 时用于估算。
+        provider_id: 实际处理本次调用的 Provider ID；空值计入 unknown。
+        fallback_used: 本次调用是否由回退 Provider 处理。
     """
     global _calls, _input_tokens, _output_tokens, _estimated_calls
+    global _providers, _fallback_calls
     _calls += 1
+    provider_key = str(provider_id or "").strip() or "unknown"
+    _providers[provider_key] = _providers.get(provider_key, 0) + 1
+    if fallback_used:
+        _fallback_calls += 1
     counts = _extract_usage(usage)
     if counts is None:
         _input_tokens += len(prompt_text) // _CHARS_PER_TOKEN
@@ -103,12 +115,14 @@ def record_llm_usage(
         )
 
 
-def get_usage_snapshot() -> dict[str, int]:
-    """返回当前进程的累计用量快照。"""
+def get_usage_snapshot() -> dict[str, Any]:
+    """返回当前进程的累计用量快照（含按 Provider 的调用次数）。"""
     return {
         "calls": _calls,
         "input_tokens": _input_tokens,
         "output_tokens": _output_tokens,
         "total_tokens": _input_tokens + _output_tokens,
         "estimated_calls": _estimated_calls,
+        "providers": dict(_providers),
+        "fallback_calls": _fallback_calls,
     }

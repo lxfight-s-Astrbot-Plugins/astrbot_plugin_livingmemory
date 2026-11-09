@@ -917,7 +917,15 @@ async def test_non_stream_call_records_provider_usage(monkeypatch):
 
     assert text == "响应文本"
     assert recorded == [
-        (usage, {"prompt_text": "prompt", "completion_text": "响应文本"})
+        (
+            usage,
+            {
+                "prompt_text": "prompt",
+                "completion_text": "响应文本",
+                "provider_id": "default",
+                "fallback_used": False,
+            },
+        )
     ]
 
 
@@ -940,5 +948,13 @@ async def test_stream_call_records_final_chunk_usage(monkeypatch):
 
     assert text == "流式响应"
     assert recorded == [
-        (usage, {"prompt_text": "prompt", "completion_text": "流式响应"})
+        (
+            usage,
+            {
+                "prompt_text": "prompt",
+                "completion_text": "流式响应",
+                "provider_id": "default",
+                "fallback_used": False,
+            },
+        )
     ]

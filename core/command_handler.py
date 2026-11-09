@@ -118,6 +118,7 @@ class CommandHandler:
                 calls=usage["calls"],
                 input_tokens=usage["input_tokens"],
                 output_tokens=usage["output_tokens"],
+                fallback_calls=usage.get("fallback_calls", 0),
             )
 
             maintenance = stats.get("index_maintenance") or {}

@@ -53,12 +53,16 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `provider_settings.embedding_provider_id` | 空（不建议） | 用于向量化记忆，应填写已启用的 Embedding Provider ID。留空只在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败 |
 | `provider_settings.llm_provider_id` | 空 | 用于总结对话和评估记忆重要性。留空使用 AstrBot 默认 LLM |
 | `provider_settings.llm_stream_mode` | `auto` | 记忆处理调用 LLM 的方式：`auto` 优先非流式、遇“不支持非流式”错误自动转流式；`always` 始终流式；`never` 始终非流式（旧行为） |
+| `provider_settings.llm_fallback_provider_ids` | `[]` | 主 LLM 不可用时按顺序尝试的备用 Provider ID 列表（JSON 数组）；超时、限流（429）、5xx 或鉴权失败时切换，解析/格式错误不切换；留空不启用回退 |
+| `provider_settings.llm_call_timeout_seconds` | `60` | 每个 Provider 单次调用超时（秒，5–600）；超时按该 Provider 不可用处理并切换到下一个 |
 
 建议 Embedding 模型保持稳定，不要频繁更换。更换 Embedding 后，如发现旧记忆召回异常，可执行 `/lmem rebuild-index`。
 
 使用硅基流动免费 BGE-M3 的具体参数、Provider ID 查找方式和验证步骤，见[嵌入模型与 BGE-M3](/guide/embedding-model)。
 
 只接受流式请求（`stream=true`）的模型服务在 `auto` 模式下会自动改用流式调用，无需手动配置；需要强制始终流式时设为 `always`。流式中断、超时或未收到完整响应会按失败处理，不会把不完整结果写入记忆。
+
+配置备用 Provider 后，主 Provider 超时、限流、5xx 或鉴权失败会按顺序切换到下一个备用 Provider；单个 Provider 内部仍只对瞬时错误重试一次，JSON 解析、校验或请求格式错误不会切换 Provider。回退调用会记录实际 Provider ID 与回退次数，可在 `/lmem status` 的用量行查看回退次数。
 
 ## 会话管理
 
