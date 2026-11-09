@@ -31,3 +31,17 @@ class ConfigurationError(LivingMemoryException):
 
     def __init__(self, message: str):
         super().__init__(message, "CONFIG_ERROR")
+
+
+class MemoryParseError(LivingMemoryException):
+    """LLM 响应无法解析为结构化记忆（可重试，不写入主库）"""
+
+    def __init__(self, message: str):
+        super().__init__(message, "MEMORY_PARSE_ERROR")
+
+
+class LowQualityMemoryError(LivingMemoryException):
+    """总结质量不达标，默认不写入主库（可重试）"""
+
+    def __init__(self, message: str):
+        super().__init__(message, "LOW_QUALITY_MEMORY")

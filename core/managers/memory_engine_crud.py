@@ -125,6 +125,9 @@ class MemoryEngineCrudMixin:
         )
         await self._index_memory_graph(doc_id, content, full_metadata, atoms)
         await self._persist_memory_source(doc_id, source_messages)
+        superseded_ids = full_metadata.get("superseded_memory_ids")
+        if superseded_ids:
+            await self.mark_memories_superseded(superseded_ids, doc_id)
         self._invalidate_search_cache()
         return doc_id
 
@@ -546,6 +549,55 @@ class MemoryEngineCrudMixin:
 
         self._invalidate_search_cache()
         return success
+
+    async def mark_memories_superseded(
+        self, memory_ids: list[int], by_memory_id: int
+    ) -> int:
+        """把被取代的旧记忆标记为 superseded（不删除、不归档）。
+
+        仅在 metadata 写入 ``superseded_by`` / ``superseded_at``：旧记忆保留在
+        存储与索引中，由召回侧的 ``_filter_by_retrieval_policy`` 过滤，便于审计
+        或将来恢复。标记失败只记录日志，不影响新记忆已完成的写入。
+
+        Args:
+            memory_ids: 被取代的记忆 id 列表。
+            by_memory_id: 取代它们的新记忆 id。
+
+        Returns:
+            int: 实际标记成功的记忆条数。
+        """
+        if self.db_connection is None:
+            return 0
+        marked = 0
+        now = time.time()
+        for memory_id in memory_ids:
+            if memory_id == by_memory_id:
+                continue
+            try:
+                updated = await self.update_memory(
+                    int(memory_id),
+                    {
+                        "metadata": {
+                            "superseded_by": int(by_memory_id),
+                            "superseded_at": now,
+                        }
+                    },
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    f"[MemoryEngine] 标记被取代记忆失败 (memory_id={memory_id})",
+                    exc_info=True,
+                )
+                continue
+            if updated:
+                marked += 1
+        if marked:
+            logger.info(
+                f"[MemoryEngine] 已标记 {marked} 条被取代记忆 (superseded_by={by_memory_id})"
+            )
+        return marked
 
     async def merge_duplicate_memory(
         self,

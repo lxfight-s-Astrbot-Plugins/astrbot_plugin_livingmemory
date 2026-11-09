@@ -1,12 +1,22 @@
 """#344 反思积压：同一次后台任务内按切分片段连续消费。"""
 
 import asyncio
+import time
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from astrbot_plugin_livingmemory.core.base.exceptions import (
+    LowQualityMemoryError,
+    MemoryParseError,
+)
 
-from tests.event_handler_support import _make_real_handler
+from tests.event_handler_support import (
+    _make_event,
+    _make_real_handler,
+    _make_req,
+    _make_resp,
+)
 
 
 def _day(day: int, hour: int, minute: int = 0) -> float:
@@ -170,6 +180,140 @@ async def test_backlog_stops_when_segment_fails(tmp_path):
             session_id, "pending_summary", None
         ) == {"start_index": 0, "end_index": 4, "retry_count": 1}
         handler.memory_engine.add_memory.assert_not_awaited()
+    finally:
+        await handler.shutdown()
+        await store.close()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MemoryParseError("LLM 响应无法解析为记忆 JSON"),
+        LowQualityMemoryError("总结质量不达标"),
+    ],
+    ids=["parse-failure", "low-quality"],
+)
+@pytest.mark.asyncio
+async def test_rejected_summary_keeps_pending_retry_without_storing(tmp_path, error):
+    """解析失败/低质量总结不落库，按现有 pending retry 机制保留窗口。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    session_id = "test:group:rejected"
+    await _seed_messages(
+        manager,
+        session_id,
+        [
+            _day(25, 22, 0),
+            _day(25, 22, 5),
+            _day(25, 22, 10),
+            _day(25, 22, 15),
+        ],
+    )
+    _configure_processor(handler, side_effect=error)
+    handler.memory_engine.add_memory = AsyncMock(return_value=1)
+
+    try:
+        plan = await _build_plan(handler, session_id, 4)
+        await _run_scheduled(handler, plan)
+
+        handler.memory_engine.add_memory.assert_not_awaited()
+        assert handler.memory_processor.process_conversation.await_count == 1
+        assert await manager.get_session_metadata(
+            session_id, "pending_summary", None
+        ) == {"start_index": 0, "end_index": 4, "retry_count": 1}
+        assert (
+            await manager.get_session_metadata(session_id, "last_summarized_index", 0)
+            == 0
+        )
+    finally:
+        await handler.shutdown()
+        await store.close()
+
+
+async def _seed_old_round(manager, session_id: str, gap_minutes: float) -> None:
+    """写入上一轮对话（时间戳在 gap_minutes 分钟前）。"""
+    old = time.time() - gap_minutes * 60
+    await manager.add_message(
+        session_id=session_id,
+        role="user",
+        content="很久以前的提问",
+        sender_id="u1",
+        timestamp=old,
+    )
+    await manager.add_message(
+        session_id=session_id,
+        role="assistant",
+        content="很久以前的回答",
+        sender_id="bot1",
+        timestamp=old + 1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_idle_gap_triggers_catchup_summary_below_threshold(tmp_path):
+    """空闲 100 分钟后，下一轮对话即使未满 10 轮也立即补一次总结。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    handler.config_manager._config["reflection_engine"]["summary_trigger_rounds"] = 10
+    session_id = "test:private:sid-1"
+    await _seed_old_round(manager, session_id, gap_minutes=100)
+    _configure_processor(handler)
+    handler.memory_engine.find_similar_memory = AsyncMock(return_value=None)
+    handler.memory_engine.add_memory = AsyncMock(return_value=1)
+    event = _make_event()
+
+    try:
+        await handler.handle_memory_recall(event, _make_req("现在的新问题"))
+        prepared = await handler._memory_reflection._reflection_precheck(
+            event, _make_resp("现在的新回答")
+        )
+        assert prepared is not None
+        assert (
+            await manager.get_session_metadata(
+                session_id, "idle_summary_pending", False
+            )
+            is True
+        )
+
+        await handler.handle_memory_reflection(event, _make_resp("现在的新回答"))
+        await asyncio.gather(*list(handler._storage_tasks))
+
+        assert handler.memory_processor.process_conversation.await_count == 1
+        assert handler.memory_engine.add_memory.await_count == 1
+        assert (
+            await manager.get_session_metadata(
+                session_id, "idle_summary_pending", False
+            )
+            is False
+        )
+    finally:
+        await handler.shutdown()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_no_idle_gap_keeps_normal_trigger_threshold(tmp_path):
+    """间隔未达空闲阈值时不补总结，仍按 summary_trigger_rounds 触发。"""
+    handler, manager, store = await _make_real_handler(tmp_path)
+    handler.config_manager._config["reflection_engine"]["summary_trigger_rounds"] = 10
+    session_id = "test:private:sid-1"
+    await _seed_old_round(manager, session_id, gap_minutes=0.5)
+    _configure_processor(handler)
+    handler.memory_engine.find_similar_memory = AsyncMock(return_value=None)
+    handler.memory_engine.add_memory = AsyncMock(return_value=1)
+    event = _make_event()
+
+    try:
+        await handler.handle_memory_recall(event, _make_req("现在的新问题"))
+        await handler.handle_memory_reflection(event, _make_resp("现在的新回答"))
+        await asyncio.gather(*list(handler._storage_tasks))
+
+        assert handler.memory_processor.process_conversation.await_count == 0
+        assert handler.memory_engine.add_memory.await_count == 0
+        assert (
+            await manager.get_session_metadata(
+                session_id, "idle_summary_pending", False
+            )
+            is False
+        )
     finally:
         await handler.shutdown()
         await store.close()

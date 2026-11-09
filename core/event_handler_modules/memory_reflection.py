@@ -26,6 +26,10 @@ _DEFAULT_MEMORY_SCOPE = object()
 # 仅限制反思总结（LLM + 记忆写入）阶段，不限制消息入库。
 _MAX_CONCURRENT_REFLECTIONS = 2
 
+# 长空闲补总结阈值：距上一条消息超过该时长时，下一轮对话立即补一次总结，
+# 不再等 summary_trigger_rounds 轮（避免长时间不聊导致这次对话永久漏总结）。
+_IDLE_SUMMARY_GAP_SECONDS = 60 * 60
+
 
 def _message_timestamp(message: Any) -> float | None:
     """读取已入库消息的时间戳；缺失或非法时返回 None（该相邻对不参与切分）。"""
@@ -52,6 +56,37 @@ def cancel_session_storage_task(
         return False
     task.cancel()
     logger.info(f"[{session_id}] 会话历史已回滚，取消进行中的记忆总结任务")
+    return True
+
+
+async def _mark_idle_summary_if_needed(manager: Any, session_id: str) -> bool:
+    """长空闲后标记“下一轮补总结”，返回是否写入标记。
+
+    Args:
+        manager: ConversationManager；会话元数据与最近消息的读取方。
+        session_id: 会话 ID。
+
+    Returns:
+        bool: 本次是否新写入 ``idle_summary_pending=True``。
+    """
+    try:
+        messages = await manager.get_messages(session_id, limit=2)
+    except Exception as exc:
+        logger.debug(f"[{session_id}] 读取最近消息失败，跳过空闲检测: {exc}")
+        return False
+    if len(messages) < 2:
+        return False
+    previous_timestamp = _message_timestamp(messages[-2])
+    current_timestamp = _message_timestamp(messages[-1])
+    if previous_timestamp is None or current_timestamp is None:
+        return False
+    gap_seconds = current_timestamp - previous_timestamp
+    if gap_seconds < _IDLE_SUMMARY_GAP_SECONDS:
+        return False
+    await manager.update_session_metadata(session_id, "idle_summary_pending", True)
+    logger.info(
+        f"[{session_id}] 距上一条消息 {gap_seconds / 60:.0f} 分钟，已标记下一轮补总结"
+    )
     return True
 
 
@@ -257,6 +292,9 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         if await self._is_superseded_response(event, session_id):
             return None
 
+        # 长空闲后的下一轮：标记补总结，_reflection_plan 会把触发阈值降为 1
+        await _mark_idle_summary_if_needed(self.conversation_manager, session_id)
+
         # 工具轮：tool loop 尚未结束，总结会截断在工具调用中间，
         # 因此只把助手文字写入会话库，最终回复轮才触发后台总结。
         if resp.role == "tool" or resp.tools_call_name or resp.tools_call_extra_content:
@@ -345,6 +383,14 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         trigger_rounds = self.config_manager.get(
             "reflection_engine.summary_trigger_rounds", 10
         )
+        # 长空闲后的补总结标记：本次只要有未总结轮次就触发，不改变正常阈值逻辑
+        idle_summary_pending = bool(
+            await self.conversation_manager.get_session_metadata(
+                session_id, "idle_summary_pending", False
+            )
+        )
+        if idle_summary_pending:
+            trigger_rounds = 1
         last_summarized_index = await self.conversation_manager.get_session_metadata(
             session_id, "last_summarized_index", 0
         )
@@ -370,6 +416,7 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             f"上次总结位置: {last_summarized_index}, "
             f"未总结轮数: {unsummarized_rounds}, "
             f"触发阈值: {trigger_rounds}轮, "
+            f"空闲补总结: {idle_summary_pending}, "
             f"待处理失败总结: {pending_summary is not None}"
         )
         if unsummarized_rounds < trigger_rounds:
@@ -557,6 +604,16 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             if not committed:
                 break
             committed_any = True
+            # 总结成功提交后清除空闲补总结标记，恢复正常触发阈值
+            if await self.conversation_manager.get_session_metadata(
+                plan.session_id, "idle_summary_pending", False
+            ):
+                await self._commit_session_metadata(
+                    plan.session_id,
+                    "idle_summary_pending",
+                    False,
+                    plan.expected_revision,
+                )
             if self._shutting_down:
                 break
 

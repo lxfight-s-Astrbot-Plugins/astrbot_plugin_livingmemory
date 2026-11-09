@@ -8,8 +8,15 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from astrbot_plugin_livingmemory.core.base.exceptions import (
+    LowQualityMemoryError,
+    MemoryParseError,
+)
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
-from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
+from astrbot_plugin_livingmemory.core.processors.memory_processor import (
+    MemoryProcessor,
+    get_low_quality_rejection_count,
+)
 from astrbot_plugin_livingmemory.core.prompts.prompt_manager import (
     get_prompt_manager,
     init_prompt_manager,
@@ -79,19 +86,17 @@ async def test_process_conversation_success():
 
 
 @pytest.mark.asyncio
-async def test_process_conversation_handles_non_json_response_with_fallback():
-    llm = _DummyLLMProvider("summary=测试, importance=0.6")
+async def test_process_conversation_raises_on_unparseable_response():
+    """无法解析出 JSON 的响应必须抛 MemoryParseError，不再回退占位内容入库。"""
+    llm = _DummyLLMProvider("抱歉，这段对话我无法总结为 JSON。")
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    content, metadata, importance = await processor.process_conversation(
-        messages=_make_messages(),
-        is_group_chat=False,
-        persona_id=None,
-    )
-
-    assert isinstance(content, str) and len(content) > 0
-    assert "topics" in metadata
-    assert 0.0 <= importance <= 1.0
+    with pytest.raises(MemoryParseError):
+        await processor.process_conversation(
+            messages=_make_messages(),
+            is_group_chat=False,
+            persona_id=None,
+        )
 
 
 class TestPromptLiveReload:
@@ -195,7 +200,8 @@ async def test_dual_channel_summary_stores_canonical_and_persona():
 @pytest.mark.asyncio
 async def test_source_time_tags_come_from_message_timestamps_without_rewriting_summary():
     llm = _DummyLLMProvider(
-        '{"summary":"记住这件事", "canonical_summary":"发布计划已确认", '
+        '{"summary":"记住这件事：发布计划已经确认", '
+        '"canonical_summary":"发布计划已确认", '
         '"topics":["发布"], "key_facts":["发布计划已确认"], '
         '"sentiment":"neutral", "importance":0.8}'
     )
@@ -206,7 +212,7 @@ async def test_source_time_tags_come_from_message_timestamps_without_rewriting_s
 
     content, metadata, _ = await processor.process_conversation(messages)
 
-    assert content == "记住这件事 | 发布计划已确认"
+    assert content == "记住这件事：发布计划已经确认 | 发布计划已确认"
     assert metadata["canonical_summary"] == "发布计划已确认"
     assert metadata["time_tags"] == ["2025-05-01", "2025-05-02"]
     assert metadata["source_time_label"] == "2025-05-01 - 2025-05-02"
@@ -274,11 +280,36 @@ async def test_summary_quality_normal_for_valid_response():
     )
 
     assert metadata.get("summary_quality") == "normal"
+    assert "superseded_memory_ids" not in metadata
+
+
+@pytest.mark.asyncio
+async def test_superseded_memory_ids_are_normalized_into_metadata():
+    """LLM 可选输出的 superseded_memory_ids 应透传到 metadata（过滤非法值）。"""
+    llm = _DummyLLMProvider(
+        """{
+            "summary":"用户告知周五复盘改到周六下午",
+            "topics":["日程"],
+            "key_facts":["复盘时间改为周六下午"],
+            "sentiment":"neutral",
+            "importance":0.7,
+            "superseded_memory_ids":[7, "9", 7, 0, -1, true, "bad"]
+        }"""
+    )
+    processor = MemoryProcessor(llm_provider=llm, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=_make_messages(),
+        is_group_chat=False,
+        persona_id=None,
+    )
+
+    assert metadata["superseded_memory_ids"] == [7, 9]
 
 
 @pytest.mark.asyncio
 async def test_summary_quality_low_for_empty_summary():
-    """summary 为空时应标记为 summary_quality=low。"""
+    """summary 为空时质量校验为 low，默认拒绝写入主库。"""
     llm = _DummyLLMProvider(
         """{
             "summary":"",
@@ -289,22 +320,24 @@ async def test_summary_quality_low_for_empty_summary():
         }"""
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
+    rejected_before = get_low_quality_rejection_count()
 
-    _, metadata, _ = await processor.process_conversation(
-        messages=_make_messages(),
-        is_group_chat=False,
-        persona_id=None,
-    )
+    with pytest.raises(LowQualityMemoryError):
+        await processor.process_conversation(
+            messages=_make_messages(),
+            is_group_chat=False,
+            persona_id=None,
+        )
 
-    assert metadata.get("summary_quality") == "low"
+    assert get_low_quality_rejection_count() == rejected_before + 1
 
 
 @pytest.mark.asyncio
 async def test_summary_quality_low_for_missing_key_facts():
-    """key_facts 为空时应标记为 summary_quality=low。"""
+    """key_facts 为空时质量校验为 low，默认拒绝写入主库。"""
     llm = _DummyLLMProvider(
         """{
-            "summary":"用户进行了一次普通对话",
+            "summary":"用户进行了一次普通的闲聊对话",
             "topics":["闲聊"],
             "key_facts":[],
             "sentiment":"neutral",
@@ -313,18 +346,17 @@ async def test_summary_quality_low_for_missing_key_facts():
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    _, metadata, _ = await processor.process_conversation(
-        messages=_make_messages(),
-        is_group_chat=False,
-        persona_id=None,
-    )
-
-    assert metadata.get("summary_quality") == "low"
+    with pytest.raises(LowQualityMemoryError):
+        await processor.process_conversation(
+            messages=_make_messages(),
+            is_group_chat=False,
+            persona_id=None,
+        )
 
 
 @pytest.mark.asyncio
 async def test_summary_quality_low_for_generic_terms():
-    """summary 包含泛化词（某用户、有人等）时应标记为 summary_quality=low。"""
+    """summary 包含泛化词（某用户、有人等）时质量校验为 low，默认拒绝写入。"""
     llm = _DummyLLMProvider(
         """{
             "summary":"某用户提到了一些事情",
@@ -336,13 +368,12 @@ async def test_summary_quality_low_for_generic_terms():
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    _, metadata, _ = await processor.process_conversation(
-        messages=_make_messages(),
-        is_group_chat=False,
-        persona_id=None,
-    )
-
-    assert metadata.get("summary_quality") == "low"
+    with pytest.raises(LowQualityMemoryError):
+        await processor.process_conversation(
+            messages=_make_messages(),
+            is_group_chat=False,
+            persona_id=None,
+        )
 
 
 def test_validate_summary_quality_directly():
@@ -575,7 +606,7 @@ async def test_process_group_chat_missing_participants_uses_default():
     """群聊 LLM 响应缺少 participants 字段时，应使用空列表默认值。"""
     llm = _DummyLLMProvider(
         """{
-            "summary":"群聊讨论了一些话题",
+            "summary":"群聊讨论了一些话题并确认了后续安排",
             "topics":["闲聊"],
             "key_facts":["大家聊了很多"],
             "sentiment":"neutral",
@@ -664,8 +695,8 @@ async def test_process_group_chat_long_content():
 
 
 @pytest.mark.asyncio
-async def test_process_group_chat_quality_low_for_generic_terms():
-    """群聊总结包含泛化词时，summary_quality 应为 low。"""
+async def test_process_group_chat_quality_low_rejects_storage():
+    """群聊总结包含泛化词时质量校验为 low，默认拒绝写入主库。"""
     llm = _DummyLLMProvider(
         """{
             "summary":"某用户在群里说了一些话",
@@ -678,13 +709,12 @@ async def test_process_group_chat_quality_low_for_generic_terms():
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    _, metadata, _ = await processor.process_conversation(
-        messages=_make_group_messages(),
-        is_group_chat=True,
-        persona_id=None,
-    )
-
-    assert metadata.get("summary_quality") == "low"
+    with pytest.raises(LowQualityMemoryError):
+        await processor.process_conversation(
+            messages=_make_group_messages(),
+            is_group_chat=True,
+            persona_id=None,
+        )
 
 
 def test_format_conversation_sanitizes_multimodal_private_message():

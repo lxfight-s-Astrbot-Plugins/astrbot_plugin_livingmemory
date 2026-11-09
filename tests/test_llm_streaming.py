@@ -18,7 +18,7 @@ NON_STREAM_ERROR = (
     "Error code: 400 - Non-stream chat request is currently not supported"
 )
 FINAL_SUMMARY = (
-    '{"summary":"用户喜欢喝咖啡","topics":["偏好"],'
+    '{"summary":"用户喜欢喝咖啡，尤其偏爱手冲咖啡","topics":["偏好"],'
     '"key_facts":["用户偏爱手冲咖啡"],"sentiment":"neutral","importance":0.7}'
 )
 
@@ -165,9 +165,7 @@ async def test_unknown_stream_mode_falls_back_to_auto():
     """未知配置值按 auto 处理：优先非流式，并保留 400 降级能力。"""
     non_stream_provider = _StreamingProvider(non_stream_result="非流式结果")
     processor = _processor(non_stream_provider, llm_stream_mode="sometimes")
-    assert (
-        await processor._call_llm_with_retry("p", "s", max_retries=1) == "非流式结果"
-    )
+    assert await processor._call_llm_with_retry("p", "s", max_retries=1) == "非流式结果"
     assert non_stream_provider.stream_calls == 0
 
     falling_provider = _StreamingProvider(
@@ -262,7 +260,7 @@ async def test_auto_fallback_summary_uses_complete_stream_result():
 
     content, metadata, importance = await processor.process_conversation(_messages())
 
-    assert content == "用户喜欢喝咖啡 | 用户偏爱手冲咖啡"
+    assert content == "用户喜欢喝咖啡，尤其偏爱手冲咖啡 | 用户偏爱手冲咖啡"
     assert metadata["canonical_summary"] == content
     assert importance == 0.7
     assert provider.text_chat.await_count == 1

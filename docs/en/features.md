@@ -30,6 +30,7 @@ LivingMemory is not just a chat log. It transforms conversations into searchable
 | Manual administrator summary | `/lmem summarize [message_count]` | Save the current context immediately or re-summarize the latest N messages |
 
 Summarization produces a persona-styled `summary` used for both memory injection and dashboard display (`persona_summary`), while retrieval content is assembled by code from `summary` and `key_facts` so a single compressed summary cannot drain information density. Custom prompts may still emit a factual `canonical_summary` for consumers such as graph extraction. Memories above the source-retention threshold also store their source messages separately in SQLite. Those messages are not indexed for normal recall, but remain available for Dashboard review, re-summarization, and deep source retrieval by the Agent recall tool.
+After a long idle gap, the next conversation turn triggers one catch-up summary immediately instead of waiting for the configured trigger rounds, so a sparse conversation cannot be silently left unsummarized forever.
 
 ## How recall works
 

@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
-from astrbot_plugin_livingmemory.core.processors import memory_processor as processor_module
+from astrbot_plugin_livingmemory.core.processors import (
+    memory_processor as processor_module,
+)
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 from astrbot_plugin_livingmemory.core.prompts import prompt_manager
 
@@ -18,7 +20,14 @@ def processor(monkeypatch, tmp_path):
     manager = prompt_manager.PromptManager(str(tmp_path))
     monkeypatch.setattr(prompt_manager, "get_prompt_manager", lambda: manager)
     provider = SimpleNamespace(
-        text_chat=AsyncMock(return_value=SimpleNamespace(completion_text='{"summary":"测试"}'))
+        text_chat=AsyncMock(
+            return_value=SimpleNamespace(
+                completion_text=(
+                    '{"summary":"测试记忆总结的完整内容","key_facts":["测试事实"],'
+                    '"topics":[],"importance":0.5}'
+                )
+            )
+        )
     )
     return MemoryProcessor(llm_provider=provider)
 
@@ -42,7 +51,9 @@ def test_merge_tries_valid_original_before_repair(processor, monkeypatch):
         raise AssertionError("合法 JSON 不应先修复")
 
     monkeypatch.setattr(processor, "_try_fix_json", reject_repair)
-    assert processor._parse_merge_response('{\n "summary": "正常"\n}') == {"summary": "正常"}
+    assert processor._parse_merge_response('{\n "summary": "正常"\n}') == {
+        "summary": "正常"
+    }
 
 
 def test_repair_only_escapes_controls_inside_strings(processor):
@@ -50,6 +61,21 @@ def test_repair_only_escapes_controls_inside_strings(processor):
     repaired = processor._try_fix_json(response)
     assert repaired.startswith('{\n\t"summary"')
     assert processor._parse_merge_response(response)["summary"] == "首行\n次行\r\t末尾"
+
+
+def test_repairable_json_still_parses_end_to_end():
+    """可修复的 JSON 仍应正常解析，不会被当作解析失败。"""
+    from astrbot_plugin_livingmemory.core.processors.memory_processor_parse import (
+        parse_llm_response,
+    )
+
+    data = parse_llm_response(
+        '{"summary": "修复后仍可使用", "key_facts": ["事实"], "importance": 0.5,}',
+        is_group_chat=False,
+    )
+
+    assert data["summary"] == "修复后仍可使用"
+    assert data["key_facts"] == ["事实"]
 
 
 def test_repair_closes_nested_structures_in_order(processor):
@@ -67,25 +93,37 @@ async def test_summary_keeps_fixed_prefix_across_dates(
     if with_persona:
         processor.context = SimpleNamespace(
             persona_manager=SimpleNamespace(
-                get_persona=AsyncMock(return_value=SimpleNamespace(system_prompt="你是专业助手"))
+                get_persona=AsyncMock(
+                    return_value=SimpleNamespace(system_prompt="你是专业助手")
+                )
             )
         )
     messages = [
         Message(
-            id=1, session_id="s", role="user", content="明天开会", sender_id="u",
-            sender_name="张三", group_id="g" if is_group else None,
-            platform="test", timestamp=datetime(2026, 9, 20, 23, 50).timestamp(), metadata={},
+            id=1,
+            session_id="s",
+            role="user",
+            content="明天开会",
+            sender_id="u",
+            sender_name="张三",
+            group_id="g" if is_group else None,
+            platform="test",
+            timestamp=datetime(2026, 9, 20, 23, 50).timestamp(),
+            metadata={},
         )
     ]
     calls = []
     for day in (1, 2):
+
         class FrozenDateTime(datetime):
             @classmethod
             def now(cls):
                 return cls(2026, 10, day, 12, 0)
 
         monkeypatch.setattr(processor_module, "datetime", FrozenDateTime)
-        await processor.process_conversation(messages, is_group, "p" if with_persona else None)
+        await processor.process_conversation(
+            messages, is_group, "p" if with_persona else None
+        )
         calls.append(processor._llm_provider.text_chat.call_args.kwargs)
 
     assert calls[0]["system_prompt"] == calls[1]["system_prompt"]
@@ -112,6 +150,8 @@ async def test_custom_system_template_keeps_date_variable_support(processor):
 def test_system_prompt_fallbacks_are_static():
     base = MemoryProcessor._build_base_prompt_fallback("2026-10-01")
     assert base == MemoryProcessor._build_base_prompt_fallback("2026-10-02")
-    assert MemoryProcessor._build_enhanced_prompt_fallback(base, "专业助手", "2026-10-01") == (
+    assert MemoryProcessor._build_enhanced_prompt_fallback(
+        base, "专业助手", "2026-10-01"
+    ) == (
         MemoryProcessor._build_enhanced_prompt_fallback(base, "专业助手", "2026-10-02")
     )

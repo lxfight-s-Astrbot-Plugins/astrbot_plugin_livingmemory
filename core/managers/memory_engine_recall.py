@@ -730,6 +730,10 @@ class MemoryEngineRecallMixin:
                 metadata = {}
             if str(metadata.get("status") or "active") != "active":
                 continue
+            # 被新总结取代的旧记忆只保留在存储中供审计，不再参与任何召回
+            # （显式 /lmem search 与自动注入共用本过滤）。
+            if metadata.get("superseded_by") is not None:
+                continue
             if (
                 importance_threshold > 0
                 and clamp_float(metadata.get("importance"), default=0.5)
