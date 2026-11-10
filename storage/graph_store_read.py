@@ -934,8 +934,9 @@ class GraphStoreReadMixin:
         """Return the scoped graph and memory-node associations in full.
 
         The full-graph view is intentionally complete: archived and superseded
-        memories stay in the graph so the dashboard can render the whole history
-        (only deleted relations and out-of-scope entries are excluded).
+        memories and their relations stay in the graph so the dashboard can
+        render the whole history (only deleted relations and out-of-scope
+        entries are excluded).
 
         Args:
             session_id: Optional session scope.
@@ -963,7 +964,7 @@ class GraphStoreReadMixin:
                 "EXISTS (SELECT 1 FROM graph_entries ge "
                 "WHERE ge.source_memory_id = edge.source_memory_id "
                 f"AND {' AND '.join(filters)})",
-                "edge.status = 'active'",
+                "edge.status IN ('active', 'archived')",
             ]
             edge_where = " AND ".join(edge_conditions)
 
