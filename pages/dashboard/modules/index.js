@@ -11,4 +11,5 @@ export { SystemPage } from "./system-page.js";
 export { PromptPage } from "./prompt-page.js";
 export { SettingsPage } from "./settings-page.js";
 export { ProfilePage } from "./profile-page.js";
+export { DiagnosticsPage } from "./diagnostics-page.js";
 export * from "./utils.js";

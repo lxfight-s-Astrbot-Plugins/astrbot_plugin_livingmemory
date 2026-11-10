@@ -402,7 +402,8 @@ test("dashboard wires the profile page as a lazy-loaded navigation entry", () =>
   assert.match(index, /data-lucide="user"/);
   assert.match(index, /id="page-profile"/);
   assert.match(app, /ensureProfilePage/);
-  assert.match(app, /\.\/assets\/profile\.min\.js/);
+  assert.match(app, /ensureLazyPage/);
+  assert.match(app, /"profile\.min\.js"/);
   assert.match(modules, /export \{ ProfilePage \}/);
   assert.match(build, /profile\.min\.js/);
   assert.match(build, /profile\.min\.css/);

@@ -30,6 +30,7 @@ Select sharing adapter instances under Settings → Access and isolation; sessio
 | System status | Review active, archived, and deleted counts plus graph, atom, importance, and session statistics (sessions ordered by memory count); the consolidation panel carries the run action, and backups are newest first |
 | Prompt management | Browse prompts by category, edit overrides, identify customized templates, and restore or load defaults |
 | User profiles | Browse and edit structured profiles by scope/persona, inspect history, and resolve pending candidates |
+| Diagnostics | Inspect recall traces, channel memories, external API keys and audit log, and LLM usage |
 
 ## Appearance
 
@@ -131,6 +132,19 @@ Dashboard operations reuse the plugin runtime MemoryEngine and GraphStore, so th
 :::
 
 Background index checks and large rebuild progress are currently exposed through `/lmem status`. See [Commands](/en/commands#index-maintenance-states) for states and recovery guidance.
+
+## Diagnostics
+
+The Diagnostics page groups troubleshooting data into four tabs:
+
+| Tab | Purpose |
+| --- | --- |
+| Traces | Inspect recent recall routes, candidate counts, latency, injected content and filter reasons; open a trace detail and look up memory lineage |
+| Channels | List channels that have memories, then drill into one channel and page through its memories |
+| External API | Manage external API keys (the token is shown once on creation), revoke keys, and review the recent audit log |
+| LLM usage | Inspect call counts, token usage, provider distribution, the fallback chain and the per-provider timeout |
+
+Trace retention and persistence are configuration-driven; the page prompts you to enable tracing when it is off. External API key plaintext is shown only once at creation.
 
 ## Memory migration
 
