@@ -71,6 +71,7 @@ async def test_memory_search_tool_uses_filtering_settings(memory_engine, astr_co
         k=6,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        track_access=True,
     )
 
 
@@ -103,6 +104,7 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
         k=5,
         session_id=None,
         persona_id=None,
+        track_access=True,
     )
     get_persona.assert_not_awaited()
 
@@ -133,6 +135,7 @@ async def test_memory_search_tool_uses_user_scope(memory_engine, astr_context):
         k=5,
         session_id="livingmemory:user:test:user-1",
         persona_id=None,
+        track_access=True,
     )
 
 
@@ -364,6 +367,7 @@ async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context
         k=4,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        track_access=True,
     )
 
 
@@ -423,7 +427,29 @@ async def test_memory_search_tool_falls_back_to_default_k_for_invalid_input(
         k=3,
         session_id="test:private:session-1",
         persona_id="persona_a",
+        track_access=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_memory_search_tool_opts_into_access_tracking(
+    memory_engine, astr_context
+):
+    """显式检索是访问统计的写入来源：工具必须传 track_access=True。"""
+    tool = MemorySearchTool(
+        context=astr_context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+        new_callable=AsyncMock,
+    ) as get_persona:
+        get_persona.return_value = "persona_a"
+        await tool.call(_make_run_context(), query="显式召回")
+
+    assert memory_engine.search_memories.await_args.kwargs["track_access"] is True
 
 
 @pytest.mark.asyncio

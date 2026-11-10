@@ -59,6 +59,7 @@ class MemoryEngineAgenticMixin:
         end_ts=None,
         exclude_ids=None,
         cursor="",
+        track_access: bool = False,
     ) -> AgenticRecallOutcome:
         """Beta 自主检索入口；开启召回追踪时记录一次 agentic trace。
 
@@ -74,6 +75,8 @@ class MemoryEngineAgenticMixin:
             end_ts: 来源时间上界。
             exclude_ids: 需要排除的记忆 id。
             cursor: 人物回忆分页游标。
+            track_access: 是否把本次检索记为“使用”并更新访问统计。
+                检索本身不等于强化；默认 False。
 
         Returns:
             ``AgenticRecallOutcome``；失败时由内部转换为错误状态。
@@ -103,6 +106,7 @@ class MemoryEngineAgenticMixin:
                 end_ts=end_ts,
                 exclude_ids=exclude_ids,
                 cursor=cursor,
+                track_access=track_access,
             )
         except asyncio.CancelledError:
             if trace is not None and recorder is not None:
@@ -142,6 +146,7 @@ class MemoryEngineAgenticMixin:
         end_ts=None,
         exclude_ids=None,
         cursor="",
+        track_access: bool = False,
     ) -> AgenticRecallOutcome:
         query = (query or "").strip()
         if target not in ("conversation", "current_speaker"):
@@ -173,6 +178,7 @@ class MemoryEngineAgenticMixin:
                     end_ts=end_ts,
                     exclude_ids=exclude_ids,
                     cursor=cursor,
+                    track_access=track_access,
                 )
             return await self._agentic_search_conversation(
                 query=query,
@@ -182,6 +188,7 @@ class MemoryEngineAgenticMixin:
                 start_ts=start_ts,
                 end_ts=end_ts,
                 exclude_ids=exclude_ids,
+                track_access=track_access,
             )
         except asyncio.CancelledError:
             raise
@@ -221,6 +228,7 @@ class MemoryEngineAgenticMixin:
         start_ts,
         end_ts,
         exclude_ids,
+        track_access=False,
     ):
         excluded = normalize_doc_ids(exclude_ids)
         pool = min(max(k * 3, k + len(excluded)), 60)
@@ -283,7 +291,8 @@ class MemoryEngineAgenticMixin:
             )
         if unknown_time:
             messages.append("memories without known source times were excluded")
-        self._track_agentic_access(page)
+        if track_access:
+            self._track_agentic_access(page)
         return AgenticRecallOutcome(
             results=page,
             status="success" if page else ("error" if errors else "no_candidates"),
@@ -421,6 +430,7 @@ class MemoryEngineAgenticMixin:
         end_ts: float | None,
         exclude_ids: list[int] | None,
         cursor: str,
+        track_access: bool = False,
     ) -> AgenticRecallOutcome:
         if not identity_key:
             return AgenticRecallOutcome(
@@ -544,7 +554,8 @@ class MemoryEngineAgenticMixin:
         page_bases = {r.doc_id: bases[r.doc_id] for r in page}
         identities = set(page_bases.values())
         limited = not exhausted and len(matched) <= k
-        self._track_agentic_access(page)
+        if track_access:
+            self._track_agentic_access(page)
         return AgenticRecallOutcome(
             results=page,
             status="success" if page else "no_candidates",
