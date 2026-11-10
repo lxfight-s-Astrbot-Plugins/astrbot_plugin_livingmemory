@@ -154,6 +154,14 @@ artifacts.set("profile.min.js", profile.outputFiles[0].text);
 
 /* 档案页样式同样按需加载，不进入首屏 styles.min.css。 */
 artifacts.set("profile.min.css", minifyCss(readSource("profile.css")));
+
+/* 诊断页同样懒加载，包含 4 个 tab 所需的逻辑与样式。 */
+const diagnostics = await build({
+  entryPoints: [join(DASHBOARD, "modules", "diagnostics-page.js")], bundle: true, minify: true,
+  format: "esm", target: "es2022", write: false, legalComments: "inline",
+});
+artifacts.set("diagnostics.min.js", diagnostics.outputFiles[0].text);
+artifacts.set("diagnostics.min.css", minifyCss(readSource("diagnostics.css")));
 const scene = await build({
   entryPoints: [join(DASHBOARD, "graph-3d.js")], bundle: true, minify: true,
   format: "esm", target: "es2022", write: false, legalComments: "inline",

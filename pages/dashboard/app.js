@@ -60,29 +60,32 @@ import {
   const promptPage = new PromptPage(state, api);
   const settingsPage = new SettingsPage(state, api);
 
-  /* 用户档案页体量较大，首次进入时才加载（首屏预算不增加）。 */
-  let profilePage = null;
-  let profilePageLoading = null;
-  async function ensureProfilePage() {
-    if (profilePage) return profilePage;
-    if (!profilePageLoading) {
-      const moduleUrl = new URL("./assets/profile.min.js", document.baseURI).href;
-      profilePageLoading = import(moduleUrl)
+  /* 懒加载页面共用加载器：首次进入才 import 对应 chunk，失败提示后可重试。 */
+  const lazyPages = {};
+  const lazyPageLoads = {};
+  function ensureLazyPage(name, file, className) {
+    if (lazyPages[name]) return Promise.resolve(lazyPages[name]);
+    if (!lazyPageLoads[name]) {
+      const moduleUrl = new URL("./assets/" + file, document.baseURI).href;
+      lazyPageLoads[name] = import(moduleUrl)
         .then((module) => {
-          profilePage = new module.ProfilePage(state, api);
-          profilePage.init();
-          return profilePage;
+          lazyPages[name] = new module[className](state, api);
+          lazyPages[name].init();
+          return lazyPages[name];
         })
         .catch((error) => {
           showToast(error.message || window.t("misc.requestFailed"), true);
           return null;
         })
         .finally(() => {
-          profilePageLoading = null;
+          lazyPageLoads[name] = null;
         });
     }
-    return profilePageLoading;
+    return lazyPageLoads[name];
   }
+  const ensureProfilePage = () => ensureLazyPage("profile", "profile.min.js", "ProfilePage");
+  const ensureDiagnosticsPage = () =>
+    ensureLazyPage("diagnostics", "diagnostics.min.js", "DiagnosticsPage");
 
   function hydrateIcons() {
     if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
@@ -139,7 +142,7 @@ import {
       return;
     }
     if (state.page === "settings" && !await settingsPage.canLeave()) return;
-    if (state.page === "profile" && profilePage && !await profilePage.canLeave()) return;
+    if (state.page === "profile" && lazyPages.profile && !await lazyPages.profile.canLeave()) return;
     const generation = ++navigationGeneration;
     if (state.page === "prompts" && !await promptPage.canLeave()) return;
     if (!await peekPanel.requestClose() || generation !== navigationGeneration) return;
@@ -171,6 +174,10 @@ import {
       const page = await ensureProfilePage();
       if (page) await page.fetch();
     }
+    if (name === "diagnostics") {
+      const page = await ensureDiagnosticsPage();
+      if (page) await page.fetch();
+    }
   }
 
   /* 初始化完成后刷新当前页数据（横幅自动收起时调用）。 */
@@ -186,8 +193,10 @@ import {
       promptPage.fetch();
     } else if (state.page === "settings") {
       settingsPage.fetch();
-    } else if (state.page === "profile" && profilePage) {
-      profilePage.render();
+    } else if (state.page === "profile" && lazyPages.profile) {
+      lazyPages.profile.render();
+    } else if (state.page === "diagnostics" && lazyPages.diagnostics) {
+      lazyPages.diagnostics.fetch();
     }
   }
 
@@ -273,7 +282,8 @@ import {
       promptPage.refreshEditorTitle();
     }
     if (state.page === "settings") settingsPage.fetch();
-    if (state.page === "profile" && profilePage) profilePage.render();
+    if (state.page === "profile" && lazyPages.profile) lazyPages.profile.render();
+    if (state.page === "diagnostics" && lazyPages.diagnostics) lazyPages.diagnostics.render();
 
     const peekPanelEl = document.getElementById("peek-panel");
     const peekVisible = peekPanelEl && peekPanelEl.classList.contains("visible");
@@ -355,7 +365,7 @@ import {
       }
     });
     window.addEventListener("beforeunload", event => {
-      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || (profilePage && profilePage.hasUnsavedChanges()) || memoryPage._bulkBusy || memoryPage._transferBusy) {
+      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || (lazyPages.profile && lazyPages.profile.hasUnsavedChanges()) || memoryPage._bulkBusy || memoryPage._transferBusy) {
         event.preventDefault();
         event.returnValue = "";
       }
