@@ -304,7 +304,6 @@
 
     /* ---- Graph Legend ---- */
     "graph.legendEmpty":  { zh: "暂无图谱连接", en: "No graph connections", ru: "Нет соединений в графе" },
-    "graph.visibleNodes": { zh: "节点 {0} / {1}", en: "Nodes {0} / {1}", ru: "Узлы {0} / {1}" },
     "graph.nodeMeta":     { zh: "{0} 条记忆 · {1} 条连接", en: "{0} memories · {1} links", ru: "{0} памятей · {1} связей" },
 
     /* ---- Graph Panels Content ---- */
@@ -643,7 +642,6 @@
     "graph.searchBtn": "グラフを検索",
     "graph.sessionPh": "任意：session_id を指定",
     "graph.unnamedNode": "名前なしノード",
-    "graph.visibleNodes": "ノード {0} / {1}",
     "graph2d.moduleFail": "2D グラフモジュールが読み込まれていません。ページを再読み込みしてください。",
     "header.lang": "言語",
     "header.theme": "外観とテーマ",

@@ -872,13 +872,6 @@
           typeLabel(e[0]) + ' &middot; ' + e[1] + '</span>';
       });
 
-    /* 服务端对全量图有硬上限；被截断时明说，否则与左上角总数互相矛盾。 */
-    var visibleNodes = Number(summary.visible_node_count || 0);
-    var totalNodes = Number(summary.graph_node_count || 0);
-    if (totalNodes > visibleNodes && visibleNodes > 0) {
-      chips.push('<span class="legend-chip">' + window.t("graph.visibleNodes", visibleNodes, totalNodes) + '</span>');
-    }
-
     dom.legend.innerHTML = chips.join("") ||
       '<span class="legend-chip">' + window.t("graph.legendEmpty") + '</span>';
   }

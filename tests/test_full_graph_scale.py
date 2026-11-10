@@ -70,12 +70,7 @@ async def test_full_graph_retains_all_nodes_relations_and_memories(tmp_path):
     await store.initialize()
     await _seed_full_graph(store)
 
-    snapshot = await store.get_full_graph_snapshot(
-        session_id="selected",
-        max_nodes=6000,
-        max_edges=11000,
-        max_memories=3000,
-    )
+    snapshot = await store.get_full_graph_snapshot(session_id="selected")
     assert len(snapshot["nodes"]) == 5002
     assert len(snapshot["edges"]) == 10002
     assert len(snapshot["memories"]) == 2002
@@ -92,29 +87,6 @@ async def test_full_graph_retains_all_nodes_relations_and_memories(tmp_path):
         "entries": [],
         "memories": [],
     }
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_full_graph_snapshot_caps_nodes_edges_and_memories(tmp_path):
-    store = GraphStore(str(tmp_path / "full_graph_capped.db"))
-    await store.initialize()
-    await _seed_full_graph(store)
-
-    snapshot = await store.get_full_graph_snapshot(
-        session_id="selected",
-        max_nodes=100,
-        max_edges=200,
-        max_memories=50,
-    )
-    node_ids = {node["id"] for node in snapshot["nodes"]}
-    assert len(snapshot["nodes"]) <= 100
-    assert len(snapshot["edges"]) <= 200
-    assert len(snapshot["memories"]) <= 50
-    assert all(set(edge) == EDGE_FIELDS for edge in snapshot["edges"])
-    assert all(
-        set(memory["node_ids"]).issubset(node_ids) for memory in snapshot["memories"]
-    )
     await store.close()
 
 

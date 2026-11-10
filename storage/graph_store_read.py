@@ -930,11 +930,8 @@ class GraphStoreReadMixin:
         self,
         session_id: str | None = None,
         persona_id: str | None = None,
-        max_nodes: int = 5000,
-        max_edges: int = 20000,
-        max_memories: int | None = None,
     ) -> dict[str, Any]:
-        """Return the scoped graph and memory-node associations under hard caps.
+        """Return the scoped graph and memory-node associations in full.
 
         Archived memories are skipped when the shared database also holds the
         engine's ``documents`` table; graph-only databases keep every entry.
@@ -942,16 +939,10 @@ class GraphStoreReadMixin:
         Args:
             session_id: Optional session scope.
             persona_id: Optional persona scope.
-            max_nodes: Maximum nodes kept, most active first.
-            max_edges: Maximum active relations kept, heaviest first.
-            max_memories: Maximum memories kept; defaults to ``max_nodes``.
 
         Returns:
             Nodes, relations and memories with their associated node IDs.
         """
-        if max_memories is None:
-            max_memories = max_nodes
-
         filters: list[str] = []
         params: list[Any] = []
         if session_id is not None:
@@ -1006,9 +997,8 @@ class GraphStoreReadMixin:
                 {entry_where}
                 GROUP BY gn.id
                 ORDER BY COUNT(ge.id) DESC, gn.id ASC
-                LIMIT ?
                 """,
-                (*params, max_nodes),
+                tuple(params),
             )
             node_rows = await node_cursor.fetchall()
 
@@ -1020,9 +1010,8 @@ class GraphStoreReadMixin:
                 FROM graph_edges edge
                 WHERE {edge_where}
                 ORDER BY edge.weight DESC, edge.id ASC
-                LIMIT ?
                 """,
-                (*params, max_edges),
+                tuple(params),
             )
             edge_rows = await edge_cursor.fetchall()
 
@@ -1098,8 +1087,6 @@ class GraphStoreReadMixin:
             memory_id = int(row["source_memory_id"])
             if memory_id not in referenced_memory_ids:
                 continue
-            if len(memories) >= max_memories:
-                break
             metadata = safe_json_dict(row["metadata"])
             summary = str(metadata.get("canonical_summary") or row["content"] or "")[
                 :500

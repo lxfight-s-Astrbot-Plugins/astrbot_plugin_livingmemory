@@ -57,5 +57,5 @@ def test_revoke_post_route_registered():
     routes = {route[0]: route for route in PluginPageApi._ROUTES}
     suffix, handler_path, methods, _description = routes["external/keys/revoke"]
     assert suffix == "external/keys/revoke"
-    assert handler_path == "external_handler.revoke_key_post"
+    assert handler_path == "external_revoke_key_post"
     assert methods == ["POST"]
