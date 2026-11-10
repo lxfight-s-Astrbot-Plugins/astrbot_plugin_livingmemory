@@ -266,6 +266,12 @@ class PluginPageApi:
             "LivingMemory external API audit",
         ),
         (
+            "external/keys/revoke",
+            "external_handler.revoke_key_post",
+            ["POST"],
+            "LivingMemory external API key revoke (POST alias)",
+        ),
+        (
             "external/health",
             "external_handler.handle_health",
             ["GET"],
