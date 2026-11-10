@@ -615,8 +615,8 @@ export class DiagnosticsPage {
     const root = this._element("page-diagnostics");
     if (!root) return;
     const header =
-      '<header class="page-header"><div class="page-heading"><span class="page-index">07</span>' +
-      '<span class="page-title">' + esc(window.t("nav.diagnostics")) + "</span></div>" +
+      '<header class="page-header"><div class="page-heading">' +
+      '<h1 class="page-title">' + esc(window.t("nav.diagnostics")) + "</h1></div>" +
       '<div class="page-actions"><button type="button" class="btn btn-secondary btn-sm" data-diag-action="refresh">' +
       esc(window.t("diag.refresh")) + "</button></div></header>";
     const tabs = ["traces", "channels", "external", "usage"]

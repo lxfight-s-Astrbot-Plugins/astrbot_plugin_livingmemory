@@ -97,22 +97,6 @@ import {
     });
   }
 
-  function initMotionField() {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let frame = 0;
-    document.addEventListener("pointermove", (event) => {
-      if (frame || document.documentElement.dataset.style !== "editorial") return;
-      frame = window.requestAnimationFrame(() => {
-        const x = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 12;
-        const y = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 12;
-        document.documentElement.style.setProperty("--field-x", x.toFixed(2) + "px");
-        document.documentElement.style.setProperty("--field-y", y.toFixed(2) + "px");
-        frame = 0;
-      });
-    }, { passive: true });
-  }
-
   /* ================================================================
      Toast Notification
      ================================================================ */
@@ -120,14 +104,12 @@ import {
   function showToast(msg, isError = false) {
     const el = document.getElementById("toast");
     el.textContent = msg;
-    el.classList.remove("visible", "error");
-    if (isError) el.classList.add("error");
-    void el.offsetWidth;
+    el.classList.toggle("error", isError);
     el.classList.add("visible");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       el.classList.remove("visible");
-    }, 2500);
+    }, 3200);
   }
 
   /* ================================================================
@@ -213,8 +195,24 @@ import {
   }
 
   function initSidebar() {
+    const toggle = document.getElementById("sidebar-toggle");
+    function setMenuOpen(open) {
+      toggle.setAttribute("aria-expanded", String(open));
+    }
+    toggle.addEventListener("click", () => setMenuOpen(toggle.getAttribute("aria-expanded") === "false"));
+    toggle.closest(".sidebar").addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+        event.stopPropagation();
+        setMenuOpen(false);
+        toggle.focus();
+      }
+    });
     document.querySelectorAll(".nav-item[data-page]").forEach(item => {
       item.addEventListener("click", () => {
+        if (toggle.offsetWidth) {
+          setMenuOpen(false);
+          toggle.focus();
+        }
         switchPage(item.dataset.page);
       });
     });
@@ -329,7 +327,6 @@ import {
      ================================================================ */
   async function init() {
     hydrateIcons();
-    initMotionField();
     notReadyBanner.init();
     window.LMAppearance.init();
     const context = await api.ready();

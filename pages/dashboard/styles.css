@@ -113,7 +113,7 @@ body {
   font-size: 14px;
   font-weight: 450;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), scale var(--transition-fast);
   text-decoration: none;
   border: none;
   background: none;
@@ -338,7 +338,8 @@ body {
   transition: background var(--transition-fast),
               color var(--transition-fast),
               border-color var(--transition-fast),
-              opacity var(--transition-fast);
+              opacity var(--transition-fast),
+              scale var(--transition-fast);
   outline: none;
   white-space: nowrap;
   font-family: inherit;
@@ -808,14 +809,15 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(15,23,42,0.18);
-  backdrop-filter: blur(2px);
   z-index: 90;
+  visibility: hidden;
   opacity: 0;
-  transition: opacity var(--transition-normal);
+  transition: opacity var(--transition-normal), visibility var(--transition-normal);
   pointer-events: none;
 }
 
 .peek-overlay.visible {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
 }
@@ -869,7 +871,7 @@ body {
   color: var(--text-secondary);
   padding: var(--space-1);
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), scale var(--transition-fast);
   flex-shrink: 0;
 }
 
@@ -1609,32 +1611,6 @@ body {
   color: var(--text-secondary);
 }
 
-/* ----- Toast --------------------------------------------------- */
-.toast {
-  position: fixed;
-  bottom: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%) translateY(100px);
-  background: var(--text-primary);
-  color: var(--text-inverse);
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-lg);
-  font-size: 13px;
-  font-weight: 500;
-  z-index: 200;
-  transition: transform var(--transition-normal);
-  box-shadow: var(--shadow-lg);
-  pointer-events: none;
-}
-
-.toast.visible {
-  transform: translateX(-50%) translateY(0);
-}
-
-.toast.error {
-  background: var(--danger);
-}
-
 .form-hint {
   font-size: 11px;
   color: var(--text-tertiary);
@@ -1731,28 +1707,6 @@ body {
 
 /* ----- Responsive ---------------------------------------------- */
 @media (max-width: 768px) {
-  :root {
-    --sidebar-width: 56px;
-  }
-
-  .sidebar-brand,
-  .nav-item span,
-  .sidebar-divider {
-    display: none;
-  }
-
-  .nav-item {
-    justify-content: center;
-    padding: var(--space-3);
-  }
-
-  .lang-options {
-    left: calc(100% + var(--space-1));
-    right: auto;
-    bottom: 0;
-    min-width: 120px;
-  }
-
   .page-body {
     padding: var(--space-4);
   }
@@ -2014,12 +1968,6 @@ body {
   gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
-.settings-note {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 0;
-}
 .settings-group {
   border: 1px solid var(--border-normal);
   border-radius: var(--radius-lg);
@@ -2141,19 +2089,4 @@ body {
 }
 .settings-group[open] > .settings-subgroup:first-of-type {
   padding-top: var(--space-2);
-}
-
-/* 新增「用户档案」后底部导航共 7 个入口：窄屏改为横向滚动，避免触摸目标被压到 44px 以下。 */
-@media (max-width: 480px) {
-  .sidebar {
-    overflow-x: auto;
-  }
-  .sidebar-nav,
-  .sidebar-footer {
-    flex: 0 0 auto;
-  }
-  .nav-item,
-  .sidebar-footer .nav-item {
-    flex: 0 0 44px;
-  }
 }

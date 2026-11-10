@@ -119,7 +119,8 @@ export class MemoryPage {
     const scroll = doc.getElementById("memories-scroll");
     if (feedback) {
       feedback.hidden = !loading && !error;
-      feedback.classList.toggle("is-error", Boolean(error));
+      feedback.classList.toggle("is-loading", loading);
+      feedback.classList.toggle("is-error", Boolean(error) && !loading);
     }
     if (message) message.textContent = loading ? window.t("common.loading") : error;
     if (retry) retry.hidden = !error || loading;

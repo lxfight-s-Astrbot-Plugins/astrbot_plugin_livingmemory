@@ -59,3 +59,16 @@ Validation: 1,161 backend tests and 147 frontend tests pass. Dashboard and docum
 The local write completed once in session `livingmemory:visual:galaxy`. Production snapshot/community code reads exactly 10,000 nodes, 200,000 relations and 1,200 memories, partitioned into 12 thematic communities plus one isolate group. Browser checks cover near/overview relation levels, real mouse picking, focus, complete-edge rendering and pause. The local complete-mode run reaches approximately 25 FPS with four draw calls and unchanged indices.
 
 Rollback: revert the relevant PRs and rebuild dashboard assets, or return to the 2.8.1 tag. Community IDs are display metadata and do not modify stored memories.
+
+## Dashboard 外观更新
+
+**目标**：将默认外观改为 Liquid Glass，优化图谱工作区和移动导航。
+**范围**：沿用现有预设、路由、2D/3D 画布和静态资源构建。玻璃集中在导航与浮动工具，图谱和业务数据表使用实色内容面。
+**实施**：
+1. 重组桌面侧栏和移动菜单，统一页面标题、控件和连续圆角。
+2. 让 2D 画布占据主要工作区，统一 2D/3D 搜索位置与控制层。
+3. 验证前端测试、静态包预算与桌面、平板、手机预览。
+**回退**：在新工作树中撤回这组前端源码和对应生成产物即可。
+**状态**：已完成。203 项前端测试通过，首屏静态资源 gzip 低于 80 KiB 预算。Chromium 使用模拟 Bridge 验证 2D、3D、深浅模式和移动菜单。
+**配色更新**：Liquid Glass 浅色使用暖灰与雾蓝，深色沿用 3D 的墨蓝与香槟金。节点色由样式变量统一提供，实时换色复用当前图谱布局。
+**交互反馈**：图谱显示检索、布局和结果状态，记忆列表原位显示加载进度，操作提示淡入淡出。

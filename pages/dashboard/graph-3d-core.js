@@ -1,6 +1,5 @@
 import { forceSimulation, forceManyBody, forceLink, forceCollide, forceX, forceY, forceZ } from "d3-force-3d";
 
-export const SPACE_COLORS = { person: "#e5bc85", topic: "#98bacd", fact: "#d9d1bd", summary: "#b5a7c1", other: "#a7b6b4" };
 const TYPE_ORDER = { person: 0, topic: 1, summary: 2, fact: 3, other: 4 };
 const PARENTS = { person: [], topic: ["person"], summary: ["topic", "person"], fact: ["summary", "topic", "person"], other: ["summary", "topic", "person"] };
 
