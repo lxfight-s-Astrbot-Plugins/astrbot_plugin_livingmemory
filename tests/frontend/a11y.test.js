@@ -31,18 +31,17 @@ function contrast(foreground, background) {
 
 test("default theme focus ring and tertiary text meet WCAG contrast", () => {
   const art = read("art-direction.css");
-  const tertiary = [...art.matchAll(/--text-tertiary:\s*(#[0-9a-f]{6});/g)].map((m) => m[1]);
-  assert.ok(tertiary.length >= 2, "应同时定义浅色与深色 tertiary");
-  assert.ok(
-    contrast(tertiary[0], "#f7faf6") >= 4.5,
-    `浅色 tertiary 对比度不足: ${contrast(tertiary[0], "#f7faf6").toFixed(2)}`
-  );
-  assert.ok(
-    contrast(tertiary[1], "#0d0f0c") >= 4.5,
-    `深色 tertiary 对比度不足: ${contrast(tertiary[1], "#0d0f0c").toFixed(2)}`
-  );
-  assert.match(art, /outline:\s*2px solid var\(--border-focus\)/, "focus ring 应使用高对比变量");
-  assert.ok(contrast("#245d61", "#f7faf6") >= 3, "浅色 focus ring 对比度不足");
+  const colors = name => [...art.matchAll(new RegExp("--" + name + ":\\s*(#[0-9a-f]{6});", "g"))]
+    .map(match => match[1]);
+  const backgrounds = colors("bg-app");
+  const tertiary = colors("text-tertiary");
+  const focus = colors("accent");
+  assert.equal(backgrounds.length, 2);
+  backgrounds.forEach((background, i) => {
+    assert.ok(contrast(tertiary[i], background) >= 4.5, "tertiary text contrast");
+    assert.ok(contrast(focus[i], background) >= 3, "focus ring contrast");
+  });
+  assert.match(art, /outline:\s*2px solid var\(--border-focus\)/);
 
   const themes = read("themes.css");
   const studio = themes.match(/\[data-style="studio"\] \{[\s\S]*?--text-tertiary:\s*(#[0-9a-f]{6});/);

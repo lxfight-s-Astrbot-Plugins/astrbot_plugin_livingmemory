@@ -92,21 +92,21 @@ def test_participant_identity_keeps_alias_history_and_latest_display_name() -> N
 
 
 def test_dashboard_prefers_persona_summary_for_display() -> None:
-    memory_page = (DASHBOARD / "modules" / "memory-page.js").read_text(
-        encoding="utf-8"
-    )
+    memory_page = (DASHBOARD / "modules" / "memory-page.js").read_text(encoding="utf-8")
     utils = (DASHBOARD / "modules" / "utils.js").read_text(encoding="utf-8")
 
     assert "item.metadata.persona_summary" in memory_page
     assert "detail.summary || detail.text" in utils
 
 
-def test_graph_toolbar_has_intermediate_desktop_breakpoints() -> None:
+def test_graph_toolbar_fits_the_canvas_at_intermediate_widths() -> None:
     css = (DASHBOARD / "art-direction.css").read_text(encoding="utf-8")
+    workflows = (DASHBOARD / "workflows.css").read_text(encoding="utf-8")
+    toolbar = css.split(".graph-toolbar {", 1)[1].split("}", 1)[0]
+    query = workflows.split(".graph-operation .input {", 1)[1].split("}", 1)[0]
 
-    assert "@media (min-width: 769px) and (max-width: 1600px)" in css
-    assert "grid-column: 1 / -1" in css
-    assert "#graph-query-input" in css
+    assert "width: min(440px, calc(100% - 24px));" in toolbar
+    assert "min-width: 0;" in query
 
 
 def test_summary_prompts_keep_persona_voice_and_single_summary_output() -> None:

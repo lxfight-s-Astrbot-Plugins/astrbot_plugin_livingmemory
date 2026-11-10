@@ -7,12 +7,11 @@
   "use strict";
 
   var CFG = global.GraphShared.CFG;
-  var TYPE_COLORS = global.GraphShared.TYPE_COLORS;
+  var readNodeColors = global.GraphShared.readNodeColors;
   var isDark = global.GraphShared.isDark;
   var clamp = global.GraphShared.clamp;
   var lerp = global.GraphShared.lerp;
   var performanceTier = global.GraphShared.performanceTier;
-  var themeColor = global.GraphShared.themeColor;
   var hexToRgba = global.GraphShared.hexToRgba;
   var pointToSegmentDistance = global.GraphShared.pointToSegmentDistance;
 
@@ -43,8 +42,22 @@
     this._communityCacheKey = null;
     this._communityCache = null;
     this._bgCanvas = null;
-    this._bgCacheKey = null;
+    this.refreshTheme();
   }
+
+  Renderer.prototype.refreshTheme = function() {
+    var style = getComputedStyle(document.documentElement);
+    this.nodeColors = readNodeColors(style);
+    this.palette = {
+      surface: style.getPropertyValue("--graph-surface").trim(),
+      line: style.getPropertyValue("--graph-line").trim(),
+      focus: style.getPropertyValue("--accent").trim(),
+      label: style.getPropertyValue("--text-primary").trim(),
+      labelMeta: style.getPropertyValue("--text-secondary").trim(),
+    };
+    this._bgCacheKey = null;
+    this._communityCacheKey = null;
+  };
 
   Renderer.prototype.configureData = function(nodes, edges) {
     this.performanceTier = performanceTier(nodes.length, edges.length);
@@ -115,7 +128,6 @@
             targetCommunity: hi,
             count: 0,
             weight: 0,
-            color: edge.__color || TYPE_COLORS.other,
           };
         }
         bundles[bundleKey].count += 1;
@@ -172,7 +184,7 @@
     this.ctx.clearRect(0, 0, this.width, this.height);
   };
 
-  Renderer.prototype._rebuildBackgroundCache = function(dark, step) {
+  Renderer.prototype._rebuildBackgroundCache = function(step) {
     var w = Math.ceil(this.width + step);
     var h = Math.ceil(this.height + step);
     if (!this._bgCanvas) this._bgCanvas = document.createElement("canvas");
@@ -180,10 +192,9 @@
     this._bgCanvas.height = h;
     var bctx = this._bgCanvas.getContext("2d");
 
-    bctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
+    bctx.fillStyle = this.palette.surface;
     bctx.fillRect(0, 0, w, h);
-    this._backgroundAccent = themeColor("--accent", dark ? "#b7f34a" : "#245d61");
-    bctx.fillStyle = hexToRgba(this._backgroundAccent, 0.13);
+    bctx.fillStyle = hexToRgba(this.palette.line, 0.14);
     for (var x = 0; x <= w; x += step) {
       for (var y = 0; y <= h; y += step) {
         bctx.beginPath();
@@ -192,7 +203,7 @@
       }
     }
     var majorStep = step * 5;
-    bctx.strokeStyle = hexToRgba(this._backgroundAccent, 0.055);
+    bctx.strokeStyle = hexToRgba(this.palette.line, 0.05);
     bctx.lineWidth = 1;
     for (var mx = 0; mx <= w; mx += majorStep) {
       bctx.beginPath();
@@ -208,32 +219,19 @@
     }
   };
 
-  Renderer.prototype.drawBackground = function(dark, animateDecorations) {
+  Renderer.prototype.drawBackground = function() {
     var ctx = this.ctx;
     var step = clamp(30 * this.viewport.scale, 22, 42);
     var ox = ((this.viewport.ox * this.viewport.scale) % step + step) % step;
     var oy = ((this.viewport.oy * this.viewport.scale) % step + step) % step;
 
     /* 静态点阵/网格缓存到离屏画布，平移只改 blit 偏移，避免每帧重画数百个点。 */
-    var cacheKey = (dark ? "d" : "l") + ":" + this.width + "x" + this.height + ":s" + step.toFixed(2);
+    var cacheKey = this.width + "x" + this.height + ":s" + step.toFixed(2);
     if (this._bgCacheKey !== cacheKey) {
       this._bgCacheKey = cacheKey;
-      this._rebuildBackgroundCache(dark, step);
+      this._rebuildBackgroundCache(step);
     }
-    if (this._bgCanvas) {
-      ctx.drawImage(this._bgCanvas, ox, oy);
-    } else {
-      ctx.fillStyle = themeColor("--graph-surface", dark ? "#11130f" : "#f8fbfa");
-      ctx.fillRect(0, 0, this.width, this.height);
-    }
-
-    if (animateDecorations) {
-      ctx.save();
-      var scanY = (Date.now() * 0.018) % Math.max(this.height, 1);
-      ctx.fillStyle = hexToRgba(this._backgroundAccent, 0.1);
-      ctx.fillRect(0, scanY, this.width, 1);
-      ctx.restore();
-    }
+    ctx.drawImage(this._bgCanvas, ox - step, oy - step);
   };
 
   Renderer.prototype.worldToScreen = function(wx, wy) {
@@ -298,7 +296,7 @@
 
     var centerId = layout ? layout.centerId : null;
 
-    this.drawBackground(dark, this.performanceTier === 0);
+    this.drawBackground();
 
     /* Compute animated positions */
     var ap = animProgress == null ? 1 : animProgress;
@@ -362,12 +360,11 @@
         isMuted: isMuted, hasFocus: hasFocus,
         isCrossCommunity: !sameCommunity,
         isHovered: hoverType !== "node" && edge.id === hoverId,
-        color: edge.__color || TYPE_COLORS.other,
       };
       this._drawnEdges.push(de);
 
       if (de.isMuted) continue;
-      this._drawEdge(ctx, de, dark);
+      this._drawEdge(ctx, de);
     }
     ctx.restore();
 
@@ -380,7 +377,7 @@
         var de2 = this._drawnEdges[p];
         if (de2.isMuted) continue;
         if (!de2.hasFocus && particleStride > 1 && p % particleStride !== 0) continue;
-        this._drawParticles(ctx, de2, now, dark);
+        this._drawParticles(ctx, de2, now);
       }
       ctx.restore();
     }
@@ -415,7 +412,7 @@
         type: nd.type || "other", label: nd.label || "Unnamed",
         memoryCount: nd.memory_count || 0, degree: nd.degree || 0,
         labelScore: nd.labelScore || 0,
-        color: TYPE_COLORS[nd.type] || TYPE_COLORS.other, fixed: nd.fixed,
+        color: this.nodeColors[nd.type] || this.nodeColors.other, fixed: nd.fixed,
       };
       this._drawnNodes.push(drawInfo);
 
@@ -436,11 +433,11 @@
         ctx.globalAlpha = 0.22;
         ctx.beginPath();
         ctx.arc(detailNode.sx, detailNode.sy, Math.max(2, detailNode.sr * 0.62), 0, Math.PI * 2);
-        ctx.fillStyle = dark ? "#5c6370" : "#c7ccd4";
+        ctx.fillStyle = this.palette.line;
         ctx.fill();
         ctx.globalAlpha = 1;
       } else {
-        this._drawNode(ctx, detailNode, scale, dark);
+        this._drawNode(ctx, detailNode, scale);
         var prominent = detailNode.degree >= 5 || detailNode.memoryCount >= 4 || detailNode.labelScore >= 15;
         if (!detailNode.isMuted && (detailNode.isHovered || detailNode.isSelected || detailNode.isCenter ||
             (!detailNode.hasFocus && scale > CFG.NODE_LABEL_MIN_SCALE && prominent) ||
@@ -457,7 +454,7 @@
       return bPriority - aPriority || b.labelScore - a.labelScore || a.id - b.id;
     });
     for (var l = 0; l < labelNodes.length; l++) {
-      this._drawNodeLabel(ctx, labelNodes[l], scale, dark);
+      this._drawNodeLabel(ctx, labelNodes[l], scale);
     }
     ctx.restore();
     this._rebuildNodeHitGrid();
@@ -488,7 +485,7 @@
 
     /* 社区边界只表达"这些节点聚在一起"：中性描边避免与节点类型色撞车，
        C/xx 编号没有图例解释，连同计数一起去掉。 */
-    var color = themeColor("--border-normal", "#adc3b9");
+    var color = this.palette.line;
     var ctx = this.ctx;
     var cacheEntries = idle ? [] : null;
     ctx.save();
@@ -508,7 +505,7 @@
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = hexToRgba(color, 0.05);
-      ctx.strokeStyle = hexToRgba(color, dark ? 0.5 : 0.55);
+      ctx.strokeStyle = hexToRgba(color, dark ? 0.24 : 0.28);
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
@@ -533,7 +530,7 @@
       ctx.beginPath();
       ctx.ellipse(e.cx, e.cy, e.rx, e.ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = hexToRgba(e.color, 0.05);
-      ctx.strokeStyle = hexToRgba(e.color, dark ? 0.5 : 0.55);
+      ctx.strokeStyle = hexToRgba(e.color, dark ? 0.24 : 0.28);
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
@@ -563,7 +560,7 @@
       ctx.moveTo(source.x, source.y);
       ctx.quadraticCurveTo(cx, cy, target.x, target.y);
       ctx.strokeStyle = hexToRgba(
-        bundle.color,
+        this.palette.line,
         muted ? 0.035 : primary ? (dark ? 0.2 : 0.16) : (dark ? 0.065 : 0.05)
       );
       ctx.lineWidth = primary ? clamp(0.55 + strength * 0.48, 1, 5) : 0.75;
@@ -572,7 +569,7 @@
       if (!muted && primary && bundle.count >= 8 && this.viewport.scale > 0.1) {
         ctx.beginPath();
         ctx.arc(cx, cy, clamp(1.2 + strength * 0.22, 1.5, 3.5), 0, Math.PI * 2);
-        ctx.fillStyle = hexToRgba(bundle.color, dark ? 0.7 : 0.62);
+        ctx.fillStyle = hexToRgba(this.palette.line, 0.55);
         ctx.fill();
       }
     }
@@ -580,6 +577,7 @@
   };
 
   Renderer.prototype._drawDenseNodeBuckets = function(ctx, buckets, dark) {
+    var mutedColor = hexToRgba(this.palette.line, 0.24);
     Object.keys(buckets).forEach(function(key) {
       var items = buckets[key];
       if (!items.length) return;
@@ -591,8 +589,8 @@
         ctx.arc(item.sx, item.sy, radius, 0, Math.PI * 2);
       }
       ctx.fillStyle = key === "muted"
-        ? (dark ? "rgba(92,99,112,0.24)" : "rgba(176,188,187,0.28)")
-        : hexToRgba(TYPE_COLORS[key] || TYPE_COLORS.other, dark ? 0.9 : 0.86);
+        ? mutedColor
+        : hexToRgba(items[0].color, dark ? 0.9 : 0.86);
       ctx.fill();
     });
   };
@@ -610,7 +608,7 @@
   };
 
   /* Draw a single edge as a straight link */
-  Renderer.prototype._drawEdge = function(ctx, de, dark) {
+  Renderer.prototype._drawEdge = function(ctx, de) {
     var opacity = de.isHighlighted ? CFG.EDGE_OPACITY_HIGHLIGHT
       : de.hasFocus && de.isActive ? CFG.EDGE_OPACITY_ACTIVE : CFG.EDGE_OPACITY_DEFAULT;
     var width = de.isHighlighted ? CFG.EDGE_WIDTH_HIGHLIGHT
@@ -627,15 +625,13 @@
     ctx.beginPath();
     ctx.moveTo(de.sx, de.sy);
     ctx.quadraticCurveTo(de.cx, de.cy, de.tx, de.ty);
-    ctx.strokeStyle = de.isHighlighted || (de.hasFocus && de.isActive)
-      ? hexToRgba(de.color, opacity)
-      : dark ? "rgba(150,157,168," + opacity + ")" : "rgba(91,103,120," + opacity + ")";
+    ctx.strokeStyle = hexToRgba(de.hasFocus ? this.palette.focus : this.palette.line, opacity);
     ctx.lineWidth = width;
     ctx.lineCap = "round";
     ctx.stroke();
   };
 
-  Renderer.prototype._drawParticles = function(ctx, de, now, dark) {
+  Renderer.prototype._drawParticles = function(ctx, de, now) {
     if (!de.isActive && !de.isHighlighted) return;
     var count = de.isHighlighted ? CFG.PARTICLE_COUNT_HIGHLIGHT
       : de.isActive ? CFG.PARTICLE_COUNT_ACTIVE : CFG.PARTICLE_COUNT_DEFAULT;
@@ -651,13 +647,13 @@
       var py = oneMinusT * oneMinusT * de.sy + 2 * oneMinusT * t * de.cy + t * t * de.ty;
       ctx.beginPath();
       ctx.arc(px, py, CFG.PARTICLE_SIZE * (de.isHighlighted ? 1.35 : 1), 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(de.color, de.isHighlighted ? 0.82 : 0.46);
+      ctx.fillStyle = hexToRgba(de.hasFocus ? this.palette.focus : this.palette.line, de.isHighlighted ? 0.82 : 0.36);
       ctx.fill();
     }
   };
 
   /* Draw a single circular node */
-  Renderer.prototype._drawNode = function(ctx, dn, scale, dark) {
+  Renderer.prototype._drawNode = function(ctx, dn, scale) {
     var x = dn.sx, y = dn.sy, r = Math.max(1.4, dn.sr);
 
     ctx.save();
@@ -678,24 +674,23 @@
 
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = dn.isMuted ? (dark ? "#5c6370" : "#c7ccd4") : dn.color;
+    ctx.fillStyle = dn.isMuted ? this.palette.line : dn.color;
     ctx.fill();
 
     ctx.lineWidth = dn.isSelected ? 2 : dn.isHovered || dn.isCenter ? 1.5 : 1;
     ctx.strokeStyle = dn.isSelected || dn.isHovered || dn.isCenter
-      ? (dn.isMuted ? (dark ? "#6f7683" : "#b9c0ca") : dn.color)
-      : dark ? "#202126" : "#ffffff";
+      ? ctx.fillStyle : this.palette.surface;
     ctx.stroke();
     ctx.restore();
   };
 
-  Renderer.prototype._drawNodeLabel = function(ctx, dn, scale, dark) {
+  Renderer.prototype._drawNodeLabel = function(ctx, dn, scale) {
     var x = dn.sx, y = dn.sy, r = Math.max(1.4, dn.sr);
     // Bounded, integer screen fonts let zoom create room between labels, and
     // ensure cached widths always match the font actually drawn.
     var fontSize = Math.round(clamp(CFG.NODE_FONT_SIZE * scale, 10, CFG.NODE_FONT_MAX_SIZE));
     ctx.save();
-    ctx.fillStyle = dark ? "#e9ecef" : "#2f343a";
+    ctx.fillStyle = this.palette.label;
     ctx.font = (dn.isSelected || dn.isCenter ? "650 " : "520 ") + fontSize + "px Arial, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -737,7 +732,7 @@
     ctx.fillText(label, labelX, y);
 
     if (hasMeta) {
-      ctx.fillStyle = dark ? "#a6abb4" : "#6b7280";
+      ctx.fillStyle = this.palette.labelMeta;
       ctx.font = metaFs + "px 'SFMono-Regular', Consolas, monospace";
       ctx.textBaseline = "top";
       ctx.fillText(meta, labelX, metaY);

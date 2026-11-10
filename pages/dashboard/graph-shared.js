@@ -52,10 +52,13 @@
     PROGRESSIVE_LAYOUT_THRESHOLD: 60,
   };
 
-  var TYPE_COLORS = {
-    topic: "#78a94b", person: "#2a9e96", fact: "#c58c2a",
-    summary: "#df6d62", other: "#74868a",
-  };
+  var NODE_TYPES = ["topic", "person", "fact", "summary", "other"];
+
+  function readNodeColors(style = getComputedStyle(document.documentElement)) {
+    return Object.fromEntries(NODE_TYPES.map(function(type) {
+      return [type, style.getPropertyValue("--node-" + type).trim()];
+    }));
+  }
 
   function isDark() {
     return (document.documentElement.getAttribute("data-theme") || "light") === "dark";
@@ -68,11 +71,6 @@
     if (nodeCount >= CFG.MASSIVE_NODE_THRESHOLD || edgeCount >= CFG.MASSIVE_EDGE_THRESHOLD) return 2;
     if (nodeCount >= CFG.LARGE_NODE_THRESHOLD || edgeCount >= CFG.LARGE_EDGE_THRESHOLD) return 1;
     return 0;
-  }
-
-  function themeColor(name, fallback) {
-    var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return value || fallback;
   }
 
   function hexToRgba(h, alpha) {
@@ -104,12 +102,12 @@
 
   global.GraphShared = {
     CFG: CFG,
-    TYPE_COLORS: TYPE_COLORS,
+    NODE_TYPES: NODE_TYPES,
+    readNodeColors: readNodeColors,
     isDark: isDark,
     clamp: clamp,
     lerp: lerp,
     performanceTier: performanceTier,
-    themeColor: themeColor,
     hexToRgba: hexToRgba,
     getPos: getPos,
     easeInOutCubic: easeInOutCubic,

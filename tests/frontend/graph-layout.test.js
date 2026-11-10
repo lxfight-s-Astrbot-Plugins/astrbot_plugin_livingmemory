@@ -65,7 +65,6 @@ function loadGraph() {
     devicePixelRatio: 1,
     /* 渲染器现在通过 window.t 输出 hover 元信息，与页面其它文案一致 */
     t: (key, ...args) => [key, ...args].join(" "),
-    matchMedia: () => ({ matches: true }),
     ResizeObserver: class {
       observe() {}
       disconnect() {}
@@ -118,6 +117,8 @@ function flushRaf(rafQueue) {
 
 /* 渐进式布局现在是 async：需要交替排空微任务与 rAF 队列。 */
 async function settle(rafQueue) {
+  // Ambient frames intentionally never settle. The motion tests enable them explicitly.
+  global.window.Graph2D.animator._ambientMotion = false;
   let guard = 0;
   while (guard < 200000) {
     guard++;
@@ -147,7 +148,7 @@ function makePayload(nodeCount, edgeCount) {
   return { enabled: true, mode: "query", snapshot: { nodes, edges } };
 }
 
-test("changing visual style invalidates the graph background without rebuilding layout", () => {
+test("changing appearance recolors the loaded graph without rebuilding layout", () => {
   loadGraph();
   let onThemeChange;
   let observedAttributes;
@@ -159,17 +160,19 @@ test("changing visual style invalidates the graph background without rebuilding 
   graph.init(makeContainer());
   assert.ok(observedAttributes.includes("data-style"));
   assert.ok(observedAttributes.includes("data-theme"));
-  graph.renderer.drawBackground(false, false);
+  graph.loadData(makePayload(2, 1));
+  graph.renderer.drawBackground();
   assert.ok(graph.renderer._bgCacheKey);
   const layout = graph.animator._layout;
   let wakes = 0;
   graph.animator.wake = () => { wakes++; };
+  const palette = { "--graph-surface": "#0d121d", "--node-topic": "#98bacd" };
+  global.getComputedStyle = () => ({ getPropertyValue: key => palette[key] || "" });
   onThemeChange();
   assert.equal(graph.renderer._bgCacheKey, null);
+  assert.equal(graph.renderer.palette.surface, palette["--graph-surface"]);
+  assert.equal(graph.renderer.nodeColors.topic, palette["--node-topic"]);
   assert.equal(wakes, 1);
-  global.getComputedStyle = () => ({ getPropertyValue: key => key === "--accent" ? "#5145b8" : "#fcfcff" });
-  graph.renderer.drawBackground(false, false);
-  assert.equal(graph.renderer._backgroundAccent, "#5145b8");
   assert.equal(graph.animator._layout, layout);
 });
 

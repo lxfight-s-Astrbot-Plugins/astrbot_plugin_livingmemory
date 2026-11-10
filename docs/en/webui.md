@@ -34,11 +34,11 @@ Select sharing adapter instances under Settings → Access and isolation; sessio
 
 ## Appearance
 
-Open **Appearance** using the palette icon at the bottom of the sidebar (in the bottom navigation on mobile). Four visual styles apply immediately:
+Open **Appearance** using the palette icon at the bottom of the sidebar (in the top menu on mobile). Four visual styles apply immediately:
 
 | Style | Design |
 | --- | --- |
-| Editorial | The original green grid, bold headlines and crisp lines |
+| Liquid Glass | Default style with floating glass navigation, continuous corners, and an expanded graph canvas |
 | Studio | Indigo accents, rounded floating cards and horizontal graph metrics |
 | Paper | Warm paper surfaces, serif headings, double rules and reading space |
 | Terminal | Monospace type, cyan accents, sharp borders and graph metrics on the right |

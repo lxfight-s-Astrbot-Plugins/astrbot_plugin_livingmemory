@@ -1,11 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { prepareGraph, SPACE_COLORS } from "./graph-3d-core.js";
+import { prepareGraph } from "./graph-3d-core.js";
 import { MemoryGravity } from "./graph-3d-gravity.js";
 
 export default class Graph3D {
   constructor() {
-    this.colors = SPACE_COLORS;
     this.selection = null;
     this.showAllRelations = false;
     this.motionEnabled = true;
@@ -36,7 +35,6 @@ export default class Graph3D {
   init(container, callbacks = {}) {
     this.container = container;
     this.callbacks = callbacks;
-    this.motionEnabled = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 12000);
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
@@ -225,8 +223,9 @@ export default class Graph3D {
     const colors = new Float32Array(count * 3), sizes = new Float32Array(count), indices = new Float32Array(count);
     const stars = new Float32Array(count), pulsars = new Float32Array(count);
     const color = new THREE.Color();
+    const nodeColors = window.GraphShared.readNodeColors();
     this.graph.nodes.forEach((node, i) => {
-      color.set(SPACE_COLORS[node.type] || SPACE_COLORS.other).toArray(colors, i * 3);
+      color.set(nodeColors[node.type] || nodeColors.other).toArray(colors, i * 3);
       sizes[i] = node.size;
       indices[i] = i;
       stars[i] = node.type === "person" ? 0.35 : 0;
@@ -540,7 +539,7 @@ export default class Graph3D {
       fromPosition: this.camera.position.clone(), fromTarget: this.controls.target.clone(),
       position: position.clone(), target: target.clone(), fromFocus: this.uniforms.focus.value, focus,
       fromOffset: { ...this._viewOffset }, offset,
-      started: performance.now(), duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1 : 1050,
+      started: performance.now(), duration: 1050,
     };
     this._schedule();
   }

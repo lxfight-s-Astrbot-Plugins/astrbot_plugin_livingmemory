@@ -33,7 +33,6 @@
 .discard-dialog p { color: var(--text-secondary); margin-bottom: 24px; }
 .discard-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 #recall-results[aria-busy="true"] { opacity: 0.55; }
-.graph-toolbar { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 .graph-operation { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .graph-operation .input { flex: 1; min-width: 0; width: 100% !important; }
 .graph-operation .btn { flex: 0 0 auto; width: auto; }
@@ -43,7 +42,6 @@
   #mem-keyword { grid-column: span 2; }
 }
 @media (max-width: 768px) {
-  .graph-toolbar { grid-template-columns: minmax(0, 1fr); }
   #page-graph .page-header { flex-wrap: wrap; gap: 10px; }
   #page-graph .page-actions { min-width: 0; max-width: 100%; }
   #page-graph .page-actions .input { display: block; min-width: 0; flex: 1; width: auto !important; }
@@ -68,7 +66,5 @@
 }
 
 @media (max-width: 640px) {
-  #toast { left: 16px; right: 16px; bottom: 88px; width: auto; min-width: 0; max-width: none; box-sizing: border-box; transform: translateY(100px); }
-  #toast.visible { transform: translateY(0); }
   .adapter-ownership-row .input, .adapter-ownership-row .btn { min-height: 44px; }
 }

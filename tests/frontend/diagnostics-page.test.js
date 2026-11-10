@@ -461,7 +461,7 @@ test("diagnostics page is wired as a lazy-loaded navigation entry", () => {
 
   assert.match(index, /data-page="diagnostics"/);
   assert.match(index, /id="page-diagnostics"/);
-  assert.match(index, /<span class="page-index">08<\/span><span class="page-title" data-i18n="nav.settings">/);
+  assert.match(index, /<h1 class="page-title" data-i18n="nav.settings">/);
   assert.match(app, /ensureDiagnosticsPage/);
   assert.match(app, /diagnostics\.min\.js/);
   assert.match(modules, /export \{ DiagnosticsPage \}/);

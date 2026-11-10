@@ -408,6 +408,32 @@ test("layout in progress shows localized loading message until layout done", asy
   assert.equal(stateEl.style.display, "none");
 });
 
+test("graph search keeps progress visible through layout and reports the result count", async () => {
+  const { elements, g2dCalls } = loadGraphUi(true);
+  const bridge = window.AstrBotPluginPage;
+  const nodes = [{ id: 1, type: "topic", label: "Coffee" }];
+  bridge.apiGet = async () => ({ status: "ok", data: { enabled: true, mode: "overview", snapshot: { nodes } } });
+  window.ensureGraphScene();
+  await flushMicrotasks();
+
+  let complete;
+  bridge.apiPost = () => new Promise(resolve => { complete = resolve; });
+  elements["graph-query-input"].value = "coffee";
+  elements["graph-search-btn"].trigger("click");
+  const status = elements["graph-canvas-state"];
+  assert.equal(status.getAttribute("data-state"), "loading");
+  assert.equal(elements["graph-canvas"].getAttribute("aria-busy"), "true");
+  g2dCalls[0].options.onLayoutDone();
+  assert.equal(status.getAttribute("data-state"), "loading");
+
+  complete({ status: "ok", data: { enabled: true, mode: "query", snapshot: { nodes, edges: [] } } });
+  await flushMicrotasks();
+  assert.equal(status.getAttribute("data-state"), "layout");
+  assert.equal(elements["graph-query-result"].textContent, "graph.queryResult 1 0");
+  g2dCalls[1].options.onLayoutDone();
+  assert.equal(elements["graph-canvas"].getAttribute("aria-busy"), "false");
+});
+
 test("empty snapshot shows empty message instead of layout message", async () => {
   const { elements, g2dCalls } = loadGraphUi(true);
   window.ensureGraphScene();

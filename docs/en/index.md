@@ -26,7 +26,7 @@ features:
   - title: Time-aware lifecycle
     details: Memory atoms have TTL, decay, access reinforcement, and cleanup behavior.
   - title: Four dashboard styles
-    details: Editorial, Studio, Paper and Terminal; light/dark modes, steady graph reading, and clear editing and import workflows.
+    details: Liquid Glass, Studio, Paper and Terminal; light/dark modes, steady graph reading, and clear editing and import workflows.
   - title: Data safety
     details: Version backups, pre-migration backups, index rollback, and transactional deletion reduce upgrade risk.
 ---
