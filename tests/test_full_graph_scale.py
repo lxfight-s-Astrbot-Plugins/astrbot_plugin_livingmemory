@@ -128,7 +128,7 @@ async def test_full_graph_snapshot_includes_archived_memories(tmp_path):
             "VALUES (?,?,?,?,'related',?,?,'2026-01-01','2026-01-01')",
             [
                 (1, "edge:active", 1, 2, 1, "active"),
-                (2, "edge:archived", 3, 4, 2, "active"),
+                (2, "edge:archived", 3, 4, 2, "archived"),
                 (3, "edge:deleted", 1, 2, 1, "deleted"),
             ],
         )

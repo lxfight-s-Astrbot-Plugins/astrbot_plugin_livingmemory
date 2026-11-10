@@ -120,7 +120,7 @@ python scripts/seed_visual_graph.py --data-dir "<plugin_data_dir>"
 | Aging risk | Low-importance relationships that have not been accessed for a long time |
 
 ::: tip
-The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). **Full Graph** loads every node, relation and associated memory for the selected session and persona scope — including archived memories — and no longer truncates by node/relation count. The current display level controls how many links are visible in 3D.
+The graph page shows a constrained subgraph of recent memories by default (node/edge caps apply). **Full Graph** loads every node, relation and associated memory for the selected session and persona scope — including archived memories and their relations (only deleted relations are excluded) — and no longer truncates by node/relation count; the 3D communities and spiral arms are built from these relations. The current display level controls how many links are visible in 3D.
 :::
 
 In 2.7.0-beta.1, zoomed reading, hover and node selection pause ambient movement and stabilize label priority and collision bounds. Settled reading stops idle drawing; overview motion resumes when zoomed out with no hover or selection. Lower-priority labels may be omitted when space is limited; select a node to read its full details.
