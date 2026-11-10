@@ -236,8 +236,9 @@ summary:focus-visible {
 }
 
 #sidebar-toggle svg path { transform-box: fill-box; transform-origin: center; }
-#sidebar-toggle[aria-expanded="true"] path:first-child { transform: translateY(4px) rotate(45deg); }
-#sidebar-toggle[aria-expanded="true"] path:last-child { transform: translateY(-4px) rotate(-45deg); }
+#sidebar-toggle path:first-child { transform: translateY(-4px) rotate(45deg); }
+#sidebar-toggle path:last-child { transform: translateY(4px) rotate(-45deg); }
+#sidebar-toggle[aria-expanded="true"] svg path { transform: none; }
 
 .nav-item svg, .btn svg, .peek-close svg {
   width: 18px;

@@ -210,12 +210,16 @@ def test_large_graph_renderer_uses_lod_and_event_driven_frames() -> None:
 
 
 def test_graph_canvas_state_keeps_tooltip_inside_container() -> None:
+    base = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
     art = (DASHBOARD / "art-direction.css").read_text(encoding="utf-8")
+    base_status = base.split(".graph-canvas-state {", 1)[1].split("}", 1)[0]
+    art_status = art.split(".graph-canvas-state {", 1)[1].split("}", 1)[0]
 
-    # art-direction 将画布提示移到左上角（top/left 16px），必须重置 styles.css
-    # 的居中 translate，否则提示框会以「左上角 -50% 宽/高」定位被容器裁剪。
-    assert ".graph-canvas-state" in art
-    assert "transform: none" in art
+    assert "top: 50%;" in base_status
+    assert "left: 50%;" in base_status
+    assert "transform: translate(-50%, -50%);" in base_status
+    assert "max-width: calc(100% - 24px);" in art_status
+    assert "overflow-wrap: anywhere;" in art_status
 
 
 def test_dashboard_hides_inactive_panels_from_keyboard_navigation() -> None:
