@@ -243,67 +243,67 @@ class PluginPageApi:
         ),
         (
             "external/keys",
-            "external_handler.list_keys",
+            "external_list_keys",
             ["GET"],
             "LivingMemory external API key list",
         ),
         (
             "external/keys",
-            "external_handler.create_key",
+            "external_create_key",
             ["POST"],
             "LivingMemory external API key create (token returned once)",
         ),
         (
             "external/keys/<key_id>",
-            "external_handler.revoke_key",
+            "external_revoke_key",
             ["DELETE"],
             "LivingMemory external API key revoke",
         ),
         (
             "external/audit",
-            "external_handler.list_audit",
+            "external_list_audit",
             ["GET"],
             "LivingMemory external API audit",
         ),
         (
             "external/keys/revoke",
-            "external_handler.revoke_key_post",
+            "external_revoke_key_post",
             ["POST"],
             "LivingMemory external API key revoke (POST alias)",
         ),
         (
             "external/health",
-            "external_handler.handle_health",
+            "external_health",
             ["GET"],
             "LivingMemory external API health",
         ),
         (
             "external/personas",
-            "external_handler.handle_personas",
+            "external_personas",
             ["GET"],
             "LivingMemory external API personas and scopes",
         ),
         (
             "external/recall",
-            "external_handler.handle_recall",
+            "external_recall",
             ["POST"],
             "LivingMemory external API recall",
         ),
         (
             "external/memories",
-            "external_handler.handle_write_memory",
+            "external_write_memory",
             ["POST"],
             "LivingMemory external API write memory",
         ),
         (
             "external/memories/<memory_id>",
-            "external_handler.handle_get_memory",
+            "external_get_memory",
             ["GET"],
             "LivingMemory external API get memory",
         ),
         (
             "external/memories/<memory_id>/archive",
-            "external_handler.handle_archive_memory",
+            "external_archive_memory",
             ["POST"],
             "LivingMemory external API archive memory",
         ),
@@ -617,6 +617,18 @@ class PluginPageApi:
         if error:
             return error
         return await self.external_handler.revoke_key(ready, key_id)
+
+    async def external_revoke_key_post(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.revoke_key_post(ready)
+
+    async def external_list_audit(self):
+        ready, error = await self._ensure_plugin_ready()
+        if error:
+            return error
+        return await self.external_handler.list_audit(ready)
 
     async def external_health(self):
         ready, error = await self._ensure_plugin_ready(wait=False)

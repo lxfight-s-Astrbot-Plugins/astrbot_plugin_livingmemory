@@ -420,7 +420,7 @@ test("empty snapshot shows empty message instead of layout message", async () =>
   assert.equal(stateEl.textContent, "graph.canvasEmpty");
 });
 
-test("legend explains node colours and reports a truncated graph", async () => {
+test("legend explains node colours without a truncation chip", async () => {
   const { elements } = loadGraphUi(true);
   window.AstrBotPluginPage.apiGet = async () => ({
     status: "ok",
@@ -430,8 +430,6 @@ test("legend explains node colours and reports a truncated graph", async () => {
       summary: {
         node_type_breakdown: { person: 3 },
         relation_breakdown: { co_occurs_with: 5 },
-        visible_node_count: 5000,
-        graph_node_count: 9000,
       },
       snapshot: { nodes: [{ id: 1, type: "person", label: "Alice", weight: 1 }], edges: [] },
     },
@@ -442,7 +440,7 @@ test("legend explains node colours and reports a truncated graph", async () => {
 
   const html = elements["graph-legend"].innerHTML;
   assert.match(html, /graph\.nodePerson/, "图例解释节点颜色");
-  assert.match(html, /graph\.visibleNodes 5000 9000/, "被截断时给出可见/总数");
+  assert.doesNotMatch(html, /graph\.visibleNodes/, "全量图不再截断，图例不显示可见/总数");
   assert.doesNotMatch(html, /co_occurs_with/, "关系 chip 已移除：它无法对应画布颜色");
 });
 
