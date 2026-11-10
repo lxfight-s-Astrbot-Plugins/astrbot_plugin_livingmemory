@@ -54,11 +54,26 @@ def _make_api(tmp_path) -> tuple[PluginPageApi, _FakePlugin]:
 def test_external_routes_resolve_to_page_api_wrappers(tmp_path):
     api, plugin = _make_api(tmp_path)
     external = [route for route in plugin.routes if "/external/" in route[0]]
-    assert len(external) == 11
+    assert len(external) == 12
     for route, handler, _methods, _description in external:
         wrapped = getattr(handler, "__wrapped__", None)
         assert wrapped is not None, route
         assert getattr(wrapped, "__self__", None) is api, route
+
+
+@pytest.mark.asyncio
+async def test_external_status_reports_config(tmp_path):
+    api, plugin = _make_api(tmp_path)
+    payload = await api.external_status()
+    assert payload["status"] == "ok"
+    assert payload["data"]["enabled"] is True
+    assert payload["data"]["listen_port"] == 7801
+
+    plugin.config_manager = make_config(enabled=False)
+    api = PluginPageApi(plugin)
+    payload = await api.external_status()
+    assert payload["status"] == "ok"
+    assert payload["data"]["enabled"] is False
 
 
 @pytest.mark.asyncio
