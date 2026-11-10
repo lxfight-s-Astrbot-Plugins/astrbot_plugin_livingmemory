@@ -112,6 +112,8 @@ const DIAG_MESSAGES = {
   "diag.tokenCopied": { zh: "已复制", en: "Copied", ru: "Скопировано", ja: "コピーしました" },
   "diag.tokenClose": { zh: "我已保存，关闭", en: "Saved, close", ru: "Сохранил, закрыть", ja: "保存しました、閉じる" },
   "diag.noKeys": { zh: "暂无外部 API Key。", en: "No external API keys yet.", ru: "Ключей внешнего API пока нет.", ja: "外部 API キーはまだありません。" },
+  "diag.externalDisabled": { zh: "外部 API 未启用", en: "External API is disabled", ru: "Внешний API отключён", ja: "外部 API は無効です" },
+  "diag.externalDisabledHint": { zh: "在 AstrBot 插件配置页开启 external_api.enabled 并重载插件后，可在此管理 API Key 与审计。", en: "Enable external_api.enabled on the AstrBot plugin config page and reload the plugin to manage keys and audit here.", ru: "Включите external_api.enabled на странице конфигурации плагина AstrBot и перезагрузите плагин, чтобы управлять ключами и аудитом.", ja: "AstrBot のプラグイン設定で external_api.enabled を有効にしてプラグインを再読み込みすると、ここでキーと監査を管理できます。" },
   "diag.audit": { zh: "最近审计（50 条）", en: "Recent audit (50)", ru: "Аудит (50)", ja: "最近の監査（50 件）" },
   "diag.action": { zh: "动作", en: "Action", ru: "Действие", ja: "操作" },
   "diag.statusCode": { zh: "状态码", en: "Status", ru: "Статус", ja: "ステータス" },
@@ -227,7 +229,7 @@ export class DiagnosticsPage {
     this.activeChannel = null;
     this.channelMemories = null;
 
-    this.external = { keys: [], audit: [] };
+    this.external = { keys: [], audit: [], disabled: false, status: null };
     this.token = null;
     this.keyForm = { name: "", mode: "read", personas: "", scopes: "", rate: "60", write: "0" };
     this._creatingKey = false;
@@ -387,6 +389,12 @@ export class DiagnosticsPage {
   /* ================= external API ================= */
 
   async fetchExternal() {
+    const status = await this.api.get("external/status");
+    if (!status || status.enabled === false) {
+      this.external = { keys: [], audit: [], disabled: true, status: status || null };
+      this.loaded.external = true;
+      return;
+    }
     const [keysData, auditData] = await Promise.all([
       this.api.get("external/keys"),
       this.api.get("external/audit", { limit: 50 }),
@@ -394,6 +402,8 @@ export class DiagnosticsPage {
     this.external = {
       keys: asArray(keysData && keysData.keys),
       audit: asArray(auditData && auditData.records),
+      disabled: false,
+      status,
     };
     this.loaded.external = true;
   }
@@ -949,6 +959,14 @@ export class DiagnosticsPage {
   /* ----- external API ----- */
 
   _renderExternal() {
+    if (this.external.disabled) {
+      const status = this.external.status || {};
+      const listen = status.listen_host ? esc(status.listen_host + ":" + status.listen_port) : "";
+      return '<section class="diag-panel"><div class="diag-panel-head"><h3>' +
+        esc(window.t("diag.externalDisabled")) + "</h3></div>" +
+        '<p class="diag-hint">' + esc(window.t("diag.externalDisabledHint")) + "</p>" +
+        (listen ? '<p class="diag-hint">' + listen + "</p>" : "") + "</section>";
+    }
     let html = "";
     if (this.token) {
       html += '<section class="diag-panel diag-token-panel"><div class="diag-panel-head"><h3>' +

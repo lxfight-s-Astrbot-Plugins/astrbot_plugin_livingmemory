@@ -134,6 +134,14 @@ function setup(options = {}) {
           page: params.page,
         };
       }
+      if (path === "external/status") {
+        return {
+          enabled: !options.externalDisabled,
+          listen_host: "127.0.0.1",
+          listen_port: 7801,
+          audit_retention_days: 30,
+        };
+      }
       if (path === "external/keys") {
         if (options.emptyKeys) return { keys: [], total: 0 };
         return {
@@ -295,6 +303,23 @@ test("channels drill into memories and load more", async () => {
 
     page.backToChannels();
     assert.equal(page.activeChannel, null);
+  } finally {
+    teardown();
+  }
+});
+
+test("external tab explains that the API is disabled instead of showing Not found", async () => {
+  const ctx = setup({ externalDisabled: true });
+  try {
+    await ctx.page.fetch();
+    await ctx.page.activateTab("external");
+    assert.match(ctx.root.innerHTML, /diag\.externalDisabled/);
+    assert.match(ctx.root.innerHTML, /diag\.externalDisabledHint/);
+    assert.doesNotMatch(ctx.root.innerHTML, /diag\.noKeys/);
+    assert.ok(
+      !ctx.calls.some((call) => call.path === "external/keys" || call.path === "external/audit"),
+      "禁用时不应请求 key/audit 接口"
+    );
   } finally {
     teardown();
   }

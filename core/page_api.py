@@ -242,6 +242,12 @@ class PluginPageApi:
             "LivingMemory Page resolve profile pending candidate",
         ),
         (
+            "external/status",
+            "external_status",
+            ["GET"],
+            "LivingMemory external API status",
+        ),
+        (
             "external/keys",
             "external_list_keys",
             ["GET"],
@@ -599,6 +605,12 @@ class PluginPageApi:
         )
 
     # ---- 外部记忆 API 路由 ----
+
+    async def external_status(self):
+        ready, error = await self._ensure_plugin_ready(wait=False)
+        if error:
+            return error
+        return await self.external_handler.status(ready)
 
     async def external_list_keys(self):
         ready, error = await self._ensure_plugin_ready()

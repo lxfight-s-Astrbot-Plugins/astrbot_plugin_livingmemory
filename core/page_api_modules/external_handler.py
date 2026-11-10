@@ -91,6 +91,28 @@ class ExternalHandler:
 
     # ==================== Dashboard key management ====================
 
+    async def status(self, ready: dict[str, Any]) -> dict[str, Any]:
+        """Return whether the external API is enabled plus listener settings."""
+        config_manager = ready.get("config_manager") or getattr(
+            self.plugin, "config_manager", None
+        )
+        getter = getattr(config_manager, "get", None)
+
+        def read(path: str, default: Any) -> Any:
+            if not callable(getter):
+                return default
+            value = getter(f"external_api.{path}", default)
+            return default if value is None else value
+
+        return self.utils.ok(
+            {
+                "enabled": bool(read("enabled", False)),
+                "listen_host": str(read("listen_host", "127.0.0.1")),
+                "listen_port": int(read("listen_port", 7801)),
+                "audit_retention_days": int(read("audit_retention_days", 30)),
+            }
+        )
+
     async def list_keys(self, ready: dict[str, Any]) -> dict[str, Any]:
         """Return every API key (prefix and limits only, never the token)."""
         service = self.get_service(ready.get("memory_engine"))
