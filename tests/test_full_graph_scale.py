@@ -91,7 +91,7 @@ async def test_full_graph_retains_all_nodes_relations_and_memories(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_full_graph_snapshot_filters_archived_memories(tmp_path):
+async def test_full_graph_snapshot_includes_archived_memories(tmp_path):
     store = GraphStore(str(tmp_path / "full_graph_archived.db"))
     await store.initialize()
     async with store._connect() as db:
@@ -135,9 +135,9 @@ async def test_full_graph_snapshot_filters_archived_memories(tmp_path):
         await db.commit()
 
     snapshot = await store.get_full_graph_snapshot(session_id="scope")
-    assert {node["id"] for node in snapshot["nodes"]} == {1, 2}
-    assert [edge["id"] for edge in snapshot["edges"]] == [1]
-    assert {memory["memory_id"] for memory in snapshot["memories"]} == {1}
+    assert {node["id"] for node in snapshot["nodes"]} == {1, 2, 3, 4}
+    assert [edge["id"] for edge in snapshot["edges"]] == [1, 2]
+    assert {memory["memory_id"] for memory in snapshot["memories"]} == {1, 2}
     await store.close()
 
     # Graph-only databases have no documents table and keep every entry.

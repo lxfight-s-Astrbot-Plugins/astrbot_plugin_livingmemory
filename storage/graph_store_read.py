@@ -933,8 +933,9 @@ class GraphStoreReadMixin:
     ) -> dict[str, Any]:
         """Return the scoped graph and memory-node associations in full.
 
-        Archived memories are skipped when the shared database also holds the
-        engine's ``documents`` table; graph-only databases keep every entry.
+        The full-graph view is intentionally complete: archived and superseded
+        memories stay in the graph so the dashboard can render the whole history
+        (only deleted relations and out-of-scope entries are excluded).
 
         Args:
             session_id: Optional session scope.
@@ -957,13 +958,6 @@ class GraphStoreReadMixin:
 
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
-            # Graph and documents share one SQLite file in the engine; standalone
-            # graph stores (shadow stores, tests) never create the documents table.
-            probe = await db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
-            )
-            documents_available = await probe.fetchone() is not None
-
             entry_where = f"WHERE {' AND '.join(filters)}"
             edge_conditions = [
                 "EXISTS (SELECT 1 FROM graph_entries ge "
@@ -971,18 +965,6 @@ class GraphStoreReadMixin:
                 f"AND {' AND '.join(filters)})",
                 "edge.status = 'active'",
             ]
-            if documents_available:
-                active_memory_exists = (
-                    "EXISTS (SELECT 1 FROM documents d WHERE d.id = {} "
-                    "AND COALESCE(json_extract(d.metadata, '$.status'), 'active') "
-                    "= 'active')"
-                )
-                entry_where += (
-                    f" AND {active_memory_exists.format('ge.source_memory_id')}"
-                )
-                edge_conditions.append(
-                    active_memory_exists.format("edge.source_memory_id")
-                )
             edge_where = " AND ".join(edge_conditions)
 
             node_cursor = await db.execute(
