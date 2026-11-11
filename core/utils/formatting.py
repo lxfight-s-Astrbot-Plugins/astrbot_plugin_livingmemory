@@ -11,6 +11,8 @@ from typing import Any
 
 from astrbot.api import logger
 
+from .memory_visibility import is_undisclosed_private
+
 # 单条记忆注入内容上限，避免一条导入的超长记忆挤占整个注入预算
 _MAX_INJECTION_ENTRY_CHARS = 400
 
@@ -140,7 +142,25 @@ def _load_injection_header_footer() -> tuple[str, str]:
     )
 
 
-def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> str:
+def _load_private_memory_notice() -> str:
+    """Load the notice appended to private, undisclosed memories."""
+    try:
+        from ..prompts.prompt_manager import get_prompt_manager
+
+        mgr = get_prompt_manager()
+        if mgr is not None:
+            return mgr.get_prompt("private_memory_injection_notice").strip()
+    except Exception:
+        pass
+    return _get_default_private_memory_notice()
+
+
+def format_memories_for_injection(
+    memories: list,
+    *,
+    max_chars: int = 3000,
+    private_notice: str | None = None,
+) -> str:
     """
     将检索到的记忆列表格式化为单个字符串，以便注入到 System Prompt。
     添加明确的说明文本，告知 LLM 这些是历史对话记忆。
@@ -148,6 +168,9 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> s
     Args:
         memories: 记忆字典列表。
         max_chars: 注入文本的字符预算上限（超出后按顺序截断）。
+        private_notice: 追加在 ``visibility=private`` 且
+            ``disclosed=false`` 的记忆后的提示文本。``None`` 使用内置/
+            自定义提示词；空字符串表示关闭该提示。
 
     Returns:
         可直接注入的格式化文本；无记忆时返回空字符串。
@@ -161,6 +184,9 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> s
     markers = (MEMORY_INJECTION_HEADER, MEMORY_INJECTION_FOOTER)
 
     header_body, footer_body = _load_injection_header_footer()
+    if private_notice is None:
+        private_notice = _load_private_memory_notice()
+    private_notice = _compact_injection_text(private_notice, markers)
 
     header = f"{MEMORY_INJECTION_HEADER}\n{header_body.strip()}\n\n"
     footer = f"\n\n{footer_body.strip()}\n{MEMORY_INJECTION_FOOTER}"
@@ -237,6 +263,9 @@ def format_memories_for_injection(memories: list, *, max_chars: int = 3000) -> s
                     display_content[:_MAX_INJECTION_ENTRY_CHARS].rstrip() + "…"
                 )
             entry_parts.append(display_content)
+
+            if private_notice and is_undisclosed_private(metadata):
+                entry_parts.append(private_notice)
 
             entry = "\n".join(entry_parts)
             formatted_entries.append(entry)
@@ -422,6 +451,11 @@ def _get_default_injection_header() -> str:
 def _get_default_injection_footer() -> str:
     """后备记忆注入尾部文本（当 PromptManager 不可用时）"""
     return "End of recalled memories. Answer the current message now."
+
+
+def _get_default_private_memory_notice() -> str:
+    """后备私密记忆提示（当 PromptManager 不可用时）"""
+    return "（这是你私下经历的事，用户并不知道；不要把它当成已经告诉过对方。）"
 
 
 def safe_parse_metadata(metadata_raw: Any) -> dict[str, Any]:

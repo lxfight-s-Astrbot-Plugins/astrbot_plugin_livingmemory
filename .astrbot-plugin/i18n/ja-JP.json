@@ -200,6 +200,10 @@
         "description": "検索キャッシュの最大エントリ数",
         "hint": "メモリ上に保持する検索結果の数を制限します。上限を超えると最も長く未使用の結果が自動的に破棄されます。（許容範囲：0–10000）"
       },
+      "private_memory_notice_enabled": {
+        "description": "プライベート記憶の注入通知",
+        "hint": "visibility=private かつ disclosed=false の記憶を注入するとき、ユーザーがまだ知らない体験であることを示す通知を追加します。無効にすると通知は追加されません。"
+      },
       "tokenizer": {
         "description": "中国語トークナイザー",
         "hint": "jieba：単語単位の分割で想起精度が高い一方、初回利用後は約 55 MB を常駐します。builtin：組み込みの文字/英数字トークンで、jieba を読み込まずメモリを節約します。切り替え後は /lmem rebuild-index を実行してください。",

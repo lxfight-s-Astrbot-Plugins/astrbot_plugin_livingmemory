@@ -19,6 +19,7 @@ from ..memory_scope import (
 from ..processors.atom_classifier import classify_atoms
 from ..retrieval.hybrid_retriever import HybridResult
 from ..utils.json_utils import safe_json_dict
+from ..utils.memory_visibility import normalize_disclosed, normalize_visibility
 from ..utils.number_utils import clamp_float
 from .agentic_recall_types import AgenticRecallOutcome as AgenticRecallOutcome
 
@@ -72,6 +73,8 @@ class MemoryEngineCrudMixin:
         source_messages: list[dict[str, Any]] | None = None,
         *,
         embedding: list[float] | None = None,
+        visibility: str | None = None,
+        disclosed: bool | None = None,
     ) -> int:
         """添加新记忆。
 
@@ -85,6 +88,10 @@ class MemoryEngineCrudMixin:
             preserve_create_time: 物理替换时保留原记忆的时间轴位置。
             source_messages: 原文消息。
             embedding: 可选预计算向量（写入路径复用去重阶段的 embedding）。
+            visibility: 可见性，``public``（默认）或 ``private``；``None``
+                时沿用 metadata 中的值或默认值。
+            disclosed: 用户是否已经知道这条记忆；``None`` 时沿用 metadata
+                中的值，默认 ``True``。仅在 ``visibility=private`` 时有意义。
 
         Returns:
             int: 记忆 ID（doc_id）。
@@ -106,6 +113,14 @@ class MemoryEngineCrudMixin:
             atoms=atoms,
             preserve_create_time=preserve_create_time,
             source_messages=source_messages,
+        )
+        # 可见性字段只落在 metadata JSON 中，旧数据缺少字段时按 public /
+        # disclosed=true 处理，因此无需数据库迁移。
+        full_metadata["visibility"] = normalize_visibility(
+            visibility if visibility is not None else full_metadata.get("visibility")
+        )
+        full_metadata["disclosed"] = normalize_disclosed(
+            disclosed if disclosed is not None else full_metadata.get("disclosed")
         )
         access = current_adapter_access.get()
         full_metadata["adapter_id"] = full_metadata.get("adapter_id") or (
