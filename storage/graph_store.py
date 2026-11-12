@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -15,6 +16,10 @@ from .graph_store_read import GraphStoreReadMixin
 from .graph_store_write import GraphStoreWriteMixin
 from .schema import GRAPH_SCHEMA_STATEMENTS
 from .sqlite_connection import open_connection
+
+# 节点检索的 bigram 索引把 CJK 连续段展开成“单字 + 相邻二字组”；
+# 中文查询里的 2 字词因此能一次 FTS MATCH 命中，不再全表 LIKE。
+_CJK_RUN = re.compile(r"[一-鿿]+")
 
 
 class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
@@ -80,6 +85,28 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
                 logger.warning(
                     "SQLite trigram tokenizer unavailable; using node substring search"
                 )
+            # trigram 索引只覆盖 >=3 字的中文匹配；2 字词单独建 bigram FTS，
+            # 节点写入时同步维护，缺失行（旧库/升级）在这里一次性回填。
+            await db.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS livingmemory_graph_nodes_bigram_fts
+                USING fts5(tokenized, tokenize='unicode61')
+            """)
+            cursor = await db.execute(
+                "SELECT (SELECT COUNT(*) FROM graph_nodes), "
+                "(SELECT COUNT(*) FROM livingmemory_graph_nodes_bigram_fts)"
+            )
+            node_count, bigram_count = await cursor.fetchone()
+            if node_count > bigram_count:
+                await db.execute("DELETE FROM livingmemory_graph_nodes_bigram_fts")
+                cursor = await db.execute("SELECT id, canonical_value FROM graph_nodes")
+                await db.executemany(
+                    "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
+                    "VALUES (?, ?)",
+                    [
+                        (int(node_id), self._tokenize_node_value(canonical_value))
+                        for node_id, canonical_value in await cursor.fetchall()
+                    ],
+                )
             await db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
@@ -129,6 +156,21 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
         if self._read_conn is not None:
             await self._read_conn.close()
             self._read_conn = None
+
+    @staticmethod
+    def _tokenize_node_value(value: Any) -> str:
+        """Build the bigram FTS payload for one node canonical value."""
+        text = str(value or "")
+        tokens: list[str] = []
+        for match in _CJK_RUN.finditer(text):
+            run = match.group(0)
+            tokens.extend(run)
+            tokens.extend(run[index : index + 2] for index in range(len(run) - 1))
+        for part in _CJK_RUN.split(text):
+            part = part.strip()
+            if part:
+                tokens.append(part)
+        return " ".join(dict.fromkeys(tokens))
 
     @staticmethod
     def _now_iso() -> str:

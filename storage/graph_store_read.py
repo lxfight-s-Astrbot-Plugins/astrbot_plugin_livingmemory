@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import aiosqlite
@@ -20,6 +21,9 @@ from ..core.utils.number_utils import safe_float
 # 扩展候选先按 3 倍 limit 取回，再按 hub 惩罚重排后截断；
 # 3 倍足以让低 degree 邻居/入口挤进前 limit，不会放大成全表扫描。
 _EXPANSION_OVERFETCH = 3
+
+# 1～2 个汉字走 bigram FTS；更长的词走 trigram 索引或 LIKE（含通配符时）。
+_SHORT_CJK_TOKEN = re.compile(r"^[一-鿿]{1,2}$")
 
 
 class GraphStoreReadMixin:
@@ -313,15 +317,37 @@ class GraphStoreReadMixin:
                 batch = normalized_tokens[
                     start : start + self._NODE_TOKEN_QUERY_BATCH_SIZE
                 ]
-                params = [f"%{token}%" for token in batch]
-                clauses = ["canonical_value LIKE ?" for _ in batch]
-                if self._node_fts_available:
-                    clauses = [
-                        "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts WHERE canonical_value LIKE ?)"
-                        if len(token) >= 3 and "%" not in token and "_" not in token
-                        else "canonical_value LIKE ?"
-                        for token in batch
-                    ]
+                params: list[Any] = []
+                clauses: list[str] = []
+                short_tokens: list[str] = []
+                for token in batch:
+                    if _SHORT_CJK_TOKEN.match(token):
+                        short_tokens.append(token)
+                    elif (
+                        self._node_fts_available
+                        and len(token) >= 3
+                        and "%" not in token
+                        and "_" not in token
+                    ):
+                        clauses.append(
+                            "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts "
+                            "WHERE canonical_value LIKE ?)"
+                        )
+                        params.append(f"%{token}%")
+                    else:
+                        clauses.append("canonical_value LIKE ?")
+                        params.append(f"%{token}%")
+                if short_tokens:
+                    clauses.append(
+                        "id IN (SELECT rowid FROM livingmemory_graph_nodes_bigram_fts "
+                        "WHERE livingmemory_graph_nodes_bigram_fts MATCH ?)"
+                    )
+                    params.append(
+                        " OR ".join(
+                            '"' + token.replace('"', '""') + '"'
+                            for token in short_tokens
+                        )
+                    )
                 cursor = await db.execute(
                     f"""
                     SELECT id, node_key, node_type, node_value, canonical_value, metadata

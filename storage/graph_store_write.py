@@ -1,7 +1,7 @@
 """GraphStore 的写入方法集合。
 
-宿主契约：``_connect`` / ``_now_iso`` / ``_to_json`` / ``_chunked`` 由
-``GraphStore`` 提供。
+宿主契约：``_connect`` / ``_now_iso`` / ``_to_json`` / ``_chunked`` /
+``_tokenize_node_value`` 由 ``GraphStore`` 提供。
 """
 
 from __future__ import annotations
@@ -67,7 +67,18 @@ class GraphStoreWriteMixin:
             (node.node_key,),
         )
         row = await cursor.fetchone()
-        return int(row[0])
+        node_id = int(row[0])
+        # bigram FTS 没有触发器（内容需要 Python 侧展开），在这里同步维护。
+        await db.execute(
+            "DELETE FROM livingmemory_graph_nodes_bigram_fts WHERE rowid = ?",
+            (node_id,),
+        )
+        await db.execute(
+            "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
+            "VALUES (?, ?)",
+            (node_id, self._tokenize_node_value(node.canonical_value)),
+        )
+        return node_id
 
     async def add_edge(
         self,
@@ -381,6 +392,7 @@ class GraphStoreWriteMixin:
             )
             vector_doc_ids = [int(row[0]) for row in await cursor.fetchall()]
             await db.execute("DELETE FROM livingmemory_graph_entries_fts")
+            await db.execute("DELETE FROM livingmemory_graph_nodes_bigram_fts")
             await db.execute("DELETE FROM graph_entry_nodes")
             await db.execute("DELETE FROM graph_entries")
             await db.execute("DELETE FROM graph_edges")
@@ -396,6 +408,7 @@ class GraphStoreWriteMixin:
             try:
                 await db.execute("BEGIN IMMEDIATE")
                 await db.execute("DELETE FROM livingmemory_graph_entries_fts")
+                await db.execute("DELETE FROM livingmemory_graph_nodes_bigram_fts")
                 await db.execute("DELETE FROM graph_entry_nodes")
                 await db.execute("DELETE FROM graph_entries")
                 await db.execute("DELETE FROM graph_edges")
@@ -451,6 +464,15 @@ class GraphStoreWriteMixin:
                     SELECT content, entry_id
                     FROM shadow_graph.livingmemory_graph_entries_fts
                     """
+                )
+                cursor = await db.execute("SELECT id, canonical_value FROM graph_nodes")
+                await db.executemany(
+                    "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
+                    "VALUES (?, ?)",
+                    [
+                        (int(node_id), self._tokenize_node_value(canonical_value))
+                        for node_id, canonical_value in await cursor.fetchall()
+                    ],
                 )
                 await db.commit()
             except Exception:
@@ -604,11 +626,9 @@ class GraphStoreWriteMixin:
     ) -> None:
         """Delete the given nodes only when no edge or entry references them."""
         for batch in self._chunked(sorted(node_ids), self._SQLITE_BATCH_SIZE):
-            placeholders = ",".join("?" * len(batch))
-            await db.execute(
-                f"""
-                DELETE FROM graph_nodes
-                WHERE id IN ({placeholders})
+            placeholders = ",".join("?" for _ in batch)
+            orphan_condition = f"""
+                id IN ({placeholders})
                   AND NOT EXISTS (
                       SELECT 1 FROM graph_edges WHERE source_node_id = graph_nodes.id
                   )
@@ -618,6 +638,20 @@ class GraphStoreWriteMixin:
                   AND NOT EXISTS (
                       SELECT 1 FROM graph_entry_nodes WHERE node_id = graph_nodes.id
                   )
-                """,
-                batch,
+            """
+            cursor = await db.execute(
+                f"SELECT id FROM graph_nodes WHERE {orphan_condition}", batch
+            )
+            orphan_ids = [int(row[0]) for row in await cursor.fetchall()]
+            if not orphan_ids:
+                continue
+            orphan_placeholders = ",".join("?" for _ in orphan_ids)
+            await db.execute(
+                "DELETE FROM livingmemory_graph_nodes_bigram_fts "
+                f"WHERE rowid IN ({orphan_placeholders})",
+                orphan_ids,
+            )
+            await db.execute(
+                f"DELETE FROM graph_nodes WHERE id IN ({orphan_placeholders})",
+                orphan_ids,
             )

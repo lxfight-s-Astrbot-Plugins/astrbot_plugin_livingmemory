@@ -937,6 +937,61 @@ async def test_graph_retrieval_keeps_memories_without_status(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_graph_node_search_matches_short_cjk_tokens(tmp_path):
+    """2 字/单字中文 token 走 bigram 索引，且按相邻二字组匹配。"""
+    store = GraphStore(str(tmp_path / "graph_bigram.db"))
+    await store.initialize()
+    node = GraphNode("topic", "知识图谱重构", "知识图谱重构")
+    await store.upsert_nodes([node])
+
+    for token in ("知识", "图谱", "图"):
+        found = await store.search_nodes_by_tokens([token], limit=10)
+        assert {item["node_key"] for item in found} == {node.node_key}, token
+    assert await store.search_nodes_by_tokens(["谱图"], limit=10) == []
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_bigram_index_is_backfilled_for_existing_nodes(tmp_path):
+    """升级旧库后缺失的 bigram 行在 initialize 时补齐。"""
+    db_path = str(tmp_path / "graph_bigram_backfill.db")
+    store = GraphStore(db_path)
+    await store.initialize()
+    await store.upsert_nodes([GraphNode("topic", "知识图谱", "知识图谱")])
+    await store.close()
+
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("DELETE FROM livingmemory_graph_nodes_bigram_fts")
+        await db.commit()
+
+    reopened = GraphStore(db_path)
+    await reopened.initialize()
+    found = await reopened.search_nodes_by_tokens(["知识"], limit=10)
+    assert [item["canonical_value"] for item in found] == ["知识图谱"]
+    await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_bigram_index_follows_snapshot_replacement(tmp_path):
+    live = GraphStore(str(tmp_path / "graph_bigram_live.db"))
+    await live.initialize()
+    await live.upsert_nodes([GraphNode("topic", "旧节点", "旧节点")])
+
+    shadow = GraphStore(str(tmp_path / "graph_bigram_shadow.db"))
+    await shadow.initialize()
+    await shadow.upsert_nodes([GraphNode("topic", "新节点", "新节点")])
+    await live.replace_all_from(shadow.db_path)
+
+    assert await live.search_nodes_by_tokens(["旧节"], limit=10) == []
+    found = await live.search_nodes_by_tokens(["节点"], limit=10)
+    assert [item["canonical_value"] for item in found] == ["新节点"]
+
+    await live.close()
+    await shadow.close()
+
+
+@pytest.mark.asyncio
 async def test_graph_delete_removes_only_unreferenced_nodes(tmp_path):
     """Deleting one memory keeps nodes that other memories still reference."""
     store = GraphStore(str(tmp_path / "graph_delete_orphans.db"))
@@ -973,6 +1028,12 @@ async def test_graph_delete_removes_only_unreferenced_nodes(tmp_path):
 
     remaining = await store.search_nodes_by_tokens(["节点"], limit=10)
     assert {node["node_key"] for node in remaining} == {shared_node.node_key}
+    async with store._connect() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM livingmemory_graph_nodes_bigram_fts WHERE rowid = ?",
+            (node_ids[exclusive_node.node_key],),
+        )
+        assert (await cursor.fetchone())[0] == 0
 
     await store.close()
 
