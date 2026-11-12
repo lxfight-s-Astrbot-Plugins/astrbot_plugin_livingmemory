@@ -1,14 +1,14 @@
 .graph-view { position: absolute; inset: 0; }
 .graph-view[hidden], .graph-space-controls[hidden] { display: none; }
-#graph-view-3d { background: radial-gradient(ellipse at 32% 58%, #76553820, transparent 48%), radial-gradient(ellipse at 76% 25%, #38507620, transparent 52%), #05080f; }
+#graph-view-3d { background: radial-gradient(ellipse at 26% 62%, #1d56b038, transparent 54%), radial-gradient(ellipse at 78% 20%, #0f68b033, transparent 56%), radial-gradient(ellipse at 58% 96%, #0f8f9a2b, transparent 52%), #03050c; }
 #graph-view-3d canvas { display: block; outline-offset: -3px; touch-action: none; cursor: grab; }
 .space-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.space-node-label { position: absolute; top: 0; left: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d8ccbb; font: 11px/20px "Microsoft YaHei", sans-serif; text-shadow: 0 2px 8px #000; }
+.space-node-label { position: absolute; top: 0; left: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dbe4ff; font: 11px/20px "Microsoft YaHei", sans-serif; text-shadow: 0 2px 8px #000; }
 .space-node-label[hidden] { display: none; }
 :root[data-graph-view="3d"] :is(#page-graph, #peek-panel, #appearance-dialog, .discard-dialog) { color-scheme: dark; }
 :root[data-graph-view="3d"] #peek-panel .btn-danger { color: var(--text-inverse); }
 .graph-space-mode #graph-stat-pills { display: none; }
-#page-graph.graph-space-mode { background: #05080f; }
+#page-graph.graph-space-mode { background: #03050c; }
 #page-graph.graph-space-mode .page-header { background: transparent; }
 #page-graph.graph-space-mode .graph-page-body { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 8px; padding: 0 16px 12px; overflow: hidden; }
 .graph-space-mode .graph-canvas-container { position: absolute; inset: 0; border: 0; border-radius: 0; }
@@ -31,7 +31,7 @@ html[data-graph-view="3d"] #peek-panel:not(.wide) { top: 82px; right: 20px; bott
 html[data-graph-view="3d"] #peek-panel:not(.visible) { transform: translateX(calc(100% + 24px)); }
 html[data-graph-view="3d"] #peek-panel:not(.wide) #peek-badge,
 html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-section:has(> .peek-meta-grid) { display: none; }
-.graph-space-mode :is(#graph-motion-btn, #graph-relations-btn)[aria-pressed="true"] { border-color: #d8bc9170; color: #ead2ac; background: #d8bc9117; }
+.graph-space-mode :is(#graph-motion-btn, #graph-relations-btn)[aria-pressed="true"] { color: var(--accent); background: var(--accent-light); }
 html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-meta-grid,
 html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-section-title { display: none; }
 html[data-graph-view="3d"] #peek-panel:not(.wide) .peek-related-item { padding: 16px 0; border: 0; border-bottom: 1px solid #ffffff0c; border-radius: 0; background: transparent; color: #d4d0ca; font-size: 12px; line-height: 1.9; }

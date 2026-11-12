@@ -43,7 +43,7 @@ fieldset > .appearance-segmented label { flex: 1; }
 .preview-main { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
 .preview-main span { border-radius: 4px; background: var(--preview-accent); opacity: 0.2; }
 .preview-main span:first-child { grid-column: 1 / -1; opacity: 0.45; }
-.preview-macos { --preview-accent: #007aff; background: radial-gradient(70% 90% at 0 0, #007aff55, transparent), radial-gradient(60% 80% at 100% 0, #ffb4dc99, transparent), #eef0f9; border-radius: 14px; }
+.preview-macos { --preview-accent: #007aff; background: radial-gradient(70% 90% at 0 0, #007aff55, transparent), radial-gradient(60% 80% at 100% 0, #ffd3a899, transparent), #eef0f9; border-radius: 14px; }
 .preview-studio { --preview-accent: #5e5ce6; background: #eef0ff; border-radius: 12px; }
 .preview-paper { --preview-accent: #9a4a2a; background: #f1ebdf; border-radius: 3px; }
 .preview-paper :is(.preview-nav, .preview-main span) { border-radius: 1px; }
@@ -64,8 +64,8 @@ fieldset > .appearance-segmented label { flex: 1; }
 .appearance-swatch-custom input { opacity: 0.01; }
 .appearance-wp span { border-radius: 8px; }
 .appearance-wp { border-radius: 8px; width: 40px; }
-.appearance-wp-aurora span { background: radial-gradient(70% 90% at 0 0, #007aff88, transparent), radial-gradient(60% 80% at 100% 0, #ffb4dcbb, transparent), #edf0f9; }
-.appearance-wp-dusk span { background: radial-gradient(70% 90% at 0 0, #ffae88cc, transparent), radial-gradient(60% 80% at 100% 100%, #b9a4ffcc, transparent), #fbeff0; }
+.appearance-wp-aurora span { background: radial-gradient(70% 90% at 0 0, #007aff88, transparent), radial-gradient(60% 80% at 100% 0, #ffd3a8bb, transparent), #edf0f9; }
+.appearance-wp-dusk span { background: radial-gradient(70% 90% at 0 0, #ffae88cc, transparent), radial-gradient(60% 80% at 100% 100%, #ff9f8acc, transparent), #fbeff0; }
 .appearance-wp-forest span { background: radial-gradient(70% 90% at 0 0, #7fd8a7cc, transparent), radial-gradient(60% 80% at 100% 100%, #c8e68ccc, transparent), #eef6ef; }
 .appearance-wp-graphite span { background: radial-gradient(70% 90% at 0 0, #b8bcc8cc, transparent), radial-gradient(60% 80% at 100% 100%, #a5abbdcc, transparent), #eceef3; }
 .appearance-wp-none span { background: var(--bg-app); }

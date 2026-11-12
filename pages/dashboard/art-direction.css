@@ -73,7 +73,7 @@ summary:focus-visible {
 }
 
 .sidebar, .lang-options, .graph-toolbar, .graph-space-controls, .toast {
-  background: var(--glass);
+  background: var(--sheen), var(--glass);
   box-shadow: var(--glass-edge);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
@@ -124,8 +124,29 @@ summary:focus-visible {
   font-weight: 500;
   color: var(--text-primary);
 }
-.nav-item svg { opacity: 0.85; color: var(--accent); }
-.nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Icons sit in small glass tiles, one hue per destination. */
+.nav-item svg {
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  color: #fff;
+  stroke-width: 1.9;
+  border-radius: calc(8px * var(--radius-scale) + 1px);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tile, var(--accent)) 70%, #fff), var(--tile, var(--accent)));
+  box-shadow: inset 0 1px 0 #ffffff80, inset 0 0 0 0.5px #ffffff4d, 0 2px 6px color-mix(in srgb, var(--tile, var(--accent)) 38%, transparent);
+}
+.nav-item[data-page="graph"] { --tile: #0a84ff; }
+.nav-item[data-page="memory"] { --tile: #ff9f0a; }
+.nav-item[data-page="recall"] { --tile: #30b0c7; }
+.nav-item[data-page="system"] { --tile: #34c759; }
+.nav-item[data-page="prompts"] { --tile: #a2845e; }
+.nav-item[data-page="profile"] { --tile: #ff375f; }
+.nav-item[data-page="diagnostics"] { --tile: #ff6a3d; }
+.nav-item[data-page="settings"] { --tile: #8e8e93; }
+#theme-toggle { --tile: #00c7be; }
+#lang-toggle { --tile: #32ade6; }
+:root:is([data-style="paper"], [data-style="terminal"]) .nav-item { --tile: var(--accent); }
+.nav-item:hover { background: var(--bg-hover); }
 .nav-item.active {
   color: var(--text-primary);
   font-weight: 600;
@@ -140,7 +161,8 @@ summary:focus-visible {
 #sidebar-toggle[aria-expanded="true"] svg path { transform: none; }
 #sidebar-toggle[aria-expanded="true"] { color: var(--accent); }
 
-.nav-item svg, .btn svg, .peek-close svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.btn svg, .peek-close svg { width: 18px; height: 18px; flex: 0 0 auto; stroke-width: 1.9; }
+.nav-item svg { flex: 0 0 auto; }
 
 .lang-options { border: 0; border-radius: var(--r-lg); padding: 6px; }
 .lang-option { font-size: 13px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text-primary); }
@@ -148,7 +170,7 @@ summary:focus-visible {
 
 .main-content {
   position: relative;
-  background: var(--window);
+  background: var(--sheen), var(--window);
   border: 0;
   border-radius: var(--r-xl);
   box-shadow: var(--glass-edge);
@@ -264,7 +286,7 @@ input[type="range"] { accent-color: var(--accent); }
   gap: 0;
   margin: 0;
   overflow: hidden;
-  background: var(--bg-card);
+  background: var(--surface);
   box-shadow: var(--card-edge);
   border: 0;
   border-radius: var(--r-lg);
@@ -299,7 +321,7 @@ input[type="range"] { accent-color: var(--accent); }
   overflow-wrap: anywhere;
   text-align: center;
   color: var(--text-secondary);
-  background: var(--glass-thick);
+  background: var(--sheen), var(--glass-thick);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   border: 0;
@@ -346,12 +368,13 @@ input[type="range"] { accent-color: var(--accent); }
 .filter-bar { gap: 8px; margin-bottom: 14px; padding: 4px 0; background: transparent; border: 0; }
 
 .table-container {
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--card-edge);
 }
-.data-table thead { background: var(--bg-table-head); }
+.table-scroll { background: transparent; }
+.data-table thead { background: var(--surface); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); }
 .data-table th {
   height: 40px;
   color: var(--text-secondary);
@@ -369,7 +392,7 @@ input[type="range"] { accent-color: var(--accent); }
 .data-table tbody tr.is-selected { background: var(--accent-light); box-shadow: none; }
 .type-tag, .status-pill, .badge { border-radius: 99px; }
 .importance-bar-track, .importance-bar-fill { border-radius: 99px; }
-.pagination { background: var(--bg-card); border-top: 1px solid var(--border-light); }
+.pagination { background: var(--surface); border-top: 1px solid var(--border-light); }
 
 /* ---------- Recall ---------- */
 
@@ -377,7 +400,7 @@ input[type="range"] { accent-color: var(--accent); }
   position: relative;
   margin: 0 0 22px;
   padding: 20px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--card-edge);
@@ -401,7 +424,7 @@ input[type="range"] { accent-color: var(--accent); }
 .stat-card {
   min-width: 0;
   padding: 16px 16px 14px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--card-edge);
@@ -413,7 +436,7 @@ input[type="range"] { accent-color: var(--accent); }
 .system-panel {
   margin-top: 0;
   padding: 18px 20px 20px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--card-edge);
@@ -440,7 +463,7 @@ input[type="range"] { accent-color: var(--accent); }
 .prompt-item {
   position: relative;
   padding: 14px 18px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-md);
   box-shadow: var(--card-edge);
@@ -449,12 +472,12 @@ input[type="range"] { accent-color: var(--accent); }
 .prompt-item:hover { z-index: 1; border: 0; transform: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 6px 20px #1c2a5a1a; translate: 0 -1px; }
 .badge-custom, .badge-json-warn, .prompt-var-tag, .prompt-item-vars code { border-radius: 99px; }
 .badge-json-warn { color: var(--warning); background: var(--warning-light); border-color: transparent; }
-.prompt-editor { padding: 20px; background: var(--bg-card); border: 0; border-radius: var(--r-lg); box-shadow: var(--card-edge); }
+.prompt-editor { padding: 20px; background: var(--surface); border: 0; border-radius: var(--r-lg); box-shadow: var(--card-edge); }
 
 /* ---------- Settings ---------- */
 
 .settings-group, .settings-quick {
-  background: var(--bg-card);
+  background: var(--surface);
   border: 0;
   border-radius: var(--r-lg);
   box-shadow: var(--card-edge);
@@ -471,7 +494,7 @@ input[type="range"] { accent-color: var(--accent); }
   bottom: 12px;
   height: auto;
   width: min(520px, calc(100vw - 24px));
-  background: var(--glass-thick);
+  background: var(--sheen), var(--glass-thick);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   border: 0;
@@ -539,7 +562,7 @@ input[type="range"] { accent-color: var(--accent); }
 .request-feedback.is-error { color: var(--danger); background: var(--danger-light); }
 .request-feedback .btn { flex-shrink: 0; }
 
-.memory-transfer, #transfer-feedback { border: 0; border-radius: var(--r-md); background: var(--bg-card); box-shadow: var(--card-edge); }
+.memory-transfer, #transfer-feedback { border: 0; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--card-edge); }
 .memory-selection { border-radius: var(--r-md); background: var(--accent-light); }
 
 button.memory-open { width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -586,7 +609,7 @@ button.memory-open { width: 100%; padding: 0; border: 0; background: transparent
 .appearance-dialog, .discard-dialog, .confirm-dialog {
   margin: auto;
   color: var(--text-primary);
-  background: var(--glass-thick);
+  background: var(--sheen), var(--glass-thick);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   border: 0;
@@ -626,7 +649,7 @@ button.memory-open { width: 100%; padding: 0; border: 0; background: transparent
     overflow-y: auto;
     padding: 12px;
     border-radius: var(--r-lg);
-    background: var(--glass-thick);
+    background: var(--sheen), var(--glass-thick);
     -webkit-backdrop-filter: var(--glass-filter);
     backdrop-filter: var(--glass-filter);
     box-shadow: var(--glass-edge);

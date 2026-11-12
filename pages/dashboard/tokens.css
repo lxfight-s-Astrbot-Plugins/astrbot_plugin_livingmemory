@@ -22,11 +22,8 @@
   --radius-sm: var(--r-xs);
   --radius-md: var(--r-sm);
   --radius-lg: var(--r-md);
-  --radius-xl: var(--r-lg);
   --theme-radius: var(--r-lg);
-  --workspace-radius: var(--r-xl);
   --control-h: calc(36px * var(--density));
-  --gap: calc(16px * var(--density));
 
   /* Surfaces */
   --bg-app: #e8ecf6;
@@ -34,12 +31,10 @@
   --bg-glass: #f4f5fa;
   --bg-card: #ffffff;
   --bg-sidebar: var(--bg-glass);
-  --bg-overlay: var(--bg-card);
   --bg-tint: #f2f3f8;
   --bg-hover: #7676801f;
   --bg-input: #76768014;
   --bg-active: var(--accent-light);
-  --bg-table-head: var(--bg-card);
   --graph-surface: #f7f8fc;
   --graph-line: #6c7282;
   --screen-overlay: #0a0e1c47;
@@ -60,8 +55,6 @@
   --accent-color: var(--accent);
   --accent-hover: color-mix(in srgb, var(--accent) 84%, #000);
   --accent-light: color-mix(in srgb, var(--accent) 13%, var(--bg-card));
-  --signal: color-mix(in srgb, var(--accent) 24%, var(--bg-card));
-  --signal-soft: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
 
   --success: #1c7c38;
   --success-light: #e1f6e6;
@@ -70,30 +63,29 @@
   --danger: #d1242f;
   --danger-light: #ffe8e6;
   --danger-hover: #ad1b24;
-  --coral: #ff6259;
-  --cyan: #30b0c7;
-  --gold: #ffcc00;
 
   /* Graph node colors, read by the 2D/3D canvases through getComputedStyle. */
   --node-topic: #0a74e6;
   --node-person: #d96f12;
   --node-fact: #2a9d4b;
-  --node-summary: #9a50d4;
+  --node-summary: #d6457f;
   --node-other: #7b7f8a;
 
   /* Materials */
-  --glass: color-mix(in srgb, var(--bg-glass) calc(100% - var(--glass-strength) * 0.45%), transparent);
-  --glass-thick: color-mix(in srgb, var(--bg-glass) calc(100% - var(--glass-strength) * 0.2%), transparent);
-  --window: color-mix(in srgb, var(--bg-window) calc(100% - var(--glass-strength) * 0.3%), transparent);
-  --glass-filter: blur(calc(var(--glass-strength) * 0.32px)) saturate(180%);
-  --glass-edge: inset 0 0 0 1px #ffffff80, inset 0 1px 0 #ffffffb3, 0 10px 34px #1c2a5a1f;
+  --glass: color-mix(in srgb, var(--bg-glass) calc(100% - var(--glass-strength) * 0.64%), transparent);
+  --glass-thick: color-mix(in srgb, var(--bg-glass) calc(100% - var(--glass-strength) * 0.34%), transparent);
+  --window: color-mix(in srgb, var(--bg-window) calc(100% - var(--glass-strength) * 0.48%), transparent);
+  --surface: color-mix(in srgb, var(--bg-card) calc(100% - var(--glass-strength) * 0.3%), transparent);
+  --glass-filter: blur(calc(var(--glass-strength) * 0.36px)) saturate(190%);
+  --sheen: linear-gradient(135deg, #ffffff66, #ffffff14 34%, #ffffff00 62%);
+  --glass-edge: inset 0 0 0 1px #ffffff99, inset 0 1.5px 0 #ffffffd9, inset 0 -1px 0 #ffffff40, 0 12px 38px #1c2a5a24;
   --card-edge: 0 0 0 1px var(--border-light), 0 1px 2px #1c2a5a0f;
 
   /* Wallpaper: three soft blobs over a base color. */
-  --wp-a: color-mix(in srgb, var(--accent) 34%, transparent);
-  --wp-b: #ffb4dc99;
-  --wp-c: #8fe6d199;
-  --wp-base: #edf0f9;
+  --wp-a: color-mix(in srgb, var(--accent) 48%, transparent);
+  --wp-b: #ffd3a8b3;
+  --wp-c: #6fe3cfb3;
+  --wp-base: #e9eefc;
   --wallpaper:
     radial-gradient(55% 50% at 6% 4%, var(--wp-a), transparent 72%),
     radial-gradient(45% 55% at 96% 8%, var(--wp-b), transparent 70%),
@@ -128,8 +120,6 @@
   --accent: #0a84ff;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, #fff);
   --accent-light: color-mix(in srgb, var(--accent) 24%, var(--bg-card));
-  --signal: color-mix(in srgb, var(--accent) 34%, var(--bg-card));
-  --signal-soft: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
   --success: #5fd47d;
   --success-light: #14301d;
   --warning: #f0b95a;
@@ -140,25 +130,26 @@
   --node-topic: #4aa3ff;
   --node-person: #ffa04d;
   --node-fact: #5fd47d;
-  --node-summary: #c58cff;
+  --node-summary: #ff9fc0;
   --node-other: #9aa0ad;
-  --glass-edge: inset 0 0 0 1px #ffffff24, inset 0 1px 0 #ffffff2e, 0 12px 38px #00000073;
+  --sheen: linear-gradient(135deg, #ffffff24, #ffffff08 34%, #ffffff00 62%);
+  --glass-edge: inset 0 0 0 1px #ffffff2e, inset 0 1.5px 0 #ffffff47, inset 0 -1px 0 #ffffff12, 0 14px 42px #0000008c;
   --card-edge: 0 0 0 1px var(--border-light), 0 1px 2px #00000040;
-  --wp-a: color-mix(in srgb, var(--accent) 40%, transparent);
-  --wp-b: #7a3cc266;
-  --wp-c: #0f8f8a55;
-  --wp-base: #0b0d14;
+  --wp-a: color-mix(in srgb, var(--accent) 52%, transparent);
+  --wp-b: #0f78b066;
+  --wp-c: #0fa59a66;
+  --wp-base: #090b13;
 }
 
 /* Presets are token packs; they never restyle components. */
 :root[data-style="studio"] {
   --bg-app: #e9ebfa; --bg-window: #f4f5ff; --bg-glass: #f1f2ff; --bg-tint: #eff0fc;
   --accent: #5e5ce6; --radius-scale: 1.15;
-  --wp-b: #ffc4e599; --wp-c: #b7d4ff99; --wp-base: #eef0ff;
+  --wp-b: #bfe0ffb3; --wp-c: #b7ecffb3; --wp-base: #eef0ff;
 }
 :root[data-style="studio"][data-theme="dark"] {
   --bg-app: #0e1020; --bg-window: #1a1d30; --bg-glass: #252944; --bg-card: #292e4a; --bg-tint: #222640;
-  --accent: #7d7aff; --wp-b: #a03cc266; --wp-c: #1d5fd055; --wp-base: #0d0f1f;
+  --accent: #7d7aff; --wp-b: #1d6fd066; --wp-c: #0f8fb055; --wp-base: #0d0f1f;
 }
 :root[data-style="paper"] {
   --bg-app: #f1ebdf; --bg-window: #f6f1e6; --bg-glass: #efe7d7; --bg-card: #fffcf4; --bg-tint: #f0e9da;
@@ -167,7 +158,7 @@
   --accent: #9a4a2a; --radius-scale: 0.4; --glass-strength: 20;
   --font-ui: "Optima", "Candara", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-heading: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", "Songti SC", Georgia, serif;
-  --graph-surface: #fcf8ed; --glass-edge: inset 0 0 0 1px #4a3c2a24, 0 2px 0 #4a3c2a14;
+  --graph-surface: #fcf8ed; --sheen: linear-gradient(#0000, #0000); --glass-edge: inset 0 0 0 1px #4a3c2a24, 0 2px 0 #4a3c2a14;
   --wp-a: transparent; --wp-b: transparent; --wp-c: transparent; --wp-base: #f1ebdf;
 }
 :root[data-style="paper"][data-theme="dark"] {
@@ -180,7 +171,7 @@
   --text-primary: #142e38; --text-secondary: #3b5a65; --text-tertiary: #50707b;
   --border-light: #14485a29; --border-normal: #14485a47;
   --accent: #006b7a; --radius-scale: 0; --glass-strength: 0;
-  --font-ui: var(--font-mono); --graph-surface: #eef7f8; --glass-edge: inset 0 0 0 1px var(--border-normal);
+  --font-ui: var(--font-mono); --sheen: linear-gradient(#0000, #0000); --graph-surface: #eef7f8; --glass-edge: inset 0 0 0 1px var(--border-normal);
   --card-edge: 0 0 0 1px var(--border-normal);
   --wp-a: transparent; --wp-b: transparent; --wp-c: transparent; --wp-base: #e6eff1;
 }
@@ -191,13 +182,13 @@
 }
 
 /* Wallpapers swap the blob colors only. Default follows the style preset. */
-:root[data-wallpaper="aurora"] { --wp-a: color-mix(in srgb, var(--accent) 34%, transparent); --wp-b: #ffb4dc99; --wp-c: #8fe6d199; --wp-base: #edf0f9; }
-:root[data-wallpaper="dusk"] { --wp-a: #ffae8899; --wp-b: #ff8fb799; --wp-c: #b9a4ff99; --wp-base: #fbeff0; }
-:root[data-wallpaper="forest"] { --wp-a: #7fd8a799; --wp-b: #c8e68c99; --wp-c: #6ec8d899; --wp-base: #eef6ef; }
-:root[data-wallpaper="graphite"] { --wp-a: #b8bcc899; --wp-b: #d9dce499; --wp-c: #a5abbd99; --wp-base: #eceef3; }
+:root[data-wallpaper="aurora"] { --wp-a: color-mix(in srgb, var(--accent) 34%, transparent); --wp-b: #ffd3a8b3; --wp-c: #6fe3cfb3; --wp-base: #edf0f9; }
+:root[data-wallpaper="dusk"] { --wp-a: #ffa27cb3; --wp-b: #ffc27ab3; --wp-c: #ff9f8ab3; --wp-base: #fbeff0; }
+:root[data-wallpaper="forest"] { --wp-a: #6fd6a0b3; --wp-b: #c8e67cb3; --wp-c: #5ec4d8b3; --wp-base: #eef6ef; }
+:root[data-wallpaper="graphite"] { --wp-a: #aeb4c8b3; --wp-b: #d4d8e4b3; --wp-c: #9aa2bab3; --wp-base: #eceef3; }
 :root[data-wallpaper="none"] { --wp-a: transparent; --wp-b: transparent; --wp-c: transparent; --wp-base: var(--bg-app); }
-:root[data-wallpaper="aurora"][data-theme="dark"] { --wp-a: color-mix(in srgb, var(--accent) 40%, transparent); --wp-b: #7a3cc266; --wp-c: #0f8f8a55; --wp-base: #0b0d14; }
-:root[data-wallpaper="dusk"][data-theme="dark"] { --wp-a: #c2512e66; --wp-b: #b0306a55; --wp-c: #5a3fc255; --wp-base: #140c10; }
+:root[data-wallpaper="aurora"][data-theme="dark"] { --wp-a: color-mix(in srgb, var(--accent) 40%, transparent); --wp-b: #0f78b066; --wp-c: #0f8f8a55; --wp-base: #0b0d14; }
+:root[data-wallpaper="dusk"][data-theme="dark"] { --wp-a: #c2512e66; --wp-b: #b0702e55; --wp-c: #a8402e55; --wp-base: #140c10; }
 :root[data-wallpaper="forest"][data-theme="dark"] { --wp-a: #1d8a5466; --wp-b: #6a8a1d4d; --wp-c: #1d7a8a55; --wp-base: #09120d; }
 :root[data-wallpaper="graphite"][data-theme="dark"] { --wp-a: #5a5f7066; --wp-b: #3c405055; --wp-c: #6a6f8055; --wp-base: #0c0d11; }
 :root[data-wallpaper="none"][data-theme="dark"] { --wp-base: var(--bg-app); }
@@ -209,29 +200,25 @@
 @media (prefers-reduced-transparency: reduce) {
   :root { --glass-strength: 0; }
 }
-/* The 3D star map always uses a deep dark surface, whatever the preset or mode. */
+/* The 3D star map is a deep-space scene: navy glass, starlight blue accent, luminous node colors. */
 :root[data-graph-view="3d"][data-theme] {
   color-scheme: dark;
-  --bg-app: #070a10; --bg-window: #0a0d14; --bg-glass: #151922; --bg-card: #11151e; --bg-tint: #171c26;
-  --bg-hover: #7676804d; --bg-input: #7676803d; --graph-surface: #05080f; --screen-overlay: #00000099;
-  --text-primary: #e8e8ed; --text-secondary: #c0c0c8; --text-tertiary: #9c9ca6;
-  --border-light: #ffffff1f; --border-normal: #ffffff38;
-  --accent: #d8bc91; --on-accent: #15120f;
-  --accent-hover: color-mix(in srgb, var(--accent) 80%, #fff);
-  --accent-light: color-mix(in srgb, var(--accent) 24%, var(--bg-card));
-  --signal: color-mix(in srgb, var(--accent) 34%, var(--bg-card));
-  --signal-soft: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
-  --success: #5fd47d; --success-light: #14301d; --warning: #f0b95a; --warning-light: #3a2a0e;
-  --danger: #ff8a82; --danger-light: #3d1a18; --danger-hover: #ffa8a1;
-  --node-person: #e5bc85; --node-topic: #98bacd; --node-fact: #c6cfac; --node-summary: #b5a7c1; --node-other: #929aa6;
-  --glass-edge: inset 0 0 0 1px #ffffff24, inset 0 1px 0 #ffffff2e, 0 12px 38px #00000073;
-  --card-edge: 0 0 0 1px var(--border-light), 0 1px 2px #00000040;
-  --wp-a: #3a2e1d66; --wp-b: #1d2a4466; --wp-c: transparent; --wp-base: #070a10;
+  --bg-app: #04060d; --bg-window: #060a17; --bg-glass: #121b38; --bg-card: #0d1428; --bg-tint: #111a33;
+  --bg-hover: #8aa0ff26; --bg-input: #8aa0ff1f; --graph-surface: #03050c; --screen-overlay: #02040ab3;
+  --text-primary: #eaefff; --text-secondary: #bcc7ea; --text-tertiary: #97a4cc;
+  --border-light: #9db2ff29; --border-normal: #9db2ff47;
+  --accent: #8cb4ff; --on-accent: #061230;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, #fff);
+  --accent-light: color-mix(in srgb, var(--accent) 22%, var(--bg-card));
+  --success: #6fe0a0; --success-light: #0f2f27; --warning: #ffcf7a; --warning-light: #332710;
+  --danger: #ff93a0; --danger-light: #35161f; --danger-hover: #ffb0b9;
+  --node-person: #ffd9a3; --node-topic: #8ec5ff; --node-fact: #8ff0d4; --node-summary: #ffb3cc; --node-other: #9aa8c8;
+  --sheen: linear-gradient(135deg, #9db2ff2e, #9db2ff0a 34%, #9db2ff00 62%);
+  --glass-edge: inset 0 0 0 1px #9db2ff33, inset 0 1.5px 0 #b8c8ff52, inset 0 -1px 0 #9db2ff14, 0 14px 42px #00000099;
+  --card-edge: 0 0 0 1px var(--border-light), 0 1px 2px #00000059;
+  --wp-a: #1d56b066; --wp-b: #0f68b04d; --wp-c: #0f8f9a40; --wp-base: #04060d;
 }
 
-@supports not (backdrop-filter: blur(1px)) {
-  :root { --glass-filter: none; --glass: var(--bg-glass); --glass-thick: var(--bg-glass); --window: var(--bg-window); }
-}
 @media (prefers-contrast: more) {
   :root { --border-light: #3c3c4380; --border-normal: #3c3c43b3; }
   :root[data-theme="dark"] { --border-light: #ffffff80; --border-normal: #ffffffb3; }
