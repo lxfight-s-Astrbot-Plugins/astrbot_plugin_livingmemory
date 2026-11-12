@@ -34,14 +34,16 @@ Select sharing adapter instances under Settings → Access and isolation; sessio
 
 ## Appearance
 
-Open **Appearance** using the palette icon at the bottom of the sidebar (in the top menu on mobile). Four visual styles apply immediately:
+Open **Appearance** using the palette icon at the bottom of the sidebar (in the top menu on mobile) to switch visual styles and customize them:
 
 | Style | Design |
 | --- | --- |
-| Liquid Glass | Default style with floating glass navigation, continuous corners, and an expanded graph canvas |
-| Studio | Indigo accents, rounded floating cards and horizontal graph metrics |
-| Paper | Warm paper surfaces, serif headings, double rules and reading space |
-| Terminal | Monospace type, cyan accents, sharp borders and graph metrics on the right |
+| macOS 26 | Default style: a floating glass sidebar and translucent window over a wallpaper, concentric corners and the system blue accent |
+| Studio | Indigo accents and larger corners |
+| Paper | Warm paper surfaces, serif headings, square corners and solid surfaces |
+| Terminal | Monospace type, cyan accents, square corners and solid surfaces |
+
+The **Theme** tab adjusts the accent color (preset swatches or any color), wallpaper (Aurora, Dusk, Forest, Graphite, none, or an uploaded image), glass strength, corners, density and font. The **Advanced** tab has a custom CSS box that applies as you type and can override any `--` design variable or component style, plus theme export, import and reset. Glass turns solid when the system requests reduced transparency.
 
 Each style supports Light, Dark and Auto. Auto follows AstrBot, or your device when opened independently. An explicit color mode is not overridden by AstrBot. Preferences are saved in the current browser and survive reloads; when local storage is blocked, they apply only for the current visit. Options support keyboard selection; press Escape to close.
 

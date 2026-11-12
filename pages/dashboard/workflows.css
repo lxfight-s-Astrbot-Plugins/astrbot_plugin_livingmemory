@@ -27,9 +27,6 @@
 #transfer-feedback { flex: 0 0 auto; margin-bottom: 12px; border: 1px solid var(--border-normal); border-radius: var(--theme-radius); background: var(--bg-card); }
 .pagination { flex-wrap: wrap; gap: 10px; }
 .pagination-size { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
-.discard-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 24px; color: var(--text-primary); background: var(--bg-card); border: 1px solid var(--border-normal); border-radius: var(--theme-radius); box-shadow: var(--theme-shadow); }
-.discard-dialog::backdrop { background: var(--screen-overlay); }
-.discard-dialog h2 { font-size: 20px; margin-bottom: 12px; }
 .discard-dialog p { color: var(--text-secondary); margin-bottom: 24px; }
 .discard-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 #recall-results[aria-busy="true"] { opacity: 0.55; }

@@ -34,7 +34,7 @@ LivingMemory gives AstrBot a durable store of preferences, relationships, projec
 
 ## One workspace, four styles
 
-**Editorial** offers green grids and crisp lines; **Studio** uses soft cards; **Paper** pairs warm surfaces with serif headings; **Terminal** combines monospace type with instrument panels.
+**macOS 26** offers floating Liquid Glass over a wallpaper; **Studio** uses soft cards; **Paper** pairs warm surfaces with serif headings; **Terminal** combines monospace type with instrument panels.
 
 Every style supports light, dark and automatic modes. Switch from “Appearance” in the dashboard; preferences stay in the current browser. Graph labels settle during zoomed reading, and mobile controls support session filtering and memory focus.
 
