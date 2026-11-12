@@ -110,6 +110,10 @@ docs/star_metadata.md
 docs/star.md
 AGENTS.md
 
+# Local planning documents
+IMPLEMENTATION_PLAN.md
+OPTIMIZATION_PLAN.md
+
 # Local testing
 mock_server.py
 docs/WEBUI_DESIGN.md
