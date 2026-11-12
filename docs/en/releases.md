@@ -1,5 +1,33 @@
 # Releases and Upgrades
 
+## 2.12.0 · November 12, 2026
+
+2.12.0 is a storage and recall-chain performance release: graph-route recall, node matching, scoped vector recall, atom search and graph writes were optimized end to end. On a copy of a 156 MB production database, database-side recall time drops from about 90 ms to 10-20 ms and the graph write cost per memory drops from 41 ms to 26-30 ms. Commands, configuration, injection format and database schema stay compatible, and no migration is required.
+
+[Download 2.12.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.12.0)
+
+### What changed
+
+- **Faster recall**: the graph route filters archived memories through the indexed status expression and probes only matched nodes (73-78 ms -> 4-14 ms); 1-2 character CJK node matches go through a new bigram FTS index (13-19 ms -> 1.1 ms); scoped vector recall filters candidates with IDSelectorBatch before the ANN search (p50 22.1-22.9 ms -> 5.6-6.2 ms, rows fetched per query 3759 -> about 100); the atom miss path no longer scans content with LIKE (16.3 ms -> 0.4 ms).
+- **Faster writes**: one memory's graph data (old graph deletion, node/edge/entry writes and orphan cleanup) is committed in a single transaction, so index_memory drops from 41 to 26-30 ms and connections per write from 7 to 3; indexing graph_entries.edge_id drops single-memory deletion from 489 to 17 ms and a batch of 20 from 7.6 s to 0.14 s.
+- **Benchmark tooling**: new scripts/benchmark_storage_recall.py measures the graph read path, graph writes, index_memory and the atom fallback against a real database copy.
+
+### Behavior changes
+
+- No command, configuration, injection format or database migration changes; defaults stay the same.
+- The first start after the upgrade backfills the graph node bigram FTS index (about 0.7 s for 10k nodes) and the database grows by about 2.5 MiB per 10k nodes; later starts skip it.
+- Raw-format atom FTS keeps the LIKE fallback; after switching recall_engine.tokenizer, rebuild indexes as before.
+
+### Verification
+
+1606 backend tests and the recall quality golden set pass, Ruff check and format pass, no frontend changes, and both backend and frontend CI jobs pass on PR #433.
+
+### Installing and upgrading
+
+1. Stop the plugin and back up the full data directory, update to 2.12.0, then restart AstrBot and reopen the plugin views.
+2. No database migration is required; the first start creates livingmemory_graph_nodes_bigram_fts and the graph_entries.edge_id index and backfills existing graph nodes.
+3. Large stores spend a few extra seconds building the index on the first upgraded start (one-time cost); later starts have no extra overhead.
+
 ## 2.11.0 · November 12, 2026
 
 2.11.0 extends what you can do with memory: an authenticated external memory API with an MCP bridge, versioned user profiles, request-level recall traces, a diagnostics page, channel public memory and an ordered LLM provider fallback chain, a Liquid Glass default appearance, and the complete full-graph view restored. New capabilities are conservative by default: the external API and channel memory are off and traces stay in memory. Public commands and existing configuration remain compatible, and no database migration is required.
