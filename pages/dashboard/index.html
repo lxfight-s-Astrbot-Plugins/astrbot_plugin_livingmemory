@@ -458,52 +458,94 @@
     </dialog>
 
     <!-- Appearance preferences apply immediately and remain local to this browser. -->
-    <dialog id="appearance-dialog" class="appearance-dialog" aria-labelledby="appearance-title" aria-describedby="appearance-hint">
+    <dialog id="appearance-dialog" class="appearance-dialog" aria-labelledby="appearance-title">
       <form method="dialog">
         <header class="appearance-header">
           <h2 id="appearance-title" data-i18n="header.theme">Appearance</h2>
-          <button class="btn btn-ghost btn-sm" data-i18n-aria="common.close" autofocus><i data-lucide="x" aria-hidden="true"></i></button>
+          <div class="appearance-segmented appearance-tabs">
+            <label><input type="radio" name="appearance-tab" value="theme" checked /><span data-i18n="appearance.tabTheme">Theme</span></label>
+            <label><input type="radio" name="appearance-tab" value="advanced" /><span data-i18n="appearance.tabAdvanced">Advanced</span></label>
+          </div>
+          <button class="btn btn-primary btn-sm" data-i18n="common.close" autofocus>Close</button>
         </header>
-        <p id="appearance-hint" data-i18n="appearance.hint">Changes apply immediately and are saved in this browser.</p>
-        <fieldset>
-          <legend data-i18n="appearance.style">Visual style</legend>
-          <div class="appearance-styles">
+        <div class="appearance-pane" data-pane="theme">
+          <fieldset>
+            <legend data-i18n="appearance.style">Visual style</legend>
+            <div class="appearance-styles">
             <label class="appearance-card">
-              <input type="radio" name="appearance-style" value="editorial" />
-              <span class="appearance-preview preview-editorial" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
-              <strong data-i18n="appearance.editorial">Liquid Glass</strong>
-              <span class="appearance-description" data-i18n="appearance.editorialDesc"></span>
+              <input type="radio" name="appearance-style" value="macos" />
+              <span class="appearance-preview preview-macos" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
+              <strong data-i18n="appearance.macos">macOS 26</strong>
             </label>
             <label class="appearance-card">
               <input type="radio" name="appearance-style" value="studio" />
               <span class="appearance-preview preview-studio" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
               <strong data-i18n="appearance.studio">Studio</strong>
-              <span class="appearance-description" data-i18n="appearance.studioDesc"></span>
             </label>
             <label class="appearance-card">
               <input type="radio" name="appearance-style" value="paper" />
               <span class="appearance-preview preview-paper" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
               <strong data-i18n="appearance.paper">Paper</strong>
-              <span class="appearance-description" data-i18n="appearance.paperDesc"></span>
             </label>
             <label class="appearance-card">
               <input type="radio" name="appearance-style" value="terminal" />
               <span class="appearance-preview preview-terminal" aria-hidden="true"><span class="preview-nav"></span><span class="preview-main"><span></span><span></span><span></span></span></span>
               <strong data-i18n="appearance.terminal">Terminal</strong>
-              <span class="appearance-description" data-i18n="appearance.terminalDesc"></span>
             </label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend data-i18n="appearance.mode">Color mode</legend>
+            <div class="appearance-segmented"><label><input type="radio" name="appearance-mode" value="system" /><span data-i18n="appearance.system">Auto</span></label><label><input type="radio" name="appearance-mode" value="light" /><span data-i18n="appearance.light">Light</span></label><label><input type="radio" name="appearance-mode" value="dark" /><span data-i18n="appearance.dark">Dark</span></label></div>
+          </fieldset>
+          <fieldset>
+            <legend data-i18n="appearance.accent">Accent color</legend>
+            <div class="appearance-swatches">
+              <label class="appearance-swatch appearance-swatch-default"><input type="radio" name="appearance-accent" value="" data-i18n-aria="appearance.optDefault" checked /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#007aff"><input type="radio" name="appearance-accent" value="#007aff" aria-label="#007aff" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#af52de"><input type="radio" name="appearance-accent" value="#af52de" aria-label="#af52de" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#ff2d92"><input type="radio" name="appearance-accent" value="#ff2d92" aria-label="#ff2d92" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#ff3b30"><input type="radio" name="appearance-accent" value="#ff3b30" aria-label="#ff3b30" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#ff9500"><input type="radio" name="appearance-accent" value="#ff9500" aria-label="#ff9500" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#ffcc00"><input type="radio" name="appearance-accent" value="#ffcc00" aria-label="#ffcc00" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#34c759"><input type="radio" name="appearance-accent" value="#34c759" aria-label="#34c759" /><span></span></label>
+              <label class="appearance-swatch" style="--swatch:#8e8e93"><input type="radio" name="appearance-accent" value="#8e8e93" aria-label="#8e8e93" /><span></span></label>
+              <label class="appearance-swatch appearance-swatch-custom"><input type="color" name="appearance-accent-custom" value="#007aff" data-i18n-aria="appearance.accentCustom" /><span></span></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend data-i18n="appearance.wallpaper">Wallpaper</legend>
+            <div class="appearance-swatches">
+              <label class="appearance-swatch appearance-swatch-default"><input type="radio" name="appearance-wallpaper" value="" data-i18n-aria="appearance.optDefault" checked /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-aurora"><input type="radio" name="appearance-wallpaper" value="aurora" data-i18n-aria="appearance.wp.aurora" /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-dusk"><input type="radio" name="appearance-wallpaper" value="dusk" data-i18n-aria="appearance.wp.dusk" /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-forest"><input type="radio" name="appearance-wallpaper" value="forest" data-i18n-aria="appearance.wp.forest" /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-graphite"><input type="radio" name="appearance-wallpaper" value="graphite" data-i18n-aria="appearance.wp.graphite" /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-none"><input type="radio" name="appearance-wallpaper" value="none" data-i18n-aria="appearance.wp.none" /><span></span></label>
+              <label class="appearance-swatch appearance-wp appearance-wp-image" id="appearance-wp-image" hidden><input type="radio" name="appearance-wallpaper" value="image" data-i18n-aria="appearance.wp.image" /><span></span></label>
+              <label class="btn btn-secondary btn-sm appearance-upload"><input type="file" name="appearance-wallpaper-file" accept="image/*" hidden /><i data-lucide="upload" aria-hidden="true"></i><span data-i18n="appearance.upload">Image</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="appearance-rows">
+            <div class="appearance-row"><label for="appearance-glass" data-i18n="appearance.glass">Glass</label><input type="range" id="appearance-glass" name="appearance-glass" min="0" max="100" step="1" /></div>
+            <div class="appearance-row"><span data-i18n="appearance.radius">Corners</span><div class="appearance-segmented"><label><input type="radio" name="appearance-radius" value="" /><span data-i18n="appearance.optDefault">Default</span></label><label><input type="radio" name="appearance-radius" value="sharp" /><span data-i18n="appearance.optSharp">Sharp</span></label><label><input type="radio" name="appearance-radius" value="round" /><span data-i18n="appearance.optRound">Round</span></label></div></div>
+            <div class="appearance-row"><span data-i18n="appearance.density">Density</span><div class="appearance-segmented"><label><input type="radio" name="appearance-density" value="compact" /><span data-i18n="appearance.optCompact">Compact</span></label><label><input type="radio" name="appearance-density" value="" /><span data-i18n="appearance.optDefault">Default</span></label><label><input type="radio" name="appearance-density" value="spacious" /><span data-i18n="appearance.optSpacious">Spacious</span></label></div></div>
+            <div class="appearance-row"><span data-i18n="appearance.font">Font</span><div class="appearance-segmented"><label><input type="radio" name="appearance-font" value="" /><span data-i18n="appearance.optDefault">Default</span></label><label><input type="radio" name="appearance-font" value="serif" /><span data-i18n="appearance.optSerif">Serif</span></label><label><input type="radio" name="appearance-font" value="mono" /><span data-i18n="appearance.optMono">Mono</span></label></div></div>
+          </fieldset>
+        </div>
+        <div class="appearance-pane" data-pane="advanced">
+          <fieldset>
+            <legend data-i18n="appearance.css">Custom CSS</legend>
+            <textarea id="appearance-css" name="appearance-css" class="input textarea appearance-css" rows="12" spellcheck="false" autocapitalize="off" autocomplete="off" data-i18n-aria="appearance.css"></textarea>
+          </fieldset>
+          <div class="appearance-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="appearance-export"><i data-lucide="download" aria-hidden="true"></i><span data-i18n="appearance.export">Export</span></button>
+            <button type="button" class="btn btn-secondary btn-sm" id="appearance-import"><i data-lucide="upload" aria-hidden="true"></i><span data-i18n="appearance.import">Import</span></button>
+            <input type="file" id="appearance-import-file" accept=".json,application/json" hidden />
+            <button type="button" class="btn btn-ghost btn-sm" id="appearance-reset"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span data-i18n="appearance.reset">Reset</span></button>
+            <span id="appearance-status" role="status"></span>
           </div>
-        </fieldset>
-        <fieldset>
-          <legend data-i18n="appearance.mode">Color mode</legend>
-          <div class="appearance-modes">
-            <label><input type="radio" name="appearance-mode" value="system" /><span data-i18n="appearance.system">Auto</span></label>
-            <label><input type="radio" name="appearance-mode" value="light" /><span data-i18n="appearance.light">Light</span></label>
-            <label><input type="radio" name="appearance-mode" value="dark" /><span data-i18n="appearance.dark">Dark</span></label>
-          </div>
-          <p class="appearance-mode-hint" data-i18n="appearance.systemHint">Auto follows AstrBot, or your device when opened independently.</p>
-        </fieldset>
-        <footer class="appearance-footer"><button class="btn btn-primary" data-i18n="common.close">Close</button></footer>
+        </div>
       </form>
     </dialog>
 

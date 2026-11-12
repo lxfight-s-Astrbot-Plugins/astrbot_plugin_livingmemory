@@ -37,7 +37,7 @@ const CHECK = process.argv.includes("--check");
 const FIRST_LOAD_GZIP_BUDGET = 80 * 1024;
 const FIRST_LOAD_ASSETS = ["styles.min.css", "base.min.js", "graph.min.js", "app.min.js"];
 
-const CSS_SOURCES = ["styles.css", "art-direction.css", "themes.css", "workflows.css", "graph-3d.css"];
+const CSS_SOURCES = ["styles.css", "workflows.css", "graph-3d.css", "tokens.css", "art-direction.css"];
 const BASE_SOURCES = ["appearance.js", "i18n.js"];
 const GRAPH_SOURCES = [
   "graph-shared.js",
@@ -152,6 +152,8 @@ const profile = await build({
 });
 artifacts.set("profile.min.js", profile.outputFiles[0].text);
 
+/* 外观面板样式首次打开时加载。 */
+artifacts.set("appearance.min.css", minifyCss(readSource("appearance.css")));
 /* 档案页样式同样按需加载，不进入首屏 styles.min.css。 */
 artifacts.set("profile.min.css", minifyCss(readSource("profile.css")));
 

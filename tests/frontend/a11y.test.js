@@ -29,27 +29,25 @@ function contrast(foreground, background) {
   return (high + 0.05) / (low + 0.05);
 }
 
-test("default theme focus ring and tertiary text meet WCAG contrast", () => {
+test("default theme and presets keep tertiary text and focus ring readable", () => {
+  const tokens = read("tokens.css");
   const art = read("art-direction.css");
-  const colors = name => [...art.matchAll(new RegExp("--" + name + ":\\s*(#[0-9a-f]{6});", "g"))]
-    .map(match => match[1]);
-  const backgrounds = colors("bg-app");
-  const tertiary = colors("text-tertiary");
-  const focus = colors("accent");
-  assert.equal(backgrounds.length, 2);
-  backgrounds.forEach((background, i) => {
-    assert.ok(contrast(tertiary[i], background) >= 4.5, "tertiary text contrast");
-    assert.ok(contrast(focus[i], background) >= 3, "focus ring contrast");
-  });
+  const colors = (css, name) => [...css.matchAll(new RegExp("--" + name + ":\\s*(#[0-9a-f]{6});", "g"))].map(match => match[1]);
+  const [light, dark] = [colors(tokens, "bg-app"), colors(tokens, "text-tertiary"), colors(tokens, "accent")]
+    .reduce((acc, list) => [[...acc[0], list[0]], [...acc[1], list[1]]], [[], []]);
+  for (const [background, tertiary, focus] of [light, dark]) {
+    assert.ok(contrast(tertiary, background) >= 4.5, "tertiary text contrast");
+    assert.ok(contrast(focus, background) >= 3, "focus ring contrast");
+  }
   assert.match(art, /outline:\s*2px solid var\(--border-focus\)/);
 
-  const themes = read("themes.css");
-  const studio = themes.match(/\[data-style="studio"\] \{[\s\S]*?--text-tertiary:\s*(#[0-9a-f]{6});/);
-  assert.ok(studio, "studio 主题应覆盖 tertiary");
-  assert.ok(
-    contrast(studio[1], "#f0f2fa") >= 4.5,
-    `studio 浅色 tertiary 对比度不足: ${contrast(studio[1], "#f0f2fa").toFixed(2)}`
-  );
+  for (const [name, mode] of [["paper", ""], ["paper", '[data-theme="dark"]'], ["terminal", ""], ["terminal", '[data-theme="dark"]']]) {
+    const block = tokens.match(new RegExp(':root\\[data-style="' + name + '"\\]' + mode.replace(/[[\]]/g, "\\$&") + " \\{([\\s\\S]*?)\\n\\}"));
+    assert.ok(block, name + mode + " preset block");
+    const [tertiary] = colors(block[1], "text-tertiary");
+    const [card] = colors(block[1], "bg-card");
+    assert.ok(contrast(tertiary, card) >= 4.5, name + mode + " tertiary contrast " + contrast(tertiary, card).toFixed(2));
+  }
 });
 
 test("graph canvas, peek panel and action dialog expose accessible semantics", () => {

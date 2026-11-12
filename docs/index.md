@@ -26,7 +26,7 @@ features:
   - title: 时间感知生命周期
     details: 记忆原子拥有 TTL、衰减、访问强化和自动清理机制。
   - title: 四种风格的管理界面
-    details: Liquid Glass、Studio、Paper、Terminal；支持明暗切换、稳定图谱阅读与清晰的编辑和导入流程。
+    details: macOS 26 Liquid Glass、Studio、Paper、Terminal；支持明暗切换、自定义强调色、壁纸与 CSS，以及清晰的编辑和导入流程。
   - title: 数据安全
     details: 支持版本备份、迁移前备份、索引回滚和事务删除。
 ---
