@@ -266,7 +266,7 @@ export class SettingsPage {
         '"' +
         (open ? " open" : "") +
         ">" +
-        "<summary>" +
+        '<summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
         '<span class="settings-group-title">' +
         esc(window.t(category.titleKey)) +
         "</span>" +
@@ -288,7 +288,7 @@ export class SettingsPage {
     if ((!query || window.t("settings.adapterOwnership").toLowerCase().includes(query)) && ownership.length && adapterField?.options?.length) {
       const options = adapterField.options.map((id, i) => '<option value="' + esc(id) + '">' +
         esc(adapterField.option_labels[i]) + '</option>').join("");
-      html += '<details class="settings-group"' + (query ? ' open' : '') + '><summary>' +
+      html += '<details class="settings-group"' + (query ? ' open' : '') + '><summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
         esc(window.t("settings.adapterOwnership")) + '</summary>' + ownership.map((row, i) =>
         '<div class="adapter-ownership-row"><span>' + (row.adapter_id ? '' : esc(window.t("settings.adapterUnassigned")) + ' · ') + esc(row.adapter_id || row.session_id || window.t("settings.adapterUnknown")) +
         ' · ' + esc(window.t('settings.adapterCount', row.count)) + '</span><select class="input" data-adapter-target="' + i + '">' +
@@ -299,6 +299,7 @@ export class SettingsPage {
     container.innerHTML =
       html ||
       '<p class="text-tertiary">' + esc(window.t("settings.noMatches")) + "</p>";
+    window.lmHydrateIcons?.();
   }
 
   renderField(field) {

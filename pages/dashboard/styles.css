@@ -2029,12 +2029,14 @@ body {
 .settings-group summary::-webkit-details-marker {
   display: none;
 }
-.settings-group summary::before {
-  content: "▸";
+.settings-group summary .settings-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
   color: var(--text-tertiary);
   transition: transform 0.15s ease;
 }
-.settings-group[open] summary::before {
+.settings-group[open] summary .settings-chevron {
   transform: rotate(90deg);
 }
 .settings-group summary .settings-group-title {

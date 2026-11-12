@@ -183,8 +183,8 @@ function isPlainObject(value) {
 }
 
 function formatOk(value) {
-  if (typeof value === "boolean") return value ? "✓" : "✗";
-  return String(value);
+  if (typeof value === "boolean") return '<i data-lucide="' + (value ? "check" : "x") + '"></i>';
+  return esc(String(value));
 }
 
 function routeRows(routes) {
@@ -651,6 +651,7 @@ export class DiagnosticsPage {
       header + '<div class="page-body diag-body">' + feedback +
       '<div class="diag-tabs" role="tablist" aria-label="' + esc(window.t("nav.diagnostics")) + '">' +
       tabs + "</div>" + body + "</div>";
+    window.lmHydrateIcons?.();
   }
 
   _tabLabelKey(tab) {
@@ -746,7 +747,7 @@ export class DiagnosticsPage {
         "</th><th>" + esc(window.t("diag.error")) + "</th><th>" + esc(window.t("diag.duration")) +
         "</th></tr></thead><tbody>" +
         rows.map((route) => "<tr><td>" + esc(route.name) + "</td><td>" + esc(String(route.candidates)) +
-          "</td><td>" + esc(formatOk(route.ok)) + "</td><td>" + esc(String(route.error)) +
+          "</td><td>" + formatOk(route.ok) + "</td><td>" + esc(String(route.error)) +
           "</td><td>" + esc(String(route.ms)) + " ms</td></tr>").join("") +
         "</tbody></table>";
     } else {
