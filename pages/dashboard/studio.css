@@ -2124,11 +2124,6 @@ input[type="range"] {
   user-select: none;
 }
 
-.settings-category > summary::before {
-  color: var(--text-tertiary);
-  font-size: 10px;
-}
-
 .settings-group-title {
   margin: 0;
   font-weight: 600;
