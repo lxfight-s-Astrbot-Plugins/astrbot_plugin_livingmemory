@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.10.0
+      text: Get 2.11.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.10.0 is released
+## 2.11.0 is released
 
-2.10.0 fixes recall noise and the memory-retention policy, cuts summary and injection cost, adds data diagnostics, recall-quality evaluation and engineering gates, and fixes lost tool-call turns, unbounded full-graph loads and ever-growing backups. Some defaults changed. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.11.0 adds an external memory API with an MCP bridge, user profiles, recall traces, a diagnostics page, channel public memory and a provider fallback chain, switches the default appearance to Liquid Glass, and restores the complete full-graph view. New capabilities are conservative by default and no database migration is required. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 

@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.10.0 稳定版
+      text: 2.11.0 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.10.0 已发布
+## 2.11.0 已发布
 
-2.10.0 修正召回噪声与记忆保留策略，降低总结与注入成本，新增数据体检、召回质量评测与工程门禁，并修复工具调用轮次丢失、全量图谱失控与备份无限增长等问题。部分默认值有调整。[版本与升级](/releases)提供下载和升级说明。
+2.11.0 新增外部记忆 API 与 MCP 桥接、版本化用户档案、召回追踪、诊断面板、频道公共记忆与 Provider 回退链，默认外观改为 Liquid Glass，并恢复全量图谱的完整返回。新能力默认保守，无需数据库迁移。[版本与升级](/releases)提供下载和升级说明。
 
 ## 这份文档适合谁？
 

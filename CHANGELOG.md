@@ -5,6 +5,66 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.11.0] - 2026-11-12
+
+2.11.0 是能力扩展版本：新增外部记忆 API 与 MCP 桥接、版本化用户档案、请求级召回追踪、诊断面板、频道公共记忆与 LLM Provider 回退链，默认外观改为 Liquid Glass，并恢复全量图谱的完整返回。新增能力默认保守——外部 API 与频道记忆默认关闭，追踪默认只保留在内存；公开命令与既有配置项保持兼容，无需数据库迁移。
+
+### 外部记忆 API
+
+- 新增独立的本机 HTTP 外部记忆 API：健康检查、人格列表、召回、写入（支持 `idempotency_key`）、单条读取与软归档；写入复用 `MemoryEngine`，去重、Embedding、图记忆与记忆原子照常生效。
+- API Key 只保存哈希，明文仅在创建时返回一次；支持读/写权限、人格与作用域限定、每分钟请求与写入限流，审计写入数据目录的 `external_api_audit.jsonl`（不记录记忆内容与令牌）。
+- 新增 `/lmem apikey create|list|revoke` 命令；插件附带零依赖 MCP bridge `scripts/memory_mcp_server.py`，提供 `search_memory`、`save_memory`、`list_personas` 三个工具，可接入 Codex、Qoder、WorkBuddy 等终端。
+- 默认关闭并仅监听 `127.0.0.1:7801`；关闭时所有外部接口返回 404。
+
+### 用户档案
+
+- 新增按「记忆作用域 + 人格」维护的结构化档案（`basic` / `preferences` / `status` / `task_preferences` 四个分区），由总结 JSON 中的 `profile_updates` 驱动；`set` 需证据与置信度，`append` 去重追加，`remove` 需证据。
+- 档案带版本历史与待确认候选：低置信度更新进入候选区，所有生效更新写入历史版本，可在 Dashboard 查看、编辑、删除并审核候选。
+- Dashboard 新增「用户档案」页；档案注入上限 300 字符、不占召回 `top_k` 预算，`profile_settings.enabled` 可整体关闭。
+
+### 召回追踪与诊断
+
+- 新增请求级召回追踪：记录各检索路线的候选数与耗时、被检索策略拒绝的原因、最终注入的条数与字符数；进程内环形缓冲默认保留 50 条，可选用按天落盘的 JSONL，默认不保存查询原文、只保存 `query_hash`。
+- 新增 `/lmem trace [n|id]` 命令查看追踪摘要与单条详情。
+- Dashboard 新增「诊断」页：召回追踪、频道记忆、外部 API Key 与审计、LLM 用量四个标签页。
+- Page API 新增 `traces`、`traces/stats` 查询与记忆血缘接口（来源消息、取代链、图关联、命中追踪）。
+
+### 频道公共记忆
+
+- 群聊可开启频道作用域 `livingmemory:channel:<平台>:<群ID>`：群内总结进入频道池，群聊召回联合当前作用域与频道作用域，按 `top_k` 共享预算并各保留可配置的保底槽位。
+- 人格、适配器与白名单隔离保持不变；默认关闭，开关不影响已有记忆，也不迁移数据。
+
+### LLM Provider 回退
+
+- 新增有序备用 Provider 链（`provider_settings.llm_fallback_provider_ids`）：主 Provider 超时、限流（429）、5xx 或鉴权失败时按顺序切换，JSON 解析与格式错误不切换。
+- 新增单 Provider 调用超时配置（`provider_settings.llm_call_timeout_seconds`，默认 60 秒）；`/lmem status` 与诊断页显示回退次数，用量按实际执行的 Provider 记录。
+
+### Dashboard 与图谱
+
+- 默认外观改为 Liquid Glass：浮动玻璃导航、连续曲率圆角与大幅 2D 图谱工作区，统一桌面侧栏与移动菜单、页面标题与控件；四种风格仍可在「外观与主题」中切换。
+- 全量图谱恢复完整返回：包含归档记忆及其关系（仅排除已删除关系），不再按 5,000 节点 / 20,000 关系截断，3D 星系的社区与旋臂由完整关系计算并恢复。
+- 修复外部 API 与诊断相关路由分发、API Key 吊销 POST 别名、外部 API 禁用态展示、响应式控件图标回退与全量图谱加载确认。
+
+### 工程化与质量
+
+- 后端新增外部 API、召回追踪、用户档案、诊断、频道记忆、Provider 回退与全图归档回归测试；前端新增档案页、诊断页、追踪与图谱交互测试。
+- 新增数据表（`memory_profiles`、`memory_profile_history`、`external_api_keys`、`external_api_idempotency`）以幂等 `CREATE TABLE IF NOT EXISTS` 创建，不占用 `db_version`，升级自动建表。
+
+### 行为变化与升级注意
+
+1. 默认外观改为 Liquid Glass；原 Editorial（原野）风格仍保留，但不再是默认。
+2. 用户档案默认启用（`profile_settings.enabled=true`）：总结会生成档案并注入不超过 300 字符；如不需要可关闭，关闭后不读写任何档案。
+3. 召回追踪默认启用但仅保留在内存（`max_records=50`，不落盘、不保存查询原文）；需要持久化时开启 `trace_settings.persist_enabled`。
+4. 全量图谱再次返回完整数据：2.10.0 的「排除归档 + 节点/关系上限」已撤回。大库首次加载会更重，仍保留加载确认与取消；日常浏览建议使用默认受限子图。
+5. 外部记忆 API 与频道公共记忆默认关闭；开启外部 API 会在本机启动独立 HTTP 监听，请保持默认监听地址或置于 HTTPS 反向代理之后。
+6. 本次没有数据库迁移；升级后首次启动会自动创建上述新表。
+
+### 验证
+
+完整后端测试 1,600 项、前端测试 203 项通过；Ruff 检查与格式化、Dashboard 产物检查（首屏 gzip 80,297 B，预算 81,920 B）、VitePress 文档构建通过。
+
+相关 PR：[#413](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/413)–[#428](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/428)。
+
 ## [2.10.0] - 2026-11-09
 
 2.10.0 是记忆质量与运行成本版本：修正召回噪声与不合理的记忆保留策略，降低总结与注入的 token 开销，补齐数据体检、质量回归与工程门禁，并修复工具调用轮次丢失、全量图谱失控、备份无限增长等长期问题。公开命令与配置项保持兼容，但多项默认值有调整；升级前请阅读“行为变化与升级注意”。

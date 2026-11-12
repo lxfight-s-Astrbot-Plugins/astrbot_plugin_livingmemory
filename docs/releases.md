@@ -1,5 +1,43 @@
 # 版本与升级
 
+## 2.11.0 · 2026-11-12
+
+2.11.0 扩展了记忆的使用边界：新增外部记忆 API 与 MCP 桥接、版本化用户档案、请求级召回追踪、诊断面板、频道公共记忆与 LLM Provider 回退链，默认外观改为 Liquid Glass，并恢复全量图谱的完整返回。新能力默认保守，外部 API 与频道记忆默认关闭，追踪默认只留在内存；公开命令与既有配置兼容，无需数据库迁移。
+
+[下载 2.11.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.11.0)
+
+### 本次更新
+
+- **外部记忆 API**：本机 HTTP 接口支持健康检查、人格列表、召回、写入（`idempotency_key` 幂等）、单条读取与软归档；Key 仅存哈希，支持读/写权限、人格与作用域限定和每分钟限流，审计写入 `external_api_audit.jsonl`；提供 `/lmem apikey` 命令与零依赖 MCP bridge（`search_memory`、`save_memory`、`list_personas`）。默认关闭。
+- **用户档案**：按作用域与人格维护 `basic` / `preferences` / `status` / `task_preferences` 四区档案，带版本历史与待确认候选；Dashboard 可浏览、编辑、删除与审核，注入上限 300 字符且不占召回名额。
+- **召回追踪**：记录各检索路线的候选与耗时、过滤原因与最终注入规模；`/lmem trace` 与「诊断」页可查，并支持记忆血缘（来源消息、取代链、图关联）。
+- **诊断面板**：新增「诊断」页，集中展示召回追踪、频道记忆、外部 API Key 与审计、LLM 用量与回退链。
+- **频道公共记忆**：群聊可开启频道作用域，群内总结进入频道池，群聊召回联合个人与频道作用域并保留保底槽位；默认关闭，不迁移已有数据。
+- **Provider 回退**：新增有序备用 Provider 链与单 Provider 调用超时，主 Provider 超时、限流、5xx 或鉴权失败时自动切换；`/lmem status` 与诊断页显示回退次数。
+- **外观与图谱**：默认外观改为 Liquid Glass（浮动玻璃导航、连续圆角、大幅 2D 图谱区），原有风格仍可切换；全量图谱恢复包含归档记忆与关系、不再截断，3D 星系布局恢复。
+- **修复**：外部 API 路由分发、Key 吊销 POST 别名、外部 API 禁用态展示、响应式控件图标与全量图谱加载确认。
+
+### 行为变化
+
+- 默认外观变为 Liquid Glass；原 Editorial（原野）风格仍保留在「外观与主题」中。
+- 用户档案默认启用，总结会生成档案并注入不超过 300 字符；可在 `profile_settings.enabled` 关闭。
+- 召回追踪默认启用，但只保留最近 50 条在内存、不保存查询原文；需要落盘时开启 `trace_settings.persist_enabled`。
+- 全量图谱恢复完整返回（含归档记忆与关系、不按节点/关系数截断）：这是对 2.10.0 行为的撤回，大库首次加载更慢，仍保留二次确认与取消。
+- 外部记忆 API 与频道公共记忆默认关闭；开启外部 API 会在本机启动独立 HTTP 监听（默认 `127.0.0.1:7801`）。
+- 新增数据表以幂等 `CREATE TABLE IF NOT EXISTS` 创建，升级自动完成，无需迁移。
+
+### 验证
+
+后端测试 1,600 项、前端测试 203 项通过；Ruff、Dashboard 产物检查（首屏 gzip 80,297 B，预算 81,920 B）与 VitePress 构建通过。
+
+### 安装与升级
+
+1. 停止插件并备份完整数据目录，更新至 `2.11.0` 后重新启动 AstrBot，并重新打开插件视图。
+2. 无需数据库迁移；首次启动会自动创建 `memory_profiles`、`memory_profile_history`、`external_api_keys`、`external_api_idempotency` 四张新表。
+3. 如不需要用户档案，关闭 `profile_settings.enabled`；不需要追踪时关闭 `trace_settings.enabled`。
+4. 需要外部 Agent 读写记忆时，开启 `external_api.enabled`，用 `/lmem apikey create` 创建 Key，并按[外部记忆 API](/external-api)配置 MCP bridge。
+5. 全量图谱仍保留加载确认；大库日常浏览建议使用默认受限子图。
+
 ## 2.10.0 · 2026-11-09
 
 2.10.0 修正召回噪声与记忆保留策略，降低总结与注入成本，补齐数据体检、质量评测与工程门禁，并修复工具调用轮次丢失、全量图谱失控与备份无限增长等问题。多项默认值有调整，升级前请阅读下方“行为变化”。

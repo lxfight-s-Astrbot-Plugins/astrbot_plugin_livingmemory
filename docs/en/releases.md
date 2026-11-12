@@ -1,5 +1,43 @@
 # Releases and Upgrades
 
+## 2.11.0 · November 12, 2026
+
+2.11.0 extends what you can do with memory: an authenticated external memory API with an MCP bridge, versioned user profiles, request-level recall traces, a diagnostics page, channel public memory and an ordered LLM provider fallback chain, a Liquid Glass default appearance, and the complete full-graph view restored. New capabilities are conservative by default: the external API and channel memory are off and traces stay in memory. Public commands and existing configuration remain compatible, and no database migration is required.
+
+[Download 2.11.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.11.0)
+
+### What changed
+
+- **External memory API**: a local HTTP interface for health, personas, recall, write (`idempotency_key`), single-memory read and soft archive; keys are stored as hashes with read/write permissions, persona and scope limits and per-minute rate limits, plus an audit log at `external_api_audit.jsonl`; includes `/lmem apikey` commands and a dependency-free MCP bridge (`search_memory`, `save_memory`, `list_personas`). Disabled by default.
+- **User profiles**: structured `basic` / `preferences` / `status` / `task_preferences` profiles per scope and persona, with version history and pending candidates; the dashboard supports browsing, editing, deleting and reviewing, and injection is capped at 300 characters outside the recall budget.
+- **Recall traces**: per-route candidates and latency, filter reasons and final injection size; inspect them with `/lmem trace` or the diagnostics page, together with memory lineage (source messages, supersede chain, graph links).
+- **Diagnostics page**: one place for recall traces, channel memory, external API keys and audit, and LLM usage with the fallback chain.
+- **Channel public memory**: group chats can enable a channel scope so group summaries land in a shared pool and group recall queries both scopes with guaranteed slots; disabled by default, with no data migration.
+- **Provider fallback**: an ordered fallback chain and a per-provider call timeout, switching on timeout, rate limit, 5xx or auth failure; `/lmem status` and the diagnostics page report fallback counts.
+- **Appearance and graph**: Liquid Glass is the new default (floating glass navigation, continuous corners, large 2D graph workspace) while all existing styles remain selectable; the full graph again includes archived memories and relations without truncation, restoring the 3D galaxy layout.
+- **Fixes**: external API route dispatch, the POST alias for key revocation, the disabled state of the external API tab, responsive control icons and the full-graph load confirmation.
+
+### Behavior changes
+
+- The default appearance is now Liquid Glass; the previous Editorial style remains available under Appearance.
+- User profiles are enabled by default and summaries generate profiles injected as up to 300 characters; turn off `profile_settings.enabled` to disable them.
+- Recall traces are enabled by default but kept in memory (latest 50, no query text); enable `trace_settings.persist_enabled` for JSONL persistence.
+- The full graph returns complete data again (archived memories and relations, no node or relation cap): this reverts the 2.10.0 behavior, so first loads on large stores are heavier; the confirmation and cancel steps remain.
+- The external memory API and channel public memory are disabled by default; enabling the external API starts a local HTTP listener (default `127.0.0.1:7801`).
+- New tables are created idempotently with `CREATE TABLE IF NOT EXISTS`; upgrades need no migration.
+
+### Verification
+
+Backend tests: 1,600 passed; frontend tests: 203 passed. Ruff, the dashboard artifact check (first-load gzip 80,297 B against an 81,920 B budget) and the VitePress build pass.
+
+### Installing and upgrading
+
+1. Stop the plugin and back up the full data directory, update to `2.11.0`, then restart AstrBot and reopen the plugin views.
+2. No database migration is required; the first start creates `memory_profiles`, `memory_profile_history`, `external_api_keys` and `external_api_idempotency`.
+3. Turn off `profile_settings.enabled` if profiles are not needed, and `trace_settings.enabled` if traces are not needed.
+4. To let an external agent read and write memory, enable `external_api.enabled`, create a key with `/lmem apikey create`, and configure the MCP bridge as described in [External memory API](/en/external-api).
+5. The full graph still asks for confirmation; prefer the default bounded subgraph for everyday browsing of large stores.
+
 ## 2.10.0 · November 9, 2026
 
 2.10.0 fixes recall noise and the memory-retention policy, cuts summary and injection cost, adds data diagnostics, recall-quality evaluation and engineering gates, and fixes lost tool-call turns, unbounded full-graph loads and ever-growing backups. Several defaults changed; read "Behavior changes" before upgrading.
