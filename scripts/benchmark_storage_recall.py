@@ -26,9 +26,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ASTRBOT_ROOT = PROJECT_ROOT.parents[2]
 sys.path[:0] = [str(PROJECT_ROOT.parent), str(ASTRBOT_ROOT)]
 
+from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (  # noqa: E402
+    GraphMemoryManager,
+)
 from astrbot_plugin_livingmemory.core.models.memory_atom import (  # noqa: E402
     AtomType,
     MemoryAtom,
+)
+from astrbot_plugin_livingmemory.core.processors.graph_extractor import (  # noqa: E402
+    GraphExtractor,
 )
 from astrbot_plugin_livingmemory.core.processors.text_processor import (  # noqa: E402
     TextProcessor,
@@ -238,6 +244,50 @@ async def benchmark_graph_writes(db_path: Path, runs: int) -> None:
         await graph_store.close()
 
 
+class _FakeGraphVectorRetriever:
+    """Skip the graph vector store; the benchmark measures the SQL write path."""
+
+    async def add_memory_entries(self, entries):
+        return 900000
+
+    async def add_memory_entries_batch(self, memories):
+        return list(range(900000, 900000 + len(memories)))
+
+    async def delete_entries(self, source_memory_id, vector_doc_ids):
+        return None
+
+    async def delete_entries_batch(self, entries_by_source):
+        return None
+
+
+async def benchmark_graph_memory_write(db_path: Path, runs: int) -> None:
+    graph_store = GraphStore(str(db_path), cache_reads=True)
+    await graph_store.initialize()
+    manager = GraphMemoryManager(
+        graph_store=graph_store,
+        graph_vector_retriever=_FakeGraphVectorRetriever(),
+        graph_extractor=GraphExtractor(),
+    )
+    content = "用户喜欢喝咖啡，项目周五上线，张三负责部署，李四负责测试"
+    metadata = {
+        "canonical_summary": content,
+        "topics": ["咖啡", "项目上线"],
+        "participants": ["张三", "李四"],
+        "key_facts": ["项目周五上线", "张三负责部署", "李四负责测试"],
+        "importance": 0.7,
+        "create_time": time.time(),
+    }
+    try:
+        await manager.index_memory(700000, content, metadata)
+        await measure(
+            "graph.write.index_memory",
+            lambda: manager.index_memory(700000, content, metadata),
+            runs,
+        )
+    finally:
+        await graph_store.close()
+
+
 async def benchmark_atom_fallback(runs: int) -> None:
     atom_count = 20000
     temp_dir = Path(tempfile.mkdtemp(prefix="lmem_bench_atoms_"))
@@ -303,6 +353,7 @@ async def main() -> None:
     await benchmark_document_reads(db_path, runs)
     await benchmark_graph_reads(db_path, runs)
     await benchmark_graph_writes(db_path, runs)
+    await benchmark_graph_memory_write(db_path, runs)
     await benchmark_atom_fallback(runs)
 
 

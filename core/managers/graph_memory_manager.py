@@ -65,19 +65,36 @@ class GraphMemoryManager:
         metadata: dict[str, Any] | None,
         atoms: list | None = None,
     ) -> None:
-        await self._delete_memory_now(source_memory_id)
-
-        entries, entry_ids = await self._store_graph_structure(
-            source_memory_id,
-            content,
-            metadata,
-            atoms,
+        extracted = self.graph_extractor.extract(
+            source_memory_id, content, metadata, atoms
         )
-        if not entries:
+        if not extracted.entries:
+            removed_vector_doc_ids = await self.graph_store.delete_memory(
+                source_memory_id
+            )
+            if removed_vector_doc_ids:
+                await self.graph_vector_retriever.delete_entries(
+                    source_memory_id, removed_vector_doc_ids
+                )
             return
 
+        removed_vector_doc_ids, entry_ids = await self.graph_store.replace_memory_graph(
+            source_memory_id,
+            extracted.nodes,
+            extracted.edges,
+            extracted.entries,
+        )
+        if len(entry_ids) != len(extracted.entries):
+            raise RuntimeError(
+                "graph entry id count mismatch: "
+                f"ids={len(entry_ids)}, entries={len(extracted.entries)}"
+            )
+        if removed_vector_doc_ids:
+            await self.graph_vector_retriever.delete_entries(
+                source_memory_id, removed_vector_doc_ids
+            )
         vector_doc_id = await self.graph_vector_retriever.add_memory_entries(
-            [(entry.content, dict(entry.metadata)) for entry in entries]
+            [(entry.content, dict(entry.metadata)) for entry in extracted.entries]
         )
         await self.graph_store.update_entry_vector_doc_ids(
             {entry_ids[0]: vector_doc_id}
@@ -97,17 +114,10 @@ class GraphMemoryManager:
         if not extracted.entries:
             return [], []
 
-        node_key_to_id = await self.graph_store.upsert_nodes(extracted.nodes)
-
-        edge_key_to_id = await self.graph_store.add_edges(
+        entry_ids = await self.graph_store.store_graph_structure(
+            extracted.nodes,
             extracted.edges,
-            node_key_to_id,
-        )
-
-        entry_ids = await self.graph_store.add_entries(
             extracted.entries,
-            node_key_to_id,
-            edge_key_to_id,
         )
         if len(entry_ids) != len(extracted.entries):
             raise RuntimeError(

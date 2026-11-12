@@ -366,19 +366,11 @@ async def test_graph_memory_manager_rejects_entry_id_mismatch(tmp_path: Path):
     await graph_store.initialize()
 
     class MismatchedGraphStore:
-        async def upsert_nodes(self, nodes):
-            return await graph_store.upsert_nodes(nodes)
-
-        async def add_edges(self, edges, node_key_to_id):
-            return await graph_store.add_edges(edges, node_key_to_id)
-
-        async def add_entries(self, entries, node_key_to_id, edge_key_to_id):
-            entry_ids = await graph_store.add_entries(
-                entries,
-                node_key_to_id,
-                edge_key_to_id,
+        async def replace_memory_graph(self, source_memory_id, nodes, edges, entries):
+            removed, entry_ids = await graph_store.replace_memory_graph(
+                source_memory_id, nodes, edges, entries
             )
-            return entry_ids[:-1]
+            return removed, entry_ids[:-1]
 
         async def update_entry_vector_doc_ids(self, entry_vector_doc_ids):
             return await graph_store.update_entry_vector_doc_ids(entry_vector_doc_ids)

@@ -483,41 +483,128 @@ class GraphStoreWriteMixin:
 
     async def delete_memory(self, source_memory_id: int) -> list[int]:
         """Delete graph artifacts belonging to one source memory."""
-        vector_doc_ids: list[int] = []
         async with self._connect() as db:
-            cursor = await db.execute(
-                "SELECT id, vector_doc_id FROM graph_entries WHERE source_memory_id = ?",
-                (source_memory_id,),
-            )
-            rows = await cursor.fetchall()
-            entry_ids = [int(row[0]) for row in rows]
-            vector_doc_ids = [int(row[1]) for row in rows if row[1] is not None]
-            candidate_node_ids = await self._memory_node_ids(
-                db, source_memory_id, entry_ids
-            )
-
-            for entry_batch in self._chunked(entry_ids, self._SQLITE_BATCH_SIZE):
-                entry_placeholders = ",".join("?" * len(entry_batch))
-                await db.execute(
-                    f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
-                    entry_batch,
-                )
-                await db.execute(
-                    f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
-                    entry_batch,
-                )
-                await db.execute(
-                    f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
-                    entry_batch,
-                )
-
-            await db.execute(
-                "DELETE FROM graph_edges WHERE source_memory_id = ?",
-                (source_memory_id,),
+            vector_doc_ids, candidate_node_ids = await self._delete_memory_rows(
+                db, source_memory_id
             )
             await self._delete_orphan_nodes(db, candidate_node_ids)
             await db.commit()
         return vector_doc_ids
+
+    async def _delete_memory_rows(
+        self, db: aiosqlite.Connection, source_memory_id: int
+    ) -> tuple[list[int], set[int]]:
+        """Delete one memory's entries/edges without committing or pruning nodes."""
+        cursor = await db.execute(
+            "SELECT id, vector_doc_id FROM graph_entries WHERE source_memory_id = ?",
+            (source_memory_id,),
+        )
+        rows = await cursor.fetchall()
+        entry_ids = [int(row[0]) for row in rows]
+        vector_doc_ids = [int(row[1]) for row in rows if row[1] is not None]
+        candidate_node_ids = await self._memory_node_ids(
+            db, source_memory_id, entry_ids
+        )
+
+        for entry_batch in self._chunked(entry_ids, self._SQLITE_BATCH_SIZE):
+            entry_placeholders = ",".join("?" for _ in entry_batch)
+            await db.execute(
+                f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
+                entry_batch,
+            )
+            await db.execute(
+                f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
+                entry_batch,
+            )
+            await db.execute(
+                f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
+                entry_batch,
+            )
+
+        await db.execute(
+            "DELETE FROM graph_edges WHERE source_memory_id = ?",
+            (source_memory_id,),
+        )
+        return vector_doc_ids, candidate_node_ids
+
+    async def store_graph_structure(
+        self,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        entries: list[GraphEntry],
+    ) -> list[int]:
+        """Upsert one memory's nodes, edges and entries in a single transaction."""
+        async with self._connect() as db:
+            entry_ids = await self._write_structure_rows(
+                db, nodes, edges, entries, self._now_iso()
+            )
+            await db.commit()
+        return entry_ids
+
+    async def replace_memory_graph(
+        self,
+        source_memory_id: int,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        entries: list[GraphEntry],
+    ) -> tuple[list[int], list[int]]:
+        """Replace one memory's graph artifacts in a single transaction.
+
+        旧图数据、孤儿节点清理与新图写入合并为一次提交，写一条记忆不再为
+        节点/边/入口/删除各开一次连接。旧向量 id 返回给调用方，在 SQL 提交后
+        由 FAISS 侧删除，避免把网络型 embedding 调用留在写事务里。
+
+        Returns:
+            (removed_vector_doc_ids, entry_ids) 二元组.
+        """
+        async with self._connect() as db:
+            removed_vector_doc_ids, candidate_node_ids = await self._delete_memory_rows(
+                db, source_memory_id
+            )
+            entry_ids = await self._write_structure_rows(
+                db, nodes, edges, entries, self._now_iso()
+            )
+            await self._delete_orphan_nodes(db, candidate_node_ids)
+            await db.commit()
+        return removed_vector_doc_ids, entry_ids
+
+    async def _write_structure_rows(
+        self,
+        db: aiosqlite.Connection,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        entries: list[GraphEntry],
+        now: str,
+    ) -> list[int]:
+        """Write nodes, edges and entries through an existing connection."""
+        node_key_to_id: dict[str, int] = {}
+        edge_key_to_id: dict[str, int] = {}
+        entry_ids: list[int] = []
+
+        for node in nodes:
+            node_key_to_id[node.node_key] = await self._upsert_node(db, node, now)
+
+        for edge in edges:
+            source_node_id = node_key_to_id.get(edge.source_key)
+            target_node_id = node_key_to_id.get(edge.target_key)
+            if source_node_id is None or target_node_id is None:
+                continue
+            edge_key_to_id[edge.edge_key] = await self._add_edge(
+                db, edge, source_node_id, target_node_id, now
+            )
+
+        for entry in entries:
+            edge_id = None
+            if entry.relation_type and len(entry.node_keys) >= 2:
+                edge_key = (
+                    f"{entry.node_keys[0]}|{entry.relation_type}|"
+                    f"{entry.node_keys[1]}|{entry.source_memory_id}"
+                )
+                edge_id = edge_key_to_id.get(edge_key)
+            entry_ids.append(
+                await self._add_entry(db, entry, node_key_to_id, edge_id, now)
+            )
+        return entry_ids
 
     async def batch_delete_memories(
         self, source_memory_ids: list[int]
