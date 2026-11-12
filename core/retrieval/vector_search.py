@@ -24,7 +24,7 @@ async def retrieve_documents(
     multi_value_filters = any(
         isinstance(value, (list, tuple, set)) for value in metadata_filters.values()
     )
-    if not adapters and not multi_value_filters:
+    if not ids_only and not adapters and not multi_value_filters:
         return await db.document_storage.get_documents(
             metadata_filters=metadata_filters, ids=ids, limit=limit, offset=offset
         )
@@ -76,7 +76,8 @@ async def retrieve_vectors(db, query, k, filters, *, source_key="id"):
         source_key: Document field used to deduplicate graph source memories.
 
     Returns:
-        Ranked vector hits. Candidate expansion is capped at 8192 vectors.
+        Ranked vector hits. 作用域候选不超过 8192 条时用 IDSelectorBatch 一次
+        搜索；超过时才回退到扩窗重查，避免大作用域构造过大的选择器。
     """
     if k <= 0:
         return []
@@ -94,20 +95,30 @@ async def retrieve_vectors(db, query, k, filters, *, source_key="id"):
         import numpy as np
 
         access = current_adapter_access.get()
-        if access is not None and access.adapter_ids is not None:
+        adapter_restricted = access is not None and access.adapter_ids is not None
+        if filters or adapter_restricted:
             import faiss
 
+            # 先把作用域内的文档 id 取出来，用 IDSelectorBatch 一次过滤。
+            # 否则 ANN 只按相似度取候选，再在 Python 里丢弃其他会话的命中，
+            # 稀疏作用域要翻倍重查 6-7 轮，每轮取回整行 text/metadata。
             candidates = await retrieve_documents(
-                db, filters, limit=None, ids_only=True
+                db,
+                filters,
+                limit=None if adapter_restricted else cap + 1,
+                ids_only=True,
             )
             if not candidates:
                 return []
-            allowed_ids = np.asarray([row["id"] for row in candidates], dtype=np.int64)
-            search_options["params"] = faiss.SearchParameters(
-                sel=faiss.IDSelectorBatch(allowed_ids)
+            allowed_ids = np.asarray(
+                [int(row["id"]) for row in candidates], dtype=np.int64
             )
-            cap = min(len(candidates), cap)
-            fetch_k = min(fetch_k, cap)
+            if adapter_restricted or len(allowed_ids) <= cap:
+                search_options["params"] = faiss.SearchParameters(
+                    sel=faiss.IDSelectorBatch(allowed_ids)
+                )
+                cap = min(len(allowed_ids), cap)
+                fetch_k = min(fetch_k, cap)
 
         provider = db.embedding_provider
         cache = query_embeddings.get()

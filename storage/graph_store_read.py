@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import aiosqlite
@@ -20,6 +21,9 @@ from ..core.utils.number_utils import safe_float
 # 扩展候选先按 3 倍 limit 取回，再按 hub 惩罚重排后截断；
 # 3 倍足以让低 degree 邻居/入口挤进前 limit，不会放大成全表扫描。
 _EXPANSION_OVERFETCH = 3
+
+# 1～2 个汉字走 bigram FTS；更长的词走 trigram 索引或 LIKE（含通配符时）。
+_SHORT_CJK_TOKEN = re.compile(r"^[一-鿿]{1,2}$")
 
 
 class GraphStoreReadMixin:
@@ -42,13 +46,13 @@ class GraphStoreReadMixin:
         self._documents_table_available = await cursor.fetchone() is not None
         return self._documents_table_available
 
-    # Non-active sources in the host ``documents`` table. Malformed JSON counts
-    # as active so a broken legacy row cannot silently hide graph memories.
+    # Non-active sources in the host ``documents`` table. The expression must
+    # match `idx_doc_status` (storage/schema.py) literally, otherwise every
+    # graph-route query degrades into a full documents scan with per-row JSON
+    # parsing. NULL metadata has no status and stays recallable.
     _NON_ACTIVE_DOCUMENTS_SQL: str = (
-        "SELECT d.id FROM documents d WHERE "
-        "CASE WHEN json_valid(d.metadata) THEN "
-        "COALESCE(json_extract(d.metadata, '$.status'), 'active') "
-        "ELSE 'active' END <> 'active'"
+        "SELECT id FROM documents "
+        "WHERE COALESCE(json_extract(metadata, '$.status'), 'active') <> 'active'"
     )
 
     async def _archived_memory_exclusion(
@@ -59,7 +63,7 @@ class GraphStoreReadMixin:
         Uses an exclusion (not an inclusion) predicate on purpose: graph entries
         whose source document is missing from ``documents`` (rebuild shadow rows,
         fake/partial stores, half-written migrations) stay retrievable instead of
-        being silently dropped. Malformed JSON metadata counts as active.
+        being silently dropped.
 
         Args:
             db: Open read connection used to probe the schema.
@@ -270,70 +274,97 @@ class GraphStoreReadMixin:
     async def search_nodes_by_tokens(
         self, tokens: list[str], limit: int = 20
     ) -> list[dict[str, Any]]:
-        """Find graph nodes whose canonical values overlap query tokens."""
+        """Find graph nodes whose canonical values overlap query tokens.
+
+        归档过滤用相关 NOT EXISTS：只对命中的节点探测其入口，避免每次召回
+        都扫一遍全部 ``graph_entry_nodes``；库里没有归档记忆时整条子句省略。
+        """
         normalized_tokens = list(dict.fromkeys(str(token).strip() for token in tokens))
         normalized_tokens = [token for token in normalized_tokens if token]
         if not normalized_tokens:
             return []
 
         ownership, ownership_params = adapter_sql("ge.metadata")
-        node_filters: list[str] = []
-        if ownership_params:
-            node_filters.append(
-                "id IN (SELECT gen.node_id FROM graph_entry_nodes gen "
-                "JOIN graph_entries ge ON ge.id=gen.entry_id "
-                f"WHERE {ownership})"
-            )
+        ownership_filter = (
+            "AND id IN (SELECT gen.node_id FROM graph_entry_nodes gen "
+            "JOIN graph_entries ge ON ge.id=gen.entry_id "
+            f"WHERE {ownership})"
+            if ownership_params
+            else ""
+        )
         rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
-            archived_exclusion = await self._archived_memory_exclusion(
-                db, "ge.source_memory_id"
-            )
-            if archived_exclusion is not None:
-                # 只排除“仅挂在 archived 记忆上”的节点；没有入口关联或入口
-                # 指向缺失文档的节点继续可检索，避免图谱重建中途静默丢节点。
-                node_filters.append(
-                    "id NOT IN ("
-                    "SELECT gen.node_id FROM graph_entry_nodes gen "
-                    "JOIN graph_entries ge ON ge.id = gen.entry_id "
-                    f"WHERE ge.source_memory_id IN ({self._NON_ACTIVE_DOCUMENTS_SQL}))"
+            archived_filter = ""
+            if await self._documents_table_exists(db):
+                cursor = await db.execute(
+                    f"SELECT COUNT(*) FROM ({self._NON_ACTIVE_DOCUMENTS_SQL})"
                 )
-            node_filter = " AND ".join(node_filters) if node_filters else "1"
+                if (await cursor.fetchone())[0]:
+                    archived_filter = f"""
+                    AND NOT EXISTS (
+                        SELECT 1 FROM graph_entry_nodes gen
+                        JOIN graph_entries ge ON ge.id = gen.entry_id
+                        WHERE gen.node_id = graph_nodes.id
+                          AND ge.source_memory_id IN (
+                              {self._NON_ACTIVE_DOCUMENTS_SQL}
+                          )
+                    )
+                    """
             for start in range(
                 0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE
             ):
                 batch = normalized_tokens[
                     start : start + self._NODE_TOKEN_QUERY_BATCH_SIZE
                 ]
-                clauses = ["canonical_value LIKE ?" for _ in batch]
-                params = [f"%{token}%" for token in batch]
-                if self._node_fts_available:
-                    clauses = [
-                        "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts WHERE canonical_value LIKE ?)"
-                        if len(token) >= 3 and "%" not in token and "_" not in token
-                        else "canonical_value LIKE ?"
-                        for token in batch
-                    ]
+                params: list[Any] = []
+                clauses: list[str] = []
+                short_tokens: list[str] = []
+                for token in batch:
+                    if _SHORT_CJK_TOKEN.match(token):
+                        short_tokens.append(token)
+                    elif (
+                        self._node_fts_available
+                        and len(token) >= 3
+                        and "%" not in token
+                        and "_" not in token
+                    ):
+                        clauses.append(
+                            "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts "
+                            "WHERE canonical_value LIKE ?)"
+                        )
+                        params.append(f"%{token}%")
+                    else:
+                        clauses.append("canonical_value LIKE ?")
+                        params.append(f"%{token}%")
+                if short_tokens:
+                    clauses.append(
+                        "id IN (SELECT rowid FROM livingmemory_graph_nodes_bigram_fts "
+                        "WHERE livingmemory_graph_nodes_bigram_fts MATCH ?)"
+                    )
+                    params.append(
+                        " OR ".join(
+                            '"' + token.replace('"', '""') + '"'
+                            for token in short_tokens
+                        )
+                    )
                 cursor = await db.execute(
                     f"""
                     SELECT id, node_key, node_type, node_value, canonical_value, metadata
                     FROM graph_nodes
-                    WHERE ({" OR ".join(clauses)}) AND {node_filter}
-                    ORDER BY LENGTH(canonical_value) ASC
+                    WHERE ({" OR ".join(clauses)}) {ownership_filter} {archived_filter}
+                    ORDER BY LENGTH(canonical_value) ASC, id ASC
                     LIMIT ?
                     """,
                     (*params, *ownership_params, limit),
                 )
-                batch_rows = await cursor.fetchall()
-                for row in batch_rows:
+                for row in await cursor.fetchall():
                     rows_by_id.setdefault(int(row["id"]), row)
 
         rows = sorted(
             rows_by_id.values(),
             key=lambda row: (len(str(row["canonical_value"])), int(row["id"])),
         )[:limit]
-
         return [
             {
                 "id": int(row["id"]),

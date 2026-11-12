@@ -366,19 +366,11 @@ async def test_graph_memory_manager_rejects_entry_id_mismatch(tmp_path: Path):
     await graph_store.initialize()
 
     class MismatchedGraphStore:
-        async def upsert_nodes(self, nodes):
-            return await graph_store.upsert_nodes(nodes)
-
-        async def add_edges(self, edges, node_key_to_id):
-            return await graph_store.add_edges(edges, node_key_to_id)
-
-        async def add_entries(self, entries, node_key_to_id, edge_key_to_id):
-            entry_ids = await graph_store.add_entries(
-                entries,
-                node_key_to_id,
-                edge_key_to_id,
+        async def replace_memory_graph(self, source_memory_id, nodes, edges, entries):
+            removed, entry_ids = await graph_store.replace_memory_graph(
+                source_memory_id, nodes, edges, entries
             )
-            return entry_ids[:-1]
+            return removed, entry_ids[:-1]
 
         async def update_entry_vector_doc_ids(self, entry_vector_doc_ids):
             return await graph_store.update_entry_vector_doc_ids(entry_vector_doc_ids)
@@ -876,6 +868,194 @@ async def test_graph_retrieval_skips_archived_memory_entries(tmp_path):
         list(node_ids.values()), limit=10
     )
     assert [hit["source_memory_id"] for hit in expansion_hits] == [1]
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_retrieval_keeps_memories_without_status(tmp_path):
+    """NULL metadata and metadata without a status key stay recallable."""
+    db_path = tmp_path / "graph_statusless.db"
+    store = GraphStore(str(db_path))
+    await store.initialize()
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, metadata TEXT)"
+        )
+        await db.executemany(
+            "INSERT INTO documents(id, metadata) VALUES (?, ?)",
+            [
+                (1, None),
+                (2, "{}"),
+                (3, json.dumps({"status": "archived"})),
+            ],
+        )
+        await db.commit()
+
+    nodes = {
+        memory_id: GraphNode("topic", f"苏州{memory_id}", f"苏州{memory_id}")
+        for memory_id in (1, 2, 3)
+    }
+    node_ids = await store.upsert_nodes(list(nodes.values()))
+    for memory_id, node in nodes.items():
+        await store.add_entry(
+            GraphEntry(
+                entry_key=f"statusless-entry-{memory_id}",
+                source_memory_id=memory_id,
+                session_id="s",
+                persona_id="p",
+                entry_type="topic",
+                content=f"苏州 {memory_id}",
+                node_keys=[node.node_key],
+            ),
+            node_ids,
+        )
+
+    bm25_hits = await store.search_entries_by_bm25('"苏州"', 10)
+    assert {hit["source_memory_id"] for hit in bm25_hits} == {1, 2}
+
+    nodes_found = await store.search_nodes_by_tokens(["苏州"], limit=10)
+    assert {node["node_key"] for node in nodes_found} == {
+        nodes[1].node_key,
+        nodes[2].node_key,
+    }
+
+    expansion_hits = await store.get_entries_for_node_ids(
+        list(node_ids.values()), limit=10
+    )
+    assert {hit["source_memory_id"] for hit in expansion_hits} == {1, 2}
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_node_search_matches_short_cjk_tokens(tmp_path):
+    """2 字/单字中文 token 走 bigram 索引，且按相邻二字组匹配。"""
+    store = GraphStore(str(tmp_path / "graph_bigram.db"))
+    await store.initialize()
+    node = GraphNode("topic", "知识图谱重构", "知识图谱重构")
+    await store.upsert_nodes([node])
+
+    for token in ("知识", "图谱", "图"):
+        found = await store.search_nodes_by_tokens([token], limit=10)
+        assert {item["node_key"] for item in found} == {node.node_key}, token
+    assert await store.search_nodes_by_tokens(["谱图"], limit=10) == []
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_bigram_index_is_backfilled_for_existing_nodes(tmp_path):
+    """升级旧库后缺失的 bigram 行在 initialize 时补齐。"""
+    db_path = str(tmp_path / "graph_bigram_backfill.db")
+    store = GraphStore(db_path)
+    await store.initialize()
+    await store.upsert_nodes([GraphNode("topic", "知识图谱", "知识图谱")])
+    await store.close()
+
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("DELETE FROM livingmemory_graph_nodes_bigram_fts")
+        await db.commit()
+
+    reopened = GraphStore(db_path)
+    await reopened.initialize()
+    found = await reopened.search_nodes_by_tokens(["知识"], limit=10)
+    assert [item["canonical_value"] for item in found] == ["知识图谱"]
+    await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_bigram_index_follows_snapshot_replacement(tmp_path):
+    live = GraphStore(str(tmp_path / "graph_bigram_live.db"))
+    await live.initialize()
+    await live.upsert_nodes([GraphNode("topic", "旧节点", "旧节点")])
+
+    shadow = GraphStore(str(tmp_path / "graph_bigram_shadow.db"))
+    await shadow.initialize()
+    await shadow.upsert_nodes([GraphNode("topic", "新节点", "新节点")])
+    await live.replace_all_from(shadow.db_path)
+
+    assert await live.search_nodes_by_tokens(["旧节"], limit=10) == []
+    found = await live.search_nodes_by_tokens(["节点"], limit=10)
+    assert [item["canonical_value"] for item in found] == ["新节点"]
+
+    await live.close()
+    await shadow.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_delete_removes_only_unreferenced_nodes(tmp_path):
+    """Deleting one memory keeps nodes that other memories still reference."""
+    store = GraphStore(str(tmp_path / "graph_delete_orphans.db"))
+    await store.initialize()
+    shared_node = GraphNode("topic", "共享节点", "共享节点")
+    exclusive_node = GraphNode("topic", "独占节点", "独占节点")
+    node_ids = await store.upsert_nodes([shared_node, exclusive_node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="keep-entry",
+            source_memory_id=1,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="共享节点 保留",
+            node_keys=[shared_node.node_key],
+        ),
+        node_ids,
+    )
+    await store.add_entry(
+        GraphEntry(
+            entry_key="drop-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="共享节点 独占节点 删除",
+            node_keys=[shared_node.node_key, exclusive_node.node_key],
+        ),
+        node_ids,
+    )
+
+    await store.delete_memory(2)
+
+    remaining = await store.search_nodes_by_tokens(["节点"], limit=10)
+    assert {node["node_key"] for node in remaining} == {shared_node.node_key}
+    async with store._connect() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM livingmemory_graph_nodes_bigram_fts WHERE rowid = ?",
+            (node_ids[exclusive_node.node_key],),
+        )
+        assert (await cursor.fetchone())[0] == 0
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_node_search_keeps_nodes_without_entries(tmp_path):
+    """Only nodes bound to archived memories are filtered; entry-less nodes stay."""
+    db_path = tmp_path / "graph_orphan_node.db"
+    store = GraphStore(str(db_path))
+    await store.initialize()
+    await _seed_documents(db_path, [(2, "archived")])
+
+    archived_node = GraphNode("topic", "杭州归档点", "杭州归档点")
+    orphan_node = GraphNode("topic", "杭州孤点", "杭州孤点")
+    node_ids = await store.upsert_nodes([archived_node, orphan_node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="orphan-check-archived-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="杭州 归档",
+            node_keys=[archived_node.node_key],
+        ),
+        node_ids,
+    )
+
+    nodes = await store.search_nodes_by_tokens(["杭州"], limit=10)
+    assert {node["node_key"] for node in nodes} == {orphan_node.node_key}
 
     await store.close()
 

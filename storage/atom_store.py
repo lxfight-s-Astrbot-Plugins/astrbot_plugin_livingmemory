@@ -395,7 +395,7 @@ class AtomStore:
 
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
-            # Try FTS first
+            fts_failed = False
             try:
                 cursor = await db.execute(
                     f"""
@@ -410,10 +410,13 @@ class AtomStore:
                 )
                 rows = await cursor.fetchall()
             except Exception:
+                fts_failed = True
                 rows = []
 
-            # Fallback to LIKE when FTS returns nothing
-            if not rows:
+            # 分词格式（生产路径）下 FTS 与查询共用同一分词器，空结果就是没命中，
+            # 再做 content LIKE 全表扫只会让代价随原子数线性增长；只有 FTS 语句
+            # 失败，或旧库仍是原文格式（未注入 TextProcessor）时才回退。
+            if fts_failed or (self._text_processor is None and not rows):
                 like_clauses = " OR ".join(["ma.content LIKE ?" for _ in tokens])
                 like_params_full: list[Any] = [f"%{t}%" for t in tokens]
                 status_filter = (
