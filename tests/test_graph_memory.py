@@ -937,6 +937,36 @@ async def test_graph_retrieval_keeps_memories_without_status(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_graph_node_search_keeps_nodes_without_entries(tmp_path):
+    """Only nodes bound to archived memories are filtered; entry-less nodes stay."""
+    db_path = tmp_path / "graph_orphan_node.db"
+    store = GraphStore(str(db_path))
+    await store.initialize()
+    await _seed_documents(db_path, [(2, "archived")])
+
+    archived_node = GraphNode("topic", "杭州归档点", "杭州归档点")
+    orphan_node = GraphNode("topic", "杭州孤点", "杭州孤点")
+    node_ids = await store.upsert_nodes([archived_node, orphan_node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="orphan-check-archived-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="杭州 归档",
+            node_keys=[archived_node.node_key],
+        ),
+        node_ids,
+    )
+
+    nodes = await store.search_nodes_by_tokens(["杭州"], limit=10)
+    assert {node["node_key"] for node in nodes} == {orphan_node.node_key}
+
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_graph_retrieval_without_documents_table_keeps_all_entries(tmp_path):
     """Standalone graph databases (rebuild shadow/test stores) degrade to no filter."""
     store = GraphStore(str(tmp_path / "graph_standalone.db"))

@@ -270,44 +270,51 @@ class GraphStoreReadMixin:
     async def search_nodes_by_tokens(
         self, tokens: list[str], limit: int = 20
     ) -> list[dict[str, Any]]:
-        """Find graph nodes whose canonical values overlap query tokens."""
+        """Find graph nodes whose canonical values overlap query tokens.
+
+        归档过滤用相关 NOT EXISTS：只对命中的节点探测其入口，避免每次召回
+        都扫一遍全部 ``graph_entry_nodes``；库里没有归档记忆时整条子句省略。
+        """
         normalized_tokens = list(dict.fromkeys(str(token).strip() for token in tokens))
         normalized_tokens = [token for token in normalized_tokens if token]
         if not normalized_tokens:
             return []
 
         ownership, ownership_params = adapter_sql("ge.metadata")
-        node_filters: list[str] = []
-        if ownership_params:
-            node_filters.append(
-                "id IN (SELECT gen.node_id FROM graph_entry_nodes gen "
-                "JOIN graph_entries ge ON ge.id=gen.entry_id "
-                f"WHERE {ownership})"
-            )
+        ownership_filter = (
+            "AND id IN (SELECT gen.node_id FROM graph_entry_nodes gen "
+            "JOIN graph_entries ge ON ge.id=gen.entry_id "
+            f"WHERE {ownership})"
+            if ownership_params
+            else ""
+        )
         rows_by_id: dict[int, aiosqlite.Row] = {}
         async with self._read_connect() as db:
             db.row_factory = aiosqlite.Row
-            archived_exclusion = await self._archived_memory_exclusion(
-                db, "ge.source_memory_id"
-            )
-            if archived_exclusion is not None:
-                # 只排除“仅挂在 archived 记忆上”的节点；没有入口关联或入口
-                # 指向缺失文档的节点继续可检索，避免图谱重建中途静默丢节点。
-                node_filters.append(
-                    "id NOT IN ("
-                    "SELECT gen.node_id FROM graph_entry_nodes gen "
-                    "JOIN graph_entries ge ON ge.id = gen.entry_id "
-                    f"WHERE ge.source_memory_id IN ({self._NON_ACTIVE_DOCUMENTS_SQL}))"
+            archived_filter = ""
+            if await self._documents_table_exists(db):
+                cursor = await db.execute(
+                    f"SELECT COUNT(*) FROM ({self._NON_ACTIVE_DOCUMENTS_SQL})"
                 )
-            node_filter = " AND ".join(node_filters) if node_filters else "1"
+                if (await cursor.fetchone())[0]:
+                    archived_filter = f"""
+                    AND NOT EXISTS (
+                        SELECT 1 FROM graph_entry_nodes gen
+                        JOIN graph_entries ge ON ge.id = gen.entry_id
+                        WHERE gen.node_id = graph_nodes.id
+                          AND ge.source_memory_id IN (
+                              {self._NON_ACTIVE_DOCUMENTS_SQL}
+                          )
+                    )
+                    """
             for start in range(
                 0, len(normalized_tokens), self._NODE_TOKEN_QUERY_BATCH_SIZE
             ):
                 batch = normalized_tokens[
                     start : start + self._NODE_TOKEN_QUERY_BATCH_SIZE
                 ]
-                clauses = ["canonical_value LIKE ?" for _ in batch]
                 params = [f"%{token}%" for token in batch]
+                clauses = ["canonical_value LIKE ?" for _ in batch]
                 if self._node_fts_available:
                     clauses = [
                         "id IN (SELECT rowid FROM livingmemory_graph_nodes_fts WHERE canonical_value LIKE ?)"
@@ -319,21 +326,19 @@ class GraphStoreReadMixin:
                     f"""
                     SELECT id, node_key, node_type, node_value, canonical_value, metadata
                     FROM graph_nodes
-                    WHERE ({" OR ".join(clauses)}) AND {node_filter}
-                    ORDER BY LENGTH(canonical_value) ASC
+                    WHERE ({" OR ".join(clauses)}) {ownership_filter} {archived_filter}
+                    ORDER BY LENGTH(canonical_value) ASC, id ASC
                     LIMIT ?
                     """,
                     (*params, *ownership_params, limit),
                 )
-                batch_rows = await cursor.fetchall()
-                for row in batch_rows:
+                for row in await cursor.fetchall():
                     rows_by_id.setdefault(int(row["id"]), row)
 
         rows = sorted(
             rows_by_id.values(),
             key=lambda row: (len(str(row["canonical_value"])), int(row["id"])),
         )[:limit]
-
         return [
             {
                 "id": int(row["id"]),
