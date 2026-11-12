@@ -470,38 +470,30 @@ class GraphStoreWriteMixin:
             rows = await cursor.fetchall()
             entry_ids = [int(row[0]) for row in rows]
             vector_doc_ids = [int(row[1]) for row in rows if row[1] is not None]
+            candidate_node_ids = await self._memory_node_ids(
+                db, source_memory_id, entry_ids
+            )
 
-            if entry_ids:
-                placeholders = ",".join("?" * len(entry_ids))
+            for entry_batch in self._chunked(entry_ids, self._SQLITE_BATCH_SIZE):
+                entry_placeholders = ",".join("?" * len(entry_batch))
                 await db.execute(
-                    f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({placeholders})",
-                    entry_ids,
+                    f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
+                    entry_batch,
                 )
                 await db.execute(
-                    f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({placeholders})",
-                    entry_ids,
+                    f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
+                    entry_batch,
                 )
                 await db.execute(
-                    f"DELETE FROM graph_entries WHERE id IN ({placeholders})",
-                    entry_ids,
+                    f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
+                    entry_batch,
                 )
 
             await db.execute(
                 "DELETE FROM graph_edges WHERE source_memory_id = ?",
                 (source_memory_id,),
             )
-            await db.execute(
-                """
-                DELETE FROM graph_nodes
-                WHERE id NOT IN (
-                    SELECT source_node_id FROM graph_edges
-                    UNION
-                    SELECT target_node_id FROM graph_edges
-                    UNION
-                    SELECT node_id FROM graph_entry_nodes
-                )
-                """
-            )
+            await self._delete_orphan_nodes(db, candidate_node_ids)
             await db.commit()
         return vector_doc_ids
 
@@ -514,6 +506,7 @@ class GraphStoreWriteMixin:
             return result
 
         normalized_ids = sorted({int(item) for item in source_memory_ids})
+        candidate_node_ids: set[int] = set()
         async with self._connect() as db:
             for batch in self._chunked(normalized_ids, self._SQLITE_BATCH_SIZE):
                 memory_placeholders = ",".join("?" * len(batch))
@@ -536,41 +529,95 @@ class GraphStoreWriteMixin:
                     if vector_doc_id is not None:
                         result.setdefault(memory_id, []).append(int(vector_doc_id))
 
-                if entry_ids:
-                    for entry_batch in self._chunked(
-                        entry_ids,
-                        self._SQLITE_BATCH_SIZE,
-                    ):
-                        entry_placeholders = ",".join("?" * len(entry_batch))
-                        await db.execute(
-                            f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
-                            entry_batch,
-                        )
-                        await db.execute(
-                            f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
-                            entry_batch,
-                        )
-                        await db.execute(
-                            f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
-                            entry_batch,
-                        )
+                entry_node_ids = await self._entry_node_ids(db, entry_ids)
+                candidate_node_ids.update(entry_node_ids)
 
+                for entry_batch in self._chunked(entry_ids, self._SQLITE_BATCH_SIZE):
+                    entry_placeholders = ",".join("?" * len(entry_batch))
+                    await db.execute(
+                        f"DELETE FROM livingmemory_graph_entries_fts WHERE entry_id IN ({entry_placeholders})",
+                        entry_batch,
+                    )
+                    await db.execute(
+                        f"DELETE FROM graph_entry_nodes WHERE entry_id IN ({entry_placeholders})",
+                        entry_batch,
+                    )
+                    await db.execute(
+                        f"DELETE FROM graph_entries WHERE id IN ({entry_placeholders})",
+                        entry_batch,
+                    )
+
+                cursor = await db.execute(
+                    f"""
+                    SELECT source_node_id, target_node_id
+                    FROM graph_edges
+                    WHERE source_memory_id IN ({memory_placeholders})
+                    """,
+                    batch,
+                )
+                for source_node_id, target_node_id in await cursor.fetchall():
+                    candidate_node_ids.add(int(source_node_id))
+                    candidate_node_ids.add(int(target_node_id))
                 await db.execute(
                     f"DELETE FROM graph_edges WHERE source_memory_id IN ({memory_placeholders})",
                     batch,
                 )
 
-            await db.execute(
-                """
-                DELETE FROM graph_nodes
-                WHERE id NOT IN (
-                    SELECT source_node_id FROM graph_edges
-                    UNION
-                    SELECT target_node_id FROM graph_edges
-                    UNION
-                    SELECT node_id FROM graph_entry_nodes
-                )
-                """
-            )
+            await self._delete_orphan_nodes(db, candidate_node_ids)
             await db.commit()
         return result
+
+    async def _memory_node_ids(
+        self,
+        db: aiosqlite.Connection,
+        source_memory_id: int,
+        entry_ids: list[int],
+    ) -> set[int]:
+        """Collect nodes referenced by one memory's entries and edges."""
+        node_ids = await self._entry_node_ids(db, entry_ids)
+        cursor = await db.execute(
+            "SELECT source_node_id, target_node_id FROM graph_edges WHERE source_memory_id = ?",
+            (source_memory_id,),
+        )
+        for source_node_id, target_node_id in await cursor.fetchall():
+            node_ids.add(int(source_node_id))
+            node_ids.add(int(target_node_id))
+        return node_ids
+
+    async def _entry_node_ids(
+        self, db: aiosqlite.Connection, entry_ids: list[int]
+    ) -> set[int]:
+        """Collect node ids linked to the given entries."""
+        node_ids: set[int] = set()
+        for entry_batch in self._chunked(entry_ids, self._SQLITE_BATCH_SIZE):
+            placeholders = ",".join("?" * len(entry_batch))
+            cursor = await db.execute(
+                f"SELECT DISTINCT node_id FROM graph_entry_nodes "
+                f"WHERE entry_id IN ({placeholders})",
+                entry_batch,
+            )
+            node_ids.update(int(row[0]) for row in await cursor.fetchall())
+        return node_ids
+
+    async def _delete_orphan_nodes(
+        self, db: aiosqlite.Connection, node_ids: set[int]
+    ) -> None:
+        """Delete the given nodes only when no edge or entry references them."""
+        for batch in self._chunked(sorted(node_ids), self._SQLITE_BATCH_SIZE):
+            placeholders = ",".join("?" * len(batch))
+            await db.execute(
+                f"""
+                DELETE FROM graph_nodes
+                WHERE id IN ({placeholders})
+                  AND NOT EXISTS (
+                      SELECT 1 FROM graph_edges WHERE source_node_id = graph_nodes.id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM graph_edges WHERE target_node_id = graph_nodes.id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM graph_entry_nodes WHERE node_id = graph_nodes.id
+                  )
+                """,
+                batch,
+            )

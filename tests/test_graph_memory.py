@@ -937,6 +937,47 @@ async def test_graph_retrieval_keeps_memories_without_status(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_graph_delete_removes_only_unreferenced_nodes(tmp_path):
+    """Deleting one memory keeps nodes that other memories still reference."""
+    store = GraphStore(str(tmp_path / "graph_delete_orphans.db"))
+    await store.initialize()
+    shared_node = GraphNode("topic", "共享节点", "共享节点")
+    exclusive_node = GraphNode("topic", "独占节点", "独占节点")
+    node_ids = await store.upsert_nodes([shared_node, exclusive_node])
+    await store.add_entry(
+        GraphEntry(
+            entry_key="keep-entry",
+            source_memory_id=1,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="共享节点 保留",
+            node_keys=[shared_node.node_key],
+        ),
+        node_ids,
+    )
+    await store.add_entry(
+        GraphEntry(
+            entry_key="drop-entry",
+            source_memory_id=2,
+            session_id="s",
+            persona_id="p",
+            entry_type="topic",
+            content="共享节点 独占节点 删除",
+            node_keys=[shared_node.node_key, exclusive_node.node_key],
+        ),
+        node_ids,
+    )
+
+    await store.delete_memory(2)
+
+    remaining = await store.search_nodes_by_tokens(["节点"], limit=10)
+    assert {node["node_key"] for node in remaining} == {shared_node.node_key}
+
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_graph_node_search_keeps_nodes_without_entries(tmp_path):
     """Only nodes bound to archived memories are filtered; entry-less nodes stay."""
     db_path = tmp_path / "graph_orphan_node.db"
