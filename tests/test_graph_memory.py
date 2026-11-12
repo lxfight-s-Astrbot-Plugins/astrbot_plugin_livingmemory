@@ -881,6 +881,62 @@ async def test_graph_retrieval_skips_archived_memory_entries(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_graph_retrieval_keeps_memories_without_status(tmp_path):
+    """NULL metadata and metadata without a status key stay recallable."""
+    db_path = tmp_path / "graph_statusless.db"
+    store = GraphStore(str(db_path))
+    await store.initialize()
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, metadata TEXT)"
+        )
+        await db.executemany(
+            "INSERT INTO documents(id, metadata) VALUES (?, ?)",
+            [
+                (1, None),
+                (2, "{}"),
+                (3, json.dumps({"status": "archived"})),
+            ],
+        )
+        await db.commit()
+
+    nodes = {
+        memory_id: GraphNode("topic", f"苏州{memory_id}", f"苏州{memory_id}")
+        for memory_id in (1, 2, 3)
+    }
+    node_ids = await store.upsert_nodes(list(nodes.values()))
+    for memory_id, node in nodes.items():
+        await store.add_entry(
+            GraphEntry(
+                entry_key=f"statusless-entry-{memory_id}",
+                source_memory_id=memory_id,
+                session_id="s",
+                persona_id="p",
+                entry_type="topic",
+                content=f"苏州 {memory_id}",
+                node_keys=[node.node_key],
+            ),
+            node_ids,
+        )
+
+    bm25_hits = await store.search_entries_by_bm25('"苏州"', 10)
+    assert {hit["source_memory_id"] for hit in bm25_hits} == {1, 2}
+
+    nodes_found = await store.search_nodes_by_tokens(["苏州"], limit=10)
+    assert {node["node_key"] for node in nodes_found} == {
+        nodes[1].node_key,
+        nodes[2].node_key,
+    }
+
+    expansion_hits = await store.get_entries_for_node_ids(
+        list(node_ids.values()), limit=10
+    )
+    assert {hit["source_memory_id"] for hit in expansion_hits} == {1, 2}
+
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_graph_retrieval_without_documents_table_keeps_all_entries(tmp_path):
     """Standalone graph databases (rebuild shadow/test stores) degrade to no filter."""
     store = GraphStore(str(tmp_path / "graph_standalone.db"))

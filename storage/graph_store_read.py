@@ -42,13 +42,13 @@ class GraphStoreReadMixin:
         self._documents_table_available = await cursor.fetchone() is not None
         return self._documents_table_available
 
-    # Non-active sources in the host ``documents`` table. Malformed JSON counts
-    # as active so a broken legacy row cannot silently hide graph memories.
+    # Non-active sources in the host ``documents`` table. The expression must
+    # match `idx_doc_status` (storage/schema.py) literally, otherwise every
+    # graph-route query degrades into a full documents scan with per-row JSON
+    # parsing. NULL metadata has no status and stays recallable.
     _NON_ACTIVE_DOCUMENTS_SQL: str = (
-        "SELECT d.id FROM documents d WHERE "
-        "CASE WHEN json_valid(d.metadata) THEN "
-        "COALESCE(json_extract(d.metadata, '$.status'), 'active') "
-        "ELSE 'active' END <> 'active'"
+        "SELECT id FROM documents "
+        "WHERE COALESCE(json_extract(metadata, '$.status'), 'active') <> 'active'"
     )
 
     async def _archived_memory_exclusion(
@@ -59,7 +59,7 @@ class GraphStoreReadMixin:
         Uses an exclusion (not an inclusion) predicate on purpose: graph entries
         whose source document is missing from ``documents`` (rebuild shadow rows,
         fake/partial stores, half-written migrations) stay retrievable instead of
-        being silently dropped. Malformed JSON metadata counts as active.
+        being silently dropped.
 
         Args:
             db: Open read connection used to probe the schema.
