@@ -235,7 +235,7 @@ async def test_atom_expiry_is_enforced_on_cached_recall_and_access_is_updated(en
         "UPDATE memory_atoms SET last_accessed_at = 1 WHERE id = ?", (live.atom_id,)
     )
     await engine.db_connection.commit()
-    results = await engine.search_memories("coffee")
+    results = await engine.search_memories("coffee", track_access=True)
     assert [result.doc_id for result in results] == [memory_id]
     assert results[0].content == "coffee live"
     await asyncio.gather(*list(engine._pending_tasks))

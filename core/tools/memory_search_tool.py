@@ -146,6 +146,9 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                         "k": limited_k,
                         "session_id": recall_session_id,
                         "persona_id": recall_persona_id,
+                        # 模型主动检索属于“实际使用”，是访问统计的写入来源；
+                        # 自动注入与 beta agentic 检索仍不强化。
+                        "track_access": True,
                     }
                     if channel_scope:
                         search_kwargs["extra_scopes"] = [channel_scope]

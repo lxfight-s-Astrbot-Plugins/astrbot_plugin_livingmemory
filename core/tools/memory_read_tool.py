@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import contextlib
 from dataclasses import field
 from typing import Any
 
@@ -25,6 +26,23 @@ from .agentic_recall_budget import (
 from .agentic_recall_common import bounded_status, json_result, resolve_tool_access
 from .memory_evidence_output import paginate_evidence
 from .memory_evidence_reader import read_memory_evidence_core
+
+
+def _deep_read_strengthen_ids(result: Any, cursor: str, memory_id: int) -> set[int]:
+    """Return the memory ids to strengthen for this deep read.
+
+    A paginated read continues with the non-empty cursor returned by the
+    previous page. Only the first page of a read chain (empty cursor) counts
+    as one successful extraction; continuation pages must not bump access
+    statistics again. The set keeps the ids unique if a caller ever supplies
+    several candidates for the same call.
+    """
+    if cursor or not isinstance(result, dict) or result.get("status") != "success":
+        return set()
+    try:
+        return {int(memory_id)}
+    except (TypeError, ValueError):
+        return set()
 
 
 @dataclass
@@ -162,6 +180,14 @@ class MemoryReadTool(FunctionTool[AstrAgentContext]):
                         "remaining_budget": budget.to_status(),
                     }
                 )
+            # 显式按 ID 深读属于“成功提取”，是少数应当强化记忆的入口之一；
+            # 分页续读沿用同一 cursor 链路，只在首屏强化一次。强化写入与检索
+            # 路径一致进入 3 秒合并队列，避免在工具预算之外同步等待写锁。
+            for strengthen_id in _deep_read_strengthen_ids(result, cursor, memory_id):
+                with contextlib.suppress(Exception):
+                    await self.memory_engine._update_access_times_internal(
+                        [strengthen_id], []
+                    )
             result["remaining_budget"] = budget.to_status()
             try:
                 page = paginate_evidence(
