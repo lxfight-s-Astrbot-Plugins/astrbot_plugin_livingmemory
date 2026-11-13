@@ -671,7 +671,8 @@ export class DiagnosticsPage {
   }
 
   _empty(text) {
-    return '<div class="table-empty">' + esc(text) + "</div>";
+    return '<div class="empty-state"><i data-lucide="database" aria-hidden="true"></i><span>' +
+      esc(text) + "</span></div>";
   }
 
   /* ----- traces ----- */
@@ -722,7 +723,7 @@ export class DiagnosticsPage {
         "<td>" + esc(formatTime(trace.ts ?? trace.created_at ?? trace.timestamp)) + "</td>" +
         "<td>" + esc(trace.scope || trace.umo || trace.session_id || "--") + "</td>" +
         "<td>" + esc(window.t(cache ? "diag.cacheYes" : "diag.cacheNo")) + "</td>" +
-        "<td>" + esc(routeSummary) + "</td>" +
+        '<td title="' + esc(routeSummary) + '">' + esc(routeSummary) + "</td>" +
         "<td>" + esc(String(injectedCount)) + (injectedChars !== "" ? " / " + esc(String(injectedChars)) + " chars" : "") + "</td>" +
         "<td>" + esc(String(trace.duration_ms ?? trace.elapsed_ms ?? "--")) + " ms</td></tr>";
     });
@@ -985,7 +986,7 @@ export class DiagnosticsPage {
     if (!keys.length) {
       html += this._empty(window.t("diag.noKeys"));
     } else {
-      html += '<div class="diag-table-wrap"><table class="data-table diag-table"><thead><tr>' +
+      html += '<div class="diag-table-wrap"><table class="data-table diag-table diag-table-wide"><thead><tr>' +
         ["diag.name", "diag.prefix", "diag.permissions", "diag.personaWhitelist", "diag.scopeWhitelist",
           "diag.rateLimit", "diag.lastUsed", "diag.createdAt", "diag.status"]
           .map((key) => "<th>" + esc(window.t(key)) + "</th>").join("") + "<th></th></tr></thead><tbody>";

@@ -69,7 +69,9 @@ export class PromptPage {
 
     if (!this.prompts.length) {
       container.innerHTML =
-        '<div class="table-empty">' + window.t("prompt.noPrompts") + "</div>";
+        '<div class="empty-state"><i data-lucide="braces" aria-hidden="true"></i><span>' +
+        window.t("prompt.noPrompts") + "</span></div>";
+      if (window.lmHydrateIcons) window.lmHydrateIcons();
       return;
     }
 

@@ -138,7 +138,9 @@ export class RecallPage {
     if (!resultsEl) return;
 
     if (count === 0) {
-      resultsEl.innerHTML = '<div class="table-empty">' + window.t("recall.noMatch") + '</div>';
+      resultsEl.innerHTML = '<div class="empty-state" role="status"><i data-lucide="search" aria-hidden="true"></i><span>' +
+        window.t("recall.noMatch") + "</span></div>";
+      window.lmHydrateIcons?.();
       return;
     }
 

@@ -275,7 +275,10 @@ export class MemoryPage {
   renderEmpty() {
     const tbody = document.getElementById("memories-body");
     const columns = window.matchMedia?.("(max-width: 768px)").matches ? 4 : 7;
-    tbody.innerHTML = '<tr><td colspan="' + columns + '" class="table-empty">' + window.t("table.noData") + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="' + columns + '" class="table-empty">' +
+      '<div class="empty-state"><i data-lucide="database" aria-hidden="true"></i><span>' +
+      window.t("table.noData") + "</span></div></td></tr>";
+    window.lmHydrateIcons?.();
     tbody.style.paddingTop = "0";
     tbody.style.paddingBottom = "0";
     this.updateSelectionControls();

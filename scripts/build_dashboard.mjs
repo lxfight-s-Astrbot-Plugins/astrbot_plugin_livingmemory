@@ -50,14 +50,17 @@ const GRAPH_SOURCES = [
 ];
 
 function minifyCss(text) {
-  // Conservative CSS minification: drop comments, collapse runs of whitespace
-  // and remove whitespace that is never significant around braces/commas/semicolons.
+  // Conservative CSS minification: drop comments, collapse runs of whitespace,
+  // remove whitespace that is never significant around braces/commas/semicolons,
+  // and drop the space after declaration colons (no bundled stylesheet has a
+  // `content` string that depends on `: `).
   // Whitespace before `(` is preserved so at-rules like `@media (…)` stay valid.
   return (
     text
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\s+/g, " ")
       .replace(/\s*([{};,>])\s*/g, "$1")
+      .replace(/:\s+/g, ":")
       .replace(/;}/g, "}")
       .trim() + "\n"
   );

@@ -12,13 +12,16 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
   --font-heading: var(--font-ui);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --font-lg: 15px;
+  --font-sm: 12px;
+  --font-xs: 11px;
 
-  --r-xs: calc(6px * var(--radius-scale));
-  --r-sm: calc(10px * var(--radius-scale));
-  --r-md: calc(14px * var(--radius-scale));
-  --r-lg: calc(20px * var(--radius-scale));
-  --r-xl: calc(28px * var(--radius-scale));
-  --r-ctl: calc(18px * var(--radius-scale));
+  --r-xs: calc(5px * var(--radius-scale));
+  --r-sm: calc(8px * var(--radius-scale));
+  --r-md: calc(12px * var(--radius-scale));
+  --r-lg: calc(16px * var(--radius-scale));
+  --r-xl: calc(20px * var(--radius-scale));
+  --r-ctl: calc(14px * var(--radius-scale));
   --radius-sm: var(--r-xs);
   --radius-md: var(--r-sm);
   --radius-lg: var(--r-md);
@@ -97,7 +100,7 @@
   --spring: 420ms cubic-bezier(0.34, 1.4, 0.64, 1);
   --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-normal: 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  --transition-panel: 340ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-panel: 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root[data-theme="dark"] {
