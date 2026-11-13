@@ -1,5 +1,36 @@
 # Releases and Upgrades
 
+## 2.13.0 · November 13, 2026
+
+2.13.0 is a dashboard appearance release: the default look is upgraded to macOS 26 Liquid Glass, the appearance panel gains customization, and the style layer is consolidated — unified design tokens, duplicated declarations covered by the skin removed, empty states and card spacing filled in, and the diagnostics page rebuilt on the skin. No command, configuration, injection format or database schema changes and no migration.
+
+[Download 2.13.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.13.0)
+
+### What changed
+
+- **Appearance upgrade**: macOS 26 Liquid Glass is the default — a floating glass sidebar and translucent window over the wallpaper, continuous corners and colored glass icons; Reduce Transparency and Increase Contrast switch surfaces to solid automatically.
+- **Appearance panel**: customize the accent color, wallpaper (including uploads), glass strength, corners, density, font and custom CSS, with theme JSON export, import and reset; panel styles load on demand outside the first-load budget.
+- **Style consolidation**: design tokens live in tokens.css; duplicated component declarations and dead tokens that the skin already overrides are gone, leaving art-direction.css as the single component definition; the CSS minifier drops the space after declaration colons.
+- **Empty states and cards**: a shared empty-state component now covers the memory table, diagnostics, prompts and recall; card spacing is loosened on settings, system, prompts and profiles (prompt cards 8 -> 12px), and the diagnostics page is rebuilt on the skin with segmented tabs and card surfaces for standalone tables.
+- **Fixes**: restore the skin file that a previous commit had deleted (which broke the build and the first-load budget gate); fix the memory table overflowing at 1024 px, clipped status pills on mobile, the stale "no data" row while loading, and the diagnostics tab strip collapsing on mobile.
+- **Size**: first-load gzip 81,834 -> 81,597 B against an 81,920 B budget.
+
+### Behavior changes
+
+- The default appearance is now macOS 26 Liquid Glass; Studio, Paper and Terminal styles and the previous appearances remain selectable under Appearance.
+- No command, configuration, injection format or database migration changes; no index rebuild or re-embedding is needed after upgrading.
+- UI density is slightly tighter than 2.12.0, with card spacing and the sidebar width adjusted separately for readability.
+
+### Verification
+
+Backend: 1,606 tests, 86% coverage and both recall golden-set checks pass; frontend: 206 tests, the first-load budget gate (81,597 B gzip against 81,920 B) and the VitePress build pass; CI backend and frontend pass on PRs #431, #432 and #436.
+
+### Installing and upgrading
+
+1. Stop the plugin and back up the full data directory, update to 2.13.0, then restart AstrBot and reopen the plugin views.
+2. No database migration or index rebuild is required; appearance settings are stored in the browser and can be reset from Appearance.
+3. If the dashboard looks stale after upgrading, hard-refresh the page to load the new front-end assets.
+
 ## 2.12.0 · November 12, 2026
 
 2.12.0 is a storage and recall-chain performance release: graph-route recall, node matching, scoped vector recall, atom search and graph writes were optimized end to end. On a copy of a 156 MB production database, database-side recall time drops from about 90 ms to 10-20 ms and the graph write cost per memory drops from 41 ms to 26-30 ms. Commands, configuration, injection format and database schema stay compatible, and no migration is required.
