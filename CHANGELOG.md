@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-11-13
+
+2.13.0 是 Dashboard 外观版本：默认外观升级到 macOS 26 Liquid Glass，新增外观面板自定义，并完成一轮样式层收敛——统一设计令牌、清理被皮肤覆盖的重复声明、补齐空状态与卡片留白、按皮肤重做诊断页。无命令、配置项、注入格式与数据库结构变化，无需迁移；首屏资源仍在体积预算内。
+
 ### Dashboard 外观
 
 - 默认外观改为 macOS 26 Liquid Glass：壁纸之上的浮动玻璃侧栏与半透明窗口、同心圆角、系统色板；玻璃只用于导航、浮动控件和弹层，数据表与图谱保持实色。
@@ -26,7 +30,16 @@
 
 ### 验证
 
-- 后端 1,606 项测试、覆盖率 86%、召回 golden set 2 项通过；前端 206 项、构建产物与体积门禁、VitePress 构建通过。
+- 后端 1,606 项测试、覆盖率 86%、召回 golden set 2 项通过；前端 206 项、构建产物与体积门禁（首屏 gzip 81,597 B / 预算 81,920 B）、VitePress 构建通过。
+- PR #431、#432、#436 的 CI：backend 与 frontend 均通过。
+
+### 行为变化与升级注意
+
+1. 默认外观升级为 macOS 26 Liquid Glass；Studio、Paper、Terminal 风格仍可在「外观与主题」切换，强调色、壁纸、玻璃强度、圆角、密度、字体与自定义 CSS 保存在浏览器本地。
+2. 无命令、配置项、注入格式或数据库迁移变化；升级后无需重建索引或重新生成 Embedding。
+3. 界面密度比 2.12.0 略收紧，卡片留白与侧栏宽度已按可读性单独调整；首屏资源预算维持 80 KiB。
+
+相关 PR：[#431](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/431)、[#432](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/432)、[#436](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/436)
 
 ## [2.12.0] - 2026-11-12
 

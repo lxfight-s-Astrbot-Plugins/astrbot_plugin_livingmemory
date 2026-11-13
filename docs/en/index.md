@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.12.0
+      text: Get 2.13.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.12.0 is released
+## 2.13.0 is released
 
-2.12.0 optimizes the storage and recall chain: graph-route recall drops from 73-78 ms to 4-14 ms, short CJK node matching from 13-19 ms to 1.1 ms, scoped vector recall p50 from about 22 ms to about 6 ms, and the graph write cost per memory from 41 ms to 26-30 ms. No command, configuration or database migration changes. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.13.0 is a dashboard appearance release: the default look is upgraded to macOS 26 Liquid Glass and the appearance panel now customizes accent color, wallpaper, glass strength, corners, density and font, alongside a style-layer cleanup and several fixes. First-load gzip is 81,597 B, still within budget. No command, configuration or database migration changes. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 
