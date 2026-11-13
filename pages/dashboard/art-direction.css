@@ -39,6 +39,7 @@ summary:focus-visible {
   border: 3px solid transparent;
   border-radius: 99px;
 }
+/* 移除掉 art-direction.css 中之前覆盖 tokens.css 的 :root 颜色定义 */
 
 /* ---------- Shell: floating glass sidebar next to a translucent window ---------- */
 

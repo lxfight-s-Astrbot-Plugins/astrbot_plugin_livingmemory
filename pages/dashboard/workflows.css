@@ -1,5 +1,5 @@
 /* Operation groups use each appearance's semantic surfaces and radii. */
-.memory-page-body { overflow-y: auto; }
+.memory-page-body { }
 .memory-page-body .table-container { min-height: 260px; }
 #memory-filters {
   display: grid;
