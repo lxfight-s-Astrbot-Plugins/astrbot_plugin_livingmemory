@@ -28,7 +28,7 @@
 .profile-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   max-height: 72vh;
   overflow: auto;
 }
@@ -36,8 +36,8 @@
 .profile-list-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background: var(--bg-card);
@@ -107,8 +107,8 @@
 .profile-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: 10px;
+  padding: 14px 16px;
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background: var(--bg-card);

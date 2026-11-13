@@ -723,7 +723,7 @@ export class DiagnosticsPage {
         "<td>" + esc(formatTime(trace.ts ?? trace.created_at ?? trace.timestamp)) + "</td>" +
         "<td>" + esc(trace.scope || trace.umo || trace.session_id || "--") + "</td>" +
         "<td>" + esc(window.t(cache ? "diag.cacheYes" : "diag.cacheNo")) + "</td>" +
-        "<td>" + esc(routeSummary) + "</td>" +
+        '<td title="' + esc(routeSummary) + '">' + esc(routeSummary) + "</td>" +
         "<td>" + esc(String(injectedCount)) + (injectedChars !== "" ? " / " + esc(String(injectedChars)) + " chars" : "") + "</td>" +
         "<td>" + esc(String(trace.duration_ms ?? trace.elapsed_ms ?? "--")) + " ms</td></tr>";
     });
