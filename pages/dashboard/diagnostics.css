@@ -1,37 +1,53 @@
-/* Diagnostics page (lazy-loaded together with diagnostics.min.js). */
+/* Diagnostics page (lazy-loaded together with diagnostics.min.js).
+   Cards, tabs and inputs reuse the dashboard skin's surfaces, radii and
+   materials so the page does not look like a separate App. */
 
 .diag-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
   min-width: 0;
 }
 
+/* Segmented control: same material as the appearance panel. */
 .diag-tabs {
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: flex-start;
   flex-wrap: wrap;
-  gap: 4px;
-  border-bottom: 1px solid var(--border-normal);
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-input);
+  border-radius: var(--r-ctl);
 }
 
 .diag-tab {
-  padding: 8px 14px;
+  padding: 6px 14px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-ctl);
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
+
+.diag-tab:hover { color: var(--text-primary); }
 
 .diag-tab[aria-selected="true"] {
-  border-bottom-color: var(--accent);
+  background: var(--bg-card);
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: 650;
+  box-shadow: 0 0 0 1px var(--border-light), 0 2px 6px #00000014;
 }
 
-.diag-tab:focus-visible,
+.diag-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
 .diag-row:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: -2px;
@@ -49,10 +65,17 @@
 .diag-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   min-width: 140px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+.diag-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .diag-status,
@@ -64,11 +87,34 @@
 
 .diag-table-wrap {
   overflow-x: auto;
+  border-radius: var(--r-md);
+}
+
+/* Tab panel wrapper keeps the same vertical rhythm as the page body. */
+.diag-body > [role="tabpanel"] {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* Tables rendered straight into a tab panel get the same card surface as the
+   rest of the dashboard; tables inside a panel ride on the panel card. */
+.diag-body > [role="tabpanel"] > .diag-table-wrap {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--card-edge);
 }
 
 .diag-table {
   width: 100%;
   min-width: 640px;
+}
+
+/* Ten-column key table: keep columns readable and scroll inside the card. */
+.diag-table-wide {
+  min-width: 920px;
 }
 
 .diag-row {
@@ -79,14 +125,16 @@
   background: var(--bg-hover);
 }
 
+/* Cards: same surface, radius and edge as the system panels. */
 .diag-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--bg-card);
+  gap: 14px;
+  padding: 18px 20px 20px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--card-edge);
 }
 
 .diag-panel-head {
@@ -100,6 +148,7 @@
 .diag-panel-head h3 {
   margin: 0;
   font-size: 15px;
+  font-weight: 650;
 }
 
 .diag-panel h4 {
@@ -107,6 +156,14 @@
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+/* Inside a card the empty state needs no second frame. */
+.diag-panel .empty-state {
+  margin: 0;
+  padding: var(--space-6) 0;
+  border: 0;
+  background: transparent;
 }
 
 .diag-state {
@@ -122,10 +179,11 @@
 }
 
 .diag-chip {
-  padding: 2px 8px;
+  padding: 2px 9px;
   border: 1px solid var(--border-light);
-  border-radius: 999px;
+  border-radius: 99px;
   color: var(--text-secondary);
+  background: var(--bg-input);
   font-size: 11px;
 }
 
@@ -150,7 +208,7 @@
 .diag-dl {
   display: grid;
   grid-template-columns: minmax(96px, 140px) minmax(0, 1fr);
-  gap: 4px 12px;
+  gap: 6px 12px;
   margin: 0;
 }
 
@@ -167,7 +225,7 @@
 
 .diag-form {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-3);
   align-items: end;
 }
@@ -182,48 +240,52 @@
   display: block;
   padding: 10px 12px;
   border: 1px solid var(--border-light);
-  border-radius: 4px;
-  background: var(--bg-tint);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  border-radius: var(--r-sm);
+  background: var(--bg-input);
+  font-family: var(--font-mono);
   font-size: 12px;
   overflow-wrap: anywhere;
   user-select: all;
 }
 
 .diag-token-panel {
-  border-color: var(--warning);
+  box-shadow: inset 0 0 0 1px var(--warning);
 }
 
 .diag-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
 }
 
 .diag-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--bg-card);
+  padding: 16px 16px 14px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--card-edge);
 }
 
 .diag-card-label {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .diag-card-value {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 @media (max-width: 768px) {
   .diag-tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
+    max-width: 100%;
   }
   .diag-tab {
     flex: 0 0 auto;
