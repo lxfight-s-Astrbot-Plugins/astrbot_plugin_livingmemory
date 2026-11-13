@@ -12,9 +12,9 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
   --font-heading: var(--font-ui);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
-  --font-lg: 14px;
-  --font-sm: 11px;
-  --font-xs: 9px;
+  --font-lg: 15px;
+  --font-sm: 12px;
+  --font-xs: 11px;
 
   --r-xs: calc(5px * var(--radius-scale));
   --r-sm: calc(8px * var(--radius-scale));
@@ -37,8 +37,7 @@
   --bg-tint: #f2f3f8;
   --bg-hover: #7676801f;
   --bg-input: #76768014;
-  --bg-active: color-mix(in srgb, var(--accent) 18%, transparent);
-  --bg-accent-subtle: color-mix(in srgb, var(--accent) 13%, var(--bg-card));
+  --bg-active: var(--accent-light);
   --graph-surface: #f7f8fc;
   --graph-line: #6c7282;
   --screen-overlay: #0a0e1c47;
@@ -49,7 +48,6 @@
   --text-tertiary: #65656c;
   --border-light: #3c3c431f;
   --border-normal: #3c3c4338;
-  --border-hover: #3c3c435e;
   --border-color: var(--border-light);
   --border-focus: var(--accent);
 
@@ -59,7 +57,7 @@
   --text-inverse: var(--on-accent);
   --accent-color: var(--accent);
   --accent-hover: color-mix(in srgb, var(--accent) 84%, #000);
-  --accent-light: var(--bg-accent-subtle);
+  --accent-light: color-mix(in srgb, var(--accent) 13%, var(--bg-card));
 
   --success: #1c7c38;
   --success-light: #e1f6e6;
@@ -97,17 +95,12 @@
     radial-gradient(55% 55% at 78% 102%, var(--wp-c), transparent 72%),
     var(--wp-base);
 
-  --sidebar-width: 150px;
+  --sidebar-width: 224px;
   --header-height: 72px;
   --spring: 420ms cubic-bezier(0.34, 1.4, 0.64, 1);
   --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-normal: 260ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-panel: 300ms cubic-bezier(0.16, 1, 0.3, 1);
-
-  /* Component Heights */
-  --ctl-height-sm: 20px;
-  --ctl-height-md: 28px;
-  --ctl-height-lg: 34px;
 }
 
 :root[data-theme="dark"] {

@@ -671,7 +671,8 @@ export class DiagnosticsPage {
   }
 
   _empty(text) {
-    return '<div class="table-empty">' + esc(text) + "</div>";
+    return '<div class="empty-state"><i data-lucide="database" aria-hidden="true"></i><span>' +
+      esc(text) + "</span></div>";
   }
 
   /* ----- traces ----- */

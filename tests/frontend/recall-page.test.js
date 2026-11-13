@@ -87,7 +87,7 @@ test("the result header echoes the scope the response was produced with", async 
 
   assert.equal(el("recall-context-text").textContent, "k=3 · detail.sessionId sess-1");
   assert.match(el("recall-count-text").textContent, /0/);
-  assert.match(el("recall-results").innerHTML, /table-empty/);
+  assert.match(el("recall-results").innerHTML, /empty-state/);
 });
 
 test("a failed recall reports inline without a second toast", async t => {
