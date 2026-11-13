@@ -9,21 +9,21 @@
    生效，改色时容易改到不生效的那一份。 */
 :root {
   /* Spacing */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
+  --space-1: 3px;
+  --space-2: 6px;
+  --space-3: 9px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-8: 24px;
+  --space-10: 32px;
+  --space-12: 38px;
 
   /* Radius */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+  --radius-xl: 10px;
   --radius-full: 9999px;
 
   /* Shadow */
@@ -78,10 +78,9 @@ body {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
-  padding: var(--space-5);
+  padding: var(--space-4);
   gap: var(--space-2);
   user-select: none;
   -webkit-user-select: none;
@@ -329,102 +328,99 @@ body {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  min-height: var(--ctl-height-md);
+  padding: 0 var(--space-4);
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid transparent;
-  transition: background var(--transition-fast),
-              color var(--transition-fast),
-              border-color var(--transition-fast),
-              opacity var(--transition-fast),
-              scale var(--transition-fast);
+  border: 1px solid var(--border-normal);
+  transition: all var(--transition-fast);
   outline: none;
   white-space: nowrap;
   font-family: inherit;
-  line-height: 1.4;
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.btn-secondary {
   background: var(--bg-card);
   color: var(--text-primary);
-  border-color: var(--border-normal);
 }
+.btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-hover); }
+.btn:active:not(:disabled) { scale: 0.98; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-secondary:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
+.btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 
-.btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
-  border-color: transparent;
-}
+.btn-secondary { background: var(--bg-card); border-color: var(--border-normal); }
 
-.btn-ghost:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.btn-ghost:hover:not(:disabled) { color: var(--text-primary); }
 
-.btn-danger {
-  background: var(--danger);
-  color: var(--text-inverse);
-  border-color: var(--danger);
-}
+.btn-danger { background: var(--danger); color: var(--on-accent); border-color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: var(--danger-hover); border-color: var(--danger-hover); }
 
-.btn-danger:hover:not(:disabled) {
-  background: var(--danger-hover);
-}
+.btn-sm { min-height: var(--ctl-height-sm); padding: 0 var(--space-2); font-size: 12px; }
 
-.btn-sm {
-  padding: var(--space-1) var(--space-3);
-  font-size: 12px;
+.btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ----- Components: Empty State & Feedback ----- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-card);
   border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-normal);
+}
+.empty-state svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5;
+  color: var(--text-tertiary);
 }
 
-.btn-sm svg {
-  width: 14px;
-  height: 14px;
+.request-feedback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-light);
+  color: var(--text-primary);
+  font-size: 11px;
+  animation: f 200ms forwards;
+  margin-bottom: 8px;
+}
+@keyframes f {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* ----- Inputs -------------------------------------------------- */
 .input {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  min-height: var(--ctl-height-md);
+  padding: 0 var(--space-3);
   border: 1px solid var(--border-normal);
   border-radius: var(--radius-md);
   background: var(--bg-card);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: all var(--transition-fast);
   outline: none;
-  line-height: 1.5;
 }
 
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .input-sm {
-  padding: var(--space-1) var(--space-2);
+  min-height: var(--ctl-height-sm);
+  padding: 0 var(--space-2);
   font-size: 12px;
 }
 
@@ -468,6 +464,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  gap: var(--space-2);
 }
 
 .memory-page-body .filter-bar {
@@ -478,18 +475,19 @@ body {
   position: relative;
 }
 
-.memory-page-body #memory-feedback {
+.memory-page-body .table-container {
+  flex: 1;
+  min-height: 160px;
+  position: relative;
+}
+
+#memory-feedback {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 2;
   background: var(--bg-card);
-}
-
-.memory-page-body .table-container {
-  flex: 1;
-  min-height: 160px;
 }
 
 .data-table {
@@ -546,7 +544,7 @@ body {
 
 .data-table .cell-select { width: 44px; text-align: center; padding-left: var(--space-2); padding-right: var(--space-2); }
 .data-table .cell-id { width: 64px; }
-.data-table .cell-summary { width: auto; min-width: 320px; }
+.data-table .cell-summary { width: auto; min-width: 320px; max-width: none; }
 .data-table .cell-type { width: 100px; }
 .data-table .cell-importance { width: 140px; }
 .data-table .cell-status { width: 90px; }
