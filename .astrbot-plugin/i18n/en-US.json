@@ -200,6 +200,10 @@
         "description": "Max Search Cache Entries",
         "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted. Allowed range: 0-10000."
       },
+      "private_memory_notice_enabled": {
+        "description": "Private Memory Notice",
+        "hint": "Append a notice to injected memories marked visibility=private and disclosed=false, stating that the assistant experienced this privately and the user has not been told. Disable to omit the notice."
+      },
       "tokenizer": {
         "description": "Chinese Tokenizer",
         "hint": "jieba: word-level segmentation with better recall; reserves ~55 MB after first use. builtin: built-in single-character/ASCII tokens, never imports jieba and saves memory. Run /lmem rebuild-index after switching.",

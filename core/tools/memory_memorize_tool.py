@@ -14,6 +14,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..memory_scope import adapter_access, is_event_memory_allowed, resolve_memory_scope
 from ..utils import get_persona_id
+from ..utils.memory_visibility import normalize_disclosed, normalize_visibility
 from .agentic_recall_common import json_result as _json_result
 
 
@@ -77,6 +78,24 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
                     "description": "Optional short reason why this information should be remembered.",
                     "default": "",
                 },
+                "visibility": {
+                    "type": "string",
+                    "enum": ["public", "private"],
+                    "description": (
+                        "Memory visibility. 'public' (default) for information the user "
+                        "knows or shared. 'private' for an experience the assistant had on "
+                        "its own and the user has not necessarily been told about."
+                    ),
+                    "default": "public",
+                },
+                "disclosed": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether the user already knows about this memory. Only meaningful "
+                        "when visibility='private'. Defaults to true."
+                    ),
+                    "default": True,
+                },
             },
             "required": ["memory"],
         }
@@ -91,6 +110,8 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
         sentiment: str = "neutral",
         importance: float = 0.7,
         reason: str = "",
+        visibility: str = "public",
+        disclosed: bool = True,
     ) -> ToolExecResult:
         """执行长期记忆写入。"""
         cleaned_memory = (memory or "").strip()
@@ -100,6 +121,8 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
         normalized_sentiment = str(sentiment or "neutral").strip().lower()
         if normalized_sentiment not in {"positive", "neutral", "negative"}:
             normalized_sentiment = "neutral"
+        normalized_visibility = normalize_visibility(visibility)
+        normalized_disclosed = normalize_disclosed(disclosed)
 
         if (
             self.context is None
@@ -159,6 +182,8 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
                     persona_id=persona_id,
                     importance=normalized_importance,
                     metadata=metadata,
+                    visibility=normalized_visibility,
+                    disclosed=normalized_disclosed,
                 )
 
                 return _json_result(
@@ -169,6 +194,8 @@ class MemoryMemorizeTool(FunctionTool[AstrAgentContext]):
                         "importance": normalized_importance,
                         "session_id": memory_scope,
                         "persona_id": persona_id,
+                        "visibility": normalized_visibility,
+                        "disclosed": normalized_disclosed,
                     }
                 )
         except asyncio.CancelledError:
