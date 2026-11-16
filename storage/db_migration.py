@@ -661,10 +661,21 @@ class DBMigration:
 
             logger.info(f"正在创建数据库备份: {backup_path}")
 
-            # 使用SQLite的备份API
+            # 优先使用 VACUUM INTO 生成紧凑一致性快照（跳过 freelist 空洞与 -wal）；
+            # 若底层 SQLite 不支持或失败，再回退到 online backup API。
             async with aiosqlite.connect(self.db_path) as source:
-                async with aiosqlite.connect(str(backup_path)) as dest:
-                    await source.backup(dest)
+                await source.execute("PRAGMA busy_timeout = 10000")
+                await source.commit()
+                try:
+                    await source.execute("VACUUM INTO ?", (str(backup_path),))
+                except Exception as vacuum_err:
+                    logger.debug(
+                        f"VACUUM INTO 备份回退到 sqlite.backup ({db_path.name}): {vacuum_err}"
+                    )
+                    if backup_path.exists():
+                        backup_path.unlink()
+                    async with aiosqlite.connect(str(backup_path)) as dest:
+                        await source.backup(dest)
 
             logger.info(f"数据库备份成功: {backup_path}")
             return str(backup_path)

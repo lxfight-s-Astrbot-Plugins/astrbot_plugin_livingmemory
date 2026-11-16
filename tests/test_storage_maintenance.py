@@ -1,17 +1,20 @@
-"""Tests for automatic storage maintenance."""
+"""Tests for orphan graph-vector cleanup, multi-DB freelist reclaim, and compact backups."""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import aiosqlite
 import pytest
 
+from astrbot_plugin_livingmemory.core.managers.backup_manager import BackupManager
 from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import GraphMemoryManager
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.graph_models import GraphEntry
 from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
 from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import GraphVectorRetriever
+from astrbot_plugin_livingmemory.storage.db_migration import DBMigration
 from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 from astrbot_plugin_livingmemory.storage.sqlite_connection import open_connection
 from tests.test_memory_engine import _FakeFaissDB
@@ -161,3 +164,70 @@ async def test_maintain_storage_reclaims_bloated_sibling_dbs(tmp_path: Path):
         assert conv_db.stat().st_size < before_conv_size
     finally:
         await engine.close()
+
+
+def test_backup_manager_uses_compact_sqlite_snapshots_without_wal(tmp_path: Path):
+    db_path = tmp_path / "livingmemory_graph_documents.db"
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT)")
+        conn.executemany(
+            "INSERT INTO documents (text) VALUES (?)",
+            [("z" * 600,) for _ in range(400)],
+        )
+        conn.execute("DELETE FROM documents WHERE id > 10")
+        conn.execute("INSERT INTO documents (id, text) VALUES (999, 'from_wal')")
+    finally:
+        conn.close()
+
+    # Keep a sibling WAL/SHM file present to verify compacted backups omit sidecars.
+    wal_file = tmp_path / "livingmemory_graph_documents.db-wal"
+    if not wal_file.exists():
+        wal_file.write_bytes(b"wal-bytes")
+    raw_size = db_path.stat().st_size
+
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+    backup_dir = Path(mgr.backup_if_needed())
+
+    backed_up_db = backup_dir / "livingmemory_graph_documents.db"
+    assert backed_up_db.is_file()
+    assert not (backup_dir / "livingmemory_graph_documents.db-wal").exists()
+    assert not (backup_dir / "livingmemory_graph_documents.db-shm").exists()
+    assert backed_up_db.stat().st_size < raw_size
+
+    check_conn = sqlite3.connect(str(backed_up_db))
+    try:
+        assert check_conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        texts = [r[0] for r in check_conn.execute("SELECT text FROM documents").fetchall()]
+        assert "from_wal" in texts
+        assert len(texts) == 11
+    finally:
+        check_conn.close()
+
+
+@pytest.mark.asyncio
+async def test_db_migration_create_backup_produces_compact_snapshot(tmp_path: Path):
+    db_path = tmp_path / "livingmemory.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, body TEXT)")
+        await db.executemany(
+            "INSERT INTO items (body) VALUES (?)",
+            [("w" * 500,) for _ in range(300)],
+        )
+        await db.execute("DELETE FROM items WHERE id > 15")
+        await db.commit()
+    bloated_size = db_path.stat().st_size
+
+    migration = DBMigration(str(db_path))
+    backup_path_str = await migration.create_backup()
+    assert backup_path_str is not None
+    backup_path = Path(backup_path_str)
+    assert backup_path.stat().st_size < bloated_size
+
+    async with aiosqlite.connect(backup_path) as check_db:
+        row = await (await check_db.execute("PRAGMA integrity_check")).fetchone()
+        assert row[0] == "ok"
+        cnt = await (await check_db.execute("SELECT COUNT(*) FROM items")).fetchone()
+        assert cnt[0] == 15

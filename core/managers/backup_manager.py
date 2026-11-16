@@ -12,6 +12,7 @@ import fnmatch
 import json
 import re
 import shutil
+import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,9 +108,33 @@ class BackupManager:
         )
 
         copied_count = 0
+        compacted_dbs: set[str] = set()
         for pattern in _BACKUP_PATTERNS:
+            if pattern in ("*.db-wal", "*.db-shm"):
+                continue
             for file_path in self.data_dir.glob(pattern):
                 if not file_path.is_file():
+                    continue
+                dest = backup_dir / file_path.name
+                try:
+                    if file_path.suffix == ".db" and self._is_sqlite_file(file_path):
+                        if self._backup_sqlite_compact(file_path, dest):
+                            compacted_dbs.add(file_path.name)
+                            copied_count += 1
+                            continue
+                    shutil.copy2(file_path, dest)
+                    copied_count += 1
+                except OSError as exc:
+                    logger.error(
+                        f"[BackupManager] 备份文件失败 {file_path.name}: {exc}"
+                    )
+
+        for sidecar_pattern in ("*.db-wal", "*.db-shm"):
+            for file_path in self.data_dir.glob(sidecar_pattern):
+                if not file_path.is_file():
+                    continue
+                parent_db_name = file_path.name[:-4]
+                if parent_db_name in compacted_dbs:
                     continue
                 dest = backup_dir / file_path.name
                 try:
@@ -139,6 +164,42 @@ class BackupManager:
 
         logger.info(f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}")
         return str(backup_dir)
+
+    @staticmethod
+    def _is_sqlite_file(path: Path) -> bool:
+        """Return True when *path* starts with the SQLite 3 file header."""
+        try:
+            with path.open("rb") as fh:
+                return fh.read(16) == b"SQLite format 3\x00"
+        except OSError:
+            return False
+
+    @staticmethod
+    def _backup_sqlite_compact(src: Path, dest: Path) -> bool:
+        """Create a compact standalone SQLite snapshot via ``VACUUM INTO``."""
+        connection: sqlite3.Connection | None = None
+        try:
+            if dest.exists():
+                dest.unlink()
+            connection = sqlite3.connect(
+                str(src), timeout=10.0, isolation_level=None
+            )
+            connection.execute("PRAGMA busy_timeout = 10000")
+            connection.execute("VACUUM INTO ?", (str(dest),))
+            return True
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning(
+                f"[BackupManager] VACUUM INTO 失败，回退普通拷贝 ({src.name}): {exc}"
+            )
+            try:
+                if dest.exists():
+                    dest.unlink()
+            except OSError:
+                pass
+            return False
+        finally:
+            if connection is not None:
+                connection.close()
 
     async def backup_if_needed_async(self) -> str | None:
         """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""
