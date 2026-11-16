@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.event_handler_support import _make_event, _make_real_handler, _make_req, _make_resp
+from tests.event_handler_support import (
+    _make_event,
+    _make_real_handler,
+    _make_req,
+    _make_resp,
+)
 
 
 @pytest.mark.asyncio

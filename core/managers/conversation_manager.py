@@ -305,9 +305,10 @@ class ConversationManager:
         # Serialize only this session's reads, writes and invalidations.
         async with self._cache_session_lock(session_id):
             try:
-                message_id, message.session_message_count = await self.store.add_message(
-                    message, return_count=True
-                )
+                (
+                    message_id,
+                    message.session_message_count,
+                ) = await self.store.add_message(message, return_count=True)
                 message.id = message_id
                 cached = self._cache.get(session_id)
                 if cached:
