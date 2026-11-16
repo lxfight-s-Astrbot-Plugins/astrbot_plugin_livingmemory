@@ -78,3 +78,22 @@ def test_assign_communities_degrades_gracefully_when_networkx_missing(
     }
     graph_handler_mod.GraphHandler._assign_communities(snapshot)
     assert [node["community"] for node in snapshot["nodes"]] == [0, 0]
+
+
+def test_assign_communities_propagates_non_networkx_module_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(graph_handler_mod, "_nx", None)
+
+    def _raise_subdep_missing():
+        raise ModuleNotFoundError("No module named 'scipy'", name="scipy")
+
+    monkeypatch.setattr(graph_handler_mod, "_networkx", _raise_subdep_missing)
+
+    snapshot = {
+        "nodes": [{"id": 1}, {"id": 2}],
+        "edges": [{"source": 1, "target": 2, "weight": 1.0}],
+    }
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        graph_handler_mod.GraphHandler._assign_communities(snapshot)
+    assert exc_info.value.name == "scipy"

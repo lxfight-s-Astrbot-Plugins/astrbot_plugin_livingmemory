@@ -51,7 +51,9 @@ class GraphHandler:
         global _missing_nx_warned
         try:
             nx = _networkx()
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as exc:
+            if exc.name != "networkx":
+                raise
             if not _missing_nx_warned:
                 _missing_nx_warned = True
                 logger.warning(
