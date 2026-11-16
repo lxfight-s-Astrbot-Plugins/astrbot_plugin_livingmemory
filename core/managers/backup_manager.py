@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import json
+import os
 import re
 import shutil
 import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -176,30 +178,45 @@ class BackupManager:
 
     @staticmethod
     def _backup_sqlite_compact(src: Path, dest: Path) -> bool:
-        """Create a compact standalone SQLite snapshot via ``VACUUM INTO``."""
+        """Create a compact standalone SQLite snapshot atomically via ``VACUUM INTO``."""
+        tmp_dest = dest.with_name(
+            f".{dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        )
         connection: sqlite3.Connection | None = None
+        verify_conn: sqlite3.Connection | None = None
         try:
-            if dest.exists():
-                dest.unlink()
             connection = sqlite3.connect(
                 str(src), timeout=10.0, isolation_level=None
             )
             connection.execute("PRAGMA busy_timeout = 10000")
-            connection.execute("VACUUM INTO ?", (str(dest),))
+            connection.execute("VACUUM INTO ?", (str(tmp_dest),))
+            connection.close()
+            connection = None
+
+            verify_conn = sqlite3.connect(str(tmp_dest), timeout=10.0)
+            row = verify_conn.execute("PRAGMA quick_check").fetchone()
+            verify_conn.close()
+            verify_conn = None
+            if row is None or row[0] != "ok":
+                raise sqlite3.DatabaseError(f"quick_check failed: {row}")
+
+            os.replace(tmp_dest, dest)
             return True
         except (sqlite3.Error, OSError) as exc:
             logger.warning(
                 f"[BackupManager] VACUUM INTO 失败，回退普通拷贝 ({src.name}): {exc}"
             )
-            try:
-                if dest.exists():
-                    dest.unlink()
-            except OSError:
-                pass
             return False
         finally:
             if connection is not None:
                 connection.close()
+            if verify_conn is not None:
+                verify_conn.close()
+            try:
+                if tmp_dest.exists():
+                    tmp_dest.unlink()
+            except OSError:
+                pass
 
     async def backup_if_needed_async(self) -> str | None:
         """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""

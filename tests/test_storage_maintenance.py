@@ -310,3 +310,14 @@ async def test_db_migration_create_backup_produces_compact_snapshot(tmp_path: Pa
         assert row[0] == "ok"
         cnt = await (await check_db.execute("SELECT COUNT(*) FROM items")).fetchone()
         assert cnt[0] == 15
+
+
+def test_compact_sqlite_backup_preserves_existing_dest_on_failure(tmp_path: Path):
+    src = tmp_path / "corrupt_src.db"
+    src.write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
+    dest = tmp_path / "existing.db"
+    dest.write_bytes(b"keep-existing-snapshot")
+
+    assert BackupManager._backup_sqlite_compact(src, dest) is False
+    assert dest.read_bytes() == b"keep-existing-snapshot"
+    assert not any(tmp_path.glob("*.tmp"))
