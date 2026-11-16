@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from astrbot.api import logger
+
 from ..memory_scope import normalize_memory_scopes
 from .vector_retriever import delete_faiss_documents_by_ids
 from .vector_search import retrieve_vectors
@@ -202,9 +204,31 @@ class GraphVectorRetriever:
         for vector_doc_id in vector_doc_ids:
             await self.delete_entry(vector_doc_id)
 
+    async def list_all_document_ids(self) -> list[int]:
+        """Return every numeric document id currently stored in the vector DB."""
+        document_storage = getattr(self.faiss_db, "document_storage", None)
+        if document_storage is None:
+            return []
+        get_session = getattr(document_storage, "get_session", None)
+        if callable(get_session):
+            from sqlalchemy import text
+
+            async with get_session() as session:
+                rows = (
+                    await session.execute(text("SELECT id FROM documents ORDER BY id ASC"))
+                ).all()
+            return [int(row[0]) for row in rows if row[0] is not None]
+        get_documents = getattr(document_storage, "get_documents", None)
+        if callable(get_documents):
+            docs = await get_documents(metadata_filters={}, limit=None)
+            return [int(doc["id"]) for doc in docs if doc.get("id") is not None]
+        return []
+
     async def delete_entries_batch(
         self,
         entries_by_source: dict[int, list[int]],
+        *,
+        missing_ok: bool = False,
     ) -> None:
         """Delete several source memories with one FAISS save when supported."""
         vector_doc_ids = [
@@ -219,7 +243,11 @@ class GraphVectorRetriever:
         if deleted_ids is not None:
             if len(deleted_ids) != len(set(vector_doc_ids)):
                 missing = sorted(set(vector_doc_ids) - set(deleted_ids))
-                raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+                if not missing_ok:
+                    raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+                logger.debug(
+                    f"[GraphVector] 批量删除跳过已不存在的文档 ID: {missing[:10]}"
+                )
             return
 
         for source_memory_id, source_ids in entries_by_source.items():
