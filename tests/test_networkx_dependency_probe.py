@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from astrbot_plugin_livingmemory.core.page_api_modules import graph_handler as graph_handler_mod
+from astrbot_plugin_livingmemory.core.page_api_modules import (
+    graph_handler as graph_handler_mod,
+)
 from astrbot_plugin_livingmemory.main import _probe_lazy_dependencies
 
 
