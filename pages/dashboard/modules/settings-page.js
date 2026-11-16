@@ -1,9 +1,7 @@
 /**
  * Settings Page - advanced plugin configuration moved out of the host page.
- * Sections render as collapsed groups; a search box finds fields by label,
- * hint or config path. Field metadata and localized labels come from the
- * backend schema endpoint, so this page stays in sync without hand-written
- * forms for every option.
+ * Sections render as categorized groups with tab/pill navigation, instant search,
+ * modified-only filter, and clear visual hierarchy.
  */
 
 import { esc, showToast, confirmAction, canDiscardChanges } from "./utils.js";
@@ -23,28 +21,48 @@ const CATEGORIES = [
   {
     key: "memory",
     titleKey: "settings.catMemory",
+    icon: "database",
     sections: [
       "reflection_engine",
       "importance_decay",
       "memory_dedup",
       "memory_consolidation",
       "forgetting_agent",
+      "channel_memory",
     ],
   },
   {
     key: "recall",
     titleKey: "settings.catRecall",
-    sections: ["recall_engine", "fusion_strategy", "agent_tools"],
+    icon: "scan-search",
+    sections: [
+      "recall_engine",
+      "fusion_strategy",
+      "agent_tools",
+      "trace_settings",
+    ],
   },
-  { key: "graph", titleKey: "settings.catGraph", sections: ["graph_memory"] },
+  {
+    key: "graph",
+    titleKey: "settings.catGraph",
+    icon: "network",
+    sections: ["graph_memory"],
+  },
   {
     key: "scope",
     titleKey: "settings.catScope",
-    sections: ["access_control", "filtering_settings", "session_manager"],
+    icon: "user",
+    sections: [
+      "access_control",
+      "filtering_settings",
+      "session_manager",
+      "profile_settings",
+    ],
   },
   {
     key: "system",
     titleKey: "settings.catSystem",
+    icon: "chart-no-axes-combined",
     sections: [
       "backup_settings",
       "migration_settings",
@@ -83,6 +101,9 @@ export class SettingsPage {
     this.adapterOwnership = [];
     this._open = new Set();
     this._query = "";
+    this._activeTab = "all";
+    this._activeSubgroup = "";
+    this._filterModified = false;
     this._busy = false;
     this._bound = false;
     /* 编辑中的值在搜索/展开重渲染后仍需保留，避免输入被丢掉。 */
@@ -171,7 +192,18 @@ export class SettingsPage {
     return canDiscardChanges(this._busy, this.hasUnsavedChanges());
   }
 
+  _isFieldModified(field) {
+    if (!this._hasDefault(field)) return false;
+    const current = this._fieldValue(field);
+    const def = field.default;
+    if (typeof def === "boolean") return Boolean(current) !== def;
+    if (typeof def === "number") return Number(current) !== def;
+    if (def && typeof def === "object") return JSON.stringify(current) !== JSON.stringify(def);
+    return String(current ?? "") !== String(def ?? "");
+  }
+
   matches(field, query) {
+    if (this._filterModified && !this._isFieldModified(field)) return false;
     if (!query) return true;
     const haystack = [field.label, field.hint, field.path].join(" ").toLowerCase();
     return haystack.includes(query);
@@ -213,6 +245,16 @@ export class SettingsPage {
     const query = this._query.trim().toLowerCase();
     const bySection = new Map();
     this.sections.forEach((section) => bySection.set(section.key, section));
+
+    const covered = new Set(CATEGORIES.flatMap((c) => c.sections));
+    const extraKeys = Array.from(bySection.keys()).filter((k) => !covered.has(k));
+    const categories = extraKeys.length
+      ? [
+          ...CATEGORIES,
+          { key: "other", titleKey: "settings.catOther", icon: "braces", sections: extraKeys },
+        ]
+      : CATEGORIES;
+
     const quickSet = new Set(QUICK_PATHS);
     const quickFields = [];
     bySection.forEach((section) => {
@@ -223,8 +265,81 @@ export class SettingsPage {
       });
     });
 
-    let html = "";
-    if (quickFields.length) {
+    let totalMatchingFields = 0;
+    let totalModifiedCount = 0;
+    const categoryCounts = new Map();
+
+    categories.forEach((cat) => {
+      let count = 0;
+      cat.sections.forEach((secKey) => {
+        const sec = bySection.get(secKey);
+        if (!sec) return;
+        (sec.fields || []).forEach((f) => {
+          if (this._isFieldModified(f)) totalModifiedCount++;
+          if (this.matches(f, query)) count++;
+        });
+      });
+      categoryCounts.set(cat.key, count);
+      totalMatchingFields += count;
+    });
+
+    let html = '<div class="settings-nav-wrap">';
+    html += '<div class="settings-tabs" role="tablist">';
+    html +=
+      '<button type="button" class="settings-tab-btn' +
+      (this._activeTab === "all" ? " active" : "") +
+      '" data-settings-tab="all">' +
+      '<i data-lucide="layout-dashboard"></i>' +
+      "<span>" + esc(window.t("settings.tabAll")) + "</span>" +
+      '<span class="settings-tab-badge">' + totalMatchingFields + "</span>" +
+      "</button>";
+
+    html +=
+      '<button type="button" class="settings-tab-btn' +
+      (this._activeTab === "quick" ? " active" : "") +
+      '" data-settings-tab="quick">' +
+      '<i data-lucide="check"></i>' +
+      "<span>" + esc(window.t("settings.quickTitle")) + "</span>" +
+      '<span class="settings-tab-badge">' + quickFields.length + "</span>" +
+      "</button>";
+
+    categories.forEach((cat) => {
+      const cCount = categoryCounts.get(cat.key) || 0;
+      html +=
+        '<button type="button" class="settings-tab-btn' +
+        (this._activeTab === cat.key ? " active" : "") +
+        '" data-settings-tab="' + esc(cat.key) + '">' +
+        (cat.icon ? '<i data-lucide="' + esc(cat.icon) + '"></i>' : "") +
+        "<span>" + esc(window.t(cat.titleKey)) + "</span>" +
+        '<span class="settings-tab-badge">' + cCount + "</span>" +
+        "</button>";
+    });
+    html += "</div>";
+
+    html +=
+      '<button type="button" class="settings-filter-chip' +
+      (this._filterModified ? " active" : "") +
+      '" data-filter-modified="1">' +
+      '<i data-lucide="rotate-ccw"></i>' +
+      "<span>" + esc(window.t("settings.tabModified")) + "</span>" +
+      (totalModifiedCount > 0 ? '<span class="settings-badge">' + totalModifiedCount + "</span>" : "") +
+      "</button>";
+    html += "</div>";
+
+    if (query) {
+      html +=
+        '<div class="settings-search-bar">' +
+        "<span>" + esc(window.t("settings.matchesCount", totalMatchingFields)) + "</span>" +
+        '<button type="button" class="btn btn-sm btn-ghost settings-clear-search-btn">' +
+        esc(window.t("settings.clearSearch")) +
+        "</button>" +
+        "</div>";
+    }
+
+    const showQuick =
+      (this._activeTab === "all" || this._activeTab === "quick") &&
+      quickFields.length > 0;
+    if (showQuick) {
       html +=
         '<section class="settings-quick">' +
         '<div class="settings-quick-title">' +
@@ -236,69 +351,134 @@ export class SettingsPage {
         "</section>";
     }
 
-    const categoryHtml = CATEGORIES.map((category) => {
-      const groups = category.sections
-        .map((key) => bySection.get(key))
-        .filter(Boolean)
-        .map((section) => {
-          const fields = (section.fields || []).filter(
-            (field) => !quickSet.has(field.path) && this.matches(field, query)
-          );
-          if (!fields.length) return "";
-          return (
-            '<div class="settings-subgroup">' +
-            '<div class="settings-subgroup-title">' +
-            esc(section.title) +
-            "</div>" +
-            '<div class="settings-fields">' +
-            fields.map((field) => this.renderField(field)).join("") +
-            "</div>" +
-            "</div>"
-          );
-        })
-        .filter(Boolean)
-        .join("");
-      if (!groups) return "";
-      const open = this._open.has(category.key) || Boolean(query);
-      return (
-        '<details class="settings-group settings-category" data-category="' +
-        esc(category.key) +
-        '"' +
-        (open ? " open" : "") +
-        ">" +
-        '<summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
-        '<span class="settings-group-title">' +
-        esc(window.t(category.titleKey)) +
-        "</span>" +
-        "</summary>" +
-        groups +
-        "</details>"
-      );
-    }).join("");
+    const catsToRender = query
+      ? categories
+      : this._activeTab === "all"
+      ? categories
+      : this._activeTab === "quick"
+      ? []
+      : categories.filter((c) => c.key === this._activeTab);
 
-    html +=
-      '<div class="settings-categories-title">' +
-      esc(window.t("settings.advancedTitle")) +
-      "</div>" +
-      categoryHtml;
+    const categoryHtml = catsToRender
+      .map((category) => {
+        let subgroupNav = "";
+        const availableSections = category.sections
+          .map((key) => bySection.get(key))
+          .filter(Boolean);
 
-    const ownership = this.adapterOwnership;
-    const adapterField = this.sections.flatMap(section => section.fields || [])
-      .find(field => field.type === "adapter-list");
-    if ((!query || window.t("settings.adapterOwnership").toLowerCase().includes(query)) && ownership.length && adapterField?.options?.length) {
-      const options = adapterField.options.map((id, i) => '<option value="' + esc(id) + '">' +
-        esc(adapterField.option_labels[i]) + '</option>').join("");
-      html += '<details class="settings-group"' + (query ? ' open' : '') + '><summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
-        esc(window.t("settings.adapterOwnership")) + '</summary>' + ownership.map((row, i) =>
-        '<div class="adapter-ownership-row"><span>' + (row.adapter_id ? '' : esc(window.t("settings.adapterUnassigned")) + ' · ') + esc(row.adapter_id || row.session_id || window.t("settings.adapterUnknown")) +
-        ' · ' + esc(window.t('settings.adapterCount', row.count)) + '</span><select class="input" data-adapter-target="' + i + '">' +
-        options.replace('value="' + esc(row.adapter_id) + '"', 'value="' + esc(row.adapter_id) + '" selected') + '</select><button class="btn btn-secondary" data-adapter-assign="' + i + '"' + (row.adapter_id && adapterField.options.includes(row.adapter_id) ? ' disabled' : '') + '>' +
-        esc(window.t("settings.adapterAssign")) + '</button></div>'
-      ).join("") + '</details>';
+        if (this._activeTab === category.key && availableSections.length > 1 && !query) {
+          subgroupNav =
+            '<div class="settings-subgroup-nav">' +
+            '<button type="button" class="settings-sub-pill' +
+            (!this._activeSubgroup ? " active" : "") +
+            '" data-settings-subgroup="">' +
+            esc(window.t("settings.tabAll")) +
+            "</button>" +
+            availableSections
+              .map((sec) => {
+                const sCount = (sec.fields || []).filter((f) => this.matches(f, query)).length;
+                return (
+                  '<button type="button" class="settings-sub-pill' +
+                  (this._activeSubgroup === sec.key ? " active" : "") +
+                  '" data-settings-subgroup="' +
+                  esc(sec.key) +
+                  '">' +
+                  esc(sec.title) +
+                  ' <span class="settings-sub-badge">' +
+                  sCount +
+                  "</span></button>"
+                );
+              })
+              .join("") +
+            "</div>";
+        }
+
+        const groups = availableSections
+          .filter((section) => !this._activeSubgroup || this._activeSubgroup === section.key)
+          .map((section) => {
+            const fields = (section.fields || []).filter(
+              (field) =>
+                (this._activeTab !== "all" || !quickSet.has(field.path)) &&
+                this.matches(field, query)
+            );
+            if (!fields.length) return "";
+            return (
+              '<div class="settings-subgroup">' +
+              '<div class="settings-subgroup-title">' +
+              esc(section.title) +
+              "</div>" +
+              '<div class="settings-fields">' +
+              fields.map((field) => this.renderField(field)).join("") +
+              "</div>" +
+              "</div>"
+            );
+          })
+          .filter(Boolean)
+          .join("");
+
+        if (!groups) return "";
+        const open =
+          this._activeTab === category.key ||
+          this._open.has(category.key) ||
+          Boolean(query);
+        return (
+          '<details class="settings-group settings-category" data-category="' +
+          esc(category.key) +
+          '"' +
+          (open ? " open" : "") +
+          ">" +
+          '<summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
+          '<span class="settings-group-title">' +
+          esc(window.t(category.titleKey)) +
+          "</span>" +
+          '<span class="settings-count">' +
+          (categoryCounts.get(category.key) || 0) +
+          "</span>" +
+          "</summary>" +
+          subgroupNav +
+          groups +
+          "</details>"
+        );
+      })
+      .filter(Boolean)
+      .join("");
+
+    if (this._activeTab === "all" || query) {
+      if (categoryHtml) {
+        html +=
+          '<div class="settings-categories-title">' +
+          esc(window.t("settings.advancedTitle")) +
+          "</div>" +
+          categoryHtml;
+      }
+    } else {
+      html += categoryHtml;
     }
-    container.innerHTML =
-      html ||
-      '<p class="text-tertiary">' + esc(window.t("settings.noMatches")) + "</p>";
+
+    if (this._activeTab === "all" || this._activeTab === "system" || query) {
+      const ownership = this.adapterOwnership;
+      const adapterField = this.sections.flatMap(section => section.fields || [])
+        .find(field => field.type === "adapter-list");
+      if ((!query || window.t("settings.adapterOwnership").toLowerCase().includes(query)) && ownership.length && adapterField?.options?.length) {
+        const options = adapterField.options.map((id, i) => '<option value="' + esc(id) + '">' +
+          esc(adapterField.option_labels[i]) + '</option>').join("");
+        html += '<details class="settings-group"' + (query ? ' open' : '') + '><summary><i data-lucide="chevron-right" class="settings-chevron"></i>' +
+          esc(window.t("settings.adapterOwnership")) + '</summary>' + ownership.map((row, i) =>
+          '<div class="adapter-ownership-row"><span>' + (row.adapter_id ? '' : esc(window.t("settings.adapterUnassigned")) + ' · ') + esc(row.adapter_id || row.session_id || window.t("settings.adapterUnknown")) +
+          ' · ' + esc(window.t('settings.adapterCount', row.count)) + '</span><select class="input" data-adapter-target="' + i + '">' +
+          options.replace('value="' + esc(row.adapter_id) + '"', 'value="' + esc(row.adapter_id) + '" selected') + '</select><button class="btn btn-secondary" data-adapter-assign="' + i + '"' + (row.adapter_id && adapterField.options.includes(row.adapter_id) ? ' disabled' : '') + '>' +
+          esc(window.t("settings.adapterAssign")) + '</button></div>'
+        ).join("") + '</details>';
+      }
+    }
+
+    if (this._filterModified && totalModifiedCount === 0) {
+      html += '<div class="settings-empty"><p class="text-tertiary">' + esc(window.t("settings.noModified")) + "</p></div>";
+    } else if (!showQuick && !categoryHtml) {
+      html += '<p class="text-tertiary">' + esc(window.t("settings.noMatches")) + "</p>";
+    }
+
+    container.innerHTML = html;
     window.lmHydrateIcons?.();
   }
 
@@ -307,6 +487,7 @@ export class SettingsPage {
     const common =
       'data-setting-path="' + path + '" data-type="' + esc(field.type) + '"';
     const value = this._fieldValue(field);
+    const isModified = this._isFieldModified(field);
     let control = "";
     if (field.type === "adapter-list") {
       const selected = value ?? field.options;
@@ -317,7 +498,10 @@ export class SettingsPage {
       ).join("") + '</fieldset>';
     } else if (field.type === "bool") {
       control =
-        '<input type="checkbox" ' + common + (value ? " checked" : "") + ">";
+        '<label class="settings-switch"><input type="checkbox" ' +
+        common +
+        (value ? " checked" : "") +
+        '><span class="settings-slider"></span></label>';
     } else if (Array.isArray(field.options)) {
       const labels = Array.isArray(field.option_labels)
         ? field.option_labels
@@ -394,15 +578,25 @@ export class SettingsPage {
         '" data-reset-type="' + esc(field.type) +
         '" data-default="' + esc(JSON.stringify(field.default)) + '">' +
         esc(window.t("settings.restoreDefault")) +
-        "</button></div>"
+        "</button>" +
+        (isModified
+          ? '<span class="settings-modified-tag">' + esc(window.t("settings.modifiedBadge")) + "</span>"
+          : "") +
+        "</div>"
       : "";
     return (
-      '<div class="settings-field">' +
-      
+      '<div class="settings-field' + (isModified ? " is-modified" : "") + '">' +
+      '<div class="settings-field-head">' +
+      '<div class="settings-field-meta">' +
       labelHtml +
-      control +
-      defaultHtml +
+      '<span class="settings-path">' + esc(field.name || field.path.split(".").pop()) + "</span>" +
       (field.hint ? '<div class="settings-hint">' + esc(field.hint) + "</div>" : "") +
+      "</div>" +
+      '<div class="settings-field-control">' +
+      control +
+      "</div>" +
+      "</div>" +
+      defaultHtml +
       "</div>"
     );
   }
@@ -494,11 +688,11 @@ export class SettingsPage {
     const container = document.getElementById("settings-container");
     if (container && !container.dataset.bound) {
       container.dataset.bound = "1";
-      container.addEventListener("input", event => {
+      container.addEventListener("input", (event) => {
         const control = event.target.closest?.("[data-setting-path]");
         if (control) this._rememberValue(control);
       });
-      container.addEventListener("change", event => {
+      container.addEventListener("change", (event) => {
         const group = event.target.closest?.('[data-type="adapter-list"]');
         const control = event.target.closest?.("[data-setting-path]");
         if (control) this._rememberValue(control);
@@ -509,8 +703,42 @@ export class SettingsPage {
             event.target.value === this.adapterOwnership[Number(index)].adapter_id;
         }
       });
-      container.addEventListener("click", async event => {
-        const resetButton = event.target.closest("[data-reset-path]");
+      container.addEventListener("click", async (event) => {
+        const tabBtn = event.target.closest?.("[data-settings-tab]");
+        if (tabBtn) {
+          const tab = tabBtn.dataset.settingsTab;
+          if (tab && tab !== this._activeTab) {
+            this._activeTab = tab;
+            this._activeSubgroup = "";
+            this.render();
+          }
+          return;
+        }
+
+        const subBtn = event.target.closest?.("[data-settings-subgroup]");
+        if (subBtn) {
+          this._activeSubgroup = subBtn.dataset.settingsSubgroup || "";
+          this.render();
+          return;
+        }
+
+        const filterChip = event.target.closest?.("[data-filter-modified]");
+        if (filterChip) {
+          this._filterModified = !this._filterModified;
+          this.render();
+          return;
+        }
+
+        const clearBtn = event.target.closest?.(".settings-clear-search-btn");
+        if (clearBtn) {
+          this._query = "";
+          const searchInput = document.getElementById("settings-search");
+          if (searchInput) searchInput.value = "";
+          this.render();
+          return;
+        }
+
+        const resetButton = event.target.closest?.("[data-reset-path]");
         if (resetButton) {
           const path = resetButton.dataset.resetPath;
           const control = container.querySelector('[data-setting-path="' + path + '"]');
@@ -518,17 +746,23 @@ export class SettingsPage {
             const defaultValue = JSON.parse(resetButton.dataset.default);
             this._applyDefault(control, resetButton.dataset.resetType, defaultValue);
             this._rememberValue(control);
+            this.render();
           }
           return;
         }
-        const button = event.target.closest("[data-adapter-assign]");
+
+        const button = event.target.closest?.("[data-adapter-assign]");
         if (!button || button.disabled) return;
         const index = Number(button.dataset.adapterAssign);
         const row = this.adapterOwnership[index];
         const target = container.querySelector('[data-adapter-target="' + index + '"]');
         button.disabled = true;
         try {
-          await this.api.post("adapters/assign", {adapter_id: target.value, source_adapter_id: row.adapter_id, session_id: row.session_id});
+          await this.api.post("adapters/assign", {
+            adapter_id: target.value,
+            source_adapter_id: row.adapter_id,
+            session_id: row.session_id,
+          });
           await this.fetch();
         } catch (error) {
           this.renderFeedback(error.message, true);
