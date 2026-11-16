@@ -224,12 +224,49 @@ class GraphVectorRetriever:
             return [int(doc["id"]) for doc in docs if doc.get("id") is not None]
         return []
 
+    async def delete_entries_by_ids(
+        self,
+        vector_doc_ids: list[int],
+        *,
+        missing_ok: bool = False,
+    ) -> int:
+        """Delete explicit vector document IDs and return actual deleted count."""
+        unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in vector_doc_ids))
+        if not unique_ids:
+            return 0
+
+        deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, unique_ids)
+        if deleted_ids is not None:
+            if len(deleted_ids) != len(unique_ids):
+                missing = sorted(set(unique_ids) - set(deleted_ids))
+                if not missing_ok:
+                    raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+                logger.debug(
+                    f"[GraphVector] 批量删除跳过已不存在的文档 ID: {missing[:10]}"
+                )
+            return len(deleted_ids)
+
+        deleted_count = 0
+        missing: list[int] = []
+        for vector_doc_id in unique_ids:
+            if await self.delete_entry(vector_doc_id):
+                deleted_count += 1
+            else:
+                missing.append(vector_doc_id)
+        if missing and not missing_ok:
+            raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+        if missing:
+            logger.debug(
+                f"[GraphVector] 兼容路径删除跳过已不存在的文档 ID: {missing[:10]}"
+            )
+        return deleted_count
+
     async def delete_entries_batch(
         self,
         entries_by_source: dict[int, list[int]],
         *,
         missing_ok: bool = False,
-    ) -> None:
+    ) -> int:
         """Delete several source memories with one FAISS save when supported."""
         vector_doc_ids = [
             vector_doc_id
@@ -237,7 +274,7 @@ class GraphVectorRetriever:
             for vector_doc_id in source_ids
         ]
         if not vector_doc_ids:
-            return
+            return 0
 
         deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, vector_doc_ids)
         if deleted_ids is not None:
@@ -248,10 +285,18 @@ class GraphVectorRetriever:
                 logger.debug(
                     f"[GraphVector] 批量删除跳过已不存在的文档 ID: {missing[:10]}"
                 )
-            return
+            return len(deleted_ids)
 
+        deleted_count = 0
         for source_memory_id, source_ids in entries_by_source.items():
-            await self.delete_entries(source_memory_id, source_ids)
+            if int(source_memory_id) <= 0:
+                deleted_count += await self.delete_entries_by_ids(
+                    source_ids, missing_ok=missing_ok
+                )
+            else:
+                await self.delete_entries(source_memory_id, source_ids)
+                deleted_count += len(set(source_ids))
+        return deleted_count
 
     async def update_metadata(
         self, vector_doc_id: int, metadata: dict[str, Any]

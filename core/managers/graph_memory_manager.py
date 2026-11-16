@@ -167,15 +167,17 @@ class GraphMemoryManager:
             if not orphans:
                 return 0
             step = max(1, int(batch_size))
+            removed = 0
             for start in range(0, len(orphans), step):
                 batch = orphans[start : start + step]
-                await self.graph_vector_retriever.delete_entries_batch(
-                    {0: batch}, missing_ok=True
+                removed += await self.graph_vector_retriever.delete_entries_by_ids(
+                    batch, missing_ok=True
                 )
-            logger.info(
-                f"[GraphMemory] 已自动清理 {len(orphans)} 条未被引用的孤儿图向量文档"
-            )
-            return len(orphans)
+            if removed:
+                logger.info(
+                    f"[GraphMemory] 已自动清理 {removed} 条未被引用的孤儿图向量文档"
+                )
+            return removed
 
     async def rebuild_memory_batches(
         self,

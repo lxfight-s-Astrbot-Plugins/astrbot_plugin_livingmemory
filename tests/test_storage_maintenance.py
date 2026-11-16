@@ -5,6 +5,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import aiosqlite
 import pytest
 
@@ -80,12 +83,74 @@ async def test_cleanup_orphan_vectors_removes_only_unreferenced_docs(tmp_path: P
 
     # Missing IDs raise when missing_ok=False, succeed when missing_ok=True.
     with pytest.raises(RuntimeError, match="批量图向量删除未找到文档"):
-        await retriever.delete_entries_batch({0: [999]}, missing_ok=False)
-    await retriever.delete_entries_batch({0: [999]}, missing_ok=True)
+        await retriever.delete_entries_by_ids([999], missing_ok=False)
+    assert await retriever.delete_entries_by_ids([999], missing_ok=True) == 0
 
     # Skips cleanly while rebuild is active.
     manager._rebuild_active = True
     assert await manager.cleanup_orphan_vectors() == 0
+
+    await graph_store.close()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphan_vectors_compat_path_deletes_by_id_not_source_zero(
+    tmp_path: Path,
+):
+    """Fallback path without bulk delete primitives must delete by ID, not source_memory_id=0."""
+    graph_store = GraphStore(str(tmp_path / "lmem_compat.db"))
+    await graph_store.initialize()
+
+    docs = {
+        10: {"id": 10, "doc_id": "u-10", "text": "active", "metadata": {"source_memory_id": 1}},
+        20: {"id": 20, "doc_id": "u-20", "text": "orphan", "metadata": {"source_memory_id": 99}},
+    }
+
+    async def _delete_documents(metadata_filters=None):
+        # Simulate legacy AstrBot delete_documents filtering by source_memory_id=0 (no-op).
+        sid = (metadata_filters or {}).get("source_memory_id")
+        for key in [k for k, v in list(docs.items()) if v["metadata"].get("source_memory_id") == sid]:
+            del docs[key]
+
+    async def _get_documents(metadata_filters=None, ids=None, offset=0, limit=100):
+        if ids is not None:
+            return [docs[i] for i in ids if i in docs]
+        items = list(docs.values())
+        return items[offset : (offset + limit) if limit is not None else None]
+
+    async def _delete_by_uuid(doc_uuid: str):
+        for key in [k for k, v in list(docs.items()) if v.get("doc_id") == doc_uuid]:
+            del docs[key]
+
+    # Notice: no embedding_storage.delete -> delete_faiss_documents_by_ids returns None.
+    compat_db = SimpleNamespace(
+        document_storage=SimpleNamespace(get_documents=_get_documents),
+        delete_documents=AsyncMock(side_effect=_delete_documents),
+        delete=AsyncMock(side_effect=_delete_by_uuid),
+    )
+    retriever = GraphVectorRetriever(compat_db)
+    manager = GraphMemoryManager(graph_store, retriever, GraphExtractor())
+
+    entry = GraphEntry(
+        entry_key="k-10",
+        source_memory_id=1,
+        session_id="s1",
+        persona_id="p1",
+        entry_type="fact",
+        content="kept fact",
+        metadata={},
+    )
+    entry_ids = await graph_store.store_graph_structure([], [], [entry])
+    await graph_store.update_entry_vector_doc_ids({entry_ids[0]: 10})
+
+    removed = await manager.cleanup_orphan_vectors()
+    assert removed == 1
+    assert list(docs.keys()) == [10]
+    compat_db.delete_documents.assert_not_awaited()
+    compat_db.delete.assert_awaited_once_with("u-20")
+
+    # Missing IDs in compat path report 0 deleted instead of claiming requested count.
+    assert await retriever.delete_entries_by_ids([999], missing_ok=True) == 0
 
     await graph_store.close()
 
