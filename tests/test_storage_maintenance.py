@@ -479,3 +479,27 @@ async def test_compact_storage_converts_and_compacts_all_three_databases(
                 assert cnt_row[0] == 15
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_compact_storage_truncates_post_vacuum_wal_on_wal_mode_db(
+    tmp_path: Path,
+):
+    main_db = tmp_path / "livingmemory.db"
+    async with aiosqlite.connect(main_db, isolation_level=None) as db:
+        await db.execute("PRAGMA journal_mode = WAL")
+        await db.execute("CREATE TABLE payloads (id INTEGER PRIMARY KEY, body TEXT)")
+        await db.executemany(
+            "INSERT INTO payloads (body) VALUES (?)",
+            [("q" * 600,) for _ in range(300)],
+        )
+        await db.execute("DELETE FROM payloads WHERE id > 10")
+
+    engine = MemoryEngine(db_path=str(main_db), faiss_db=_FakeFaissDB())
+    try:
+        result = await engine.compact_storage()
+        assert result["success"] is True
+        assert result["wal_size_after"] == 0
+        assert result["bytes_reclaimed"] > 0
+    finally:
+        await engine.close()

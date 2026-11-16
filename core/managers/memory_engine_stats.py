@@ -294,6 +294,13 @@ class MemoryEngineStatsMixin:
             result.append(candidate)
         return result
 
+    @staticmethod
+    async def _drain_pragma(connection: aiosqlite.Connection, statement: str) -> None:
+        """Execute a PRAGMA and consume/close its cursor before running VACUUM."""
+        cursor = await connection.execute(statement)
+        await cursor.fetchall()
+        await cursor.close()
+
     async def _reclaim_database_freelist(
         self,
         db_path: Path,
@@ -334,17 +341,23 @@ class MemoryEngineStatsMixin:
             )
             if force or (over_threshold and auto_vacuum == 2):
                 try:
-                    cursor = await connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                    await cursor.fetchall()
-                    await cursor.close()
+                    await self._drain_pragma(
+                        connection, "PRAGMA wal_checkpoint(TRUNCATE)"
+                    )
                     if not force and auto_vacuum == 2:
-                        cursor = await connection.execute("PRAGMA incremental_vacuum")
-                        await cursor.fetchall()
-                        await cursor.close()
+                        await self._drain_pragma(
+                            connection, "PRAGMA incremental_vacuum"
+                        )
                     else:
                         if auto_vacuum == 0:
-                            await connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+                            await self._drain_pragma(
+                                connection, "PRAGMA auto_vacuum = INCREMENTAL"
+                            )
                         await connection.execute("VACUUM")
+                    # Flush rebuilt pages from the WAL back into the DB immediately.
+                    await self._drain_pragma(
+                        connection, "PRAGMA wal_checkpoint(TRUNCATE)"
+                    )
                     compacted = True
                 except aiosqlite.OperationalError as exc:
                     logger.warning(
@@ -749,10 +762,10 @@ class MemoryEngineStatsMixin:
                     "PRAGMA incremental_vacuum",
                     "PRAGMA auto_vacuum = INCREMENTAL",
                 ):
-                    cursor = await connection.execute(statement)
-                    await cursor.fetchall()
-                    await cursor.close()
+                    await self._drain_pragma(connection, statement)
                 await connection.execute("VACUUM")
+                # Flush rebuilt pages written to the WAL by VACUUM back into the DB.
+                await self._drain_pragma(connection, "PRAGMA wal_checkpoint(TRUNCATE)")
             after_db = target_db.stat().st_size
             after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
             total_db_before += before_db
