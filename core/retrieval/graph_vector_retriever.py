@@ -215,7 +215,9 @@ class GraphVectorRetriever:
 
             async with get_session() as session:
                 rows = (
-                    await session.execute(text("SELECT id FROM documents ORDER BY id ASC"))
+                    await session.execute(
+                        text("SELECT id FROM documents ORDER BY id ASC")
+                    )
                 ).all()
             return [int(row[0]) for row in rows if row[0] is not None]
         get_documents = getattr(document_storage, "get_documents", None)

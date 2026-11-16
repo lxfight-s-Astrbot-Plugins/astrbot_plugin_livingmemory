@@ -428,7 +428,9 @@ class MemoryEngineStatsMixin:
                 getattr(graph_manager, "cleanup_orphan_vectors", None)
             ):
                 try:
-                    orphan_vectors_removed = await graph_manager.cleanup_orphan_vectors()
+                    orphan_vectors_removed = (
+                        await graph_manager.cleanup_orphan_vectors()
+                    )
                 except asyncio.CancelledError:
                     raise
                 except Exception:

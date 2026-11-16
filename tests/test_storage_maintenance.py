@@ -15,11 +15,15 @@ from astrbot_plugin_livingmemory.core.managers.backup_manager import (
     PLUGIN_VERSION,
     BackupManager,
 )
-from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import GraphMemoryManager
+from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
+    GraphMemoryManager,
+)
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.graph_models import GraphEntry
 from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
-from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import GraphVectorRetriever
+from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
+    GraphVectorRetriever,
+)
 from astrbot_plugin_livingmemory.storage.db_migration import DBMigration
 from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 from astrbot_plugin_livingmemory.storage.sqlite_connection import open_connection
@@ -105,14 +109,28 @@ async def test_cleanup_orphan_vectors_compat_path_deletes_by_id_not_source_zero(
     await graph_store.initialize()
 
     docs = {
-        10: {"id": 10, "doc_id": "u-10", "text": "active", "metadata": {"source_memory_id": 1}},
-        20: {"id": 20, "doc_id": "u-20", "text": "orphan", "metadata": {"source_memory_id": 99}},
+        10: {
+            "id": 10,
+            "doc_id": "u-10",
+            "text": "active",
+            "metadata": {"source_memory_id": 1},
+        },
+        20: {
+            "id": 20,
+            "doc_id": "u-20",
+            "text": "orphan",
+            "metadata": {"source_memory_id": 99},
+        },
     }
 
     async def _delete_documents(metadata_filters=None):
         # Simulate legacy AstrBot delete_documents filtering by source_memory_id=0 (no-op).
         sid = (metadata_filters or {}).get("source_memory_id")
-        for key in [k for k, v in list(docs.items()) if v["metadata"].get("source_memory_id") == sid]:
+        for key in [
+            k
+            for k, v in list(docs.items())
+            if v["metadata"].get("source_memory_id") == sid
+        ]:
             del docs[key]
 
     async def _get_documents(metadata_filters=None, ids=None, offset=0, limit=100):
@@ -159,7 +177,9 @@ async def test_cleanup_orphan_vectors_compat_path_deletes_by_id_not_source_zero(
 
 
 @pytest.mark.asyncio
-async def test_open_connection_enables_incremental_auto_vacuum_for_new_db(tmp_path: Path):
+async def test_open_connection_enables_incremental_auto_vacuum_for_new_db(
+    tmp_path: Path,
+):
     db_path = tmp_path / "fresh.db"
     conn = await open_connection(str(db_path), apply_journal_mode=True)
     try:
@@ -282,7 +302,9 @@ def test_backup_manager_uses_compact_sqlite_snapshots_without_wal(tmp_path: Path
     check_conn = sqlite3.connect(str(backed_up_db))
     try:
         assert check_conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        texts = [r[0] for r in check_conn.execute("SELECT text FROM documents").fetchall()]
+        texts = [
+            r[0] for r in check_conn.execute("SELECT text FROM documents").fetchall()
+        ]
         assert "from_wal" in texts
         assert len(texts) == 11
     finally:
@@ -454,7 +476,9 @@ async def test_compact_storage_converts_and_compacts_all_three_databases(
             await db.execute("DELETE FROM payloads WHERE id > 15")
             await db.commit()
 
-    before_sizes = {db_file: db_file.stat().st_size for db_file in (main_db, graph_db, conv_db)}
+    before_sizes = {
+        db_file: db_file.stat().st_size for db_file in (main_db, graph_db, conv_db)
+    }
 
     engine = MemoryEngine(
         db_path=str(main_db),
@@ -473,9 +497,13 @@ async def test_compact_storage_converts_and_compacts_all_three_databases(
         for db_file in (main_db, graph_db, conv_db):
             assert db_file.stat().st_size < before_sizes[db_file]
             async with aiosqlite.connect(db_file) as check_db:
-                mode_row = await (await check_db.execute("PRAGMA auto_vacuum")).fetchone()
+                mode_row = await (
+                    await check_db.execute("PRAGMA auto_vacuum")
+                ).fetchone()
                 assert mode_row[0] == 2
-                cnt_row = await (await check_db.execute("SELECT COUNT(*) FROM payloads")).fetchone()
+                cnt_row = await (
+                    await check_db.execute("SELECT COUNT(*) FROM payloads")
+                ).fetchone()
                 assert cnt_row[0] == 15
     finally:
         await engine.close()

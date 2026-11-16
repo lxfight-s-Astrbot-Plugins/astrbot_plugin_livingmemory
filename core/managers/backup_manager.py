@@ -250,9 +250,7 @@ class BackupManager:
                 if fh.read(16) != b"SQLite format 3\x00":
                     raise sqlite3.DatabaseError("invalid SQLite header")
 
-            connection = sqlite3.connect(
-                str(src), timeout=10.0, isolation_level=None
-            )
+            connection = sqlite3.connect(str(src), timeout=10.0, isolation_level=None)
             connection.execute("PRAGMA busy_timeout = 10000")
             connection.execute("VACUUM INTO ?", (str(tmp_dest),))
             connection.close()
