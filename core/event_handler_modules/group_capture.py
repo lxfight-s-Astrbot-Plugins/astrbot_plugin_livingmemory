@@ -81,7 +81,7 @@ class GroupCapture:
                 return
 
             # 存储消息到数据库（群聊用户消息，role 固定为 user）
-            await self.conversation_manager.add_message_from_event(
+            message = await self.conversation_manager.add_message_from_event(
                 event=event,
                 role="user",
                 content=content,
@@ -90,7 +90,9 @@ class GroupCapture:
                 await self.message_utils.mark_message_processed(dedup_key)
 
             # 执行消息数量上限控制
-            await self.message_utils.enforce_message_limit(session_id)
+            await self.message_utils.enforce_message_limit(
+                session_id, count_hint=getattr(message, "session_message_count", None)
+            )
 
             logger.debug(
                 f"[{session_id}] 捕获群聊消息: "

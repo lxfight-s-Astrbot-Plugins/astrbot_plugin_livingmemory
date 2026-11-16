@@ -39,6 +39,8 @@ class Message:
 
     # 元数据
     metadata: dict[str, Any] = field(default_factory=dict)  # 额外的元数据 (JSON)
+    # Transient count captured atomically with insertion; never persisted in metadata.
+    session_message_count: int | None = field(default=None, repr=False, compare=False)
 
     @staticmethod
     def content_to_text(content: Any) -> str:

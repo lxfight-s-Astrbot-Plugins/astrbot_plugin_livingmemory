@@ -295,7 +295,9 @@ class ConversationStore:
             rows = await cursor.fetchall()
         return [str(row["session_id"]) for row in rows if row["session_id"]]
 
-    async def add_message(self, message: Message) -> int:
+    async def add_message(
+        self, message: Message, *, return_count: bool = False
+    ) -> int | tuple[int, int]:
         """
         添加消息到数据库
 
@@ -351,7 +353,7 @@ class ConversationStore:
 
             message_id = cursor.lastrowid if cursor.lastrowid else 0
 
-            await self.connection.execute(
+            cursor = await self.connection.execute(
                 """
                 UPDATE sessions
                 SET message_count = message_count + 1,
@@ -370,6 +372,7 @@ class ConversationStore:
                         )
                     END
                 WHERE session_id = ?
+                RETURNING message_count
             """,
                 (
                     message.timestamp,
@@ -379,12 +382,15 @@ class ConversationStore:
                     message.session_id,
                 ),
             )
+            row = await cursor.fetchone()
+            message_count = int(row[0])
+            await cursor.close()
             await self.connection.commit()
 
         logger.debug(
             f"[ConversationStore] 添加消息: session={message.session_id}, role={message.role}"
         )
-        return message_id
+        return (message_id, message_count) if return_count else message_id
 
     async def get_messages(
         self, session_id: str, limit: int = 50, sender_id: str | None = None

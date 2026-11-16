@@ -292,25 +292,32 @@ class ConversationManager:
             message.metadata["is_bot_message"] = True
 
         # 存储到数据库
-        message_id = await self.store.add_message(message)
-        message.id = message_id
-
-        # 使缓存失效(下次获取时重新加载)
+        # Serialize cached reads and writes so an older read cannot repopulate
+        # the cache after an insertion. Preserve the bounded recent window.
         async with self._cache_lock:
-            if session_id in self._cache:
-                del self._cache[session_id]
+            try:
+                message_id, message.session_message_count = await self.store.add_message(
+                    message, return_count=True
+                )
+                message.id = message_id
+                cached = self._cache.get(session_id)
+                if cached:
+                    previous, _ = cached
+                    if previous:
+                        updated = sorted(
+                            [*previous, message], key=lambda item: (item.timestamp, item.id)
+                        )[-len(previous):]
+                        self._cache[session_id] = (updated, time.time())
+                    else:
+                        self._cache.pop(session_id, None)
+            except BaseException:
+                self._cache.pop(session_id, None)
+                raise
 
         logger.debug(
             f"[ConversationManager] 添加消息: session={session_id}, "
             f"role={role}, sender={sender_id}"
         )
-
-        # 添加后获取最新的消息统计
-        session_info = await self.store.get_session(session_id)
-        if session_info:
-            logger.debug(
-                f"[DEBUG-AddMessage] [{session_id}] 添加消息后，当前总消息数: {session_info.message_count}"
-            )
 
         return message
 
@@ -521,23 +528,21 @@ class ConversationManager:
         if sender_id:
             use_cache = False
 
-        # 尝试从缓存获取
-        if use_cache:
-            cached_messages = await self._get_from_cache(session_id)
-            if cached_messages is not None:
-                # 从缓存中截取需要的数量
-                return cached_messages[-limit:] if limit else cached_messages
+        if not use_cache:
+            return await self.store.get_messages(session_id, limit, sender_id)
 
-        # 从数据库获取
-        messages = await self.store.get_messages(
-            session_id=session_id, limit=limit, sender_id=sender_id
-        )
+        async with self._cache_lock:
+            cached = self._cache.get(session_id)
+            if cached and limit and len(cached[0]) >= limit:
+                self._cache.move_to_end(session_id)
+                return cached[0][-limit:]
 
-        # 更新缓存(仅当不是过滤查询时)
-        if not sender_id and use_cache:
-            await self._update_cache(session_id, messages)
-
-        return messages
+            messages = await self.store.get_messages(session_id, limit, sender_id)
+            self._cache[session_id] = (messages, time.time())
+            self._cache.move_to_end(session_id)
+            if len(self._cache) > self.max_cache_size:
+                self._cache.popitem(last=False)
+            return messages
 
     async def get_session_info(self, session_id: str) -> Session | None:
         """

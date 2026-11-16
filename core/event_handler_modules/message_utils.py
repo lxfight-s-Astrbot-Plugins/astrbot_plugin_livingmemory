@@ -184,7 +184,9 @@ class MessageUtils:
 
         return raw_message.strip()
 
-    async def enforce_message_limit(self, session_id: str):
+    async def enforce_message_limit(
+        self, session_id: str, *, count_hint: int | None = None
+    ):
         """Enforce the configured history cap, preferring summarized messages."""
         if not self.conversation_manager:
             return
@@ -192,6 +194,11 @@ class MessageUtils:
         max_messages = self.config_manager.get(
             "session_manager.max_messages_per_session", 1000
         )
+        # A count returned by the insertion transaction is sufficient below the cap.
+        # At/above the cap, re-read under the existing cleanup path: concurrent
+        # inserts, trims or rollbacks may have changed the count since insertion.
+        if isinstance(count_hint, int) and count_hint <= max_messages:
+            return
         cleanup_batch_size = self.config_manager.get(
             "session_manager.cleanup_batch_size", 50
         )
