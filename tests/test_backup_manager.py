@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from pathlib import Path
+
+import pytest
 
 from astrbot_plugin_livingmemory.core.managers.backup_manager import (
     _BACKUP_INFO_FILE,
@@ -183,21 +186,31 @@ def test_get_stored_version_oserror_returns_none(tmp_path: Path) -> None:
     assert mgr.get_stored_version() is None
 
 
-def test_backup_continues_on_copy_failure(tmp_path: Path) -> None:
-    """单个文件复制失败不应中断整个备份流程。"""
+def test_backup_aborts_on_copy_failure_without_updating_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """单个文件复制失败应回滚事务，不发布半截备份也不更新版本标记。"""
     (tmp_path / "livingmemory.db").write_text("ok")
     (tmp_path / "conversations.db").write_text("ok")
 
     mgr = BackupManager(str(tmp_path))
     mgr.version_file.write_text("1.0.0", encoding="utf-8")
 
-    # 用一个不存在的假路径模拟失败——实际场景中 copy2 抛 OSError 会被捕获
-    # 这里我们验证正常文件被复制而整体流程不中断
-    backup_dir = mgr.backup_if_needed()
-    assert backup_dir is not None
-    backup_path = Path(backup_dir)
-    assert (backup_path / "livingmemory.db").exists()
-    assert (backup_path / "conversations.db").exists()
+    real_copy2 = shutil.copy2
+
+    def fail_on_conversations(src, dst, *args, **kwargs):
+        if Path(src).name == "conversations.db":
+            raise OSError("disk full")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", fail_on_conversations)
+
+    with pytest.raises(OSError, match="disk full"):
+        mgr.backup_if_needed()
+
+    assert mgr.get_stored_version() == "1.0.0"
+    assert not (tmp_path / "backups" / "v1.0.0").exists()
+    assert not any((tmp_path / "backups").glob("*.tmp"))
 
 
 def test_list_backups_multiple_sorted_desc(tmp_path: Path) -> None:

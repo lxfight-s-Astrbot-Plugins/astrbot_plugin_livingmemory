@@ -11,7 +11,10 @@ from unittest.mock import AsyncMock
 import aiosqlite
 import pytest
 
-from astrbot_plugin_livingmemory.core.managers.backup_manager import BackupManager
+from astrbot_plugin_livingmemory.core.managers.backup_manager import (
+    PLUGIN_VERSION,
+    BackupManager,
+)
 from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import GraphMemoryManager
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.models.graph_models import GraphEntry
@@ -321,3 +324,68 @@ def test_compact_sqlite_backup_preserves_existing_dest_on_failure(tmp_path: Path
     assert BackupManager._backup_sqlite_compact(src, dest) is False
     assert dest.read_bytes() == b"keep-existing-snapshot"
     assert not any(tmp_path.glob("*.tmp"))
+
+
+def test_backup_if_needed_aborts_on_sqlite_compact_failure_without_clobbering_or_marking_version(
+    tmp_path: Path,
+):
+    valid_db = tmp_path / "livingmemory.db"
+    conn = sqlite3.connect(str(valid_db))
+    try:
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    corrupt_db = tmp_path / "conversations.db"
+    corrupt_db.write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
+    (tmp_path / "decay_state.json").write_text('{"ok": true}', encoding="utf-8")
+
+    existing_dir = tmp_path / "backups" / "v2.12.0"
+    existing_dir.mkdir(parents=True)
+    (existing_dir / "previous_marker.txt").write_text(
+        "keep-existing-backup", encoding="utf-8"
+    )
+
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="conversations.db"):
+        mgr.backup_if_needed()
+
+    assert mgr.get_stored_version() == "2.12.0"
+    assert (existing_dir / "previous_marker.txt").read_text(
+        encoding="utf-8"
+    ) == "keep-existing-backup"
+    assert not (existing_dir / "livingmemory.db").exists()
+    assert not (existing_dir / "decay_state.json").exists()
+    assert not any((tmp_path / "backups").glob("*.tmp"))
+
+
+def test_backup_if_needed_atomically_replaces_existing_backup_on_success(
+    tmp_path: Path,
+):
+    valid_db = tmp_path / "livingmemory.db"
+    conn = sqlite3.connect(str(valid_db))
+    try:
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+        conn.execute("INSERT INTO t (val) VALUES ('fresh')")
+        conn.commit()
+    finally:
+        conn.close()
+    (tmp_path / "decay_state.json").write_text('{"ok": true}', encoding="utf-8")
+
+    existing_dir = tmp_path / "backups" / "v2.12.0"
+    existing_dir.mkdir(parents=True)
+    (existing_dir / "stale.txt").write_text("old-stale-file", encoding="utf-8")
+
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+
+    result = mgr.backup_if_needed()
+    assert result == str(existing_dir)
+    assert mgr.get_stored_version() == PLUGIN_VERSION
+    assert not (existing_dir / "stale.txt").exists()
+    assert (existing_dir / "livingmemory.db").is_file()
+    assert (existing_dir / "decay_state.json").is_file()
+    assert not any((tmp_path / "backups").glob("*.tmp"))
