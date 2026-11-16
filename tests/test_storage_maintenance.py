@@ -174,8 +174,12 @@ async def test_maintain_storage_reclaims_bloated_sibling_dbs(tmp_path: Path):
     graph_doc_db = tmp_path / "livingmemory_graph_documents.db"
     conv_db = tmp_path / "conversations.db"
 
-    for bloated_db in (graph_doc_db, conv_db):
-        async with aiosqlite.connect(bloated_db) as db:
+    # graph_doc_db uses INCREMENTAL auto_vacuum -> auto-reclaimed when vacuum=False.
+    # conv_db uses legacy auto_vacuum=NONE -> detected as needs_manual_compact, only compacted when vacuum=True.
+    for db_file, incremental in ((graph_doc_db, True), (conv_db, False)):
+        async with aiosqlite.connect(db_file) as db:
+            if incremental:
+                await db.execute("PRAGMA auto_vacuum = INCREMENTAL")
             await db.execute(
                 "CREATE TABLE documents (id INTEGER PRIMARY KEY, doc_id TEXT, text TEXT, metadata TEXT)"
             )
@@ -223,9 +227,19 @@ async def test_maintain_storage_reclaims_bloated_sibling_dbs(tmp_path: Path):
             Path(item["path"]).name: item for item in result["compacted_databases"]
         }
         assert compacted_by_name["livingmemory_graph_documents.db"]["compacted"] is True
-        assert compacted_by_name["conversations.db"]["compacted"] is True
+        assert compacted_by_name["conversations.db"]["compacted"] is False
+        assert compacted_by_name["conversations.db"]["needs_manual_compact"] is True
         assert compacted_by_name["livingmemory.db"]["compacted"] is False
         assert graph_doc_db.stat().st_size < before_graph_size
+        assert conv_db.stat().st_size == before_conv_size
+
+        # Explicit vacuum=True converts and compacts legacy auto_vacuum=NONE DBs too.
+        forced = await engine.maintain_storage(vacuum=True)
+        assert forced["success"] is True
+        forced_by_name = {
+            Path(item["path"]).name: item for item in forced["compacted_databases"]
+        }
+        assert forced_by_name["conversations.db"]["compacted"] is True
         assert conv_db.stat().st_size < before_conv_size
     finally:
         await engine.close()

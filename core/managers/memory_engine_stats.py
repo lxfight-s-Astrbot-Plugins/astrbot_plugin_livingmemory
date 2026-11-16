@@ -307,6 +307,7 @@ class MemoryEngineStatsMixin:
         before_db = db_path.stat().st_size if db_path.is_file() else 0
         before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
         compacted = False
+        needs_manual_compact = False
         free_bytes = 0
         free_ratio = 0.0
 
@@ -328,10 +329,10 @@ class MemoryEngineStatsMixin:
             free_bytes = freelist_count * page_size
             free_ratio = (free_bytes / total_bytes) if total_bytes > 0 else 0.0
 
-            should_reclaim = force or (
+            over_threshold = (
                 free_bytes >= min_free_bytes and free_ratio >= min_free_ratio
             )
-            if should_reclaim:
+            if force or (over_threshold and auto_vacuum == 2):
                 try:
                     cursor = await connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                     await cursor.fetchall()
@@ -349,6 +350,13 @@ class MemoryEngineStatsMixin:
                     logger.warning(
                         f"[StorageMaintenance] 跳过空洞回收 ({db_path.name}): {exc}"
                     )
+            elif over_threshold:
+                needs_manual_compact = True
+                logger.info(
+                    f"[StorageMaintenance] {db_path.name} 空洞约 "
+                    f"{free_bytes / 1024 / 1024:.2f} MiB ({free_ratio:.0%})，"
+                    "未启用 incremental auto_vacuum，跳过后台全量 VACUUM（可手动执行压缩转换）"
+                )
 
         after_db = db_path.stat().st_size if db_path.is_file() else 0
         after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
@@ -356,6 +364,8 @@ class MemoryEngineStatsMixin:
         return {
             "path": str(db_path),
             "compacted": compacted,
+            "needs_manual_compact": needs_manual_compact,
+            "auto_vacuum": auto_vacuum,
             "free_bytes_before": free_bytes,
             "free_ratio_before": round(free_ratio, 4),
             "bytes_reclaimed": reclaimed,
@@ -727,6 +737,7 @@ class MemoryEngineStatsMixin:
                 "PRAGMA busy_timeout = 10000",
                 "PRAGMA wal_checkpoint(TRUNCATE)",
                 "PRAGMA incremental_vacuum",
+                "PRAGMA auto_vacuum = INCREMENTAL",
             ):
                 cursor = await connection.execute(statement)
                 await cursor.fetchall()
