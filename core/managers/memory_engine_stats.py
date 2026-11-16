@@ -271,7 +271,103 @@ class MemoryEngineStatsMixin:
             "archived_count": archived_count,
         }
 
-    async def maintain_storage(self, *, vacuum: bool = False) -> dict[str, Any]:
+    def _maintenance_database_paths(self) -> list[Path]:
+        """Collect existing plugin SQLite databases eligible for storage maintenance."""
+        primary = Path(self.db_path)
+        candidates = [primary]
+        graph_doc_path = self.config.get("graph_document_path")
+        if graph_doc_path:
+            candidates.append(Path(str(graph_doc_path)))
+        else:
+            candidates.append(primary.parent / "livingmemory_graph_documents.db")
+        candidates.append(primary.parent / "conversations.db")
+
+        seen: set[Path] = set()
+        result: list[Path] = []
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            result.append(candidate)
+        return result
+
+    async def _reclaim_database_freelist(
+        self,
+        db_path: Path,
+        *,
+        force: bool = False,
+        min_free_ratio: float = 0.2,
+        min_free_bytes: int = 5 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Inspect a SQLite DB's freelist and compact it when forced or over threshold."""
+        wal_path = Path(f"{db_path}-wal")
+        before_db = db_path.stat().st_size if db_path.is_file() else 0
+        before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+        compacted = False
+        free_bytes = 0
+        free_ratio = 0.0
+
+        async with aiosqlite.connect(str(db_path), isolation_level=None) as connection:
+            await connection.execute("PRAGMA busy_timeout = 10000")
+
+            async def _pragma_int(pragma_name: str) -> int:
+                cursor = await connection.execute(f"PRAGMA {pragma_name}")
+                row = await cursor.fetchone()
+                await cursor.close()
+                return int(row[0]) if row and row[0] is not None else 0
+
+            page_count = await _pragma_int("page_count")
+            freelist_count = await _pragma_int("freelist_count")
+            page_size = await _pragma_int("page_size")
+            auto_vacuum = await _pragma_int("auto_vacuum")
+
+            total_bytes = page_count * page_size
+            free_bytes = freelist_count * page_size
+            free_ratio = (free_bytes / total_bytes) if total_bytes > 0 else 0.0
+
+            should_reclaim = force or (
+                free_bytes >= min_free_bytes and free_ratio >= min_free_ratio
+            )
+            if should_reclaim:
+                try:
+                    cursor = await connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    await cursor.fetchall()
+                    await cursor.close()
+                    if not force and auto_vacuum == 2:
+                        cursor = await connection.execute("PRAGMA incremental_vacuum")
+                        await cursor.fetchall()
+                        await cursor.close()
+                    else:
+                        if auto_vacuum == 0:
+                            await connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+                        await connection.execute("VACUUM")
+                    compacted = True
+                except aiosqlite.OperationalError as exc:
+                    logger.warning(
+                        f"[StorageMaintenance] 跳过空洞回收 ({db_path.name}): {exc}"
+                    )
+
+        after_db = db_path.stat().st_size if db_path.is_file() else 0
+        after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+        reclaimed = max(0, before_db + before_wal - after_db - after_wal)
+        return {
+            "path": str(db_path),
+            "compacted": compacted,
+            "free_bytes_before": free_bytes,
+            "free_ratio_before": round(free_ratio, 4),
+            "bytes_reclaimed": reclaimed,
+        }
+
+    async def maintain_storage(
+        self,
+        *,
+        vacuum: bool = False,
+        auto_vacuum_threshold_ratio: float = 0.2,
+        auto_vacuum_min_free_bytes: int = 5 * 1024 * 1024,
+    ) -> dict[str, Any]:
         """Run SQLite storage maintenance and return size diagnostics."""
         try:
             db_path = Path(self.db_path)
@@ -303,13 +399,43 @@ class MemoryEngineStatsMixin:
                         exc_info=True,
                     )
 
+            orphan_vectors_removed = 0
+            graph_manager = getattr(self, "graph_memory_manager", None)
+            if graph_manager is not None and callable(
+                getattr(graph_manager, "cleanup_orphan_vectors", None)
+            ):
+                try:
+                    orphan_vectors_removed = await graph_manager.cleanup_orphan_vectors()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning(
+                        "[StorageMaintenance] 清理孤儿图向量失败，继续常规维护",
+                        exc_info=True,
+                    )
+
             await self.db_connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
-            if vacuum:
-                await self.db_connection.execute("VACUUM")
+            compacted_databases: list[dict[str, Any]] = []
+            extra_reclaimed = 0
+            primary_resolved = db_path.resolve() if db_path.exists() else None
+            for target_db in self._maintenance_database_paths():
+                db_result = await self._reclaim_database_freelist(
+                    target_db,
+                    force=vacuum,
+                    min_free_ratio=auto_vacuum_threshold_ratio,
+                    min_free_bytes=auto_vacuum_min_free_bytes,
+                )
+                compacted_databases.append(db_result)
+                if primary_resolved is None or target_db.resolve() != primary_resolved:
+                    extra_reclaimed += int(db_result["bytes_reclaimed"])
 
             after_size = db_path.stat().st_size if db_path.exists() else 0
             after_wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+            primary_reclaimed = max(
+                0,
+                before_size + before_wal_size - after_size - after_wal_size,
+            )
             return {
                 "success": True,
                 "vacuum": vacuum,
@@ -317,10 +443,9 @@ class MemoryEngineStatsMixin:
                 "db_size_after": after_size,
                 "wal_size_before": before_wal_size,
                 "wal_size_after": after_wal_size,
-                "bytes_reclaimed": max(
-                    0,
-                    before_size + before_wal_size - after_size - after_wal_size,
-                ),
+                "bytes_reclaimed": primary_reclaimed + extra_reclaimed,
+                "orphan_vectors_removed": orphan_vectors_removed,
+                "compacted_databases": compacted_databases,
             }
         except asyncio.CancelledError:
             raise
