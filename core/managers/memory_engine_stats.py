@@ -711,45 +711,75 @@ class MemoryEngineStatsMixin:
         }
 
     async def compact_storage(self) -> dict[str, Any]:
-        """用独立连接执行 ``VACUUM``，返回压缩前后大小。
+        """用独立连接对主库及关联库执行 ``VACUUM`` 与增量模式转换，返回压缩前后大小。
 
         使用独立的 autocommit 连接，避免复用引擎长连接上的隐式事务（SQLite
         禁止在事务内 VACUUM）。引擎连接保持打开时 VACUUM 需要短暂的独占写锁；
         若此时有并发写入会抛 ``database is locked``，交由命令错误处理展示。
 
         Returns:
-            压缩统计：压缩前后与释放的字节数。
+            压缩统计：压缩前后与释放的字节数，以及各数据库明细。
 
         Raises:
-            RuntimeError: 数据库文件不存在。
+            RuntimeError: 主数据库文件不存在。
         """
         db_path = Path(self.db_path)
         if not db_path.is_file():
             raise RuntimeError(f"database file not found: {db_path}")
-        wal_path = Path(f"{self.db_path}-wal")
-        before_db = db_path.stat().st_size
-        before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
-        logger.info("[Diag] 开始 VACUUM 压缩数据库: %s", db_path)
-        async with aiosqlite.connect(str(db_path), isolation_level=None) as connection:
-            # PRAGMA 的结果必须取回并关闭游标，否则游标仍在执行中，VACUUM 会报
-            # "cannot VACUUM - SQL statements in progress"。
-            for statement in (
-                "PRAGMA busy_timeout = 10000",
-                "PRAGMA wal_checkpoint(TRUNCATE)",
-                "PRAGMA incremental_vacuum",
-                "PRAGMA auto_vacuum = INCREMENTAL",
-            ):
-                cursor = await connection.execute(statement)
-                await cursor.fetchall()
-                await cursor.close()
-            await connection.execute("VACUUM")
-        after_db = db_path.stat().st_size
-        after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+
+        total_db_before = 0
+        total_db_after = 0
+        total_wal_before = 0
+        total_wal_after = 0
+        databases: list[dict[str, Any]] = []
+
+        for target_db in self._maintenance_database_paths():
+            wal_path = Path(f"{target_db}-wal")
+            before_db = target_db.stat().st_size
+            before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+            logger.info("[Diag] 开始 VACUUM 压缩数据库: %s", target_db)
+            async with aiosqlite.connect(
+                str(target_db), isolation_level=None
+            ) as connection:
+                # PRAGMA 的结果必须取回并关闭游标，否则游标仍在执行中，VACUUM 会报
+                # "cannot VACUUM - SQL statements in progress"。
+                for statement in (
+                    "PRAGMA busy_timeout = 10000",
+                    "PRAGMA wal_checkpoint(TRUNCATE)",
+                    "PRAGMA incremental_vacuum",
+                    "PRAGMA auto_vacuum = INCREMENTAL",
+                ):
+                    cursor = await connection.execute(statement)
+                    await cursor.fetchall()
+                    await cursor.close()
+                await connection.execute("VACUUM")
+            after_db = target_db.stat().st_size
+            after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+            total_db_before += before_db
+            total_db_after += after_db
+            total_wal_before += before_wal
+            total_wal_after += after_wal
+            databases.append(
+                {
+                    "path": str(target_db),
+                    "db_size_before": before_db,
+                    "db_size_after": after_db,
+                    "wal_size_before": before_wal,
+                    "wal_size_after": after_wal,
+                    "bytes_reclaimed": max(
+                        0, before_db + before_wal - after_db - after_wal
+                    ),
+                }
+            )
+
         return {
             "success": True,
-            "db_size_before": before_db,
-            "db_size_after": after_db,
-            "wal_size_before": before_wal,
-            "wal_size_after": after_wal,
-            "bytes_reclaimed": max(0, before_db + before_wal - after_db - after_wal),
+            "db_size_before": total_db_before,
+            "db_size_after": total_db_after,
+            "wal_size_before": total_wal_before,
+            "wal_size_after": total_wal_after,
+            "bytes_reclaimed": max(
+                0, total_db_before + total_wal_before - total_db_after - total_wal_after
+            ),
+            "databases": databases,
         }

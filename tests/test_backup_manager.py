@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import time
 from pathlib import Path
 
@@ -15,6 +16,17 @@ from astrbot_plugin_livingmemory.core.managers.backup_manager import (
     PLUGIN_VERSION,
     BackupManager,
 )
+
+
+def _create_sqlite_db(path: Path, payload: str = "ok") -> None:
+    """Create a minimal valid SQLite database containing one payload row."""
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, val TEXT)")
+        conn.execute("INSERT INTO items (val) VALUES (?)", (payload,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def test_get_stored_version_first_run(tmp_path: Path) -> None:
@@ -53,10 +65,10 @@ def test_backup_if_needed_no_change(tmp_path: Path) -> None:
 
 
 def test_backup_if_needed_creates_backup_dir(tmp_path: Path) -> None:
-    # Create mock data files
-    (tmp_path / "livingmemory.db").write_text("mock db content")
+    # Create valid SQLite DBs and companion index/state files
+    _create_sqlite_db(tmp_path / "livingmemory.db", "mock db content")
     (tmp_path / "livingmemory.index").write_text("mock index")
-    (tmp_path / "conversations.db").write_text("mock conversations")
+    _create_sqlite_db(tmp_path / "conversations.db", "mock conversations")
     (tmp_path / "decay_state.json").write_text('{"last_run": "2025-01-01"}')
 
     mgr = BackupManager(str(tmp_path))
@@ -87,7 +99,7 @@ def test_backup_if_needed_creates_backup_dir(tmp_path: Path) -> None:
 
 
 def test_backup_if_needed_first_install(tmp_path: Path) -> None:
-    (tmp_path / "livingmemory.db").write_text("fresh install")
+    _create_sqlite_db(tmp_path / "livingmemory.db", "fresh install")
 
     mgr = BackupManager(str(tmp_path))
     backup_dir = mgr.backup_if_needed()
@@ -113,14 +125,23 @@ def test_backup_handles_missing_files_gracefully(tmp_path: Path) -> None:
 
 def test_backup_preserves_file_content(tmp_path: Path) -> None:
     original_content = "original database content for verification"
-    (tmp_path / "livingmemory.db").write_text(original_content)
+    _create_sqlite_db(tmp_path / "livingmemory.db", original_content)
+    (tmp_path / "livingmemory.index").write_text(original_content, encoding="utf-8")
 
     mgr = BackupManager(str(tmp_path))
     mgr.version_file.write_text("1.0.0", encoding="utf-8")
     backup_dir = mgr.backup_if_needed()
 
-    backup_file = Path(backup_dir) / "livingmemory.db"
-    assert backup_file.read_text(encoding="utf-8") == original_content
+    backup_db = Path(backup_dir) / "livingmemory.db"
+    conn = sqlite3.connect(str(backup_db))
+    try:
+        rows = conn.execute("SELECT val FROM items").fetchall()
+    finally:
+        conn.close()
+    assert rows == [(original_content,)]
+    assert (Path(backup_dir) / "livingmemory.index").read_text(encoding="utf-8") == (
+        original_content
+    )
 
 
 def test_list_backups_empty(tmp_path: Path) -> None:
@@ -151,7 +172,7 @@ def test_list_backups_with_data(tmp_path: Path) -> None:
 
 def test_backup_includes_graph_files(tmp_path: Path) -> None:
     """图数据库文件应被通配符匹配并备份。"""
-    (tmp_path / "livingmemory_graph_documents.db").write_text("graph docs")
+    _create_sqlite_db(tmp_path / "livingmemory_graph_documents.db", "graph docs")
     (tmp_path / "livingmemory_graph.index").write_text("graph index")
 
     mgr = BackupManager(str(tmp_path))
@@ -164,18 +185,17 @@ def test_backup_includes_graph_files(tmp_path: Path) -> None:
 
 
 def test_backup_includes_wal_shm_files(tmp_path: Path) -> None:
-    """WAL 和 SHM 日志文件应通过通配符被备份。"""
-    (tmp_path / "livingmemory.db").write_text("main")
-    (tmp_path / "livingmemory.db-wal").write_text("wal")
-    (tmp_path / "livingmemory.db-shm").write_text("shm")
+    """未生成紧凑快照的 WAL/SHM 附属文件应通过通配符被备份。"""
+    (tmp_path / "orphan.db-wal").write_text("wal")
+    (tmp_path / "orphan.db-shm").write_text("shm")
 
     mgr = BackupManager(str(tmp_path))
     mgr.version_file.write_text("2.0.0", encoding="utf-8")
     backup_dir = mgr.backup_if_needed()
 
     backup_path = Path(backup_dir)
-    assert (backup_path / "livingmemory.db-wal").exists()
-    assert (backup_path / "livingmemory.db-shm").exists()
+    assert (backup_path / "orphan.db-wal").exists()
+    assert (backup_path / "orphan.db-shm").exists()
 
 
 def test_get_stored_version_oserror_returns_none(tmp_path: Path) -> None:
@@ -190,20 +210,20 @@ def test_backup_aborts_on_copy_failure_without_updating_version(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """单个文件复制失败应回滚事务，不发布半截备份也不更新版本标记。"""
-    (tmp_path / "livingmemory.db").write_text("ok")
-    (tmp_path / "conversations.db").write_text("ok")
+    _create_sqlite_db(tmp_path / "livingmemory.db", "ok")
+    (tmp_path / "decay_state.json").write_text('{"ok": true}', encoding="utf-8")
 
     mgr = BackupManager(str(tmp_path))
     mgr.version_file.write_text("1.0.0", encoding="utf-8")
 
     real_copy2 = shutil.copy2
 
-    def fail_on_conversations(src, dst, *args, **kwargs):
-        if Path(src).name == "conversations.db":
+    def fail_on_decay_state(src, dst, *args, **kwargs):
+        if Path(src).name == "decay_state.json":
             raise OSError("disk full")
         return real_copy2(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(shutil, "copy2", fail_on_conversations)
+    monkeypatch.setattr(shutil, "copy2", fail_on_decay_state)
 
     with pytest.raises(OSError, match="disk full"):
         mgr.backup_if_needed()
@@ -272,7 +292,7 @@ def test_write_current_version_creates_missing_dir(tmp_path: Path) -> None:
 
 def test_backup_info_json_contains_all_fields(tmp_path: Path) -> None:
     """验证 backup_info.json 包含所有必要字段。"""
-    (tmp_path / "livingmemory.db").write_text("test")
+    _create_sqlite_db(tmp_path / "livingmemory.db", "test")
 
     mgr = BackupManager(str(tmp_path))
     previous_version = "0.0.0"

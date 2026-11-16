@@ -389,3 +389,93 @@ def test_backup_if_needed_atomically_replaces_existing_backup_on_success(
     assert (existing_dir / "livingmemory.db").is_file()
     assert (existing_dir / "decay_state.json").is_file()
     assert not any((tmp_path / "backups").glob("*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "bad_bytes",
+    [b"not a sqlite header at all", b""],
+)
+def test_backup_if_needed_rejects_invalid_or_empty_sqlite_db(
+    tmp_path: Path, bad_bytes: bytes
+):
+    (tmp_path / "livingmemory.db").write_bytes(bad_bytes)
+
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="livingmemory.db"):
+        mgr.backup_if_needed()
+
+    assert mgr.get_stored_version() == "2.12.0"
+    assert not (tmp_path / "backups" / "v2.12.0").exists()
+
+
+def test_backup_manager_recovers_interrupted_publish_and_hides_dot_dirs(
+    tmp_path: Path,
+):
+    backups_root = tmp_path / "backups"
+    interrupted = backups_root / ".v2.12.0.old.999.deadbeef.tmp"
+    interrupted.mkdir(parents=True)
+    (interrupted / "marker.txt").write_text("prior-backup", encoding="utf-8")
+
+    # Hidden temp dirs are not exposed by list_backups.
+    assert BackupManager.list_backups(str(tmp_path)) == []
+
+    # Triggering recovery restores the archived directory if a subsequent backup aborts.
+    (tmp_path / "livingmemory.db").write_bytes(b"corrupt")
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="livingmemory.db"):
+        mgr.backup_if_needed()
+
+    restored_dir = backups_root / "v2.12.0"
+    assert (restored_dir / "marker.txt").read_text(encoding="utf-8") == "prior-backup"
+    assert not interrupted.exists()
+
+
+@pytest.mark.asyncio
+async def test_compact_storage_converts_and_compacts_all_three_databases(
+    tmp_path: Path,
+):
+    main_db = tmp_path / "livingmemory.db"
+    graph_db = tmp_path / "livingmemory_graph_documents.db"
+    conv_db = tmp_path / "conversations.db"
+
+    for db_file in (main_db, graph_db, conv_db):
+        async with aiosqlite.connect(db_file) as db:
+            await db.execute(
+                "CREATE TABLE payloads (id INTEGER PRIMARY KEY, body TEXT)"
+            )
+            await db.executemany(
+                "INSERT INTO payloads (body) VALUES (?)",
+                [("z" * 500,) for _ in range(300)],
+            )
+            await db.execute("DELETE FROM payloads WHERE id > 15")
+            await db.commit()
+
+    before_sizes = {db_file: db_file.stat().st_size for db_file in (main_db, graph_db, conv_db)}
+
+    engine = MemoryEngine(
+        db_path=str(main_db),
+        faiss_db=_FakeFaissDB(),
+        config={
+            "atom_enabled": False,
+            "graph_memory_enabled": False,
+            "graph_document_path": str(graph_db),
+        },
+    )
+    result = await engine.compact_storage()
+    try:
+        assert result["success"] is True
+        assert result["bytes_reclaimed"] > 0
+        assert len(result["databases"]) == 3
+        for db_file in (main_db, graph_db, conv_db):
+            assert db_file.stat().st_size < before_sizes[db_file]
+            async with aiosqlite.connect(db_file) as check_db:
+                mode_row = await (await check_db.execute("PRAGMA auto_vacuum")).fetchone()
+                assert mode_row[0] == 2
+                cnt_row = await (await check_db.execute("SELECT COUNT(*) FROM payloads")).fetchone()
+                assert cnt_row[0] == 15
+    finally:
+        await engine.close()

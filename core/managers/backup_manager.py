@@ -104,6 +104,7 @@ class BackupManager:
         backups_root = self.data_dir / "backups"
         backups_root.mkdir(parents=True, exist_ok=True)
         backup_dir = backups_root / f"v{old_label}"
+        self._recover_interrupted_publish(backup_dir)
         staging_dir = backups_root / (
             f".v{old_label}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         )
@@ -171,7 +172,7 @@ class BackupManager:
         self, file_path: Path, dest: Path, compacted_dbs: set[str]
     ) -> int:
         """Stage a primary data file into the transaction directory."""
-        if file_path.suffix == ".db" and self._is_sqlite_file(file_path):
+        if file_path.suffix == ".db":
             if not self._backup_sqlite_compact(file_path, dest):
                 raise RuntimeError(f"SQLite 紧凑备份失败: {file_path.name}")
             compacted_dbs.add(file_path.name)
@@ -181,8 +182,38 @@ class BackupManager:
         return 1
 
     @staticmethod
-    def _publish_staging_dir(staging_dir: Path, backup_dir: Path) -> None:
+    def _recover_interrupted_publish(backup_dir: Path) -> None:
+        """Restore an archived backup dir if a prior swap crashed mid-publish."""
+        archived_dirs = sorted(
+            (
+                p
+                for p in backup_dir.parent.glob(f".{backup_dir.name}.old.*.tmp")
+                if p.is_dir()
+            ),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not archived_dirs:
+            return
+        if not backup_dir.exists():
+            try:
+                os.replace(archived_dirs[0], backup_dir)
+                logger.warning(
+                    f"[BackupManager] 检测到上次发布中断，已恢复旧备份目录: {backup_dir}"
+                )
+            except OSError as exc:
+                logger.error(
+                    f"[BackupManager] 恢复中断的旧备份目录失败 ({backup_dir}): {exc}"
+                )
+                return
+        for stale in archived_dirs:
+            if stale.exists():
+                shutil.rmtree(stale, ignore_errors=True)
+
+    @classmethod
+    def _publish_staging_dir(cls, staging_dir: Path, backup_dir: Path) -> None:
         """Atomically publish *staging_dir* to *backup_dir*, preserving prior data on error."""
+        cls._recover_interrupted_publish(backup_dir)
         if not backup_dir.exists():
             os.replace(staging_dir, backup_dir)
             return
@@ -205,15 +236,6 @@ class BackupManager:
         shutil.rmtree(archived_old, ignore_errors=True)
 
     @staticmethod
-    def _is_sqlite_file(path: Path) -> bool:
-        """Return True when *path* starts with the SQLite 3 file header."""
-        try:
-            with path.open("rb") as fh:
-                return fh.read(16) == b"SQLite format 3\x00"
-        except OSError:
-            return False
-
-    @staticmethod
     def _backup_sqlite_compact(src: Path, dest: Path) -> bool:
         """Create a compact standalone SQLite snapshot atomically via ``VACUUM INTO``."""
         tmp_dest = dest.with_name(
@@ -222,6 +244,12 @@ class BackupManager:
         connection: sqlite3.Connection | None = None
         verify_conn: sqlite3.Connection | None = None
         try:
+            if not src.is_file() or src.stat().st_size < 16:
+                raise sqlite3.DatabaseError("invalid or empty SQLite file")
+            with src.open("rb") as fh:
+                if fh.read(16) != b"SQLite format 3\x00":
+                    raise sqlite3.DatabaseError("invalid SQLite header")
+
             connection = sqlite3.connect(
                 str(src), timeout=10.0, isolation_level=None
             )
@@ -465,7 +493,7 @@ class BackupManager:
 
         result: list[dict] = []
         for backup_dir in sorted(backups_path.iterdir(), reverse=True):
-            if not backup_dir.is_dir():
+            if not backup_dir.is_dir() or backup_dir.name.startswith("."):
                 continue
             info_path = backup_dir / _BACKUP_INFO_FILE
             info: dict = {}
