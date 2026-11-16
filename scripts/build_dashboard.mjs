@@ -148,6 +148,13 @@ const app = await build({
   format: "esm", target: "es2022", write: false, legalComments: "inline",
 });
 artifacts.set("app.min.js", app.outputFiles[0].text);
+/* 设置页按需加载，不进入首屏 bundle。 */
+const settings = await build({
+  entryPoints: [join(DASHBOARD, "modules", "settings-page.js")], bundle: true, minify: true,
+  format: "esm", target: "es2022", write: false, legalComments: "inline",
+});
+artifacts.set("settings.min.js", settings.outputFiles[0].text);
+
 /* 用户档案页按需加载，不进入首屏 bundle。 */
 const profile = await build({
   entryPoints: [join(DASHBOARD, "modules", "profile-page.js")], bundle: true, minify: true,

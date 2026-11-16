@@ -363,3 +363,33 @@ test("dangerous-change detection only fires for risky transitions", async () => 
     delete globalThis.window;
   }
 });
+
+test("settings category tab switching filters to specific category", () => {
+  const container = { innerHTML: "" };
+  const page = createPage(container);
+
+  page._activeTab = "recall";
+  page.render();
+
+  assert.match(container.innerHTML, /data-category="recall"/);
+  assert.doesNotMatch(container.innerHTML, /data-category="system"/);
+  assert.match(container.innerHTML, /recall_engine\.top_k/);
+  assert.match(container.innerHTML, /recall_engine\.max_k/);
+});
+
+test("settings modified-only filter shows only changed values", () => {
+  const container = { innerHTML: "" };
+  const page = createPage(container);
+
+  page.sections[0].fields[0].default = 5;
+  page.sections[0].fields[0].value = 9;
+  page.sections[0].fields[1].default = 10;
+  page.sections[0].fields[1].value = 10;
+
+  page._filterModified = true;
+  page.render();
+
+  assert.match(container.innerHTML, /recall_engine\.top_k/);
+  assert.doesNotMatch(container.innerHTML, /recall_engine\.max_k/);
+  assert.match(container.innerHTML, /settings\.modifiedBadge/);
+});

@@ -10,7 +10,6 @@ import {
   RecallPage,
   SystemPage,
   PromptPage,
-  SettingsPage,
   NotReadyBanner,
   esc,
   unwrapResponse,
@@ -58,7 +57,6 @@ import {
   const recallPage = new RecallPage(state, api, peekPanel);
   const systemPage = new SystemPage(state, api);
   const promptPage = new PromptPage(state, api);
-  const settingsPage = new SettingsPage(state, api);
 
   /* 懒加载页面共用加载器：首次进入才 import 对应 chunk，失败提示后可重试。 */
   const lazyPages = {};
@@ -70,7 +68,7 @@ import {
       lazyPageLoads[name] = import(moduleUrl)
         .then((module) => {
           lazyPages[name] = new module[className](state, api);
-          lazyPages[name].init();
+          if (typeof lazyPages[name].init === "function") lazyPages[name].init();
           return lazyPages[name];
         })
         .catch((error) => {
@@ -86,6 +84,8 @@ import {
   const ensureProfilePage = () => ensureLazyPage("profile", "profile.min.js", "ProfilePage");
   const ensureDiagnosticsPage = () =>
     ensureLazyPage("diagnostics", "diagnostics.min.js", "DiagnosticsPage");
+  const ensureSettingsPage = () =>
+    ensureLazyPage("settings", "settings.min.js", "SettingsPage");
 
   function hydrateIcons() {
     if (!window.lucide || typeof window.lucide.createIcons !== "function") return;
@@ -123,7 +123,7 @@ import {
       showToast(window.t("flow.waitForSave"));
       return;
     }
-    if (state.page === "settings" && !await settingsPage.canLeave()) return;
+    if (state.page === "settings" && lazyPages.settings && !await lazyPages.settings.canLeave()) return;
     if (state.page === "profile" && lazyPages.profile && !await lazyPages.profile.canLeave()) return;
     const generation = ++navigationGeneration;
     if (state.page === "prompts" && !await promptPage.canLeave()) return;
@@ -151,7 +151,10 @@ import {
     if (name === "recall") { /* 召回页面按需加载 */ }
     if (name === "system") systemPage.fetch();
     if (name === "prompts") promptPage.fetch();
-    if (name === "settings") settingsPage.fetch();
+    if (name === "settings") {
+      const page = await ensureSettingsPage();
+      if (page) await page.fetch();
+    }
     if (name === "profile") {
       const page = await ensureProfilePage();
       if (page) await page.fetch();
@@ -173,8 +176,8 @@ import {
       systemPage.fetch();
     } else if (state.page === "prompts") {
       promptPage.fetch();
-    } else if (state.page === "settings") {
-      settingsPage.fetch();
+    } else if (state.page === "settings" && lazyPages.settings) {
+      lazyPages.settings.fetch();
     } else if (state.page === "profile" && lazyPages.profile) {
       lazyPages.profile.render();
     } else if (state.page === "diagnostics" && lazyPages.diagnostics) {
@@ -279,7 +282,7 @@ import {
       promptPage.render();
       promptPage.refreshEditorTitle();
     }
-    if (state.page === "settings") settingsPage.fetch();
+    if (state.page === "settings" && lazyPages.settings) lazyPages.settings.fetch();
     if (state.page === "profile" && lazyPages.profile) lazyPages.profile.render();
     if (state.page === "diagnostics" && lazyPages.diagnostics) lazyPages.diagnostics.render();
 
@@ -362,7 +365,7 @@ import {
       }
     });
     window.addEventListener("beforeunload", event => {
-      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || settingsPage.hasUnsavedChanges() || (lazyPages.profile && lazyPages.profile.hasUnsavedChanges()) || memoryPage._bulkBusy || memoryPage._transferBusy) {
+      if (promptPage.hasUnsavedChanges() || peekPanel.hasUnsavedChanges() || (lazyPages.settings && lazyPages.settings.hasUnsavedChanges()) || (lazyPages.profile && lazyPages.profile.hasUnsavedChanges()) || memoryPage._bulkBusy || memoryPage._transferBusy) {
         event.preventDefault();
         event.returnValue = "";
       }
