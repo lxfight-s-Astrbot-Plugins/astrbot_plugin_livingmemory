@@ -14,6 +14,7 @@ import asyncio
 import copy
 import math
 import time
+import weakref
 from collections import OrderedDict
 from typing import Any
 
@@ -75,10 +76,12 @@ class ConversationManager:
         self.session_ttl = session_ttl
         self.identity_aliases = identity_aliases
 
-        # LRU缓存: {session_id: (messages, last_access_time)}
+        # LRU cache entries hold (messages, requested capacity, complete history).
         self._cache: OrderedDict = OrderedDict()
-        # 缓存锁，保护并发访问
-        self._cache_lock = asyncio.Lock()
+        # A lock lives as long as a task holds it; idle session locks can disappear.
+        self._cache_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+            weakref.WeakValueDictionary()
+        )
 
         # 会话修订号: {session_id: revision}
         # 任何会使"基于旧消息范围"的后台记忆总结任务失效的破坏性操作
@@ -93,6 +96,13 @@ class ConversationManager:
             f"[ConversationManager] 初始化完成: "
             f"缓存大小={max_cache_size}, 上下文窗口={context_window_size}"
         )
+
+    def _cache_session_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._cache_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._cache_locks[session_id] = lock
+        return lock
 
     async def add_message_from_event(
         self,
@@ -292,9 +302,8 @@ class ConversationManager:
             message.metadata["is_bot_message"] = True
 
         # 存储到数据库
-        # Serialize cached reads and writes so an older read cannot repopulate
-        # the cache after an insertion. Preserve the bounded recent window.
-        async with self._cache_lock:
+        # Serialize only this session's reads, writes and invalidations.
+        async with self._cache_session_lock(session_id):
             try:
                 message_id, message.session_message_count = await self.store.add_message(
                     message, return_count=True
@@ -302,14 +311,13 @@ class ConversationManager:
                 message.id = message_id
                 cached = self._cache.get(session_id)
                 if cached:
-                    previous, _ = cached
-                    if previous:
-                        updated = sorted(
-                            [*previous, message], key=lambda item: (item.timestamp, item.id)
-                        )[-len(previous):]
-                        self._cache[session_id] = (updated, time.time())
-                    else:
-                        self._cache.pop(session_id, None)
+                    previous, capacity, complete = cached
+                    updated = sorted(
+                        [*previous, message], key=lambda item: (item.timestamp, item.id)
+                    )
+                    complete = complete and len(updated) <= capacity
+                    self._cache[session_id] = (updated[-capacity:], capacity, complete)
+                    self._cache.move_to_end(session_id)
             except BaseException:
                 self._cache.pop(session_id, None)
                 raise
@@ -528,17 +536,21 @@ class ConversationManager:
         if sender_id:
             use_cache = False
 
-        if not use_cache:
+        # Preserve SQLite LIMIT behavior for zero and negative values without
+        # replacing an existing useful cache entry. None is not a valid limit.
+        if not use_cache or not isinstance(limit, int) or limit <= 0:
             return await self.store.get_messages(session_id, limit, sender_id)
 
-        async with self._cache_lock:
+        async with self._cache_session_lock(session_id):
             cached = self._cache.get(session_id)
-            if cached and limit and len(cached[0]) >= limit:
+            if cached and (len(cached[0]) >= limit or cached[2]):
+                if limit > cached[1]:
+                    self._cache[session_id] = (cached[0], limit, cached[2])
                 self._cache.move_to_end(session_id)
                 return cached[0][-limit:]
 
             messages = await self.store.get_messages(session_id, limit, sender_id)
-            self._cache[session_id] = (messages, time.time())
+            self._cache[session_id] = (list(messages), limit, len(messages) < limit)
             self._cache.move_to_end(session_id)
             if len(self._cache) > self.max_cache_size:
                 self._cache.popitem(last=False)
@@ -594,8 +606,7 @@ class ConversationManager:
             revision = await self._bump_session_revision_locked(session_id)
 
         # 清除缓存（放在锁外，尽量缩短临界区）
-        async with self._cache_lock:
-            self._cache.pop(session_id, None)
+        await self.invalidate_cache(session_id)
 
         logger.info(
             f"[ConversationManager] 已清空会话并重置记忆上下文: {session_id}"
@@ -899,46 +910,6 @@ class ConversationManager:
         """
         return await self.store.get_last_message(session_id)
 
-    async def _update_cache(self, session_id: str, messages: list[Message]):
-        """
-        更新LRU缓存
-
-        Args:
-            session_id: 会话ID
-            messages: 消息列表
-        """
-        async with self._cache_lock:
-            # 如果已存在,先删除(会被添加到末尾)
-            if session_id in self._cache:
-                del self._cache[session_id]
-
-            # 添加到末尾(最新)
-            self._cache[session_id] = (messages, time.time())
-
-            # 如果超过容量,删除最旧的
-            if len(self._cache) > self.max_cache_size:
-                self._cache.popitem(last=False)  # 删除最前面的(最旧)
-
-    async def _get_from_cache(self, session_id: str) -> list[Message] | None:
-        """
-        从缓存获取消息
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            消息列表,不存在则返回None
-        """
-        async with self._cache_lock:
-            if session_id in self._cache:
-                messages, _ = self._cache[session_id]
-                # 移到末尾(标记为最新访问)
-                self._cache.move_to_end(session_id)
-                # 更新访问时间
-                self._cache[session_id] = (messages, time.time())
-                return messages
-        return None
-
     async def invalidate_cache(self, session_id: str):
         """
         使指定会话的缓存失效（公共接口）
@@ -946,7 +917,7 @@ class ConversationManager:
         Args:
             session_id: 会话ID
         """
-        async with self._cache_lock:
+        async with self._cache_session_lock(session_id):
             if session_id in self._cache:
                 del self._cache[session_id]
 
