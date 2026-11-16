@@ -14,7 +14,7 @@ The 3D module is loaded on demand when switching to the 3D view, and its scene i
 
 ## Settings
 
-- The page opens with eight common settings; the rest is folded into five categories (memory generation and lifecycle, recall and tools, graph and atoms, access and isolation, system and maintenance) that can be searched, expanded or collapsed all at once. Field labels and hints come from the plugin schema and follow the dashboard language.
+- Tabs switch between all settings, eight quick settings and the five categories (memory generation and lifecycle, recall and tools, graph and atoms, access and isolation, system and maintenance), each with its match count; inside a category, sub-pills switch between its sections. Search matches labels, hints and config paths and reports how many fields matched, and “Modified only” keeps just the values changed from their defaults. Field rows show the config path and a “Modified” badge, booleans are switches, expand/collapse all still works, and labels and hints come from the plugin schema in the dashboard language.
 - Saving writes to the plugin configuration. Options used during initialization take full effect after reloading the plugin, while some (such as write-time duplicate merging) apply immediately.
 - The AstrBot plugin config page keeps the model providers, reply language and the required Embedding Provider field.
 
