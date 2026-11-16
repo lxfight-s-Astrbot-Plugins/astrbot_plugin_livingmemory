@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 # networkx 只服务于「打开图谱页」时的社区分组，顶层 import 会在插件加载时
 # 多花约 0.24s / 13MB（仅 WebUI 需要）。改为首次分配社区时再导入并缓存。
 _nx: Any = None
+_missing_nx_warned = False
 
 
 def _networkx() -> Any:
@@ -47,7 +48,18 @@ class GraphHandler:
         Args:
             snapshot: Fresh graph snapshot whose node dictionaries are updated.
         """
-        nx = _networkx()
+        global _missing_nx_warned
+        try:
+            nx = _networkx()
+        except ModuleNotFoundError:
+            if not _missing_nx_warned:
+                _missing_nx_warned = True
+                logger.warning(
+                    "[PageAPI] 未安装 networkx，图谱社区分组已降级为单集群展示"
+                )
+            for node in snapshot["nodes"]:
+                node["community"] = 0
+            return
         graph = nx.Graph()
         graph.add_nodes_from(sorted(node["id"] for node in snapshot["nodes"]))
         for edge in snapshot["edges"]:
