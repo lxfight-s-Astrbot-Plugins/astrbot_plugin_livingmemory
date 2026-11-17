@@ -31,7 +31,12 @@ current_adapter_access: ContextVar[AdapterAccess | None] = ContextVar(
 
 @contextmanager
 def adapter_access(config: Any, event: Any, *, write: bool = False):
-    """Apply adapter policy to this task and reset it when the request finishes."""
+    """Apply adapter policy to this task and reset it when the request finishes.
+
+    An empty ``shared_adapter_ids`` list is treated as "not configured": a saved
+    empty list previously selected the single-instance branch, so every memory
+    written by another adapter became invisible (#442).
+    """
     adapter_id = (
         event if isinstance(event, str) else _event_value(event, "get_platform_id")
     )
@@ -43,7 +48,8 @@ def adapter_access(config: Any, event: Any, *, write: bool = False):
         allowed = (adapter_id,)
     elif shared is not None:
         members = parse_value_list(shared)
-        allowed = tuple(sorted(members)) if adapter_id in members else (adapter_id,)
+        if members:
+            allowed = tuple(sorted(members)) if adapter_id in members else (adapter_id,)
     token = current_adapter_access.set(AdapterAccess(adapter_id, allowed))
     try:
         yield
