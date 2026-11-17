@@ -573,7 +573,7 @@ class PluginInitializer(InitializerFaissMixin):
             "min_similarity_for_retrieval": get(
                 "recall_engine.min_similarity_for_retrieval", 0.0
             ),
-            "recent_memory_count": get("recall_engine.recent_memory_count", 2),
+            "recent_memory_count": get("recall_engine.recent_memory_count", 0),
             "recent_memory_max_age_hours": get(
                 "recall_engine.recent_memory_max_age_hours", 72
             ),

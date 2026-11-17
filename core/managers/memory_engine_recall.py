@@ -77,6 +77,7 @@ class MemoryEngineRecallMixin:
         persona_id: str | None = None,
         *,
         extra_scopes: list[str] | None = None,
+        track_access: bool = False,
     ) -> list[HybridResult]:
         """
         检索相关记忆
@@ -87,6 +88,9 @@ class MemoryEngineRecallMixin:
             session_id: 会话ID过滤(可选,应传入unified_msg_origin完整格式)
             persona_id: 人格ID过滤(可选)
             extra_scopes: 与主作用域并联检索的附加作用域（如频道公共记忆）。
+            track_access: 是否把本次检索记为“使用”并更新访问统计。
+                检索本身不等于强化；默认 False，只有确认模型实际使用了
+                结果时才由调用方显式传 True（或走显式深读入口）。
 
         Returns:
             List[HybridResult]: 检索结果列表
@@ -116,6 +120,7 @@ class MemoryEngineRecallMixin:
                 recorder,
                 trace,
                 rejected,
+                track_access,
             )
         except asyncio.CancelledError:
             if trace is not None and recorder is not None:
@@ -166,6 +171,7 @@ class MemoryEngineRecallMixin:
         recorder,
         trace,
         rejected: dict[str, int] | None,
+        track_access: bool = False,
     ) -> list[HybridResult]:
         """召回主流程；trace 为 None 时只多一次布尔判断。"""
         trace_active = trace is not None and recorder is not None
@@ -179,14 +185,23 @@ class MemoryEngineRecallMixin:
             cached_results = await self._apply_atom_policy(cached_results)
             if trace_active:
                 self._note_atom_filter(trace, atom_before, len(cached_results))
-            await self._update_access_times_internal(
-                [result.doc_id for result in cached_results],
-                [
-                    atom_id
+            if track_access:
+                # 补位记忆不是检索命中，不强化；缓存结果用 recent_memory 标记
+                # 区分相关性结果与补位结果。
+                tracked = [
+                    result
                     for result in cached_results
-                    for atom_id in result.metadata.get("retrieved_atom_ids", [])
-                ],
-            )
+                    if not self._is_recent_filler(result)
+                ]
+                if tracked:
+                    await self._update_access_times_internal(
+                        [result.doc_id for result in tracked],
+                        [
+                            atom_id
+                            for result in tracked
+                            for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                        ],
+                    )
             if trace_active:
                 self._finalize_recall_trace(recorder, trace, cached_results)
             return cached_results
@@ -323,16 +338,19 @@ class MemoryEngineRecallMixin:
             channel_scopes=channel_scopes,
         )
 
-        # 访问统计合并到窗口内异步写，不阻塞返回
-        if results:
-            await self._update_access_times_internal(
-                [r.doc_id for r in results],
-                [
-                    atom_id
-                    for result in results
-                    for atom_id in result.metadata.get("retrieved_atom_ids", [])
-                ],
-            )
+        # 访问统计合并到窗口内异步写，不阻塞返回；检索本身不强化。
+        # 只强化 _merge_recent_memories 之前由相关性解析出的记忆，补位不强化。
+        if track_access:
+            tracked = [result for result in results if result.doc_id in resolved_ids]
+            if tracked:
+                await self._update_access_times_internal(
+                    [r.doc_id for r in tracked],
+                    [
+                        atom_id
+                        for result in tracked
+                        for atom_id in result.metadata.get("retrieved_atom_ids", [])
+                    ],
+                )
 
         self._set_cached_search_results(cache_key, results)
         if trace_active:
@@ -1179,6 +1197,12 @@ class MemoryEngineRecallMixin:
             selected.append(result)
             selected_ids.add(result.doc_id)
         return selected
+
+    @staticmethod
+    def _is_recent_filler(result: HybridResult) -> bool:
+        """判断结果是否为相关性不足时的近期补位。"""
+        breakdown = getattr(result, "score_breakdown", None)
+        return isinstance(breakdown, dict) and "recent_memory" in breakdown
 
     def _get_cached_search_results(
         self,

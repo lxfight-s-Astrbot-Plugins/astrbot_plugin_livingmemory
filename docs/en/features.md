@@ -54,7 +54,7 @@ Ranking combines:
 | Semantic similarity | Vector retrieval handles different wording with similar meaning |
 | Graph relationships | Entities and cross-memory edges add structure across facts |
 | Importance | Durable preferences and agreements are favored |
-| Time decay | Old memories gradually lose weight unless repeatedly accessed or reinforced |
+| Time decay | Old memories gradually lose weight; only explicit model recall or deep reads count as access, passive injection does not |
 | Retrieval boundaries | Candidates can be filtered by minimum importance, vector similarity, and memory type |
 | Recent-memory reserve | Dedicated slots keep recent in-scope memories from being displaced by similarity ranking alone |
 | Recent context | Recall can include recent conversation within a configured age limit to reduce topic drift |
