@@ -1,7 +1,7 @@
 """GraphStore 的写入方法集合。
 
 宿主契约：``_connect`` / ``_now_iso`` / ``_to_json`` / ``_chunked`` /
-``_tokenize_node_value`` 由 ``GraphStore`` 提供。
+``_tokenize_cjk_text`` 由 ``GraphStore`` 提供。
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ class GraphStoreWriteMixin:
         await db.execute(
             "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
             "VALUES (?, ?)",
-            (node_id, self._tokenize_node_value(node.canonical_value)),
+            (node_id, self._tokenize_cjk_text(node.canonical_value)),
         )
         return node_id
 
@@ -337,7 +337,7 @@ class GraphStoreWriteMixin:
 
         await db.execute(
             "INSERT INTO livingmemory_graph_entries_fts(entry_id, content) VALUES (?, ?)",
-            (entry_id, entry.content),
+            (entry_id, self._tokenize_cjk_text(entry.content)),
         )
         entry_node_rows = [
             (entry_id, node_id)
@@ -470,7 +470,7 @@ class GraphStoreWriteMixin:
                     "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
                     "VALUES (?, ?)",
                     [
-                        (int(node_id), self._tokenize_node_value(canonical_value))
+                        (int(node_id), self._tokenize_cjk_text(canonical_value))
                         for node_id, canonical_value in await cursor.fetchall()
                     ],
                 )

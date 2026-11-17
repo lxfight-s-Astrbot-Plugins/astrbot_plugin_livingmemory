@@ -27,6 +27,8 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
 
     _SQLITE_BATCH_SIZE = 500
     _NODE_TOKEN_QUERY_BATCH_SIZE = 200
+    # 图入口 FTS 的索引格式版本（PRAGMA user_version）：1 = 存分词后的词元。
+    _ENTRY_FTS_TOKENIZED_VERSION = 1
 
     # initialize() 中赋值：trigram tokenizer 不可用时保持 False，供节点检索选择回退路径
     _node_fts_available: bool
@@ -103,10 +105,43 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
                     "INSERT INTO livingmemory_graph_nodes_bigram_fts(rowid, tokenized) "
                     "VALUES (?, ?)",
                     [
-                        (int(node_id), self._tokenize_node_value(canonical_value))
+                        (int(node_id), self._tokenize_cjk_text(canonical_value))
                         for node_id, canonical_value in await cursor.fetchall()
                     ],
                 )
+            # 入口 FTS 存分词后的词元（CJK 单字 + 相邻二字组），但旧库存的是未分词
+            # 原文，unicode61 会把整句中文当成一个词元，中文关键词无法命中。用
+            # user_version 记录索引格式版本，首次升级按 graph_entries.content 回填。
+            cursor = await db.execute("PRAGMA user_version")
+            (entry_index_version,) = await cursor.fetchone()
+            if int(entry_index_version or 0) < self._ENTRY_FTS_TOKENIZED_VERSION:
+                await db.execute("DELETE FROM livingmemory_graph_entries_fts")
+                last_entry_id = 0
+                while True:
+                    cursor = await db.execute(
+                        "SELECT id, content FROM graph_entries "
+                        "WHERE id > ? ORDER BY id LIMIT ?",
+                        (last_entry_id, self._SQLITE_BATCH_SIZE),
+                    )
+                    rows = await cursor.fetchall()
+                    if not rows:
+                        break
+                    await db.executemany(
+                        "INSERT INTO livingmemory_graph_entries_fts(entry_id, content) "
+                        "VALUES (?, ?)",
+                        [
+                            (int(entry_id), self._tokenize_cjk_text(content))
+                            for entry_id, content in rows
+                        ],
+                    )
+                    last_entry_id = int(rows[-1][0])
+                await db.execute(
+                    f"PRAGMA user_version = {self._ENTRY_FTS_TOKENIZED_VERSION}"
+                )
+                if last_entry_id:
+                    logger.info(
+                        f"[GraphStore] 已按分词格式回填 {last_entry_id} 条图入口 FTS"
+                    )
             await db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_graph_edges_semantic
@@ -158,8 +193,13 @@ class GraphStore(GraphStoreWriteMixin, GraphStoreReadMixin):
             self._read_conn = None
 
     @staticmethod
-    def _tokenize_node_value(value: Any) -> str:
-        """Build the bigram FTS payload for one node canonical value."""
+    def _tokenize_cjk_text(value: Any) -> str:
+        """Build the FTS payload shared by node values and entry content.
+
+        CJK runs are expanded into single characters plus adjacent bigrams so a
+        jieba-tokenized query can match them; other text is left as-is for the
+        unicode61 tokenizer to split.
+        """
         text = str(value or "")
         tokens: list[str] = []
         for match in _CJK_RUN.finditer(text):
