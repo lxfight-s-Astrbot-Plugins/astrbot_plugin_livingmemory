@@ -277,6 +277,10 @@
             "group_blacklist": {
                 "description": "Group Memory Blacklist",
                 "hint": "Pick groups to exclude from the session list. Blocked groups skip memory capture, reflection and recall without affecting normal conversation."
+            },
+            "user_scope_ignore_platform": {
+                "description": "Share User Memory Across Adapters",
+                "hint": "Only applies in the user scope mode. When enabled, one identity shares memory across adapters and the scope no longer includes the platform segment; recall also matches legacy platform scopes, so existing memories need no migration. Identities rely on access_control.identity_aliases."
             }
         },
         "reflection_engine": {

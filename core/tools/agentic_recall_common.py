@@ -46,14 +46,21 @@ async def resolve_tool_access(
         wrapper_context: 工具调用层的 ContextWrapper，仅用于取当前事件。
 
     Returns:
-        (event, recall_session_id, recall_persona_id, channel_scope, error)。
+        (event, recall_session_id, recall_persona_id, extra_scopes, error)。
+        ``extra_scopes`` 是频道公共记忆与旧格式用户作用域的并联列表；
         error 为 None 表示允许。
     """
     event = wrapper_context.context.event
     access = await resolve_event_memory_access(config_manager, plugin_context, event)
     if not access.allowed:
         return event, None, None, None, {"error": "memory access is not allowed"}
-    return event, access.scope, access.recall_persona_id, access.channel_scope, None
+    return (
+        event,
+        access.scope,
+        access.recall_persona_id,
+        access.extra_read_scopes,
+        None,
+    )
 
 
 def _event_value(event: Any, method_name: str) -> str:
