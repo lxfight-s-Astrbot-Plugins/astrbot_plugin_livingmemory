@@ -1,8 +1,8 @@
-"""Embedding provider refresh after the host rebuilds provider instances (#441).
+"""保存 Embedding Provider 配置后，插件下一次嵌入操作应使用新实例（#441）。
 
-AstrBot terminates and recreates a provider when its config is saved, so the
-instance captured at plugin startup can keep failing with the old credentials.
-The engine must rebind its vector stores from a resolver before embedding work.
+这些用例只通过公开入口（写入、召回、近重复检测）验证行为：向量库里的
+``embedding_provider`` 必须已经指向解析器返回的当前实例，而不是启动时缓存的
+旧实例。私有同步方法本身不作为断言对象。
 """
 
 from pathlib import Path
@@ -29,97 +29,18 @@ class _VecDB:
         self.embedding_storage = SimpleNamespace(index=SimpleNamespace(d=dim))
 
 
-def _engine(
-    tmp_path: Path,
-    resolver,
-    *,
-    faiss_db=None,
-    graph_db=None,
-    config: dict | None = None,
-) -> MemoryEngine:
+def _engine(tmp_path: Path, resolver, *, faiss_db=None, graph_db=None) -> MemoryEngine:
     return MemoryEngine(
         db_path=str(tmp_path / "memory.db"),
         faiss_db=faiss_db if faiss_db is not None else _VecDB(_Provider()),
         graph_vector_db=graph_db,
-        config=config or {},
+        config={},
         embedding_provider_resolver=resolver,
     )
 
 
-def test_sync_rebinds_both_vector_stores(tmp_path: Path) -> None:
-    old = _Provider(provider_id="old")
-    new = _Provider(provider_id="new")
-    faiss_db = _VecDB(old)
-    graph_db = _VecDB(old)
-    engine = _engine(tmp_path, lambda: new, faiss_db=faiss_db, graph_db=graph_db)
-
-    engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is new
-    assert graph_db.embedding_provider is new
-
-
-def test_sync_without_resolver_keeps_cached_instance(tmp_path: Path) -> None:
-    old = _Provider()
-    faiss_db = _VecDB(old)
-    engine = _engine(tmp_path, None, faiss_db=faiss_db)
-
-    engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is old
-
-
-def test_sync_is_noop_when_instance_is_unchanged(tmp_path: Path) -> None:
-    same = _Provider()
-    faiss_db = _VecDB(same)
-    engine = _engine(tmp_path, lambda: same, faiss_db=faiss_db)
-
-    engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is same
-
-
-def test_sync_swallows_resolver_errors(tmp_path: Path) -> None:
-    old = _Provider()
-    faiss_db = _VecDB(old)
-
-    def _raise():
-        raise RuntimeError("provider manager not ready")
-
-    engine = _engine(tmp_path, _raise, faiss_db=faiss_db)
-
-    engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is old
-
-
-def test_sync_keeps_provider_when_resolver_returns_none(tmp_path: Path) -> None:
-    old = _Provider()
-    faiss_db = _VecDB(old)
-    engine = _engine(tmp_path, lambda: None, faiss_db=faiss_db)
-
-    engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is old
-
-
-def test_sync_warns_when_embedding_dimension_changes(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    old = _Provider(dim=768)
-    new = _Provider(dim=1024)
-    faiss_db = _VecDB(old, dim=768)
-    engine = _engine(tmp_path, lambda: new, faiss_db=faiss_db)
-
-    with caplog.at_level("WARNING"):
-        engine._sync_embedding_provider()
-
-    assert faiss_db.embedding_provider is new
-    assert "重建索引" in caplog.text
-
-
 @pytest.mark.asyncio
-async def test_add_memory_refreshes_provider_before_writing(tmp_path: Path) -> None:
+async def test_writing_a_memory_uses_the_current_provider(tmp_path: Path):
     old = _Provider(provider_id="old")
     new = _Provider(provider_id="new")
     faiss_db = _VecDB(old)
@@ -134,9 +55,7 @@ async def test_add_memory_refreshes_provider_before_writing(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_search_memories_refreshes_provider_before_retrieval(
-    tmp_path: Path,
-) -> None:
+async def test_recall_uses_the_current_provider(tmp_path: Path):
     old = _Provider(provider_id="old")
     new = _Provider(provider_id="new")
     faiss_db = _VecDB(old)
@@ -149,9 +68,7 @@ async def test_search_memories_refreshes_provider_before_retrieval(
 
 
 @pytest.mark.asyncio
-async def test_find_similar_memory_refreshes_provider_before_embedding(
-    tmp_path: Path,
-) -> None:
+async def test_duplicate_check_uses_the_current_provider(tmp_path: Path):
     old = _Provider(provider_id="old")
     new = _Provider(provider_id="new")
     faiss_db = _VecDB(old)
@@ -161,3 +78,31 @@ async def test_find_similar_memory_refreshes_provider_before_embedding(
 
     assert await engine.find_similar_memory("summary") is None
     assert faiss_db.embedding_provider is new
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_provider_keeps_the_cached_instance(tmp_path: Path):
+    old = _Provider()
+    faiss_db = _VecDB(old)
+    engine = _engine(tmp_path, lambda: None, faiss_db=faiss_db)
+    engine._search_memories_impl = AsyncMock(return_value=[])
+
+    await engine.search_memories("query")
+
+    assert faiss_db.embedding_provider is old
+
+
+@pytest.mark.asyncio
+async def test_resolver_failure_does_not_break_recall(tmp_path: Path):
+    """宿主 Provider 管理器异常时按旧实例继续工作，不抛给调用方。"""
+    old = _Provider()
+    faiss_db = _VecDB(old)
+
+    def _boom():
+        raise RuntimeError("provider manager not ready")
+
+    engine = _engine(tmp_path, _boom, faiss_db=faiss_db)
+    engine._search_memories_impl = AsyncMock(return_value=[])
+
+    assert await engine.search_memories("query") == []
+    assert faiss_db.embedding_provider is old

@@ -105,27 +105,52 @@ def test_private_session_is_not_blocked_by_group_id_rule():
     assert is_group_blacklisted(_config(["test:FriendMessage:user-1"]), private) is True
 
 
-# ---------------- 设置页选项来源 ----------------
+# ---------------- 设置页选项来源（走公开配置接口） ----------------
 
 
-def _handler(sessions: list, blacklisted) -> SettingsHandler:
+def _settings_handler(sessions, blacklisted):
     manager = SimpleNamespace(
         store=SimpleNamespace(get_recent_sessions=AsyncMock(return_value=sessions))
     )
     plugin = SimpleNamespace(
-        initializer=SimpleNamespace(conversation_manager=manager),
+        context=SimpleNamespace(
+            get_config=lambda: {"platform": []},
+            platform_manager=SimpleNamespace(get_insts=lambda: []),
+        ),
+        initializer=SimpleNamespace(
+            conversation_manager=manager, is_initialized=False, memory_engine=None
+        ),
         config_manager=SimpleNamespace(
             get=lambda key, default=None: (
                 blacklisted if key == "filtering_settings.group_blacklist" else default
             )
         ),
     )
-    return SettingsHandler(utils=Mock(), plugin=plugin)
+    utils = SimpleNamespace(
+        ok=lambda payload: payload,
+        error=lambda message: {"status": "error", "message": message},
+    )
+    return SettingsHandler(utils=utils, plugin=plugin)
+
+
+def _group_field(payload) -> dict:
+    fields = [
+        field
+        for section in payload["sections"]
+        for field in section["fields"]
+    ]
+    return next(
+        field
+        for field in fields
+        if field["path"] == "filtering_settings.group_blacklist"
+    )
 
 
 @pytest.mark.asyncio
-async def test_group_options_list_only_group_sessions():
-    """选项来自插件已记录的群聊会话，私聊不出现。"""
+async def test_settings_api_offers_recorded_groups_as_choices():
+    """配置接口把插件记录过的群聊作为选项返回，用户不需要手填会话 ID。"""
+    from quart import Quart
+
     sessions = [
         SimpleNamespace(
             session_id="test:GroupMessage:111",
@@ -136,43 +161,61 @@ async def test_group_options_list_only_group_sessions():
             session_id="test:FriendMessage:user-1", platform="test", message_count=3
         ),
     ]
-    handler = _handler(sessions, [])
+    handler = _settings_handler(sessions, [])
 
-    options = await handler._group_options()
+    async with Quart(__name__).test_request_context("/"):
+        payload = await handler.get_config()
 
-    assert list(options) == ["111"]
-    assert "aiocqhttp" in options["111"]
-    assert "42" in options["111"]
-
-
-@pytest.mark.asyncio
-async def test_group_options_keep_saved_entries_missing_from_sessions():
-    """已保存但暂时没有新消息的群仍要出现在选项里，避免被误删。"""
-    handler = _handler([], ["555", "666"])
-
-    options = await handler._group_options()
-
-    assert set(options) == {"555", "666"}
+    field = _group_field(payload)
+    assert field["type"] == "group-list"
+    assert field["options"] == ["111"]
+    assert "aiocqhttp" in field["option_labels"][0]
 
 
 @pytest.mark.asyncio
-async def test_group_options_survive_store_failure():
-    """会话库读取失败时退化为只显示已保存项，不影响设置页加载。"""
+async def test_settings_api_keeps_saved_groups_missing_from_sessions():
+    """已保存但暂时没有新消息的群仍出现在选项里，避免被误删。"""
+    from quart import Quart
+
+    handler = _settings_handler([], ["555", "666"])
+
+    async with Quart(__name__).test_request_context("/"):
+        payload = await handler.get_config()
+
+    assert set(_group_field(payload)["options"]) == {"555", "666"}
+
+
+@pytest.mark.asyncio
+async def test_settings_api_survives_conversation_store_failure():
+    """会话库读取失败时只显示已保存项，设置页仍可打开。"""
+    from quart import Quart
+
     manager = SimpleNamespace(
         store=SimpleNamespace(
             get_recent_sessions=AsyncMock(side_effect=RuntimeError("db locked"))
         )
     )
     plugin = SimpleNamespace(
-        initializer=SimpleNamespace(conversation_manager=manager),
+        context=SimpleNamespace(
+            get_config=lambda: {"platform": []},
+            platform_manager=SimpleNamespace(get_insts=lambda: []),
+        ),
+        initializer=SimpleNamespace(
+            conversation_manager=manager, is_initialized=False, memory_engine=None
+        ),
         config_manager=SimpleNamespace(
             get=lambda key, default=None: (
                 ["777"] if key == "filtering_settings.group_blacklist" else default
             )
         ),
     )
-    handler = SettingsHandler(utils=Mock(), plugin=plugin)
+    utils = SimpleNamespace(
+        ok=lambda payload: payload,
+        error=lambda message: {"status": "error", "message": message},
+    )
+    handler = SettingsHandler(utils=utils, plugin=plugin)
 
-    options = await handler._group_options()
+    async with Quart(__name__).test_request_context("/"):
+        payload = await handler.get_config()
 
-    assert list(options) == ["777"]
+    assert list(_group_field(payload)["options"]) == ["777"]

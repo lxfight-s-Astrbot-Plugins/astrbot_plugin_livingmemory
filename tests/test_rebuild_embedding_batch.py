@@ -1,94 +1,136 @@
-"""Regression tests for /lmem rebuild-graph embedding batching (#429)."""
+"""`/lmem rebuild-graph` 的 embedding 批量上限（#429）。
 
+断言行为：重建图向量时，单次交给向量库的条目数不超过
+``index_rebuild_settings.embedding_batch_size``，否则 DashScope 这类每批上限
+20 条的 Provider 会直接拒绝请求。
+"""
+
+import json
 from pathlib import Path
 
-import aiosqlite
 import pytest
 
-from astrbot_plugin_livingmemory.core.managers.memory_engine_batch import (
-    MemoryEngineBatchMixin,
+from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
+    GraphMemoryManager,
 )
+from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
+from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
+    GraphVectorRetriever,
+)
+from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
 
 
-class _GraphManager:
-    """Capture the vector batch size passed by rebuild_graph_index."""
+class _RecordingVecDB:
+    """Minimal vector store that records how many entries each insert carries."""
 
     def __init__(self) -> None:
-        self.vector_batch_size: int | None = None
+        self.batch_sizes: list[int] = []
+        self._next_id = 1
 
-    async def rebuild_memory_batches(self, batches, *, vector_batch_size=100):
-        self.vector_batch_size = vector_batch_size
-        async for _ in batches:
-            pass
-        return {"rebuilt": 0, "skipped": 0}
+    async def insert_batch(self, contents, metadatas):
+        self.batch_sizes.append(len(contents))
+        ids = []
+        for _ in contents:
+            ids.append(self._next_id)
+            self._next_id += 1
+        return ids
 
+    async def insert(self, content, metadata):
+        return (await self.insert_batch([content], [metadata]))[0]
 
-class _Engine(MemoryEngineBatchMixin):
-    """Minimal host exposing only what rebuild_graph_index touches."""
-
-    def __init__(self, db_connection, graph_memory_manager, config):
-        self.db_connection = db_connection
-        self.graph_memory_manager = graph_memory_manager
-        self.config = config
-
-    def _invalidate_search_cache(self) -> None:
-        pass
-
-    def _sync_embedding_provider(self) -> None:
-        """No vector store in this harness; provider refresh is a no-op."""
+    async def delete_documents(self, metadata_filters=None):
         return None
 
 
-async def _documents_db(tmp_path: Path):
-    db = await aiosqlite.connect(str(tmp_path / "memory.db"))
-    db.row_factory = aiosqlite.Row
-    await db.execute(
-        "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+class _DocumentVecDB:
+    """Document-route vector store placeholder (unused by the graph rebuild)."""
+
+
+async def _engine_with_documents(tmp_path: Path, *, batch_size: int, memories: int):
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "memory.db"),
+        faiss_db=_DocumentVecDB(),
+        config={
+            "graph_memory_enabled": True,
+            "index_rebuild_embedding_batch_size": batch_size,
+        },
     )
-    await db.execute(
-        "INSERT INTO documents (id, text, metadata) VALUES (?, ?, ?)",
-        (1, "hello", '{"status": "active"}'),
+    await engine.initialize()
+    graph_store = GraphStore(str(tmp_path / "graph.db"))
+    await graph_store.initialize()
+    vec_db = _RecordingVecDB()
+    engine.graph_store = graph_store
+    engine.graph_memory_manager = GraphMemoryManager(
+        graph_store,
+        GraphVectorRetriever(vec_db),
+        GraphExtractor(),
     )
-    await db.commit()
-    return db
+    rows = [
+        (
+            index,
+            f"uuid-{index}",
+            f"memory {index} about topic {index}",
+            json.dumps(
+                {
+                    "status": "active",
+                    "topics": [f"topic-{index}"],
+                    "key_facts": [f"fact {index}"],
+                    "participants": ["Alice"],
+                }
+            ),
+        )
+        for index in range(1, memories + 1)
+    ]
+    await engine.db_connection.executemany(
+        "INSERT INTO documents(id, doc_id, text, metadata) VALUES (?, ?, ?, ?)", rows
+    )
+    await engine.db_connection.commit()
+    return engine, vec_db, graph_store
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("configured", "expected"),
-    [
-        (20, 20),
-        (1, 1),
-        (0, 1),
-        (999, 256),
-        ("not-an-int", 8),
-        (None, 8),
-    ],
-)
-async def test_rebuild_graph_honors_configured_embedding_batch_size(
-    tmp_path: Path, configured, expected
-):
-    db = await _documents_db(tmp_path)
-    graph_manager = _GraphManager()
-    engine = _Engine(
-        db, graph_manager, {"index_rebuild_embedding_batch_size": configured}
+async def test_graph_rebuild_respects_the_configured_embedding_batch(tmp_path: Path):
+    engine, vec_db, graph_store = await _engine_with_documents(
+        tmp_path, batch_size=4, memories=40
     )
+    try:
+        result = await engine.rebuild_graph_index()
 
-    await engine.rebuild_graph_index()
-
-    assert graph_manager.vector_batch_size == expected
-    await db.close()
+        assert result["rebuilt"] == 40
+        assert vec_db.batch_sizes, "rebuild produced no vector inserts"
+        assert max(vec_db.batch_sizes) <= 4
+        # 40 条记忆必然超过单批上限，说明限制真的生效了
+        assert sum(vec_db.batch_sizes) >= 40
+    finally:
+        await engine.close()
+        await graph_store.close()
 
 
 @pytest.mark.asyncio
-async def test_rebuild_graph_defaults_to_settings_default_without_config(
-    tmp_path: Path,
-):
-    db = await _documents_db(tmp_path)
-    graph_manager = _GraphManager()
-    engine = _Engine(db, graph_manager, {})
+async def test_graph_rebuild_defaults_to_eight_entries_per_batch(tmp_path: Path):
+    engine, vec_db, graph_store = await _engine_with_documents(
+        tmp_path, batch_size=8, memories=30
+    )
+    try:
+        await engine.rebuild_graph_index()
 
-    await engine.rebuild_graph_index()
+        assert max(vec_db.batch_sizes) <= 8
+    finally:
+        await engine.close()
+        await graph_store.close()
 
-    assert graph_manager.vector_batch_size == 8
-    await db.close()
+
+@pytest.mark.asyncio
+async def test_graph_rebuild_clamps_invalid_batch_sizes(tmp_path: Path):
+    """0 会钳到 1，避免配置错误导致空批量或无限循环。"""
+    engine, vec_db, graph_store = await _engine_with_documents(
+        tmp_path, batch_size=0, memories=6
+    )
+    try:
+        await engine.rebuild_graph_index()
+
+        assert max(vec_db.batch_sizes) == 1
+    finally:
+        await engine.close()
+        await graph_store.close()

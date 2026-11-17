@@ -1,19 +1,17 @@
-"""#395：带工具调用的轮次整轮入库（插件侧）测试。
+"""#395：带工具调用的轮次整轮入库（插件侧），使用真实会话库断言。
 
 AstrBot 的 OpenAI 兼容 Provider 在响应出现 ``tool_calls`` 时会把
 ``LLMResponse.role`` 改写为 ``"tool"``；这些轮次的助手文字仍需写入会话库，
 但 tool loop 尚未结束，不能触发后台总结。
+
+断言对象是真实 SQLite 会话库里的消息，而不是协作对象的调用记录。
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock
 
 import pytest
 
-from tests.event_handler_support import _make_event, _make_resp
-from tests.event_handler_support import conversation_manager as conversation_manager
-from tests.event_handler_support import handler as handler
-from tests.event_handler_support import memory_engine as memory_engine
-from tests.event_handler_support import memory_processor as memory_processor
+from tests.event_handler_support import _make_event, _make_real_handler, _make_resp
 
 
 def _make_tool_resp(text: str = "工具轮助手文字"):
@@ -23,53 +21,63 @@ def _make_tool_resp(text: str = "工具轮助手文字"):
     return resp
 
 
+async def _assistant_messages(manager, session_id: str) -> list[str]:
+    messages = await manager.get_context(
+        session_id, max_messages=50, format_for_llm=False
+    )
+    result: list[str] = []
+    for message in messages:
+        role = message.get("role") if isinstance(message, dict) else message.role
+        content = (
+            message.get("content") if isinstance(message, dict) else message.content
+        )
+        if role == "assistant":
+            result.append(content)
+    return result
+
+
 @pytest.mark.asyncio
-async def test_tool_round_records_assistant_message_without_summary(
-    handler, conversation_manager
-):
-    """role="tool" 且有助手文字：只写助手消息，不产生后台总结任务。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
+async def test_tool_round_is_stored_without_triggering_reflection(tmp_path):
+    handler, manager, store = await _make_real_handler(tmp_path)
     event = _make_event()
-    resp = _make_tool_resp("正在查询天气")
+    try:
+        await handler.handle_memory_reflection(event, _make_tool_resp("正在查询天气"))
 
-    await handler.handle_memory_reflection(event, resp)
-
-    conversation_manager.add_message_from_event.assert_awaited_once_with(
-        event=event,
-        role="assistant",
-        content="正在查询天气",
-    )
-    handler._message_utils.enforce_message_limit.assert_awaited_once_with(
-        "test:private:sid-1"
-    )
-    assert not handler._storage_tasks
+        assert await _assistant_messages(manager, event.unified_msg_origin) == [
+            "正在查询天气"
+        ]
+        assert not handler._storage_tasks
+    finally:
+        await handler.shutdown()
+        await store.close()
 
 
 @pytest.mark.asyncio
-async def test_tool_round_chunk_is_not_recorded(handler, conversation_manager):
-    """流式增量（is_chunk=True）不是完整回复，不写入会话库。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
+async def test_streaming_chunk_is_not_stored(tmp_path):
+    handler, manager, store = await _make_real_handler(tmp_path)
+    event = _make_event()
     resp = _make_tool_resp()
     resp.is_chunk = True
+    try:
+        await handler.handle_memory_reflection(event, resp)
 
-    await handler.handle_memory_reflection(_make_event(), resp)
-
-    conversation_manager.add_message_from_event.assert_not_awaited()
-    handler._message_utils.enforce_message_limit.assert_not_awaited()
-    assert not handler._storage_tasks
+        assert await _assistant_messages(manager, event.unified_msg_origin) == []
+    finally:
+        await handler.shutdown()
+        await store.close()
 
 
 @pytest.mark.asyncio
-async def test_tool_round_without_text_is_not_recorded(handler, conversation_manager):
-    """纯工具调用没有助手文字时不写库。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
-    resp = _make_tool_resp("")
+async def test_tool_round_without_text_is_not_stored(tmp_path):
+    handler, manager, store = await _make_real_handler(tmp_path)
+    event = _make_event()
+    try:
+        await handler.handle_memory_reflection(event, _make_tool_resp(""))
 
-    await handler.handle_memory_reflection(_make_event(), resp)
-
-    conversation_manager.add_message_from_event.assert_not_awaited()
-    handler._message_utils.enforce_message_limit.assert_not_awaited()
-    assert not handler._storage_tasks
+        assert await _assistant_messages(manager, event.unified_msg_origin) == []
+    finally:
+        await handler.shutdown()
+        await store.close()
 
 
 @pytest.mark.parametrize(
@@ -78,63 +86,49 @@ async def test_tool_round_without_text_is_not_recorded(handler, conversation_man
     ids=["tool-call-name", "tool-call-extra-content"],
 )
 @pytest.mark.asyncio
-async def test_assistant_tool_markers_record_without_summary(
-    handler, conversation_manager, marker
+async def test_assistant_role_with_tool_markers_is_stored_without_reflection(
+    tmp_path, marker
 ):
-    """assistant role 但携带工具调用元数据同样按工具轮处理（写库不总结）。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
+    handler, manager, store = await _make_real_handler(tmp_path)
+    event = _make_event()
     resp = _make_resp("工具轮助手文字")
     if marker == "tools_call_name":
         resp.tools_call_name = ["send_message"]
     else:
         resp.tools_call_extra_content = {"call_1": {"thought_signature": "sig"}}
-
-    await handler.handle_memory_reflection(_make_event(), resp)
-
-    conversation_manager.add_message_from_event.assert_awaited_once()
-    handler._message_utils.enforce_message_limit.assert_awaited_once()
-    assert not handler._storage_tasks
-
-
-@pytest.mark.asyncio
-async def test_plain_assistant_round_still_writes_and_triggers_summary(
-    handler, conversation_manager, memory_engine
-):
-    """普通 assistant 轮次行为不变：写库并调度后台总结。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
-    event = _make_event()
-    resp = _make_resp("普通助手回复")
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_1"
+    try:
         await handler.handle_memory_reflection(event, resp)
-        # 任务已创建但尚未开始执行（create_task 尚未让出事件循环）
-        assert handler._storage_tasks
 
-    await handler.shutdown()
-
-    conversation_manager.add_message_from_event.assert_awaited_once_with(
-        event=event,
-        role="assistant",
-        content="普通助手回复",
-    )
-    memory_engine.add_memory.assert_awaited()
+        assert await _assistant_messages(manager, event.unified_msg_origin) == [
+            "工具轮助手文字"
+        ]
+        assert not handler._storage_tasks
+    finally:
+        await handler.shutdown()
+        await store.close()
 
 
 @pytest.mark.asyncio
-async def test_tool_round_skipped_when_response_superseded(
-    handler, conversation_manager
-):
-    """被取代回复守卫优先：工具轮同样不写库。"""
-    handler._message_utils.enforce_message_limit = AsyncMock()
-    handler._memory_reflection._is_superseded_response = AsyncMock(return_value=True)
-    resp = _make_tool_resp()
+async def test_plain_assistant_round_is_stored_and_summarized(tmp_path):
+    """普通轮次行为不变：写入会话库，并由后台任务总结成长期记忆。"""
+    engine = Mock()
+    engine.add_memory = Mock()
+    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
+    handler.config_manager = type(handler.config_manager)(
+        {
+            "recall_engine": {"top_k": 3},
+            "reflection_engine": {"summary_trigger_rounds": 1},
+            "session_manager": {"max_messages_per_session": 100},
+            "filtering_settings": {"use_persona_filtering": False},
+        }
+    )
+    event = _make_event()
+    try:
+        await handler.handle_memory_reflection(event, _make_resp("普通助手回复"))
 
-    await handler.handle_memory_reflection(_make_event(), resp)
-
-    conversation_manager.add_message_from_event.assert_not_awaited()
-    handler._message_utils.enforce_message_limit.assert_not_awaited()
-    assert not handler._storage_tasks
+        assert await _assistant_messages(manager, event.unified_msg_origin) == [
+            "普通助手回复"
+        ]
+    finally:
+        await handler.shutdown()
+        await store.close()
