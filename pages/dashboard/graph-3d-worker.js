@@ -20,14 +20,19 @@ self.onmessage = ({ data }) => {
     const positions = new Float32Array(nodes.length * 3);
     const communityIds = new Uint16Array(nodes.length);
     const hubs = new Uint32Array(communities.length), communityRadii = new Float32Array(communities.length);
+    const galaxyTypes = new Uint8Array(communities.length);
     nodes.forEach((node, index) => {
       positions.set([node.x, node.y, node.z], index * 3);
       communityIds[index] = node.community;
     });
-    communities.forEach(group => { hubs[group.id] = group.hub; communityRadii[group.id] = group.radius; });
+    communities.forEach(group => {
+      hubs[group.id] = group.hub;
+      communityRadii[group.id] = group.radius;
+      galaxyTypes[group.id] = group.galaxyType;
+    });
     self.postMessage({ generation: data.generation, positions, indices, overviewCount,
-      hubs, communityIds, communityRadii, parents, order, frames, ranges, bundlePairs, bundleWeights, layoutMs: performance.now() - started },
-    [positions.buffer, indices.buffer, hubs.buffer, communityIds.buffer, communityRadii.buffer, parents.buffer, order.buffer,
+      hubs, communityIds, communityRadii, galaxyTypes, parents, order, frames, ranges, bundlePairs, bundleWeights, layoutMs: performance.now() - started },
+    [positions.buffer, indices.buffer, hubs.buffer, communityIds.buffer, communityRadii.buffer, galaxyTypes.buffer, parents.buffer, order.buffer,
       frames.buffer, ranges.buffer, bundlePairs.buffer, bundleWeights.buffer]);
   }
   step();
