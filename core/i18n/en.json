@@ -121,18 +121,18 @@
     "action_name": "Scope migration",
     "usage": "Usage: /lmem migrate-scope <target> [apply] [source]\n\ntarget options:\n• global — migrate to the global scope livingmemory:global\n• session — migrate to the current session\n• user — migrate to the current user (shared across DMs/groups)\n• any other string — used literally as the scope\n\napply is optional (dry-run is also accepted) and defaults to a preview; pass apply to actually write.\nsource is optional (must come after apply) and limits migration to that origin scope; all / * / - mean every source.\n\nExamples:\n  /lmem migrate-scope global                # preview a bulk migration\n  /lmem migrate-scope global apply          # run the bulk migration\n  /lmem migrate-scope global apply <scope>  # migrate one source scope",
     "empty_scope": "(empty scope)",
-    "scope_line": "• {scope}: memories {documents} / atoms {atoms} / graph entries {graph_entries}",
-    "survey": "Current scope distribution (memories / atoms / graph entries):\n{scopes}\n\nTotal: {total}",
+    "scope_line": "• {scope}: memories {documents} / atoms {atoms} / graph entries {graph_entries} / profiles {profiles} / graph vectors {graph_vectors}",
+    "survey": "Current scope distribution (memories / atoms / graph entries / profiles / graph vectors):\n{scopes}\n\nTotal: {total}",
     "nothing_to_do": "Nothing to migrate: all records are already in the target scope {target}.",
     "source_matched_nothing": "No records match the source scope {source} (target scope {target}).",
     "missing_tables": "Note: optional tables missing from this database were skipped: {tables}",
     "any_source": "all sources",
     "impact_line": "• {scope}: {count}",
-    "plan": "Migration preview (dry-run)\n\nTarget scope: {target}\nSource filter: {source}\n\nAffected:\n{impact}\n\nTotal {total} (memories {documents} / atoms {atoms} / graph entries {graph_entries})",
+    "plan": "Migration preview (dry-run)\n\nTarget scope: {target}\nSource filter: {source}\n\nAffected:\n{impact}\n\nTotal {total} (memories {documents} / atoms {atoms} / graph entries {graph_entries} / profiles {profiles} / graph vectors {graph_vectors})",
     "dry_run_hint": "This is a preview only; no data was written.\nTo apply: /lmem migrate-scope <target> apply [source]",
-    "done": "Scope migration finished.\n\nTarget scope: {target}\nUpdated: memories {documents} / atoms {atoms} / graph entries {graph_entries} (total {total})\nDatabase backup: {backup}",
+    "done": "Scope migration complete.\n\nTarget scope: {target}\nUpdated: memories {documents} / atoms {atoms} / graph entries {graph_entries} / profiles {profiles} / graph vectors {graph_vectors} (total {total})\nDatabase backup: {backup}",
     "remaining_notice": "Note: {remaining} records are still not in the target scope {target} (possibly written concurrently); run the migration again.",
-    "rebuild_hint": "Graph entries were migrated in the same transaction; run /lmem rebuild-graph only if graph recall still looks stale."
+    "rebuild_hint": "Graph entries moved with the main database and graph vector document metadata was synced. If graph recall still looks wrong, run /lmem rebuild-graph."
   },
   "rebuild_graph": {
     "action_name": "Rebuild graph memory",

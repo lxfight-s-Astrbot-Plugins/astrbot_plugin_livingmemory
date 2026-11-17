@@ -121,18 +121,18 @@
     "action_name": "スコープ移行",
     "usage": "使い方: /lmem migrate-scope <target> [apply] [source]\n\ntarget:\n• global —— グローバルスコープ livingmemory:global へ移行\n• session —— 現在のセッションへ移行\n• user —— 現在のユーザーへ移行（プライベート/グループで共有）\n• その他の文字列 —— リテラルスコープとして使用\n\napply は任意（dry-run による明示的なプレビューも可）：既定はプレビューのみで、apply を指定した場合のみ書き込みます。\nsource は任意（apply の後に指定）。その移行元スコープの記録だけを移行します。all / * / - はすべての移行元を意味します。\n\n例:\n  /lmem migrate-scope global                # 一括移行をプレビュー\n  /lmem migrate-scope global apply          # 一括移行を実行\n  /lmem migrate-scope global apply <scope>  # 指定した移行元のみ移行",
     "empty_scope": "(空のスコープ)",
-    "scope_line": "• {scope}: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件",
-    "survey": "現在のスコープ分布（記憶 / 原子 / グラフ記憶）:\n{scopes}\n\n合計: {total} 件",
+    "scope_line": "• {scope}: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件 / プロファイル {profiles} 件 / グラフベクトル {graph_vectors} 件",
+    "survey": "現在のスコープ分布（記憶 / 原子 / グラフ記憶 / プロファイル / グラフベクトル）:\n{scopes}\n\n合計: {total} 件",
     "nothing_to_do": "移行が必要な記録はありません：すでに移行先スコープ {target} にあります。",
     "source_matched_nothing": "移行元スコープ {source} に移行対象の記録は見つかりませんでした（移行先スコープ {target}）。",
     "missing_tables": "注意: 現在のデータベースに次の任意テーブルがないためスキップしました: {tables}",
     "any_source": "すべての移行元",
     "impact_line": "• {scope}: {count} 件",
-    "plan": "移行プレビュー（dry-run）\n\n移行先スコープ: {target}\n移行元の制限: {source}\n\n影響範囲:\n{impact}\n\n合計 {total} 件（記憶 {documents} / 原子 {atoms} / グラフ記憶 {graph_entries}）",
+    "plan": "移行プレビュー（dry-run）\n\n対象スコープ: {target}\nソース制限: {source}\n\n影響:\n{impact}\n\n合計 {total} 件（記憶 {documents} / 原子 {atoms} / グラフ記憶 {graph_entries} / プロファイル {profiles} / グラフベクトル {graph_vectors}）",
     "dry_run_hint": "上記はプレビューのみで、データは書き込まれていません。\n問題なければ次を実行してください: /lmem migrate-scope <target> apply [source]",
-    "done": "スコープ移行が完了しました。\n\n移行先スコープ: {target}\n更新済み: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件（合計 {total} 件）\nデータベースバックアップ: {backup}",
+    "done": "スコープ移行が完了しました。\n\n対象スコープ: {target}\n更新: 記憶 {documents} 件 / 原子 {atoms} 件 / グラフ記憶 {graph_entries} 件 / プロファイル {profiles} 件 / グラフベクトル {graph_vectors} 件（合計 {total} 件）\nデータベースのバックアップ: {backup}",
     "remaining_notice": "注意: まだ {remaining} 件の記録が移行先スコープ {target} に到達していません（同時書き込みの可能性）。移行を再実行してください。",
-    "rebuild_hint": "グラフ記憶の項目は同じトランザクションで移行済みです。グラフ検索がまだ異常な場合は /lmem rebuild-graph で再構築できます。"
+    "rebuild_hint": "グラフ記憶のエントリはメインデータベースと共に移行され、グラフベクトルのドキュメントメタデータも同期済みです。グラフ想起がまだおかしい場合は /lmem rebuild-graph を実行してください。"
   },
   "rebuild_graph": {
     "action_name": "グラフ記憶再構築",
