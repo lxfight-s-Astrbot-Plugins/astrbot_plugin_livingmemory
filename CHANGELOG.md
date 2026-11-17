@@ -24,6 +24,10 @@
 - 新增 `embedding_provider_resolver`：写入、去重、召回、归档恢复、图重建与索引重建前重新解析宿主当前的 Embedding Provider，保存 Provider 配置后无需重载插件；维度变化时提示重建索引。([#441](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/441), [#457](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/457))
 - `filtering_settings.use_persona_filtering` 收敛为只控制召回：关闭后仍解析并写入真实 `persona_id`（文档、原子、图谱、档案与总结提示词），跨人格共享召回。([#438](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/438), [#460](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/460))
 - 新增可选记忆元数据 `visibility`（`public` / `private`）与 `disclosed`，自动注入对「私下经历且用户未被告知」的记忆追加提示；提示词可编辑，`recall_engine.private_memory_notice_enabled` 可关闭，无需迁移。([#390](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/390), [#430](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/430))
+- 新增 `filtering_settings.group_blacklist`：命中的群聊不写入、不总结、不召回记忆，也不影响 bot 正常对话。只在设置页维护，选项从已记录的群聊会话中勾选，无需手填会话 ID；判定先于白名单执行，覆盖召回、反思与 Agent 工具。([#440](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/440), [#464](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/464))
+- 新增 `filtering_settings.user_scope_ignore_platform`：`user` 模式下同一身份在不同适配器之间共享记忆，作用域不再包含平台段；检索并联旧格式 `livingmemory:user:<平台>:<身份>` 作用域，历史记忆无需迁移即可召回。`qq_official` 的 openid 轮换仍需通过 `identity_aliases` 对齐。([#442](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/442), [#465](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/465))
+- `filtering_settings.shared_adapter_ids` 为空数组时按未配置处理，不再退化为「只看当前适配器实例」。([#442](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/442), [#462](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/462))
+- `/lmem migrate-scope` 补齐用户档案与图向量文档元数据：换端后档案不再失联，图谱向量路可正常召回；档案唯一约束冲突时跳过该行并计入剩余量，图向量更新幂等可重跑收敛。([#373](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/373), [#463](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/463))
 - 启动时轻量探测 `networkx`，缺包交给宿主自动安装；图谱社区分组只在缺少 `networkx` 本体时降级为单集群。([#448](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/448))
 
 ### 日志与文档
@@ -40,7 +44,7 @@
 
 ### 验证
 
-- 后端 1,670 项测试、Ruff 检查与格式化通过；前端 208 项测试、Dashboard 构建产物与首屏体积门禁通过。
+- 后端 1,699 项测试、Ruff 检查与格式化通过；前端 208 项测试、Dashboard 构建产物与首屏体积门禁通过。
 
 ## [2.13.0] - 2026-11-13
 
