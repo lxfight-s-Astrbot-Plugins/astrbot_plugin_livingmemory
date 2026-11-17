@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.13.0
+      text: Get 2.14.0
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.13.0 is released
+## 2.14.0 is released
 
-2.13.0 is a dashboard appearance release: the default look is upgraded to macOS 26 Liquid Glass and the appearance panel now customizes accent color, wallpaper, glass strength, corners, density and font, alongside a style-layer cleanup and several fixes. First-load gzip is 81,597 B, still within budget. No command, configuration or database migration changes. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.14.0 upgrades memory quality, cross-adapter scoping, and the dashboard 3D galaxy view: it fixes atom classification, summary-parse regex fallback, graph-entry CJK bigram FTS, and passive-injection access inflation; adds a group memory blacklist, platform-independent user scoping, private-memory visibility notices, and live Embedding Provider resolution; and upgrades the 3D graph into multi-morphology galaxies with a deep-space HUD alongside an on-demand categorized Settings workspace. Public commands and database schema remain compatible. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
 
 ## Who is this for?
 
