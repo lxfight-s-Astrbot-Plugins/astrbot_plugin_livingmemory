@@ -436,12 +436,16 @@ class CommandHandler(ExternalApiCommandMixin):
                 scope=access.scope,
                 persona_id=access.recall_persona_id,
             ):
-                results = await self.memory_engine.search_memories(
-                    query=query.strip(),
-                    k=k,
-                    session_id=access.scope,
-                    persona_id=access.recall_persona_id,
-                )
+                search_kwargs: dict[str, Any] = {
+                    "query": query.strip(),
+                    "k": k,
+                    "session_id": access.scope,
+                    "persona_id": access.recall_persona_id,
+                }
+                # 解耦模式与频道记忆会带来附加作用域；无附加作用域时保持原调用形态。
+                if access.extra_read_scopes:
+                    search_kwargs["extra_scopes"] = access.extra_read_scopes
+                results = await self.memory_engine.search_memories(**search_kwargs)
 
             if not results:
                 yield event.plain_result(t("search.no_results", query=query))

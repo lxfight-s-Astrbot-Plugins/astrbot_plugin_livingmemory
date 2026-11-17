@@ -161,7 +161,7 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             event,
             recall_session_id,
             recall_persona_id,
-            channel_scope,
+            extra_scopes,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
         with adapter_access(self.config_manager, event):
@@ -273,8 +273,8 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                 # 发起的，更接近“使用”，与基线 recall_long_term_memory 一致。
                 "track_access": True,
             }
-            if channel_scope:
-                agentic_kwargs["extra_scopes"] = [channel_scope]
+            if extra_scopes:
+                agentic_kwargs["extra_scopes"] = extra_scopes
             try:
                 with trace_request_context(
                     session_id=event.unified_msg_origin,

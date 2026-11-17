@@ -131,7 +131,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
 
                 limited_k = max(1, min(requested_k_int, max_k))
 
-                channel_scope = access.channel_scope
+                extra_scopes = access.extra_read_scopes
                 with trace_request_context(
                     session_id=event.unified_msg_origin,
                     scope=recall_session_id,
@@ -147,8 +147,8 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                         # 自动注入与 beta agentic 检索仍不强化。
                         "track_access": True,
                     }
-                    if channel_scope:
-                        search_kwargs["extra_scopes"] = [channel_scope]
+                    if extra_scopes:
+                        search_kwargs["extra_scopes"] = extra_scopes
                     memories = await self.memory_engine.search_memories(**search_kwargs)
 
                 serialized_results = []

@@ -277,6 +277,10 @@
             "group_blacklist": {
                 "description": "群聊记忆黑名单",
                 "hint": "从会话列表中选择要屏蔽的群聊。命中的群聊不写入、不总结、不召回记忆，也不影响 bot 正常对话。"
+            },
+            "user_scope_ignore_platform": {
+                "description": "跨适配器共享用户记忆",
+                "hint": "仅在作用域模式为 user 时生效。开启后同一身份在不同适配器之间共享记忆，作用域不再包含平台段；检索会同时匹配旧的平台作用域，历史记忆无需迁移。身份依赖 access_control.identity_aliases 对齐。"
             }
         },
         "reflection_engine": {

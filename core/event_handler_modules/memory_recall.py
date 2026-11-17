@@ -249,7 +249,6 @@ class MemoryRecall:
                     f"[{session_id}] 开始记忆召回，查询='{query_for_search[:80]}...'"
                 )
 
-                channel_scope = recall_access.channel_scope
                 with trace_request_context(
                     session_id=session_id,
                     scope=recall_session_id,
@@ -261,7 +260,8 @@ class MemoryRecall:
                             k=self.config_manager.get("recall_engine.top_k", 5),
                             session_id=recall_session_id,
                             persona_id=recall_persona_id,
-                            extra_scopes=[channel_scope] if channel_scope else None,
+                            # 频道公共记忆 + 旧格式用户作用域（解耦模式下）
+                            extra_scopes=recall_access.extra_read_scopes or None,
                         )
                     except asyncio.CancelledError:
                         raise
