@@ -17,11 +17,7 @@ import pytest_asyncio
 from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 from astrbot_plugin_livingmemory.core.retrieval.hybrid_retriever import HybridResult
 
-from tests.event_handler_support import (
-    _make_event,
-    _make_real_handler,
-    _make_req,
-)
+from tests.real_engine_support import make_handler_bundle as _make_real_handler
 from tests.test_agentic_engine_retrieval import _make_engine as _make_agentic_engine
 from tests.test_agentic_tools import (
     _config as _agentic_config,
@@ -621,41 +617,78 @@ async def test_deep_read_strengthens_first_page_only(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_auto_injection_with_real_engine_does_not_touch_access_stats(
-    tmp_path: Path,
-):
-    """真实引擎 + 自动注入：检索到记忆也不产生待写访问统计。"""
-    engine = await _make_agentic_engine(tmp_path, name="auto-injection.db")
+async def test_auto_injection_does_not_touch_access_stats(tmp_path: Path):
+    """真实引擎 + 自动注入：检索到记忆也不写访问统计（#427）。"""
+    from types import SimpleNamespace
+
+    from astrbot.core.message.components import Plain
+    from tests.real_engine_support import HostContext, close_handler, make_handler
+
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path,
+        config={"recall_engine": {"min_similarity_for_retrieval": 0.0}},
+        host=HostContext(persona_id=None),
+    )
     try:
         memory_id = await engine.add_memory(
             content="hello 命中的记忆，自动注入不得强化",
             session_id="test:private:sid-1",
         )
         before = await _read_metadata(engine, memory_id)
-        handler, _manager, store = await _make_real_handler(
-            tmp_path, memory_engine=engine
+
+        class _Event:
+            unified_msg_origin = "test:private:sid-1"
+            message_str = "hello"
+
+            def get_message_type(self):
+                from astrbot.api.platform import MessageType
+
+                return MessageType.FRIEND_MESSAGE
+
+            def get_sender_id(self):
+                return "user-1"
+
+            def get_self_id(self):
+                return "bot-1"
+
+            def get_sender_name(self):
+                return "Tester"
+
+            def get_message_str(self):
+                return "hello"
+
+            def get_messages(self):
+                return [Plain("hello")]
+
+            def get_platform_name(self):
+                return "test"
+
+            def get_platform_id(self):
+                return "inst"
+
+            def get_group_id(self):
+                return ""
+
+            def get_extra(self, key, default=None):
+                return default
+
+        req = SimpleNamespace(
+            prompt="hello",
+            system_prompt="",
+            contexts=[],
+            extra_user_content_parts=[],
         )
-        try:
-            req = _make_req("hello")
-            with patch(
-                "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-                new_callable=AsyncMock,
-            ) as get_persona:
-                get_persona.return_value = "persona-live"
-                await handler.handle_memory_recall(_make_event(), req)
+        await handler.handle_memory_recall(_Event(), req)
 
-            # 先确认这次注入真的检索到了记忆，避免测试空转。
-            injected = " ".join(
-                getattr(part, "text", "") for part in req.extra_user_content_parts
-            )
-            assert "自动注入不得强化" in injected
+        injected = " ".join(
+            getattr(part, "text", "") for part in req.extra_user_content_parts
+        )
+        assert "自动注入不得强化" in injected
 
-            await asyncio.sleep(0)
-            assert engine._access_update_pending == set()
-            after = await _read_metadata(engine, memory_id)
-            assert after.get("access_count", 0) == 0
-            assert after["last_access_time"] == before["last_access_time"]
-        finally:
-            await store.close()
+        # 等待访问统计去抖窗口结束，确认没有写入
+        await asyncio.sleep(0.1)
+        after = await _read_metadata(engine, memory_id)
+        assert after.get("access_count", 0) == 0
+        assert after["last_access_time"] == before["last_access_time"]
     finally:
-        await engine.close()
+        await close_handler(handler, manager, store, engine, db)
