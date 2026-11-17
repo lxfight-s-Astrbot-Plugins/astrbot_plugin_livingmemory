@@ -250,7 +250,7 @@
       "hint": "",
       "use_persona_filtering": {
         "description": "Isolate Memories by Persona",
-        "hint": "When enabled, only memories related to the current persona are recalled. Memories of different personas do not interfere with each other."
+        "hint": "Recall only: when enabled, only memories for the current persona are recalled. When disabled, recall is shared across personas, while reflections still record the real persona_id and use that persona's system_prompt."
       },
       "use_session_filtering": {
         "description": "Isolate Memories by Session",

@@ -198,18 +198,27 @@ def resolve_sender_alias(
 
 @dataclass(frozen=True, slots=True)
 class EventMemoryAccess:
-    """一次事件请求内解析出的白名单、人格与记忆作用域。"""
+    """一次事件请求内解析出的白名单、人格与记忆作用域。
+
+    ``persona_id`` 始终是事件当前人格，供写入、档案与提示词选择使用；
+    ``recall_persona_id`` 只在 ``use_persona_filtering`` 开启时等于它，关闭时为
+    None，表示检索不按人格过滤（跨人格共享召回）。
+    """
 
     allowed: bool
     persona_id: str | None
     scope: str | None
     channel_scope: str | None = None
+    recall_persona_id: str | None = None
 
 
 async def resolve_event_memory_access(
     config: Any, context: Any, event: Any
 ) -> EventMemoryAccess:
-    """一次解析事件的白名单、人格过滤与记忆作用域。
+    """一次解析事件的白名单、人格与记忆作用域。
+
+    ``filtering_settings.use_persona_filtering`` 只控制检索过滤：写入链路始终解析
+    真实人格，避免关闭开关后新记忆全部丢失 persona_id（#438）。
 
     Args:
         config: ConfigManager 或宿主配置。
@@ -221,16 +230,18 @@ async def resolve_event_memory_access(
     """
     if not is_event_memory_allowed(config, event):
         return EventMemoryAccess(allowed=False, persona_id=None, scope=None)
-    persona_id = None
-    if _config_get(config, "filtering_settings.use_persona_filtering", True):
-        from .utils import get_persona_id
+    from .utils import get_persona_id
 
-        persona_id = await get_persona_id(context, event)
+    persona_id = await get_persona_id(context, event)
+    persona_filtering = bool(
+        _config_get(config, "filtering_settings.use_persona_filtering", True)
+    )
     return EventMemoryAccess(
         allowed=True,
         persona_id=persona_id,
         scope=resolve_memory_scope(config, event),
         channel_scope=resolve_channel_memory_scope(config, event),
+        recall_persona_id=persona_id if persona_filtering else None,
     )
 
 

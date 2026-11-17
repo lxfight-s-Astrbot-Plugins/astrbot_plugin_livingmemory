@@ -121,7 +121,7 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
-| `filtering_settings.use_persona_filtering` | `true` | 只召回当前人格相关记忆 |
+| `filtering_settings.use_persona_filtering` | `true` | 只控制召回：开启时只召回当前人格相关记忆；关闭时跨人格共享召回，反思总结仍记录真实 `persona_id` |
 | `filtering_settings.memory_scope_mode` | `legacy` | `legacy` 保持旧行为；也可按会话、用户或全局共享 |
 | `filtering_settings.use_session_filtering` | `true` | 仅在 `legacy` 模式下控制会话过滤 |
 | `filtering_settings.isolated_sessions` | 空 | 始终强制隔离的完整会话 ID，每行一个 |

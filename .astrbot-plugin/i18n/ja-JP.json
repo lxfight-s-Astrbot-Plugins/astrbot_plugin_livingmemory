@@ -250,7 +250,7 @@
       "hint": "",
       "use_persona_filtering": {
         "description": "ペルソナごとにメモリを分離",
-        "hint": "有効にすると現在のペルソナに関連する記憶のみを想起し、ペルソナ間で記憶が干渉しなくなります。"
+        "hint": "想起のみに適用：有効時は現在のペルソナの記憶だけを想起します。無効時はペルソナをまたいで想起しますが、振り返りの要約は実際の persona_id とその system_prompt を記録します。"
       },
       "use_session_filtering": {
         "description": "セッションごとにメモリを分離",
