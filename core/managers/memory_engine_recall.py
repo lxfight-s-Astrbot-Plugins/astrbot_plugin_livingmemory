@@ -98,6 +98,9 @@ class MemoryEngineRecallMixin:
         if not query or not query.strip():
             return []
 
+        # 检索需要查询向量；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
+
         # 主作用域 + 附加作用域合并为一次 IN 过滤；单作用域时保持 = ? 热路径。
         scope_filter = merge_memory_scopes(session_id, extra_scopes)
         extra_scope_values = normalize_memory_scopes(extra_scopes) or []
@@ -733,6 +736,8 @@ class MemoryEngineRecallMixin:
         """
         if not content or not content.strip() or self.vector_retriever is None:
             return (None, None) if return_embedding else None
+        # 近重复检测同样要算查询向量；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
         # 复用 retrieve_vectors 的查询向量缓存：同一 (provider, query) 只计算一次，
         # 检索结束后取出该向量交给写入路径，避免同一文本二次调用 embedding。
         outer_cache = query_embeddings.get()

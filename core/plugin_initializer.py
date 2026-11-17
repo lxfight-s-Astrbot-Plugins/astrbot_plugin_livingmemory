@@ -521,6 +521,20 @@ class PluginInitializer(InitializerFaissMixin):
                 logger.warning(f"解析 Rerank 提供商失败: {e}")
                 return None
 
+        # Embedding 提供商动态解析：AstrBot 保存 Provider 配置后会终止旧实例并
+        # 重建，插件缓存的实例会一直带着旧 Key 报错，需在使用前重新解析。
+        embedding_provider_id = (
+            self.config_manager.get("provider_settings.embedding_provider_id", "") or ""
+        )
+
+        def resolve_embedding_provider():
+            if embedding_provider_id:
+                provider = self._get_provider_by_id(embedding_provider_id, silent=True)
+                if isinstance(provider, EmbeddingProvider):
+                    return provider
+            providers = self.context.get_all_embedding_providers()
+            return providers[0] if providers else None
+
         self.memory_engine = MemoryEngine(
             db_path=str(storage["db_path"]),
             faiss_db=self.db,
@@ -528,6 +542,7 @@ class PluginInitializer(InitializerFaissMixin):
             llm_provider=self.llm_provider,
             config=memory_engine_config,
             rerank_provider_resolver=resolve_rerank_provider,
+            embedding_provider_resolver=resolve_embedding_provider,
         )
         await self.memory_engine.initialize()
         logger.info("MemoryEngine 已初始化")

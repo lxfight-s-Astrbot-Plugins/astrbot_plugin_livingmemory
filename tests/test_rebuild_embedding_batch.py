@@ -34,6 +34,10 @@ class _Engine(MemoryEngineBatchMixin):
     def _invalidate_search_cache(self) -> None:
         pass
 
+    def _sync_embedding_provider(self) -> None:
+        """No vector store in this harness; provider refresh is a no-op."""
+        return None
+
 
 async def _documents_db(tmp_path: Path):
     db = await aiosqlite.connect(str(tmp_path / "memory.db"))

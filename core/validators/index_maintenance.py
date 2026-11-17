@@ -973,6 +973,10 @@ class IndexValidator:
     ) -> dict[str, Any]:
         try:
             logger.info("开始分批安全重建索引。")
+            # 重建全过程都要算 embedding；先跟随宿主切换到最新的 Provider 实例。
+            sync_provider = getattr(memory_engine, "_sync_embedding_provider", None)
+            if callable(sync_provider):
+                sync_provider()
             options = self._get_rebuild_options(memory_engine)
             total = await self._get_document_count()
 

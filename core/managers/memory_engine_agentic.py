@@ -82,6 +82,8 @@ class MemoryEngineAgenticMixin:
             ``AgenticRecallOutcome``；失败时由内部转换为错误状态。
         """
         recorder = getattr(self, "trace_recorder", None)
+        # Beta 检索路径也会算查询向量；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
         trace = None
         if recorder is not None and recorder.enabled:
             trace = self._begin_recall_trace(

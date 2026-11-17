@@ -105,6 +105,9 @@ class MemoryEngineCrudMixin:
         if self.index_writer is None:
             raise RuntimeError("索引写入器未初始化")
 
+        # 写入会触发 embedding；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
+
         full_metadata = self._build_memory_metadata(
             session_id=session_id,
             persona_id=persona_id,

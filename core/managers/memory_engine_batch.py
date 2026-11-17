@@ -324,6 +324,9 @@ class MemoryEngineBatchMixin:
         if str(metadata.get("status") or "active") != "archived":
             return True
 
+        # 恢复归档记忆需要重新计算向量；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
+
         embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
         embedding_insert = getattr(embedding_storage, "insert", None)
         embedding_delete = getattr(embedding_storage, "delete", None)
@@ -685,6 +688,8 @@ class MemoryEngineBatchMixin:
                 yield batch
 
         self._invalidate_search_cache()
+        # 重建图向量需要大量 embedding；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
         # Bound how many entries go into one embedding request. AstrBot's
         # insert_batch sends the whole list to the provider, so providers with a
         # small batch limit (e.g. DashScope caps at 20) fail the rebuild when the
