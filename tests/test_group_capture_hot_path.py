@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import astrbot_plugin_livingmemory.storage.conversation_store as conv_store_mod
 from astrbot_plugin_livingmemory.core.event_handler_modules.message_utils import (
     MessageUtils,
 )
 from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
     ConversationManager,
 )
+from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 from astrbot_plugin_livingmemory.storage.conversation_store import ConversationStore
 
 
@@ -49,7 +51,7 @@ async def test_recent_cache_updates_and_expands_correctly(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_counts_are_atomic_and_hint_skips_only_under_cap(tmp_path):
+async def test_counts_are_atomic_and_recent_count_skips_only_under_cap(tmp_path):
     store = ConversationStore(str(tmp_path / "counts.db"))
     await store.initialize()
     manager = ConversationManager(store=store)
@@ -64,16 +66,27 @@ async def test_counts_are_atomic_and_hint_skips_only_under_cap(tmp_path):
     )()
     utils = MessageUtils(config_manager=config, conversation_manager=manager)
     try:
-        messages = await asyncio.gather(
-            *(manager.add_message("group", "user", str(n)) for n in range(4))
-        )
-        assert sorted(m.session_message_count for m in messages) == [1, 2, 3, 4]
         store.get_message_count = AsyncMock(wraps=store.get_message_count)
-        await utils.enforce_message_limit("group", count_hint=3)
+
+        # Under cap (<= 3): one-shot recent count skips DB check once, then falls back.
+        for _ in range(3):
+            await manager.add_message("group", "user", "under")
+        await utils.enforce_message_limit("group")
         store.get_message_count.assert_not_awaited()
-        await utils.enforce_message_limit("group", count_hint=4)
+
+        # Second check without a new write cannot reuse stale state.
+        await utils.enforce_message_limit("group")
+        assert store.get_message_count.await_count == 1
+
+        # Concurrent writes past cap (4 > 3) trigger trimming cleanly.
+        store.get_message_count.reset_mock()
+        await asyncio.gather(
+            *(manager.add_message("burst", "user", str(n)) for n in range(4))
+        )
+        assert manager.pop_recent_message_count("burst") == 4
+        await utils.enforce_message_limit("burst")
         assert store.get_message_count.await_count >= 1
-        assert await store.get_message_count("group") <= 3
+        assert await store.get_message_count("burst") <= 3
     finally:
         await store.close()
 
@@ -215,4 +228,92 @@ async def test_read_then_write_same_session_cannot_repopulate_stale_cache(tmp_pa
         store.get_messages.assert_not_awaited()
     finally:
         release.set()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_then_larger_limit_fetches_full_history(tmp_path):
+    store = ConversationStore(str(tmp_path / "expand.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    try:
+        for n in range(6):
+            await manager.add_message("group", "user", str(n), timestamp=100 + n)
+
+        # Warm partial cache at capacity=2 (complete=False), then confirm hit.
+        assert [m.content for m in await manager.get_messages("group", 2)] == ["4", "5"]
+        store.get_messages = AsyncMock(wraps=store.get_messages)
+        assert [m.content for m in await manager.get_messages("group", 2)] == ["4", "5"]
+        store.get_messages.assert_not_awaited()
+
+        # Requesting a larger limit must miss the partial cache and return 5 rows.
+        assert [m.content for m in await manager.get_messages("group", 5)] == [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+        ]
+        store.get_messages.assert_awaited_once()
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_store_add_message_without_returning_falls_back_and_rolls_back(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(conv_store_mod, "_SUPPORTS_RETURNING", False)
+    store = ConversationStore(str(tmp_path / "compat.db"))
+    await store.initialize()
+    try:
+        for idx in range(1, 4):
+            msg_id, count = await store.add_message(
+                Message(
+                    id=None,
+                    session_id="s1",
+                    role="user",
+                    content=f"m{idx}",
+                    sender_id="u1",
+                    timestamp=100.0 + idx,
+                ),
+                return_count=True,
+            )
+            assert msg_id == idx
+            assert count == idx
+
+        # Force failure mid-transaction after INSERT INTO messages to verify rollback.
+        async def failing_update(*args, **kwargs):
+            raise RuntimeError("simulated update failure")
+
+        monkeypatch.setattr(store, "_update_session_after_insert", failing_update)
+        with pytest.raises(RuntimeError, match="simulated update failure"):
+            await store.add_message(
+                Message(
+                    id=None,
+                    session_id="s1",
+                    role="user",
+                    content="should-rollback",
+                    sender_id="u1",
+                    timestamp=200.0,
+                ),
+                return_count=True,
+            )
+        assert await store.get_message_count("s1") == 3
+        assert len(await store.get_messages("s1", limit=10)) == 3
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_manager_handles_legacy_int_store_add_message(tmp_path):
+    store = ConversationStore(str(tmp_path / "legacy-mock.db"))
+    await store.initialize()
+    store.add_message = AsyncMock(return_value=42)
+    manager = ConversationManager(store=store)
+    try:
+        msg = await manager.add_message("s1", "user", "hi")
+        assert msg.id == 42
+        assert manager.pop_recent_message_count("s1") is None
+    finally:
         await store.close()

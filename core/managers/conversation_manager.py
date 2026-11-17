@@ -78,6 +78,8 @@ class ConversationManager:
 
         # LRU cache entries hold (messages, requested capacity, complete history).
         self._cache: OrderedDict = OrderedDict()
+        # One-shot per-session counts captured atomically with writes and consumed on limit check.
+        self._recent_counts: OrderedDict[str, int] = OrderedDict()
         # A lock lives as long as a task holds it; idle session locks can disappear.
         self._cache_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
@@ -103,6 +105,17 @@ class ConversationManager:
             lock = asyncio.Lock()
             self._cache_locks[session_id] = lock
         return lock
+
+    def _record_recent_count(self, session_id: str, count: int) -> None:
+        self._recent_counts[session_id] = count
+        self._recent_counts.move_to_end(session_id)
+        cap = max(int(self.max_cache_size or 0), 100)
+        while len(self._recent_counts) > cap:
+            self._recent_counts.popitem(last=False)
+
+    def pop_recent_message_count(self, session_id: str) -> int | None:
+        """Consume and return the latest write's message count, if available."""
+        return self._recent_counts.pop(session_id, None)
 
     async def add_message_from_event(
         self,
@@ -305,11 +318,14 @@ class ConversationManager:
         # Serialize only this session's reads, writes and invalidations.
         async with self._cache_session_lock(session_id):
             try:
-                (
-                    message_id,
-                    message.session_message_count,
-                ) = await self.store.add_message(message, return_count=True)
+                result = await self.store.add_message(message, return_count=True)
+                if isinstance(result, tuple) and len(result) == 2:
+                    message_id, recent_count = result
+                else:
+                    message_id, recent_count = result, None
                 message.id = message_id
+                if isinstance(recent_count, int) and not isinstance(recent_count, bool):
+                    self._record_recent_count(session_id, recent_count)
                 cached = self._cache.get(session_id)
                 if cached:
                     previous, capacity, complete = cached
@@ -321,6 +337,7 @@ class ConversationManager:
                     self._cache.move_to_end(session_id)
             except BaseException:
                 self._cache.pop(session_id, None)
+                self._recent_counts.pop(session_id, None)
                 raise
 
         logger.debug(
@@ -919,8 +936,8 @@ class ConversationManager:
             session_id: 会话ID
         """
         async with self._cache_session_lock(session_id):
-            if session_id in self._cache:
-                del self._cache[session_id]
+            self._cache.pop(session_id, None)
+            self._recent_counts.pop(session_id, None)
 
     async def get_messages_range(
         self, session_id: str, start_index: int = 0, end_index: int | None = None

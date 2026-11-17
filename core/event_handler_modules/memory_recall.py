@@ -159,15 +159,12 @@ class MemoryRecall:
                         )
                     if not message_to_store:
                         message_to_store = actual_query.strip()
-                    message = await self.conversation_manager.add_message_from_event(
+                    await self.conversation_manager.add_message_from_event(
                         event=event,
                         role="user",
                         content=message_to_store,
                     )
-                    await self.message_utils.enforce_message_limit(
-                        session_id,
-                        count_hint=getattr(message, "session_message_count", None),
-                    )
+                    await self.message_utils.enforce_message_limit(session_id)
 
                 # Beta 自主回忆规则：独立于自动召回是否命中；即使 top_k=0
                 # 也可为当前请求可用的主动工具提供规则说明。

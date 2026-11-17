@@ -310,14 +310,12 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         # 因此只把助手文字写入会话库，最终回复轮才触发后台总结。
         if resp.role == "tool" or resp.tools_call_name or resp.tools_call_extra_content:
             logger.debug(f"[{session_id}] 工具调用轮次仅记录助手消息，不触发记忆总结")
-            message = await self.conversation_manager.add_message_from_event(
+            await self.conversation_manager.add_message_from_event(
                 event=event,
                 role="assistant",
                 content=response_text,
             )
-            await self.message_utils.enforce_message_limit(
-                session_id, count_hint=getattr(message, "session_message_count", None)
-            )
+            await self.message_utils.enforce_message_limit(session_id)
             return None
 
         return session_id, response_text
@@ -374,16 +372,14 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         self, event: AstrMessageEvent, session_id: str, response_text: str
     ) -> _ReflectionPlan | None:
         """写入助手消息、判断触发条件并计算本次总结窗口。"""
-        message = await self.conversation_manager.add_message_from_event(
+        await self.conversation_manager.add_message_from_event(
             event=event,
             role="assistant",
             content=response_text,
         )
         logger.debug(f"[DEBUG-Reflection] [{session_id}] 已添加助手响应消息")
 
-        await self.message_utils.enforce_message_limit(
-            session_id, count_hint=getattr(message, "session_message_count", None)
-        )
+        await self.message_utils.enforce_message_limit(session_id)
 
         # Read the retained history length used by the reflection cursor.
         actual_message_count = await self.conversation_manager.store.get_message_count(
