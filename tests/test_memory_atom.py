@@ -468,6 +468,28 @@ def test_classify_fact_with_stative_verb() -> None:
     assert atom_type == AtomType.FACTUAL
 
 
+def test_classify_name_with_ai_prefix_is_not_preference() -> None:
+    """单字「爱」不应把姓名（爱丽丝）误判为偏好（#445）。"""
+    atom_type, _, _ = _classify_single("爱丽丝描述了一个空房间")
+    assert atom_type != AtomType.PREFERENCE
+
+
+def test_classify_preference_expressions_still_detected() -> None:
+    """移除单字「爱」后，常见的偏好表达仍应命中。"""
+    assert _classify_single("我爱喝咖啡")[0] == AtomType.PREFERENCE
+    assert _classify_single("我不爱吃香菜")[0] == AtomType.PREFERENCE
+
+
+def test_classify_completed_past_event_is_not_planned() -> None:
+    """过去已完成事件不应被判为未来计划（#445）。"""
+    atom_type, _, _ = _classify_single("昨天已经完成调试")
+    assert atom_type == AtomType.EPISODIC
+
+
+def test_classify_completed_today_is_not_planned() -> None:
+    assert _classify_single("今天完成了调试")[0] != AtomType.PLANNED
+
+
 # ---------- TTL boundary conditions ----------
 
 
