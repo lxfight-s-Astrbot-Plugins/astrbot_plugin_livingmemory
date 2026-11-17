@@ -19,6 +19,7 @@ export default class Graph3D {
     this._galaxyPhases = null;
     this.galaxyDust = null;
     this.communityLines = null;
+    this.tidalStreams = null;
     this._pulseClock = 0;
     this._viewOffset = { x: 0, y: 0 };
     this._flight = null;
@@ -65,15 +66,56 @@ export default class Graph3D {
     this.controls.addEventListener("start", this._onControlStart);
     this.graphGroup = new THREE.Group();
     this.scene.add(this.graphGroup);
-    const dust = new Float32Array(1100 * 3);
-    for (let i = 0; i < 1100; i++) {
-      const angle = i * 2.3999632297, h = 1 - 2 * (i + 0.5) / 1100;
-      const radius = 2400 + (i % 17) * 95, circle = Math.sqrt(1 - h * h);
+    const starCount = 1600, wispCount = 420, dustCount = starCount + wispCount;
+    const dust = new Float32Array(dustCount * 3), dustColors = new Float32Array(dustCount * 3);
+    const dustSizes = new Float32Array(dustCount), dustAlphas = new Float32Array(dustCount);
+    const starPalette = [
+      new THREE.Color("#dbe6ff"),
+      new THREE.Color("#ffe9cc"),
+      new THREE.Color("#a8c2ff"),
+      new THREE.Color("#f5f7ff"),
+    ];
+    const wispPalette = [
+      new THREE.Color("#2f58a8"),
+      new THREE.Color("#1f6e8c"),
+      new THREE.Color("#4f4696"),
+      new THREE.Color("#3b739e"),
+    ];
+    for (let i = 0; i < dustCount; i++) {
+      const isWisp = i >= starCount;
+      const angle = i * 2.3999632297, h = 1 - 2 * (i + 0.5) / dustCount;
+      const seed = (i * 0.61803398875) % 1;
+      const radius = isWisp ? 900 + seed * 2600 : 1400 + (i % 29) * 105;
+      const circle = Math.sqrt(1 - h * h);
       dust.set([Math.cos(angle) * circle * radius, h * radius, Math.sin(angle) * circle * radius], i * 3);
+      if (isWisp) {
+        wispPalette[i % wispPalette.length].toArray(dustColors, i * 3);
+        dustSizes[i] = 18 + seed * 28;
+        dustAlphas[i] = 0.032;
+      } else {
+        starPalette[i % starPalette.length].toArray(dustColors, i * 3);
+        dustSizes[i] = 1.3 + seed ** 2 * 2.5;
+        dustAlphas[i] = 0.36;
+      }
     }
+    const dustGeometry = new THREE.BufferGeometry();
+    dustGeometry.setAttribute("position", new THREE.BufferAttribute(dust, 3));
+    dustGeometry.setAttribute("color", new THREE.BufferAttribute(dustColors, 3));
+    dustGeometry.setAttribute("aSize", new THREE.BufferAttribute(dustSizes, 1));
+    dustGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(dustAlphas, 1));
     this.dust = new THREE.Points(
-      new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(dust, 3)),
-      new THREE.PointsMaterial({ color: "#9db4ff", size: 1.4, transparent: true, opacity: 0.3, depthWrite: false })
+      dustGeometry,
+      new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        uniforms: { dpr: { value: this.renderer.getPixelRatio() } },
+        vertexShader: `attribute vec3 color; attribute float aSize; attribute float aAlpha; uniform float dpr;
+          varying vec3 vColor; varying float vAlpha;
+          void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=aSize*dpr;vColor=color;vAlpha=aAlpha;}`,
+        fragmentShader: `varying vec3 vColor; varying float vAlpha;
+          void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;
+            float falloff=exp(-r*r*mix(2.6,5.5,step(.15,vAlpha)));
+            gl_FragColor=vec4(vColor,falloff*(1.-r*r)*vAlpha);#include <colorspace_fragment>}`,
+      })
     );
     this.scene.add(this.dust);
     // AstrBot plugin frames have an opaque origin; create the worker within it.
@@ -254,16 +296,18 @@ export default class Graph3D {
         vEmission=aPulsar*pow(.5+.5*sin(pulseTime*1.3+aIndex*2.399963),5.);
         vBeam=vec2(cos(pulseTime*.6+aIndex),sin(pulseTime*.6+aIndex));
         vRing=.18+fract(pulseTime*.23+aIndex*.37)*.75;
-        vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1.2,4.,-p.z/viewDistance));}`,
+        vAlpha=max(hovered,mix(1.,mix(.09,1.,linked),focus))*(1.-smoothstep(1.4,4.6,-p.z/viewDistance));}`,
       fragmentShader: `varying vec3 vColor; varying float vAlpha; varying float vStar; varying float vCore; varying float vPulsar; varying float vEmission; varying float vRing; varying vec2 vBeam;
         void main(){vec2 point=gl_PointCoord-.5;float r=length(point)*2.;
-        if(r>1.)discard;float core=exp(-r*r*75.);float glow=exp(-r*r*12.)*.10;
-        float corona=vStar*exp(-r*r*3.2)*.065;float emission=0.;
+        if(r>1.)discard;float core=exp(-r*r*48.);float glow=exp(-r*r*10.)*.13;
+        float corona=vStar*exp(-r*r*3.)*.075;
+        float spike=max(0.,vStar-.35)*(exp(-abs(point.x)*42.)*exp(-abs(point.y)*5.)+exp(-abs(point.y)*42.)*exp(-abs(point.x)*5.))*.18;
+        float emission=0.;
         if(vPulsar>0.){float beam=exp(-abs(dot(point,vec2(-vBeam.y,vBeam.x)))*55.)*exp(-r*2.5);
           float ring=exp(-pow((r-vRing)*35.,2.))*.12*(1.-vRing);
           emission=vEmission*(beam*.25+ring)+vPulsar*exp(-r*r*2.8)*.025;}
-        vec3 tint=mix(vColor,vec3(.94,.97,1.),core*.6);tint=mix(tint,vec3(.86,.94,1.),min(.45,emission*.6));
-        gl_FragColor=vec4(tint,(core*vCore+glow+corona+emission)*vAlpha);
+        vec3 tint=mix(vColor,vec3(.96,.98,1.),core*.65);tint=mix(tint,vec3(.86,.94,1.),min(.45,emission*.6));
+        gl_FragColor=vec4(tint,(core*vCore+glow+corona+spike+emission)*vAlpha);
         #include <colorspace_fragment>
         }`,
     });
@@ -287,23 +331,90 @@ export default class Graph3D {
   }
 
   _buildGalaxyDust(data) {
-    const count = Math.min(24000, this.graph.nodes.length * 12);
+    if (!this.graph.nodes.length) return;
+    const count = Math.min(28000, Math.max(800, this.graph.nodes.length * 14));
     const positions = new Float32Array(count * 3), centers = new Float32Array(count * 3), spins = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3), sizes = new Float32Array(count), systems = new Float32Array(count), haze = new Float32Array(count);
-    const warm = new THREE.Color("#ffd3a1"), cool = new THREE.Color("#6f8fff"), tint = new THREE.Color();
+    const palettes = {
+      0: [new THREE.Color("#b2a6ff"), new THREE.Color("#6fe8d8"), new THREE.Color("#7caeff")],
+      1: [new THREE.Color("#ffca8e"), new THREE.Color("#9db6ff"), new THREE.Color("#63b3ff")],
+      2: [new THREE.Color("#ffba7a"), new THREE.Color("#b4b8ff"), new THREE.Color("#7ac2ff")],
+      3: [new THREE.Color("#ffd4be"), new THREE.Color("#c4a6ff"), new THREE.Color("#7caeff")],
+      4: [new THREE.Color("#ffd29c"), new THREE.Color("#8eb4ff"), new THREE.Color("#66e3ff")],
+      5: [new THREE.Color("#fff0d0"), new THREE.Color("#f5b878"), new THREE.Color("#d48f78")],
+    };
+    const coreTint = new THREE.Color("#fff1d6"), nebulaRose = new THREE.Color("#f5a8cb"), tint = new THREE.Color();
     for (let i = 0; i < count; i++) {
       const node = i % this.graph.nodes.length, community = data.communityIds[node], center = data.hubs[community] * 3;
-      const radius = data.communityRadii[community], seed = (i * 0.61803398875) % 1;
-      const angle = i * 2.3999632297, height = 1 - 2 * (i + 0.5) / count, circle = Math.sqrt(1-height*height);
-      const spread = radius * (0.018 + 0.07 * seed * seed), offset = i * 3;
-      positions.set([data.positions[node*3]+Math.cos(angle)*circle*spread,
-        data.positions[node*3+1]+Math.sin(angle)*circle*spread, data.positions[node*3+2]+height*spread], offset);
-      centers.set(data.positions.subarray(center, center+3), offset);
-      spins.set(data.frames.subarray(community*9+6, community*9+9), offset);
-      const distance = Math.hypot(...[0,1,2].map(axis => data.positions[node*3+axis]-data.positions[center+axis])) / radius;
-      tint.copy(warm).lerp(cool, Math.min(1, distance)).toArray(colors, offset);
-      haze[i] = i % 19 === 0 ? 1 : 0;
-      sizes[i] = haze[i] ? 28 + seed * 18 : 1.3 + seed ** 3 * 2.8;
+      const radius = data.communityRadii[community], frame = community * 9;
+      const gType = data.galaxyTypes ? data.galaxyTypes[community] : 1;
+      const isDisk = gType >= 1 && gType <= 4;
+      const seed = (i * 0.61803398875) % 1;
+      const u1 = ((i * 0.75487766625 + 0.19) % 1) * 2 - 1;
+      const u2 = ((i * 0.41421356237 + 0.47) % 1) * 2 - 1;
+      const u3 = ((i * 0.73205080757 + 0.83) % 1) * 2 - 1;
+      const bellW = (u1 + u2 + u3) / 3;
+      const offset = i * 3;
+      const ux = data.frames[frame], uy = data.frames[frame + 1], uz = data.frames[frame + 2];
+      const vx = data.frames[frame + 3], vy = data.frames[frame + 4], vz = data.frames[frame + 5];
+      const wx = data.frames[frame + 6], wy = data.frames[frame + 7], wz = data.frames[frame + 8];
+      const hx = data.positions[center], hy = data.positions[center + 1], hz = data.positions[center + 2];
+      const [warm, mid, cool] = palettes[gType] || palettes[1];
+      if (isDisk && i % 7 === 0) {
+        // Galactic bulge: compact oblate spheroid (elongated bar for barred spirals) of warm core starlight.
+        const angle = i * 2.3999632297;
+        const bulgeFrac = Math.pow(seed, 1.35);
+        const bulgeR = radius * (gType === 2 ? 0.28 : 0.23) * bulgeFrac;
+        const bulgeW = radius * 0.044 * bellW * (1 - 0.5 * bulgeFrac);
+        const ca = Math.cos(angle) * bulgeR * (gType === 2 ? 1.25 : 1);
+        const sa = Math.sin(angle) * bulgeR * (gType === 2 ? 0.55 : 1);
+        positions.set([
+          hx + ux * ca + vx * sa + wx * bulgeW,
+          hy + uy * ca + vy * sa + wy * bulgeW,
+          hz + uz * ca + vz * sa + wz * bulgeW,
+        ], offset);
+        tint.copy(coreTint).lerp(warm, Math.min(1, bulgeFrac * 1.1)).toArray(colors, offset);
+        haze[i] = i % 21 === 0 ? 1 : 0;
+        sizes[i] = haze[i] ? 32 + seed * 24 : 1.1 + seed ** 2 * 2.2;
+      } else {
+        const nx = data.positions[node * 3], ny = data.positions[node * 3 + 1], nz = data.positions[node * 3 + 2];
+        const dx = nx - hx, dy = ny - hy, dz = nz - hz;
+        const distNorm = Math.min(1, Math.hypot(dx, dy, dz) / radius);
+        if (isDisk) {
+          // Align disk dust along the spiral/ring tangent while keeping the galactic midplane thin.
+          const lx = dx * ux + dy * uy + dz * uz, ly = dx * vx + dy * vy + dz * vz;
+          const len = Math.hypot(lx, ly);
+          const rx = len > 1e-4 ? lx / len : Math.cos(i * 2.3999632297);
+          const ry = len > 1e-4 ? ly / len : Math.sin(i * 2.3999632297);
+          const v1 = ((i * 0.30901699437 + 0.29) % 1) * 2 - 1;
+          const v2 = ((i * 0.86602540378 + 0.61) % 1) * 2 - 1;
+          const bellR = (u1 - u2) * 0.5, bellT = (v1 + v2 + u3) / 3;
+          const dr = bellR * radius * (gType === 3 ? 0.022 + 0.044 * seed : 0.014 + 0.030 * seed);
+          const dt = bellT * radius * (0.028 + 0.075 * seed);
+          const dw = bellW * radius * (0.005 + 0.013 * seed * (1 - 0.35 * distNorm));
+          const du = dr * rx - dt * ry, dv = dr * ry + dt * rx;
+          positions.set([
+            nx + ux * du + vx * dv + wx * dw,
+            ny + uy * du + vy * dv + wy * dw,
+            nz + uz * du + vz * dv + wz * dw,
+          ], offset);
+        } else {
+          // Elliptical galaxies and star clusters retain soft 3D volumetric starlight and nebula mist.
+          const angle = i * 2.3999632297, height = 1 - 2 * (i + 0.5) / count, circle = Math.sqrt(1 - height * height);
+          const spread = radius * (gType === 5 ? 0.03 + 0.09 * seed * seed : 0.02 + 0.07 * seed * seed);
+          positions.set([nx + Math.cos(angle) * circle * spread,
+            ny + Math.sin(angle) * circle * spread, nz + height * spread], offset);
+        }
+        if (distNorm < 0.38) tint.copy(warm).lerp(mid, distNorm / 0.38);
+        else tint.copy(mid).lerp(cool, (distNorm - 0.38) / 0.62);
+        if (gType !== 5 && (this.graph.nodes[node].type === "summary" || this.graph.nodes[node].pulsar > 0)) tint.lerp(nebulaRose, 0.26);
+        tint.toArray(colors, offset);
+        const hazeStride = gType === 3 || gType === 0 ? 9 : 13;
+        haze[i] = i % hazeStride === 0 ? 1 : 0;
+        sizes[i] = haze[i] ? 24 + seed * 24 : 1.1 + seed ** 3 * 2.5;
+      }
+      centers.set([hx, hy, hz], offset);
+      spins.set([wx, wy, wz], offset);
       systems[i] = community;
     }
     this._galaxyPhases = new THREE.DataTexture(new Float32Array(data.hubs.length*4), data.hubs.length, 1, THREE.RGBAFormat, THREE.FloatType);
@@ -328,11 +439,12 @@ export default class Graph3D {
           vec3 p=position-aCenter;float c=cos(angle),s=sin(angle);
           p=aCenter+p*c+cross(aSpin,p)*s+aSpin*dot(aSpin,p)*(1.-c);
           vec4 view=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*view;
-          gl_PointSize=clamp(aSize*dpr*pow(abs(viewDistance/view.z),.6),.8,65.*dpr);
+          gl_PointSize=clamp(aSize*dpr*pow(abs(viewDistance/view.z),.6),.8,90.*dpr);
           vColor=color;vHaze=aHaze;vDepth=1.-smoothstep(1.5,5.,-view.z/viewDistance);}`,
       fragmentShader: `uniform float uOpacity;varying vec3 vColor;varying float vHaze;varying float vDepth;
         void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;
-          float light=exp(-r*r*mix(7.,3.,vHaze))*mix(.22,.012,vHaze);
+          float edge=1.-r*r;
+          float light=mix(exp(-r*r*8.5)*.22,exp(-r*r*3.6)*edge*.026,vHaze);
           gl_FragColor=vec4(vColor,light*vDepth*uOpacity);
           #include <colorspace_fragment>
         }`,
@@ -345,25 +457,72 @@ export default class Graph3D {
     this._bundleCount = data.bundleWeights.length;
     if (!this._bundleCount) return;
     const positions = [], colors = [], color = new THREE.Color("#8fa6e8");
+    const streamCount = this._bundleCount * 42;
+    const streamPositions = new Float32Array(streamCount * 3), streamColors = new Float32Array(streamCount * 3);
+    const streamSizes = new Float32Array(streamCount), streamHaze = new Float32Array(streamCount);
+    const streamWarm = new THREE.Color("#d9c8ff"), streamCool = new THREE.Color("#73a8ff"), streamTint = new THREE.Color();
+    let streamIdx = 0;
+    const segments = 16;
     for (let i = 0; i < this._bundleCount; i++) {
       const source = data.bundlePairs[i*2], target = data.bundlePairs[i*2+1];
       const a = new THREE.Vector3().fromBufferAttribute(this.positions, data.hubs[source]);
       const b = new THREE.Vector3().fromBufferAttribute(this.positions, data.hubs[target]);
-      const normal = b.clone().sub(a).cross(new THREE.Vector3(0.3,0.8,0.5)).normalize();
+      const dir = b.clone().sub(a);
+      const normal = dir.clone().cross(new THREE.Vector3(0.3,0.8,0.5)).normalize();
+      const binormal = dir.clone().cross(normal).normalize();
       const bend = Math.min(a.distanceTo(b)*0.14, (data.communityRadii[source]+data.communityRadii[target])*0.3);
       const curve = new THREE.CubicBezierCurve3(a, a.clone().lerp(b,0.32).addScaledVector(normal,bend),
         a.clone().lerp(b,0.68).addScaledVector(normal,bend), b);
       const intensity = 0.35 + 0.65 * Math.log1p(data.bundleWeights[i]) / Math.log1p(data.bundleWeights[0]);
-      for (let segment = 0; segment < 12; segment++) {
-        positions.push(...curve.getPoint(segment/12).toArray(), ...curve.getPoint((segment+1)/12).toArray());
-        for (let end = 0; end < 2; end++) colors.push(color.r*intensity,color.g*intensity,color.b*intensity);
+      for (let segment = 0; segment < segments; segment++) {
+        const t0 = segment / segments, t1 = (segment + 1) / segments;
+        positions.push(...curve.getPoint(t0).toArray(), ...curve.getPoint(t1).toArray());
+        for (const t of [t0, t1]) {
+          const arcFade = (0.35 + 0.65 * Math.sin(Math.PI * t)) * intensity;
+          colors.push(color.r * arcFade, color.g * arcFade, color.b * arcFade);
+        }
+      }
+      // Populate tidal star streams and faint cosmic filaments bridging connected galaxies.
+      const span = a.distanceTo(b);
+      for (let s = 0; s < 42; s++) {
+        const idx = i * 42 + s;
+        const t = 0.08 + 0.84 * ((idx * 0.61803398875) % 1);
+        const pt = curve.getPoint(t);
+        const scatterAngle = idx * 2.3999632297;
+        const spread = Math.min(48, span * 0.055) * (((idx * 0.75487766625) % 1) ** 1.4);
+        pt.addScaledVector(normal, Math.cos(scatterAngle) * spread);
+        pt.addScaledVector(binormal, Math.sin(scatterAngle) * spread);
+        streamPositions.set([pt.x, pt.y, pt.z], streamIdx * 3);
+        streamTint.copy(streamWarm).lerp(streamCool, Math.abs(t - 0.5) * 2).multiplyScalar(0.65 + 0.35 * intensity).toArray(streamColors, streamIdx * 3);
+        streamHaze[streamIdx] = s % 6 === 0 ? 1 : 0;
+        streamSizes[streamIdx] = streamHaze[streamIdx] ? 22 + ((idx * 0.41421356) % 1) * 18 : 1.3 + ((idx * 0.7320508) % 1) * 1.8;
+        streamIdx++;
       }
     }
     const geometry = new THREE.BufferGeometry().setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
     geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
     this.communityLines = new THREE.LineSegments(geometry,
-      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthWrite: false }));
+      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false }));
     this.graphGroup.add(this.communityLines);
+    const streamGeometry = new THREE.BufferGeometry();
+    streamGeometry.setAttribute("position", new THREE.BufferAttribute(streamPositions, 3));
+    streamGeometry.setAttribute("color", new THREE.BufferAttribute(streamColors, 3));
+    streamGeometry.setAttribute("aSize", new THREE.BufferAttribute(streamSizes, 1));
+    streamGeometry.setAttribute("aHaze", new THREE.BufferAttribute(streamHaze, 1));
+    streamGeometry.boundingSphere = this.points.geometry.boundingSphere;
+    this.tidalStreams = new THREE.Points(streamGeometry, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uOpacity: { value: 1 }, dpr: this.uniforms.dpr, viewDistance: this.uniforms.viewDistance },
+      vertexShader: `attribute vec3 color; attribute float aSize; attribute float aHaze;
+        uniform float dpr; uniform float viewDistance; varying vec3 vColor; varying float vHaze;
+        void main(){vec4 view=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*view;
+          gl_PointSize=clamp(aSize*dpr*pow(abs(viewDistance/view.z),.6),.8,65.*dpr);vColor=color;vHaze=aHaze;}`,
+      fragmentShader: `uniform float uOpacity; varying vec3 vColor; varying float vHaze;
+        void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;
+          float light=mix(exp(-r*r*7.5)*.26,exp(-r*r*3.4)*(1.-r*r)*.045,vHaze);
+          gl_FragColor=vec4(vColor,light*uOpacity);#include <colorspace_fragment>}`,
+    }));
+    this.graphGroup.add(this.tidalStreams);
   }
 
   _fitScene() {
@@ -385,6 +544,7 @@ export default class Graph3D {
     this.controls.maxDistance = Math.max(8000, this._overviewDistance * 3);
     this.camera.far = Math.max(12000, this._overviewDistance * 5);
     this.camera.updateProjectionMatrix();
+    this.dust?.scale.setScalar(Math.max(1, this._radius / 1800));
     this._homePosition = this._center.clone().addScaledVector(new THREE.Vector3(0.03, 0.14, 1).normalize(), this._overviewDistance);
   }
 
@@ -448,7 +608,11 @@ export default class Graph3D {
     this.edges.visible = count > 0;
     if (this.communityLines) {
       this.communityLines.visible = !this.showAllRelations;
-      this.communityLines.material.opacity = this.selection ? 0.08 : this._relationCommunity >= 0 ? 0.15 : 0.3;
+      this.communityLines.material.opacity = this.selection ? 0.08 : this._relationCommunity >= 0 ? 0.14 : 0.22;
+    }
+    if (this.tidalStreams) {
+      this.tidalStreams.visible = !this.showAllRelations;
+      this.tidalStreams.material.uniforms.uOpacity.value = this.selection ? 0.25 : this._relationCommunity >= 0 ? 0.55 : 1;
     }
     if (this.galaxyDust) this.galaxyDust.material.uniforms.uOpacity.value = this.selection ? 0.45 : 1;
     const density = Math.max(1, this.graph.links.length / Math.max(1, this.graph.nodes.length));
@@ -548,15 +712,20 @@ export default class Graph3D {
     this.labelLayer.replaceChildren();
     this._labels = [];
     if (!this._ready || !this.graph.nodes.length) return;
-    const overview = this._relationCommunity < 0 ? [...this._gravity.hubs].slice(0,16)
+    const hubSet = new Set(this._gravity?.hubs || []);
+    const focusSet = new Set(this._focusNodeIndices || []);
+    const overview = this._relationCommunity < 0 ? [...hubSet].slice(0,16)
       : this.graph.labelOrder.filter(index => this._gravity.communityIds[index] === this._relationCommunity).slice(0,12);
-    const candidates = new Set([this._hover, ...(this._focusNodeIndices || []), ...(this.selection ? this._highlightNodes : overview)]);
+    const candidates = new Set([this._hover, ...focusSet, ...(this.selection ? this._highlightNodes : overview)]);
     for (const index of candidates) {
       if (index < 0) continue;
       if (this._labels.length >= 24) break;
+      const node = this.graph.nodes[index];
       const element = document.createElement("span");
-      element.className = "space-node-label";
-      element.textContent = this.graph.nodes[index].label || this.graph.nodes[index].canonical_value || "";
+      const role = index === this._hover || focusSet.has(index) ? " is-focus" : hubSet.has(index) ? " is-hub" : "";
+      element.className = "space-node-label" + role;
+      if (node.type && element.dataset) element.dataset.type = node.type;
+      element.textContent = node.label || node.canonical_value || "";
       this.labelLayer.appendChild(element);
       this._labels.push({ index, element });
     }
@@ -691,7 +860,7 @@ export default class Graph3D {
     this.graphGroup.clear();
     this._galaxyPhases?.dispose();
     this._galaxyPhases = null;
-    this.galaxyDust = this.communityLines = null;
+    this.galaxyDust = this.communityLines = this.tidalStreams = null;
     this._focusNodeIndices = [];
   }
 
