@@ -388,6 +388,12 @@
                     "max": 10000,
                     "step": 1
                 }
+            },
+            "private_memory_notice_enabled": {
+                "description": "私密记忆注入提示",
+                "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。",
+                "type": "bool",
+                "default": true
             }
         }
     },

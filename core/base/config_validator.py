@@ -50,6 +50,7 @@ class RecallEngineConfig(BaseModel):
     auto_remove_injected: bool = True
     inject_with_recent_context: bool = False
     recent_context_max_age_seconds: int = Field(default=7200, ge=0, le=604800)
+    private_memory_notice_enabled: bool = True
     search_cache_enabled: bool = True
     search_cache_ttl_seconds: float = Field(default=45.0, ge=0.0, le=600.0)
     search_cache_max_size: int = Field(default=32, ge=0, le=10000)

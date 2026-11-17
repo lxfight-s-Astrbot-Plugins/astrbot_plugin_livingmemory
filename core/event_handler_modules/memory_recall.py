@@ -69,6 +69,12 @@ class MemoryRecall:
             storage_session_tasks if storage_session_tasks is not None else {}
         )
 
+    def _private_memory_notice(self) -> str | None:
+        """返回私密记忆提示覆盖值：``None`` 用默认提示，空串关闭提示。"""
+        if self.config_manager.get("recall_engine.private_memory_notice_enabled", True):
+            return None
+        return ""
+
     @staticmethod
     def _message_timestamp_seconds(value) -> float | None:
         if isinstance(value, (int, float)):
@@ -297,7 +303,10 @@ class MemoryRecall:
                         )
 
                     try:
-                        memory_str = format_memories_for_injection(memory_list)
+                        memory_str = format_memories_for_injection(
+                            memory_list,
+                            private_notice=self._private_memory_notice(),
+                        )
                     except asyncio.CancelledError:
                         raise
                     except Exception:

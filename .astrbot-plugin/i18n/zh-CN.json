@@ -200,6 +200,10 @@
         "description": "检索缓存最大条目数",
         "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。（允许范围：0–10000）"
       },
+      "private_memory_notice_enabled": {
+        "description": "私密记忆注入提示",
+        "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。"
+      },
       "tokenizer": {
         "description": "中文分词器",
         "hint": "jieba：词级分词，召回更准，首次使用常驻约 55 MB；builtin：内置单字/英文词元，不导入 jieba、省内存。切换后需要 /lmem rebuild-index 重建索引。",

@@ -111,8 +111,11 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `recall_engine.injection_method` | `extra_user_content` | 记忆注入方式（唯一支持 add-only 临时片段注入） |
 | `recall_engine.inject_with_recent_context` | `false` | 是否拼接最近对话扩展查询 |
 | `recall_engine.search_cache_enabled` | `true` | 是否启用短期检索缓存 |
+| `recall_engine.private_memory_notice_enabled` | `true` | 为 `visibility=private` 且 `disclosed=false` 的记忆追加“用户并不知道”的注入提示；关闭后不追加 |
 
 `extra_user_content` 是唯一支持的注入方式：记忆以 `mark_as_temp` 临时片段追加到当前用户消息末尾，AstrBot 保存对话历史时会自动过滤该片段，因此注入不影响前缀缓存，也**完全不写入 AstrBot 的对话历史**。插件不再改写历史消息格式或向对话历史写入内容。旧的 `user_message_before` / `user_message_after` / `fake_tool_call` / `fake_tool_call_deepseek_v4` / `system_prompt` 均已废弃，配置后自动回退到 `extra_user_content`。
+
+记忆条目支持可选的 `visibility`（`public` / `private`）与 `disclosed`（布尔）元数据，保存在 `documents.metadata` 中，不需要数据库迁移；缺少字段的旧数据按 `public` / `true` 处理。当 `visibility=private` 且 `disclosed=false` 时，自动注入会在该条记忆后追加提示，说明这是机器人私下经历、用户并不知道。提示文案可在提示词管理中修改 `private_memory_injection_notice`，或用 `recall_engine.private_memory_notice_enabled` 整体关闭。
 
 ## 记忆隔离
 

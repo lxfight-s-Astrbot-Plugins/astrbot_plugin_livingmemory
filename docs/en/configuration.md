@@ -113,8 +113,11 @@ History above `max_messages_per_session` first discards summarized messages. If 
 | `recall_engine.injection_method` | `extra_user_content` | Memory injection mode (the only supported add-only temporary-part injection) |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
+| `recall_engine.private_memory_notice_enabled` | `true` | Appends a "the user has not been told" notice to memories with `visibility=private` and `disclosed=false`; disable to omit it |
 
 `extra_user_content` is the only supported injection mode: memories are appended to the current user message as a `mark_as_temp` temporary part that AstrBot filters out when saving conversation history, so injection never affects the prefix cache and **never touches AstrBot's conversation history**. The plugin no longer rewrites history message formats or writes content into history. The legacy `user_message_before` / `user_message_after` / `fake_tool_call` / `fake_tool_call_deepseek_v4` / `system_prompt` options are all deprecated and automatically fall back to `extra_user_content`.
+
+Memories may carry optional `visibility` (`public` / `private`) and `disclosed` (boolean) metadata in `documents.metadata`; no database migration is needed and rows without these fields behave as `public` / `true`. When `visibility=private` and `disclosed=false`, automatic injection appends a notice stating that this is a private experience the user has not been told about. Edit the `private_memory_injection_notice` prompt to customise the text, or disable it entirely with `recall_engine.private_memory_notice_enabled`.
 
 ## Memory isolation
 

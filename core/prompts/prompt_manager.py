@@ -101,6 +101,18 @@ PROMPT_REGISTRY: dict[str, dict[str, Any]] = {
         "file": "memory_injection_footer.txt",
         "variables": [],
     },
+    "private_memory_injection_notice": {
+        "id": "private_memory_injection_notice",
+        "name": "私密记忆注入提示",
+        "name_en": "Private Memory Injection Notice",
+        "description": "注入 visibility=private 且 disclosed=false 的记忆时追加的提示，说明用户并不知道这些经历",
+        "description_en": "Notice appended to memories marked visibility=private and disclosed=false, clarifying that the user has not been told about them",
+        "usage_note": "仅当记忆的 visibility=private 且 disclosed=false 时追加在该条记忆末尾。留空或关闭 recall_engine.private_memory_notice_enabled 可禁用。",
+        "usage_note_en": "Appended only to memories with visibility=private and disclosed=false. Leave empty or disable recall_engine.private_memory_notice_enabled to turn it off.",
+        "category": "memory_injection",
+        "file": "private_memory_injection_notice.txt",
+        "variables": [],
+    },
     "agent_recall_policy": {
         "id": "agent_recall_policy",
         "name": "自主回忆规则（Beta）",
