@@ -250,7 +250,7 @@
       "hint": "",
       "use_persona_filtering": {
         "description": "按人格隔离记忆",
-        "hint": "开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰。"
+        "hint": "只控制召回：开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰；关闭后跨人格共享召回。关闭时反思总结仍会记录真实 persona_id 与其 system_prompt 语境。"
       },
       "use_session_filtering": {
         "description": "按会话隔离记忆",

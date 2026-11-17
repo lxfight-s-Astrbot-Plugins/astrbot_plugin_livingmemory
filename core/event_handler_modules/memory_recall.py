@@ -194,7 +194,8 @@ class MemoryRecall:
                     self.config_manager, self.context, event
                 )
                 recall_session_id = recall_access.scope
-                recall_persona_id = recall_access.persona_id
+                # 检索过滤受 use_persona_filtering 控制；写入/档案仍用真实人格。
+                recall_persona_id = recall_access.recall_persona_id
 
                 # 使用原始用户输入作为召回关键字
                 query_for_search = actual_query
@@ -272,8 +273,9 @@ class MemoryRecall:
                         )
                         recalled_memories = []
                 # 用户档案是固定短块：不占 top_k 名额，只计入追加的注入字符预算。
+                # 档案按人格分区存储，读取用真实人格，不受检索开关影响（#438）。
                 profile_text = await self._load_profile_injection_text(
-                    recall_session_id, recall_persona_id
+                    recall_session_id, recall_access.persona_id
                 )
 
                 memory_str = ""
@@ -366,7 +368,7 @@ class MemoryRecall:
 
         Args:
             scope: 解析后的记忆作用域。
-            persona_id: 人格 ID（未启用人格过滤时为 None）。
+            persona_id: 事件当前真实人格（不受人格检索开关影响）。
 
         Returns:
             紧凑档案文本；无档案/未启用/读取失败时返回空字符串。

@@ -106,7 +106,8 @@ async def test_memory_search_tool_disables_filters_when_config_disabled(
         persona_id=None,
         track_access=True,
     )
-    get_persona.assert_not_awaited()
+    # 人格仍会被解析（写入链路需要），但检索不使用它（#438）。
+    get_persona.assert_awaited_once()
 
 
 @pytest.mark.asyncio

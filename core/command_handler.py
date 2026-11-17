@@ -430,16 +430,17 @@ class CommandHandler(ExternalApiCommandMixin):
             return
 
         try:
+            # /lmem search 属于检索：人格隔离只由 recall_persona_id 决定。
             with trace_request_context(
                 session_id=event.unified_msg_origin,
                 scope=access.scope,
-                persona_id=access.persona_id,
+                persona_id=access.recall_persona_id,
             ):
                 results = await self.memory_engine.search_memories(
                     query=query.strip(),
                     k=k,
                     session_id=access.scope,
-                    persona_id=access.persona_id,
+                    persona_id=access.recall_persona_id,
                 )
 
             if not results:

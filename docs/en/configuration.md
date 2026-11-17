@@ -123,7 +123,7 @@ Memories may carry optional `visibility` (`public` / `private`) and `disclosed` 
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `filtering_settings.use_persona_filtering` | `true` | Only recall memories for the current persona |
+| `filtering_settings.use_persona_filtering` | `true` | Recall only: filters recall by the current persona; when disabled, recall is shared across personas while reflections still record the real `persona_id` |
 | `filtering_settings.memory_scope_mode` | `legacy` | Preserve legacy behavior, or scope by session, user, or globally |
 | `filtering_settings.use_session_filtering` | `true` | Controls session filtering only in `legacy` mode |
 | `filtering_settings.isolated_sessions` | Empty | Full session IDs that must always remain isolated, one per line |

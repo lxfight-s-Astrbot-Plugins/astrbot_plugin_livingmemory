@@ -53,7 +53,7 @@ async def resolve_tool_access(
     access = await resolve_event_memory_access(config_manager, plugin_context, event)
     if not access.allowed:
         return event, None, None, None, {"error": "memory access is not allowed"}
-    return event, access.scope, access.persona_id, access.channel_scope, None
+    return event, access.scope, access.recall_persona_id, access.channel_scope, None
 
 
 def _event_value(event: Any, method_name: str) -> str:

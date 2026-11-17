@@ -13,8 +13,6 @@ from astrbot_plugin_livingmemory.core.tools.memory_profile_tool import (
     UpdateUserProfileTool,
 )
 
-import astrbot_plugin_livingmemory.core.tools.memory_profile_tool as tool_module
-
 from .test_memory_engine import _FakeFaissDB
 
 SCOPE = "test:private:profile-tool"
@@ -78,7 +76,8 @@ async def test_tool_writes_profile_with_evidence(
             importance=0.8,
         )
         monkeypatch.setattr(
-            tool_module, "get_persona_id", AsyncMock(return_value=PERSONA)
+            "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+            AsyncMock(return_value=PERSONA),
         )
         tool = _tool(engine)
 
@@ -116,7 +115,8 @@ async def test_tool_without_evidence_returns_pending(
     engine = await _make_engine(tmp_path)
     try:
         monkeypatch.setattr(
-            tool_module, "get_persona_id", AsyncMock(return_value=PERSONA)
+            "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+            AsyncMock(return_value=PERSONA),
         )
         tool = _tool(engine)
 
@@ -169,7 +169,8 @@ async def test_tool_rejects_invalid_arguments(tmp_path: Path, monkeypatch):
     engine = await _make_engine(tmp_path)
     try:
         monkeypatch.setattr(
-            tool_module, "get_persona_id", AsyncMock(return_value=PERSONA)
+            "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+            AsyncMock(return_value=PERSONA),
         )
         tool = _tool(engine)
         raw = await tool.call(

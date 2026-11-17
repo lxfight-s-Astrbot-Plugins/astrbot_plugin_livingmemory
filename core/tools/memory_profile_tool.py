@@ -22,7 +22,6 @@ from ..memory_scope import (
     is_event_memory_allowed,
     resolve_event_memory_access,
 )
-from ..utils import get_persona_id
 from .agentic_recall_common import json_result as _json_result
 
 
@@ -125,9 +124,8 @@ class UpdateUserProfileTool(FunctionTool[AstrAgentContext]):
                     return _json_result(
                         {"updated": False, "error": "memory scope is unavailable"}
                     )
-                persona_id = access.persona_id or await get_persona_id(
-                    self.context, event
-                )
+                # 档案属于写入链路：始终使用真实人格，与检索开关无关（#438）。
+                persona_id = access.persona_id
 
                 updates = normalize_profile_updates(
                     [
