@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from ...storage.graph_store import GraphStore
 from ..processors.text_processor import TextProcessor
+
+# 入口 FTS 存的是 CJK 单字 + 相邻二字组；3 字及以上的查询词元需展开成二字组
+# 才能命中同一套词元（1～2 字词元本身已是词元）。
+_CJK_TOKEN = re.compile(r"[一-鿿]+")
 
 
 @dataclass(slots=True)
@@ -53,7 +58,22 @@ class GraphKeywordRetriever:
         if not tokens:
             return []
 
-        escaped_tokens = ['"' + token.replace('"', '""') + '"' for token in tokens]
+        # 与入口 FTS 的写入格式对齐：长中文词展开成相邻二字组，短词/英文原样。
+        fts_terms: list[str] = []
+        for token in tokens:
+            text = str(token or "").strip()
+            if not text:
+                continue
+            if len(text) >= 3 and _CJK_TOKEN.fullmatch(text):
+                fts_terms.extend(
+                    text[index : index + 2] for index in range(len(text) - 1)
+                )
+            else:
+                fts_terms.append(text)
+        if not fts_terms:
+            return []
+
+        escaped_tokens = ['"' + token.replace('"', '""') + '"' for token in fts_terms]
         fts_query = " OR ".join(escaped_tokens)
 
         direct_hits = await self.graph_store.search_entries_by_bm25(
