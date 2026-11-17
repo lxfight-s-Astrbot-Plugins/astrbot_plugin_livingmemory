@@ -52,14 +52,15 @@
   .pagination-controls { flex: 1; }
 }
 
-.adapter-options { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.adapter-options label { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.adapter-options, .group-options { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.adapter-options label, .group-options label { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.field-empty { color: var(--text-secondary); font-size: 13px; }
 .adapter-ownership-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto; align-items: center; gap: 12px; padding: 12px 0; }
 .adapter-ownership-row > span { overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .adapter-ownership-row { grid-template-columns: minmax(0, 1fr) auto; }
   .adapter-ownership-row > span { grid-column: 1 / -1; }
-  .adapter-options label { min-height: 44px; }
+  .adapter-options label, .group-options label { min-height: 44px; }
 }
 
 @media (max-width: 640px) {

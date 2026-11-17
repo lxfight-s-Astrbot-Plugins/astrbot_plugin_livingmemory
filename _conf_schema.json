@@ -519,6 +519,12 @@
                 "hint": "",
                 "type": "list",
                 "default": null
+            },
+            "group_blacklist": {
+                "description": "群聊记忆黑名单",
+                "hint": "从会话列表中选择要屏蔽的群聊。命中的群聊不写入、不总结、不召回记忆，也不影响 bot 正常对话。",
+                "type": "list",
+                "default": []
             }
         }
     },

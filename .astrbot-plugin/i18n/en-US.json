@@ -1,688 +1,692 @@
 {
-  "metadata": {
-    "display_name": "LivingMemory",
-    "short_desc": "Intelligent long-term memory for AstrBot",
-    "desc": "An intelligent long-term memory plugin with hybrid retrieval (BM25 + vector + graph), WebUI management, and dynamic lifecycle. Supports session/persona isolation, importance decay, and auto-cleanup."
-  },
-  "config": {
-    "bot_language": {
-      "description": "Bot Response Language",
-      "hint": "Set the language for plugin commands and status replies. zh=Chinese (default), en=English, ru=Russian, ja=Japanese.",
-      "options": {
-        "zh": "Chinese",
-        "en": "English",
-        "ru": "Russian",
-        "ja": "日本語"
-      },
-      "labels": [
-        "Chinese",
-        "English",
-        "Russian",
-        "Japanese"
-      ]
+    "metadata": {
+        "display_name": "LivingMemory",
+        "short_desc": "Intelligent long-term memory for AstrBot",
+        "desc": "An intelligent long-term memory plugin with hybrid retrieval (BM25 + vector + graph), WebUI management, and dynamic lifecycle. Supports session/persona isolation, importance decay, and auto-cleanup."
     },
-    "access_control": {
-      "description": "Memory Access Control",
-      "hint": "Limit who can use long-term memory and map identities to consistent names across platforms.",
-      "whitelist_enabled": {
-        "description": "Enable Memory Allowlist",
-        "hint": "When enabled, only listed users, groups, or sessions can capture, summarize, recall, or use Agent memory tools. An empty list denies all memory operations."
-      },
-      "allowed_ids": {
-        "description": "Memory Allowlist",
-        "hint": "Enter one user ID, platform:user ID, group ID, or full session ID per line. Commas and semicolons are also supported."
-      },
-      "identity_aliases": {
-        "description": "Identity Aliases",
-        "hint": "Enter one source=canonical name mapping per line. The source may be platform:user ID, user ID, or current username, for example telegram:12345=Alex."
-      }
+    "config": {
+        "bot_language": {
+            "description": "Bot Response Language",
+            "hint": "Set the language for plugin commands and status replies. zh=Chinese (default), en=English, ru=Russian, ja=Japanese.",
+            "options": {
+                "zh": "Chinese",
+                "en": "English",
+                "ru": "Russian",
+                "ja": "日本語"
+            },
+            "labels": [
+                "Chinese",
+                "English",
+                "Russian",
+                "Japanese"
+            ]
+        },
+        "access_control": {
+            "description": "Memory Access Control",
+            "hint": "Limit who can use long-term memory and map identities to consistent names across platforms.",
+            "whitelist_enabled": {
+                "description": "Enable Memory Allowlist",
+                "hint": "When enabled, only listed users, groups, or sessions can capture, summarize, recall, or use Agent memory tools. An empty list denies all memory operations."
+            },
+            "allowed_ids": {
+                "description": "Memory Allowlist",
+                "hint": "Enter one user ID, platform:user ID, group ID, or full session ID per line. Commas and semicolons are also supported."
+            },
+            "identity_aliases": {
+                "description": "Identity Aliases",
+                "hint": "Enter one source=canonical name mapping per line. The source may be platform:user ID, user ID, or current username, for example telegram:12345=Alex."
+            }
+        },
+        "provider_settings": {
+            "description": "Model Provider",
+            "hint": "Configure the AI models used by the memory system",
+            "embedding_provider_id": {
+                "description": "Embedding Model ID",
+                "hint": "Required: ID of an enabled Embedding Provider in AstrBot (for example openai_embedding). Leaving it empty only falls back to the first available Embedding Provider and may pick the wrong model or break vector/graph index initialization. Create and enable an Embedding Provider in the AstrBot LLM settings first, then fill in its ID here."
+            },
+            "llm_provider_id": {
+                "description": "LLM Model ID",
+                "hint": "The large language model ID used for summarizing conversations and evaluating memory importance. Leave blank to use AstrBot default. A model with strong reasoning capabilities is recommended."
+            },
+            "llm_fallback_provider_ids": {
+                "description": "Fallback LLM Providers",
+                "hint": "Provider IDs to try in order when the primary LLM fails (JSON array, e.g. [\"openai_gpt-4o\",\"gemini-2.5-pro\"]). Switches on timeout, rate limit (429), 5xx or authentication failures; parsing/format errors do not switch. Leave empty to disable fallback."
+            },
+            "llm_call_timeout_seconds": {
+                "description": "LLM Call Timeout (seconds)",
+                "hint": "Timeout for a single call to each provider. On timeout the provider is treated as unavailable and the next one is tried. Allowed range: 5-600."
+            },
+            "llm_stream_mode": {
+                "description": "Use Streaming Calls",
+                "hint": "How memory processing calls the LLM. auto (default): try non-streaming first and switch to streaming automatically when the provider reports that non-stream requests are unsupported; always: always stream (for providers that only accept stream=true); never: always non-streaming (previous behavior).",
+                "labels": [
+                    "Auto (Recommended)",
+                    "Always Stream",
+                    "Never Stream"
+                ]
+            }
+        },
+        "session_manager": {
+            "description": "Session Management",
+            "hint": "Manage user session states and conversation history caching behavior",
+            "enable_full_group_capture": {
+                "description": "Capture All Group Messages",
+                "hint": "Whether to capture all messages in group chats, including messages that do not mention the bot. When enabled, every group message is recorded to build richer group-chat context."
+            },
+            "max_sessions": {
+                "description": "Max Cached Sessions",
+                "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database. Allowed range: 1-10000."
+            },
+            "session_ttl": {
+                "description": "Session Idle Timeout (seconds)",
+                "hint": "Sessions inactive for longer than this duration are removed from cache. Default is 3600 (1 hour). Allowed range: 60-86400."
+            },
+            "context_window_size": {
+                "description": "Context Window Size (messages)",
+                "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100. Allowed range: 1-1000."
+            },
+            "max_messages_per_session": {
+                "description": "Max History Messages Per Session",
+                "hint": "Maximum number of historical messages retained per session in the database. When exceeded, only the oldest summarized messages are deleted to avoid losing unsummarized context. Allowed range: 100-10000."
+            },
+            "cleanup_batch_size": {
+                "description": "History Cleanup Batch Size",
+                "hint": "Minimum number of old summarized messages to delete per batch when the session history exceeds the limit. A value too small will cause only a few messages to be deleted each round after overflow. Allowed range: 1-1000."
+            }
+        },
+        "recall_engine": {
+            "description": "Memory Recall",
+            "hint": "Control memory retrieval and injection into conversations",
+            "top_k": {
+                "description": "Recall Count Per Request",
+                "hint": "Number of most relevant memories returned per retrieval. Set to 0 to skip automatic recall/injection while keeping historical injection cleanup. Recommended: 3-10. Allowed range: 0-50."
+            },
+            "max_k": {
+                "description": "Max Active Retrieval Count",
+                "hint": "Maximum memories returned when the Agent actively calls the long-term memory retrieval tool. Used to limit single-tool recall scale. Recommended: 5-10. Allowed range: 1-50."
+            },
+            "importance_weight": {
+                "description": "Importance Weight",
+                "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories. Allowed range: 0-10."
+            },
+            "min_importance_for_retrieval": {
+                "description": "Minimum Importance for Recall",
+                "hint": "Filter out memories below this importance value. Range: 0-1. Set to 0 to disable filtering."
+            },
+            "min_similarity_for_retrieval": {
+                "description": "Minimum Vector Similarity",
+                "hint": "Filter vector candidates below this similarity. Keyword-only matches remain eligible. Default 0.45; set to 0 to disable the filter."
+            },
+            "recent_memory_count": {
+                "description": "Reserved Recent Memories",
+                "hint": "Only fill remaining slots with recent memories in the current scope when relevant results are fewer than the requested count. Fixed slots are no longer reserved. Default 0 (disabled)."
+            },
+            "recent_memory_max_age_hours": {
+                "description": "Recent Memory Window (hours)",
+                "hint": "Only memories inside this age window qualify for reserved recent slots. Set to 0 for no age limit. Allowed range: 0-8760."
+            },
+            "memory_type_filter": {
+                "description": "Memory Type Filter",
+                "hint": "Recall all memories, or exclude memories known to contain only preferences or relationships. Legacy untyped memories remain eligible.",
+                "labels": [
+                    "All Memories",
+                    "Events and Facts"
+                ]
+            },
+            "fallback_to_vector": {
+                "description": "Fallback to Pure Vector Search",
+                "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."
+            },
+            "rerank_enabled": {
+                "description": "Enable Rerank Reordering",
+                "hint": "After RRF fusion, call a Rerank model to reorder candidate memories by query relevance, replacing the RRF ranking as the relevance score source. Requires a Rerank-type provider configured in AstrBot."
+            },
+            "rerank_provider_id": {
+                "description": "Rerank Provider ID",
+                "hint": "The ID of a Rerank-type provider in AstrBot. Leave empty to skip reranking even when enabled."
+            },
+            "rerank_candidates": {
+                "description": "Rerank Candidate Count",
+                "hint": "Number of fused candidate memories sent to the Rerank model; only top_k are kept after reranking. Larger values improve ranking accuracy but increase per-recall Rerank API cost. Recommended 10-30. (Range: 2-100)"
+            },
+            "fusion_mode": {
+                "description": "Fusion Mode",
+                "hint": "How BM25 and vector results are fused: score weights normalized scores (default); rrf uses reciprocal rank fusion.",
+                "labels": [
+                    "Normalized Score",
+                    "Reciprocal Rank Fusion (RRF)"
+                ]
+            },
+            "fusion_bm25_weight": {
+                "description": "Fusion BM25 Weight",
+                "hint": "Weight of the BM25 route in score fusion; the vector route uses one minus this value. Range 0-1."
+            },
+            "fusion_agreement_bonus": {
+                "description": "Cross-Route Agreement Bonus",
+                "hint": "Score bonus added when the same memory is hit by both the BM25 and vector routes. Range 0-1."
+            },
+            "recall_candidate_multiplier": {
+                "description": "Recall Candidate Multiplier",
+                "hint": "Each route returns top_k times this many candidates before fusion. Larger values widen recall but cost more time. Range 1-10."
+            },
+            "injection_method": {
+                "description": "Memory Injection Position",
+                "hint": "Memories are appended to the current user message as a mark_as_temp temporary part that AstrBot filters out when saving history, so injection never touches conversation history or the prefix cache.",
+                "labels": [
+                    "Extra User Content"
+                ]
+            },
+            "auto_remove_injected": {
+                "description": "Auto-Clear Legacy Injection Fragments",
+                "hint": "Automatically remove injection fragments left in conversation history by legacy injection modes from the request context before injecting new ones (the current add-only injection never leaves residue). Recommended to keep enabled."
+            },
+            "inject_with_recent_context": {
+                "description": "Enable Cross-Turn Context Expansion",
+                "hint": "When enabled, memory retrieval appends the recent two dialogue turns to the current query, improving relevance for follow-up questions and reducing unrelated recalls."
+            },
+            "recent_context_max_age_seconds": {
+                "description": "Maximum Context Age (seconds)",
+                "hint": "Only historical messages within this time range extend the recall query. Set to 0 to disable the time limit. Allowed range: 0-604800."
+            },
+            "search_cache_enabled": {
+                "description": "Enable Short-Term Search Cache",
+                "hint": "Reuse retrieval results for the same session and query within a short time window to reduce repeated SQLite and FAISS work during follow-up conversations."
+            },
+            "search_cache_ttl_seconds": {
+                "description": "Search Cache TTL (seconds)",
+                "hint": "How long retrieval cache entries are kept. Writes, updates, and deletes invalidate the cache automatically. Set to 0 to disable caching. Allowed range: 0-600."
+            },
+            "search_cache_max_size": {
+                "description": "Max Search Cache Entries",
+                "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted. Allowed range: 0-10000."
+            },
+            "private_memory_notice_enabled": {
+                "description": "Private Memory Notice",
+                "hint": "Append a notice to injected memories marked visibility=private and disclosed=false, stating that the assistant experienced this privately and the user has not been told. Disable to omit the notice."
+            },
+            "tokenizer": {
+                "description": "Chinese Tokenizer",
+                "hint": "jieba: word-level segmentation with better recall; reserves ~55 MB after first use. builtin: built-in single-character/ASCII tokens, never imports jieba and saves memory. Run /lmem rebuild-index after switching.",
+                "labels": [
+                    "jieba word segmentation",
+                    "Built-in tokenizer (low memory)"
+                ]
+            }
+        },
+        "importance_decay": {
+            "description": "Importance Decay",
+            "hint": "Gradually reduce the importance of old memories over time to prevent outdated information from retaining high weight indefinitely",
+            "decay_rate": {
+                "description": "Daily Decay Rate",
+                "hint": "Proportion of memory importance decayed per day. Default 0.005 means a 0.5% decrease daily; access reduces the effective decay rate. Set to 0 to disable decay. Allowed range: 0-1."
+            },
+            "access_decay_window_days": {
+                "description": "Access Reinforcement Window (days)",
+                "hint": "Memories accessed within this window reduce their effective decay rate according to access count. Allowed range: 1-3650."
+            },
+            "access_decay_max_count": {
+                "description": "Max Access Reinforcement Count",
+                "hint": "The access count that grants maximum decay protection. Additional accesses beyond this count do not increase protection further. Allowed range: 1-10000."
+            },
+            "access_count_decay_multiplier": {
+                "description": "Access Count Retention Ratio",
+                "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever. Allowed range: 0-1."
+            },
+            "protected_importance_threshold": {
+                "description": "Protected Importance Threshold",
+                "hint": "Memories at or above this importance do not participate in daily importance decay. Default 0.6 protects memories at 60%+ importance. Allowed range: 0-1."
+            }
+        },
+        "fusion_strategy": {
+            "description": "Retrieval Fusion Strategy",
+            "hint": "Fusion parameters for BM25 and vector search results (internally uses the RRF algorithm)",
+            "rrf_k": {
+                "description": "RRF Fusion Parameter k",
+                "hint": "Lower values emphasize top-ranked results; higher values produce smoother fusion. Recommended: 30-120. Default is 60. Allowed range: 1-1000."
+            }
+        },
+        "filtering_settings": {
+            "description": "Memory Isolation Settings",
+            "hint": "",
+            "use_persona_filtering": {
+                "description": "Isolate Memories by Persona",
+                "hint": "Recall only: when enabled, only memories for the current persona are recalled. When disabled, recall is shared across personas, while reflections still record the real persona_id and use that persona's system_prompt."
+            },
+            "use_session_filtering": {
+                "description": "Isolate Memories by Session",
+                "hint": "Used only when Memory Scope Mode is Legacy. When enabled, each session is isolated; when disabled, memories are not filtered by session."
+            },
+            "memory_scope_mode": {
+                "description": "Memory Scope Mode",
+                "hint": "Legacy preserves existing settings; Per Session isolates each origin; Per User shares memory across chats for the same platform user; Global shares memory everywhere. Switching the mode does not migrate existing memories: run /lmem migrate-scope <target> apply.",
+                "labels": [
+                    "Legacy",
+                    "Per Session",
+                    "Per User",
+                    "Global"
+                ]
+            },
+            "isolated_sessions": {
+                "description": "Forced Isolated Sessions",
+                "hint": "Enter one full session ID per line. These sessions always use their own memory scope, overriding Per User, Global, and disabled legacy session filtering."
+            },
+            "shared_adapter_ids": {
+                "description": "Adapters sharing memory",
+                "hint": ""
+            },
+            "group_blacklist": {
+                "description": "Group Memory Blacklist",
+                "hint": "Pick groups to exclude from the session list. Blocked groups skip memory capture, reflection and recall without affecting normal conversation."
+            }
+        },
+        "reflection_engine": {
+            "description": "Memory Generation Settings",
+            "hint": "Control when conversation summarization is triggered and memories are generated",
+            "summary_trigger_rounds": {
+                "description": "Summary Trigger Rounds",
+                "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round). Allowed range: 1-100."
+            },
+            "window_split_by_day": {
+                "description": "Split Summary Windows by Day",
+                "hint": "When enabled, conversations spanning multiple days are not merged into one memory: a summary covers only the oldest day, and newer parts wait for later triggers."
+            },
+            "window_split_gap_minutes": {
+                "description": "Idle Gap Split (minutes)",
+                "hint": "When the gap between adjacent messages exceeds this many minutes, only the oldest segment is summarized; 0 = do not split by idle gap. Allowed range: 0-1440."
+            },
+            "include_source_time_tags": {
+                "description": "Include Source Time Tags",
+                "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."
+            },
+            "source_retention_importance_threshold": {
+                "description": "Source Retention Importance Threshold",
+                "hint": "Store original messages separately when summary importance reaches this value, enabling verification, detailed Agent recall, and re-summarization. Range 0-1; 1 keeps only maximum-importance memories."
+            },
+            "max_segments_per_run": {
+                "description": "Max reflection segments per run",
+                "hint": "Maximum number of day/idle-split segments summarized in one trigger. Remaining backlog is consumed on the next trigger. (Allowed range: 1–50)"
+            },
+            "max_messages_per_segment": {
+                "description": "Messages per summary segment"
+            }
+        },
+        "agent_tools": {
+            "description": "Agent Active Memory Tools",
+            "hint": "Control whether AstrBot Agent receives tools for active long-term memory recall and writing.",
+            "enable_recall_tool": {
+                "description": "Enable Active Recall Tool",
+                "hint": "When enabled, registers recall_long_term_memory so the Agent can actively search long-term memories."
+            },
+            "enable_agentic_recall_beta": {
+                "description": "Beta: Agentic Multi-Round Recall",
+                "hint": "Experimental; requires the active recall tool enabled above. When on, recall_long_term_memory is enhanced (current-speaker lookup, time-range filters, exclude seen candidates), the read_memory_evidence deep-read tool is added, and an agentic recall policy is injected. Search and deep read share a per-request budget. Turning it off restores the legacy recall behavior. Takes effect for new requests after saving and a successful reload."
+            },
+            "enable_memorize_tool": {
+                "description": "Enable Active Memory Write Tool",
+                "hint": "When enabled, registers memorize_long_term_memory so the Agent can actively write long-term memories."
+            },
+            "enable_forget_tool": {
+                "description": "Enable Active Forget Tool (Admin)",
+                "hint": "When enabled, registers forget_long_term_memory. Admin-only; it only archives (soft-deletes) memories, never physically deletes them, and an admin can restore them from the WebUI memory page (set status back to active). Off by default."
+            },
+            "forget_tool_max_memories": {
+                "description": "Forget tool max memories per call",
+                "hint": "Maximum number of memories a single tool call may archive; a larger request is rejected entirely. (Allowed: 1-10)"
+            },
+            "forget_tool_cooldown_seconds": {
+                "description": "Forget tool cooldown (seconds)",
+                "hint": "Minimum interval between two successful archives in the same session; calls during the cooldown are rejected. 0 = disabled. (Allowed: 0-3600)"
+            },
+            "agentic_recall_max_calls": {
+                "description": "Max agentic recall tool calls",
+                "hint": "Shared per-request call budget for the memory search and deep-read tools. Suggested 3-6. (Allowed: 1-20)"
+            },
+            "agentic_recall_time_budget_seconds": {
+                "description": "Agentic recall tool time budget (seconds)",
+                "hint": "Total working time for memory tools since the first call of this request; when exceeded, recall stops and the model answers with evidence already gathered. Suggested 10-60. (Allowed: 1-300)"
+            },
+            "agentic_recall_max_result_chars": {
+                "description": "Max chars per agentic tool result",
+                "hint": "Maximum characters a Beta memory tool returns in one call; longer content can be read via pagination. Suggested 4000-30000. (Allowed: 500-100000)"
+            },
+            "enable_profile_tool": {
+                "description": "Enable user profile tool",
+                "hint": "Register update_user_profile so the agent can write the user profile proactively; writes use the same evidence/confidence rules and record history. Off by default."
+            }
+        },
+        "graph_memory": {
+            "description": "Graph Memory Dual-Path Retrieval",
+            "hint": "When enabled, both document-based and graph-based paths are maintained simultaneously, each supporting keyword and vector retrieval, with results unified into a single fused recall set.",
+            "enabled": {
+                "description": "Enable Graph Memory Retrieval",
+                "hint": "When enabled, graph nodes, edges, and graph vector indexes are automatically built. Recommended to keep enabled."
+            },
+            "document_route_weight": {
+                "description": "Document Path Weight",
+                "hint": "The proportion of the document path fusion score in the final dual-path ranking. Allowed range: 0-1."
+            },
+            "graph_route_weight": {
+                "description": "Graph Path Weight",
+                "hint": "The proportion of the graph path fusion score in the final dual-path ranking. Allowed range: 0-1."
+            },
+            "cross_route_bonus": {
+                "description": "Dual-Path Hit Bonus",
+                "hint": "Extra score added when the same memory is hit by both the document path and the graph path. Allowed range: 0-0.5."
+            },
+            "expansion_limit": {
+                "description": "Graph Neighbor Expansion Limit",
+                "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval. Allowed range: 1-200."
+            },
+            "expansion_hops": {
+                "description": "Graph Expansion Hops",
+                "hint": "Number of hops expanded outward from matched nodes during graph keyword retrieval. Default is 1; setting it to 2 can recall indirect relations with a small query-cost increase. Allowed range: 1-2."
+            },
+            "second_hop_weight": {
+                "description": "Second-Hop Expansion Weight",
+                "hint": "Score weight for second-hop graph candidates. Higher values make indirect relations more likely to enter the final recall results. Allowed range: 0-1."
+            },
+            "dynamic_route_weighting": {
+                "description": "Dynamic Route Weighting",
+                "hint": "Automatically adjust document-route and graph-route weights according to relationship, time, and definition-like intent in the query."
+            },
+            "max_topics_per_memory": {
+                "description": "Max Topics Per Memory",
+                "hint": "Maximum number of topic nodes extracted from a single memory. Allowed range: 1-20."
+            },
+            "max_participants_per_memory": {
+                "description": "Max Participants Per Memory",
+                "hint": "Maximum number of participant nodes extracted from a single memory. Allowed range: 1-30."
+            },
+            "max_facts_per_memory": {
+                "description": "Max Facts Per Memory",
+                "hint": "Maximum number of key facts extracted from a single memory to enter the graph index. Allowed range: 1-30."
+            },
+            "atom_enabled": {
+                "description": "Enable Memory Atomization",
+                "hint": "When enabled, each key_fact becomes an independent memory atom with its own lifetime and decay curve. When disabled, the plugin falls back to the original coarse-grained behavior."
+            },
+            "atom_maintenance_interval_hours": {
+                "description": "Atom Maintenance Interval (hours)",
+                "hint": "How often the lifecycle manager runs expiration and forgetting checks for memory atoms. Allowed range: 1-168."
+            },
+            "atom_forget_delay_days": {
+                "description": "Atom Forget Delay (days)",
+                "hint": "How many days after expiration an atom is completely removed from retrieval indexes. Allowed range: 1-90."
+            },
+            "atom_purge_delay_days": {
+                "description": "Forgotten Atom Purge Delay (days)",
+                "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage. Allowed range: 1-365."
+            }
+        },
+        "channel_memory": {
+            "description": "Group channel memory",
+            "hint": "When enabled, group summaries are stored in a shared channel scope so any member of the group can recall them; recall searches the current scope and the channel scope together within one top_k budget. Disabled keeps the previous behavior.",
+            "enabled": {
+                "description": "Enable channel memory",
+                "hint": "Group summaries are stored under livingmemory:channel:<platform>:<group id>; personal memories (private summaries and explicit writes) keep their own scopes."
+            },
+            "min_user_slots": {
+                "description": "Minimum personal slots",
+                "hint": "Personal/session results kept at minimum during merged recall; channel results fill any gap. (Allowed: 0-5)"
+            },
+            "min_channel_slots": {
+                "description": "Minimum channel slots",
+                "hint": "Channel results kept at minimum during merged recall; personal results fill any gap. (Allowed: 0-5)"
+            },
+            "include_archived": {
+                "description": "Include archived memories in channel recall",
+                "hint": "Off by default: archived memories stay excluded. When on, only channel-scope results relax the status filter."
+            }
+        },
+        "migration_settings": {
+            "description": "Database Migration",
+            "hint": "Control database version upgrade behavior on plugin startup",
+            "auto_migrate": {
+                "description": "Auto Migrate",
+                "hint": "Automatically detect and upgrade outdated database versions on plugin startup. Recommended to keep enabled."
+            },
+            "create_backup": {
+                "description": "Auto Backup Before Migration",
+                "hint": "Automatically create a backup file before performing database migration to prevent data loss in case of migration failure. Recommended to keep enabled."
+            }
+        },
+        "index_rebuild_settings": {
+            "description": "Index Rebuild",
+            "hint": "Control batch size, Embedding request rate, and failure tolerance for the /lmem rebuild-index command. Low-spec cloud servers should keep concurrency small.",
+            "batch_size": {
+                "description": "Read Batch Size",
+                "hint": "Number of memories read from the documents table per batch. Larger values increase memory peak and affect more entries on failure. Recommended: 25-100. Allowed range: 1-500."
+            },
+            "embedding_batch_size": {
+                "description": "Embedding Batch Size",
+                "hint": "Number of texts included in a single Embedding API request. Reduce further if the provider has strict TPM rate limits. Allowed range: 1-256."
+            },
+            "tasks_limit": {
+                "description": "Embedding Concurrency",
+                "hint": "Internal concurrency limit for batch Embedding. To avoid triggering API rate limits, the default is 1. Allowed range: 1-8."
+            },
+            "max_retries": {
+                "description": "Batch Retry Count",
+                "hint": "Maximum retry attempts for a failed Embedding batch. Allowed range: 1-8."
+            },
+            "retry_base_delay": {
+                "description": "Retry Wait (seconds)",
+                "hint": "Base wait time for exponential backoff after a batch failure. At least 30 seconds will be waited when encountering 429/TPM rate limits. Allowed range: 0-60."
+            },
+            "batch_delay": {
+                "description": "Read Batch Interval (seconds)",
+                "hint": "Additional wait time between each documents read batch, used to proactively reduce overall rebuild rate. Allowed range: 0-10."
+            },
+            "request_delay": {
+                "description": "Embedding Request Interval (seconds)",
+                "hint": "Wait time between each Embedding API sub-request. Increase this first if 429/TPM is triggered frequently. Allowed range: 0-60."
+            },
+            "max_failure_ratio": {
+                "description": "Allowed Failure Ratio",
+                "hint": "During full vector rebuild, the new index will only be switched if the failure ratio does not exceed this value. 0.02 means up to 2% failure is allowed. Allowed range: 0-1."
+            }
+        },
+        "backup_settings": {
+            "description": "Periodic Backup",
+            "hint": "Create daily memory backups and prune daily backups past retention plus stale version backups so the data directory cannot grow without bound",
+            "enabled": {
+                "description": "Enable Daily Auto Backup",
+                "hint": "Automatically back up the database after daily decay tasks. Recommended to keep enabled."
+            },
+            "keep_days": {
+                "description": "Backup Retention Days",
+                "hint": "Retention days for daily and version backups. Version backups additionally keep only the 2 most recent ones, and total backup size is pruned from the oldest when it exceeds 512 MB. Default 7 days. Allowed range: 1-365."
+            }
+        },
+        "forgetting_agent": {
+            "description": "Auto Cleanup Settings",
+            "hint": "Archive (by default, instead of deleting) aged low-importance memories to keep the memory store and indexes bounded",
+            "auto_cleanup_enabled": {
+                "description": "Enable Daily Auto Cleanup",
+                "hint": "Automatically clean up eligible old memories after daily importance decay."
+            },
+            "auto_archived_enabled": {
+                "description": "Archive Instead of Delete",
+                "hint": "Enabled by default: cleanup candidates are removed from retrieval indexes and kept as restorable archived documents. Disable to delete them instead."
+            },
+            "cleanup_days_threshold": {
+                "description": "Cleanup Age Threshold (days)",
+                "hint": "Memories older than this many days become cleanup candidates. Default 120 days; they are processed only if importance is also below the threshold. Allowed range: 1-3650."
+            },
+            "cleanup_importance_threshold": {
+                "description": "Cleanup Importance Threshold",
+                "hint": "Only memories with importance below this value are cleaned up. Default 0.25 means memories below 25% importance. Allowed range: 0-1."
+            }
+        },
+        "memory_consolidation": {
+            "description": "Memory Store Consolidation",
+            "hint": "Periodically aggregate, organize, and summarize scattered low-value memories into more concise ones to control memory store size at the source",
+            "enabled": {
+                "description": "Enable Periodic Consolidation",
+                "hint": "When enabled, eligible scattered memories are automatically merged into concise summaries. Recommended when the memory store grows large."
+            },
+            "trigger": {
+                "description": "Trigger Mode",
+                "hint": "daily = run on the daily schedule; reflection = also check and run alongside each reflection.",
+                "labels": [
+                    "Daily",
+                    "On Reflection"
+                ]
+            },
+            "granularity": {
+                "description": "Consolidation Granularity",
+                "hint": "session = aggregate within the same session; semantic = cluster across sessions by semantic similarity.",
+                "labels": [
+                    "Same Session",
+                    "Semantic Clustering"
+                ]
+            },
+            "keep_original": {
+                "description": "Handling of Originals After Merge",
+                "hint": "archive = keep originals as archived (removed from retrieval but restorable); delete = remove originals permanently.",
+                "labels": [
+                    "Archive",
+                    "Delete"
+                ]
+            },
+            "min_memories_per_group": {
+                "description": "Minimum Memories Per Group",
+                "hint": "A group must contain at least this many memories to trigger consolidation, avoiding unnecessary LLM calls. Allowed range: 2-50."
+            },
+            "min_age_days": {
+                "description": "Minimum Memory Age (days)",
+                "hint": "Only consolidate memories older than this many days, avoiding recently-updated memories. Allowed range: 0-3650."
+            },
+            "max_importance": {
+                "description": "Maximum Importance",
+                "hint": "Only consolidate memories with importance below this value; high-importance memories stay untouched. Allowed range: 0-1."
+            },
+            "max_groups_per_run": {
+                "description": "Maximum Groups Per Run",
+                "hint": "Limits how many groups are consolidated per run to avoid triggering too many LLM calls at once. Allowed range: 1-100."
+            },
+            "semantic_similarity_threshold": {
+                "description": "Semantic Similarity Threshold",
+                "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value. Allowed range: 0-1."
+            }
+        },
+        "memory_dedup": {
+            "description": "Write-time duplicate merging",
+            "hint": "Write-time duplicate merging",
+            "enabled": {
+                "description": "Enable near-duplicate detection",
+                "hint": "Before storing a summary memory, compare it with recent memories in the same session/persona; at or above the threshold, merge into the existing memory instead of adding a new one."
+            },
+            "similarity_threshold": {
+                "description": "Similarity threshold",
+                "hint": "Vector similarity threshold for merging; higher is more conservative. 0.90–0.95 is recommended."
+            },
+            "max_candidates": {
+                "description": "Candidates",
+                "hint": "Number of recent memories compared on each check."
+            },
+            "merge_sources": {
+                "description": "Keep source messages",
+                "hint": "Append new source messages to the existing memory when merging, for review and re-summarization."
+            },
+            "max_source_messages": {
+                "description": "Source message cap",
+                "hint": "Maximum number of source messages kept on a merged memory."
+            }
+        },
+        "profile_settings": {
+            "description": "User profile",
+            "hint": "Maintain a structured, versioned user profile per memory scope + persona. Updated incrementally during summaries and injected as a fixed short block on recall. Enabled by default; no extra LLM calls.",
+            "enabled": {
+                "description": "Enable user profile",
+                "hint": "Merge summary output into the user profile and inject the profile block on every recall; disable to stop all profile reads/writes."
+            },
+            "max_chars": {
+                "description": "Profile injection budget (chars)",
+                "hint": "Maximum characters for the injected profile text, independent of the memory injection budget. Larger values keep more detail but consume more context. (50–2000)"
+            },
+            "min_confidence": {
+                "description": "Minimum confidence",
+                "hint": "Profile updates only apply directly when confidence reaches this value and evidence is valid; otherwise they become pending candidates. (0–1)"
+            },
+            "history_limit": {
+                "description": "History version limit",
+                "hint": "Number of history versions kept per profile; oldest versions are trimmed without deleting the current profile. (1–200)"
+            },
+            "max_pending": {
+                "description": "Pending candidate limit",
+                "hint": "Low-confidence or evidence-less updates go to the pending list; oldest candidates are dropped beyond this limit. (1–500)"
+            }
+        },
+        "trace_settings": {
+            "description": "Recall tracing",
+            "hint": "Record explainable traces of every memory recall (candidates, routes, rejection reasons, final injection) to debug why a memory was or was not recalled. In-memory ring buffer only; disk persistence is opt-in and query text is not stored by default.",
+            "enabled": {
+                "description": "Enable recall tracing",
+                "hint": "When disabled the recall path records nothing and behaves exactly as before."
+            },
+            "max_records": {
+                "description": "In-memory records",
+                "hint": "Number of recent traces kept in the in-process ring buffer; 0 disables the buffer. Oldest records are overwritten."
+            },
+            "persist_enabled": {
+                "description": "Persist as JSONL",
+                "hint": "Append one JSON object per line to recall_traces/YYYYMMDD.jsonl in the data directory. Disabled by default to avoid continuous disk writes."
+            },
+            "include_query_text": {
+                "description": "Store raw query text",
+                "hint": "By default only a query hash is stored; enabling this includes the user's raw query in traces, so enable it with privacy in mind."
+            },
+            "max_file_mb": {
+                "description": "Per-day file limit",
+                "hint": "New traces stop being appended to a JSONL file once it reaches this size."
+            },
+            "retention_days": {
+                "description": "Retention days",
+                "hint": "JSONL trace files older than this are cleaned up on the next write."
+            }
+        },
+        "external_api": {
+            "description": "External memory API",
+            "hint": "Let external agent terminals read and write memories with API keys (disabled by default). Create keys with /lmem apikey or the dashboard, then use the bundled MCP bridge.",
+            "enabled": {
+                "description": "Enable external memory API",
+                "hint": "Starts a dedicated HTTP listener (default 127.0.0.1:7801) serving /page/external. When disabled every external endpoint returns 404. Reload the plugin after changing."
+            },
+            "listen_host": {
+                "description": "Listen address",
+                "hint": "Bind address for the external API. Keep loopback 127.0.0.1 and let a reverse proxy expose it, if needed."
+            },
+            "listen_port": {
+                "description": "Listen port",
+                "hint": "Port for the external API listener, default 7801. Reload the plugin after changing."
+            },
+            "max_request_bytes": {
+                "description": "Max request body bytes",
+                "hint": "Largest accepted request body, default 262144 (256 KiB); larger requests return 400."
+            },
+            "default_rate_limit_per_min": {
+                "description": "Default requests per minute",
+                "hint": "Default per-key request budget for new keys; can be overridden per key."
+            },
+            "default_write_limit_per_min": {
+                "description": "Default writes per minute",
+                "hint": "Default per-key write budget for new keys. Read requests do not consume it."
+            },
+            "audit_retention_days": {
+                "description": "Audit retention days",
+                "hint": "Audit JSONL lives in the plugin data directory (external_api_audit.jsonl) and is trimmed to this many days, default 30."
+            },
+            "trust_proxy_headers": {
+                "description": "Trust proxy headers",
+                "hint": "Use X-Forwarded-For as the audit client address. Enable only behind a trusted reverse proxy."
+            }
+        }
     },
-    "provider_settings": {
-      "description": "Model Provider",
-      "hint": "Configure the AI models used by the memory system",
-      "embedding_provider_id": {
-        "description": "Embedding Model ID",
-        "hint": "Required: ID of an enabled Embedding Provider in AstrBot (for example openai_embedding). Leaving it empty only falls back to the first available Embedding Provider and may pick the wrong model or break vector/graph index initialization. Create and enable an Embedding Provider in the AstrBot LLM settings first, then fill in its ID here."
-      },
-      "llm_provider_id": {
-        "description": "LLM Model ID",
-        "hint": "The large language model ID used for summarizing conversations and evaluating memory importance. Leave blank to use AstrBot default. A model with strong reasoning capabilities is recommended."
-      },
-      "llm_fallback_provider_ids": {
-        "description": "Fallback LLM Providers",
-        "hint": "Provider IDs to try in order when the primary LLM fails (JSON array, e.g. [\"openai_gpt-4o\",\"gemini-2.5-pro\"]). Switches on timeout, rate limit (429), 5xx or authentication failures; parsing/format errors do not switch. Leave empty to disable fallback."
-      },
-      "llm_call_timeout_seconds": {
-        "description": "LLM Call Timeout (seconds)",
-        "hint": "Timeout for a single call to each provider. On timeout the provider is treated as unavailable and the next one is tried. Allowed range: 5-600."
-      },
-      "llm_stream_mode": {
-        "description": "Use Streaming Calls",
-        "hint": "How memory processing calls the LLM. auto (default): try non-streaming first and switch to streaming automatically when the provider reports that non-stream requests are unsupported; always: always stream (for providers that only accept stream=true); never: always non-streaming (previous behavior).",
-        "labels": [
-          "Auto (Recommended)",
-          "Always Stream",
-          "Never Stream"
-        ]
-      }
-    },
-    "session_manager": {
-      "description": "Session Management",
-      "hint": "Manage user session states and conversation history caching behavior",
-      "enable_full_group_capture": {
-        "description": "Capture All Group Messages",
-        "hint": "Whether to capture all messages in group chats, including messages that do not mention the bot. When enabled, every group message is recorded to build richer group-chat context."
-      },
-      "max_sessions": {
-        "description": "Max Cached Sessions",
-        "hint": "Maximum number of sessions kept in memory (LRU eviction). Once exceeded, the least recently used session is removed from cache, but data remains in the database. Allowed range: 1-10000."
-      },
-      "session_ttl": {
-        "description": "Session Idle Timeout (seconds)",
-        "hint": "Sessions inactive for longer than this duration are removed from cache. Default is 3600 (1 hour). Allowed range: 60-86400."
-      },
-      "context_window_size": {
-        "description": "Context Window Size (messages)",
-        "hint": "Maximum number of historical messages passed to the LLM. Larger values provide richer context but consume more tokens. Recommended: 20-100. Allowed range: 1-1000."
-      },
-      "max_messages_per_session": {
-        "description": "Max History Messages Per Session",
-        "hint": "Maximum number of historical messages retained per session in the database. When exceeded, only the oldest summarized messages are deleted to avoid losing unsummarized context. Allowed range: 100-10000."
-      },
-      "cleanup_batch_size": {
-        "description": "History Cleanup Batch Size",
-        "hint": "Minimum number of old summarized messages to delete per batch when the session history exceeds the limit. A value too small will cause only a few messages to be deleted each round after overflow. Allowed range: 1-1000."
-      }
-    },
-    "recall_engine": {
-      "description": "Memory Recall",
-      "hint": "Control memory retrieval and injection into conversations",
-      "top_k": {
-        "description": "Recall Count Per Request",
-        "hint": "Number of most relevant memories returned per retrieval. Set to 0 to skip automatic recall/injection while keeping historical injection cleanup. Recommended: 3-10. Allowed range: 0-50."
-      },
-      "max_k": {
-        "description": "Max Active Retrieval Count",
-        "hint": "Maximum memories returned when the Agent actively calls the long-term memory retrieval tool. Used to limit single-tool recall scale. Recommended: 5-10. Allowed range: 1-50."
-      },
-      "importance_weight": {
-        "description": "Importance Weight",
-        "hint": "Weight coefficient for memory importance in the hybrid scoring. Higher values prioritize high-importance memories. Allowed range: 0-10."
-      },
-      "min_importance_for_retrieval": {
-        "description": "Minimum Importance for Recall",
-        "hint": "Filter out memories below this importance value. Range: 0-1. Set to 0 to disable filtering."
-      },
-      "min_similarity_for_retrieval": {
-        "description": "Minimum Vector Similarity",
-        "hint": "Filter vector candidates below this similarity. Keyword-only matches remain eligible. Default 0.45; set to 0 to disable the filter."
-      },
-      "recent_memory_count": {
-        "description": "Reserved Recent Memories",
-        "hint": "Only fill remaining slots with recent memories in the current scope when relevant results are fewer than the requested count. Fixed slots are no longer reserved. Default 0 (disabled)."
-      },
-      "recent_memory_max_age_hours": {
-        "description": "Recent Memory Window (hours)",
-        "hint": "Only memories inside this age window qualify for reserved recent slots. Set to 0 for no age limit. Allowed range: 0-8760."
-      },
-      "memory_type_filter": {
-        "description": "Memory Type Filter",
-        "hint": "Recall all memories, or exclude memories known to contain only preferences or relationships. Legacy untyped memories remain eligible.",
-        "labels": [
-          "All Memories",
-          "Events and Facts"
-        ]
-      },
-      "fallback_to_vector": {
-        "description": "Fallback to Pure Vector Search",
-        "hint": "Automatically fall back to pure vector search when hybrid retrieval fails or returns empty results. Recommended to keep enabled."
-      },
-      "rerank_enabled": {
-        "description": "Enable Rerank Reordering",
-        "hint": "After RRF fusion, call a Rerank model to reorder candidate memories by query relevance, replacing the RRF ranking as the relevance score source. Requires a Rerank-type provider configured in AstrBot."
-      },
-      "rerank_provider_id": {
-        "description": "Rerank Provider ID",
-        "hint": "The ID of a Rerank-type provider in AstrBot. Leave empty to skip reranking even when enabled."
-      },
-      "rerank_candidates": {
-        "description": "Rerank Candidate Count",
-        "hint": "Number of fused candidate memories sent to the Rerank model; only top_k are kept after reranking. Larger values improve ranking accuracy but increase per-recall Rerank API cost. Recommended 10-30. (Range: 2-100)"
-      },
-      "fusion_mode": {
-        "description": "Fusion Mode",
-        "hint": "How BM25 and vector results are fused: score weights normalized scores (default); rrf uses reciprocal rank fusion.",
-        "labels": [
-          "Normalized Score",
-          "Reciprocal Rank Fusion (RRF)"
-        ]
-      },
-      "fusion_bm25_weight": {
-        "description": "Fusion BM25 Weight",
-        "hint": "Weight of the BM25 route in score fusion; the vector route uses one minus this value. Range 0-1."
-      },
-      "fusion_agreement_bonus": {
-        "description": "Cross-Route Agreement Bonus",
-        "hint": "Score bonus added when the same memory is hit by both the BM25 and vector routes. Range 0-1."
-      },
-      "recall_candidate_multiplier": {
-        "description": "Recall Candidate Multiplier",
-        "hint": "Each route returns top_k times this many candidates before fusion. Larger values widen recall but cost more time. Range 1-10."
-      },
-      "injection_method": {
-        "description": "Memory Injection Position",
-        "hint": "Memories are appended to the current user message as a mark_as_temp temporary part that AstrBot filters out when saving history, so injection never touches conversation history or the prefix cache.",
-        "labels": [
-          "Extra User Content"
-        ]
-      },
-      "auto_remove_injected": {
-        "description": "Auto-Clear Legacy Injection Fragments",
-        "hint": "Automatically remove injection fragments left in conversation history by legacy injection modes from the request context before injecting new ones (the current add-only injection never leaves residue). Recommended to keep enabled."
-      },
-      "inject_with_recent_context": {
-        "description": "Enable Cross-Turn Context Expansion",
-        "hint": "When enabled, memory retrieval appends the recent two dialogue turns to the current query, improving relevance for follow-up questions and reducing unrelated recalls."
-      },
-      "recent_context_max_age_seconds": {
-        "description": "Maximum Context Age (seconds)",
-        "hint": "Only historical messages within this time range extend the recall query. Set to 0 to disable the time limit. Allowed range: 0-604800."
-      },
-      "search_cache_enabled": {
-        "description": "Enable Short-Term Search Cache",
-        "hint": "Reuse retrieval results for the same session and query within a short time window to reduce repeated SQLite and FAISS work during follow-up conversations."
-      },
-      "search_cache_ttl_seconds": {
-        "description": "Search Cache TTL (seconds)",
-        "hint": "How long retrieval cache entries are kept. Writes, updates, and deletes invalidate the cache automatically. Set to 0 to disable caching. Allowed range: 0-600."
-      },
-      "search_cache_max_size": {
-        "description": "Max Search Cache Entries",
-        "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted. Allowed range: 0-10000."
-      },
-      "private_memory_notice_enabled": {
-        "description": "Private Memory Notice",
-        "hint": "Append a notice to injected memories marked visibility=private and disclosed=false, stating that the assistant experienced this privately and the user has not been told. Disable to omit the notice."
-      },
-      "tokenizer": {
-        "description": "Chinese Tokenizer",
-        "hint": "jieba: word-level segmentation with better recall; reserves ~55 MB after first use. builtin: built-in single-character/ASCII tokens, never imports jieba and saves memory. Run /lmem rebuild-index after switching.",
-        "labels": [
-          "jieba word segmentation",
-          "Built-in tokenizer (low memory)"
-        ]
-      }
-    },
-    "importance_decay": {
-      "description": "Importance Decay",
-      "hint": "Gradually reduce the importance of old memories over time to prevent outdated information from retaining high weight indefinitely",
-      "decay_rate": {
-        "description": "Daily Decay Rate",
-        "hint": "Proportion of memory importance decayed per day. Default 0.005 means a 0.5% decrease daily; access reduces the effective decay rate. Set to 0 to disable decay. Allowed range: 0-1."
-      },
-      "access_decay_window_days": {
-        "description": "Access Reinforcement Window (days)",
-        "hint": "Memories accessed within this window reduce their effective decay rate according to access count. Allowed range: 1-3650."
-      },
-      "access_decay_max_count": {
-        "description": "Max Access Reinforcement Count",
-        "hint": "The access count that grants maximum decay protection. Additional accesses beyond this count do not increase protection further. Allowed range: 1-10000."
-      },
-      "access_count_decay_multiplier": {
-        "description": "Access Count Retention Ratio",
-        "hint": "After each daily decay pass, access counts are multiplied by this ratio so old hot memories do not stay protected forever. Allowed range: 0-1."
-      },
-      "protected_importance_threshold": {
-        "description": "Protected Importance Threshold",
-        "hint": "Memories at or above this importance do not participate in daily importance decay. Default 0.6 protects memories at 60%+ importance. Allowed range: 0-1."
-      }
-    },
-    "fusion_strategy": {
-      "description": "Retrieval Fusion Strategy",
-      "hint": "Fusion parameters for BM25 and vector search results (internally uses the RRF algorithm)",
-      "rrf_k": {
-        "description": "RRF Fusion Parameter k",
-        "hint": "Lower values emphasize top-ranked results; higher values produce smoother fusion. Recommended: 30-120. Default is 60. Allowed range: 1-1000."
-      }
-    },
-    "filtering_settings": {
-      "description": "Memory Isolation Settings",
-      "hint": "",
-      "use_persona_filtering": {
-        "description": "Isolate Memories by Persona",
-        "hint": "Recall only: when enabled, only memories for the current persona are recalled. When disabled, recall is shared across personas, while reflections still record the real persona_id and use that persona's system_prompt."
-      },
-      "use_session_filtering": {
-        "description": "Isolate Memories by Session",
-        "hint": "Used only when Memory Scope Mode is Legacy. When enabled, each session is isolated; when disabled, memories are not filtered by session."
-      },
-      "memory_scope_mode": {
-        "description": "Memory Scope Mode",
-        "hint": "Legacy preserves existing settings; Per Session isolates each origin; Per User shares memory across chats for the same platform user; Global shares memory everywhere. Switching the mode does not migrate existing memories: run /lmem migrate-scope <target> apply.",
-        "labels": [
-          "Legacy",
-          "Per Session",
-          "Per User",
-          "Global"
-        ]
-      },
-      "isolated_sessions": {
-        "description": "Forced Isolated Sessions",
-        "hint": "Enter one full session ID per line. These sessions always use their own memory scope, overriding Per User, Global, and disabled legacy session filtering."
-      },
-      "shared_adapter_ids": {
-        "description": "Adapters sharing memory",
-        "hint": ""
-      }
-    },
-    "reflection_engine": {
-      "description": "Memory Generation Settings",
-      "hint": "Control when conversation summarization is triggered and memories are generated",
-      "summary_trigger_rounds": {
-        "description": "Summary Trigger Rounds",
-        "hint": "Trigger a summary and write it to memory after this many rounds of dialogue (one question and one answer counts as one round). Allowed range: 1-100."
-      },
-      "window_split_by_day": {
-        "description": "Split Summary Windows by Day",
-        "hint": "When enabled, conversations spanning multiple days are not merged into one memory: a summary covers only the oldest day, and newer parts wait for later triggers."
-      },
-      "window_split_gap_minutes": {
-        "description": "Idle Gap Split (minutes)",
-        "hint": "When the gap between adjacent messages exceeds this many minutes, only the oldest segment is summarized; 0 = do not split by idle gap. Allowed range: 0-1440."
-      },
-      "include_source_time_tags": {
-        "description": "Include Source Time Tags",
-        "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."
-      },
-      "source_retention_importance_threshold": {
-        "description": "Source Retention Importance Threshold",
-        "hint": "Store original messages separately when summary importance reaches this value, enabling verification, detailed Agent recall, and re-summarization. Range 0-1; 1 keeps only maximum-importance memories."
-      },
-      "max_segments_per_run": {
-        "description": "Max reflection segments per run",
-        "hint": "Maximum number of day/idle-split segments summarized in one trigger. Remaining backlog is consumed on the next trigger. (Allowed range: 1–50)"
-      },
-      "max_messages_per_segment": {
-        "description": "Messages per summary segment"
-      }
-    },
-    "agent_tools": {
-      "description": "Agent Active Memory Tools",
-      "hint": "Control whether AstrBot Agent receives tools for active long-term memory recall and writing.",
-      "enable_recall_tool": {
-        "description": "Enable Active Recall Tool",
-        "hint": "When enabled, registers recall_long_term_memory so the Agent can actively search long-term memories."
-      },
-      "enable_agentic_recall_beta": {
-        "description": "Beta: Agentic Multi-Round Recall",
-        "hint": "Experimental; requires the active recall tool enabled above. When on, recall_long_term_memory is enhanced (current-speaker lookup, time-range filters, exclude seen candidates), the read_memory_evidence deep-read tool is added, and an agentic recall policy is injected. Search and deep read share a per-request budget. Turning it off restores the legacy recall behavior. Takes effect for new requests after saving and a successful reload."
-      },
-      "enable_memorize_tool": {
-        "description": "Enable Active Memory Write Tool",
-        "hint": "When enabled, registers memorize_long_term_memory so the Agent can actively write long-term memories."
-      },
-      "enable_forget_tool": {
-        "description": "Enable Active Forget Tool (Admin)",
-        "hint": "When enabled, registers forget_long_term_memory. Admin-only; it only archives (soft-deletes) memories, never physically deletes them, and an admin can restore them from the WebUI memory page (set status back to active). Off by default."
-      },
-      "forget_tool_max_memories": {
-        "description": "Forget tool max memories per call",
-        "hint": "Maximum number of memories a single tool call may archive; a larger request is rejected entirely. (Allowed: 1-10)"
-      },
-      "forget_tool_cooldown_seconds": {
-        "description": "Forget tool cooldown (seconds)",
-        "hint": "Minimum interval between two successful archives in the same session; calls during the cooldown are rejected. 0 = disabled. (Allowed: 0-3600)"
-      },
-      "agentic_recall_max_calls": {
-        "description": "Max agentic recall tool calls",
-        "hint": "Shared per-request call budget for the memory search and deep-read tools. Suggested 3-6. (Allowed: 1-20)"
-      },
-      "agentic_recall_time_budget_seconds": {
-        "description": "Agentic recall tool time budget (seconds)",
-        "hint": "Total working time for memory tools since the first call of this request; when exceeded, recall stops and the model answers with evidence already gathered. Suggested 10-60. (Allowed: 1-300)"
-      },
-      "agentic_recall_max_result_chars": {
-        "description": "Max chars per agentic tool result",
-        "hint": "Maximum characters a Beta memory tool returns in one call; longer content can be read via pagination. Suggested 4000-30000. (Allowed: 500-100000)"
-      },
-      "enable_profile_tool": {
-        "description": "Enable user profile tool",
-        "hint": "Register update_user_profile so the agent can write the user profile proactively; writes use the same evidence/confidence rules and record history. Off by default."
-      }
-    },
-    "graph_memory": {
-      "description": "Graph Memory Dual-Path Retrieval",
-      "hint": "When enabled, both document-based and graph-based paths are maintained simultaneously, each supporting keyword and vector retrieval, with results unified into a single fused recall set.",
-      "enabled": {
-        "description": "Enable Graph Memory Retrieval",
-        "hint": "When enabled, graph nodes, edges, and graph vector indexes are automatically built. Recommended to keep enabled."
-      },
-      "document_route_weight": {
-        "description": "Document Path Weight",
-        "hint": "The proportion of the document path fusion score in the final dual-path ranking. Allowed range: 0-1."
-      },
-      "graph_route_weight": {
-        "description": "Graph Path Weight",
-        "hint": "The proportion of the graph path fusion score in the final dual-path ranking. Allowed range: 0-1."
-      },
-      "cross_route_bonus": {
-        "description": "Dual-Path Hit Bonus",
-        "hint": "Extra score added when the same memory is hit by both the document path and the graph path. Allowed range: 0-0.5."
-      },
-      "expansion_limit": {
-        "description": "Graph Neighbor Expansion Limit",
-        "hint": "Maximum number of candidate entries expanded from hit nodes to their neighbors during graph keyword retrieval. Allowed range: 1-200."
-      },
-      "expansion_hops": {
-        "description": "Graph Expansion Hops",
-        "hint": "Number of hops expanded outward from matched nodes during graph keyword retrieval. Default is 1; setting it to 2 can recall indirect relations with a small query-cost increase. Allowed range: 1-2."
-      },
-      "second_hop_weight": {
-        "description": "Second-Hop Expansion Weight",
-        "hint": "Score weight for second-hop graph candidates. Higher values make indirect relations more likely to enter the final recall results. Allowed range: 0-1."
-      },
-      "dynamic_route_weighting": {
-        "description": "Dynamic Route Weighting",
-        "hint": "Automatically adjust document-route and graph-route weights according to relationship, time, and definition-like intent in the query."
-      },
-      "max_topics_per_memory": {
-        "description": "Max Topics Per Memory",
-        "hint": "Maximum number of topic nodes extracted from a single memory. Allowed range: 1-20."
-      },
-      "max_participants_per_memory": {
-        "description": "Max Participants Per Memory",
-        "hint": "Maximum number of participant nodes extracted from a single memory. Allowed range: 1-30."
-      },
-      "max_facts_per_memory": {
-        "description": "Max Facts Per Memory",
-        "hint": "Maximum number of key facts extracted from a single memory to enter the graph index. Allowed range: 1-30."
-      },
-      "atom_enabled": {
-        "description": "Enable Memory Atomization",
-        "hint": "When enabled, each key_fact becomes an independent memory atom with its own lifetime and decay curve. When disabled, the plugin falls back to the original coarse-grained behavior."
-      },
-      "atom_maintenance_interval_hours": {
-        "description": "Atom Maintenance Interval (hours)",
-        "hint": "How often the lifecycle manager runs expiration and forgetting checks for memory atoms. Allowed range: 1-168."
-      },
-      "atom_forget_delay_days": {
-        "description": "Atom Forget Delay (days)",
-        "hint": "How many days after expiration an atom is completely removed from retrieval indexes. Allowed range: 1-90."
-      },
-      "atom_purge_delay_days": {
-        "description": "Forgotten Atom Purge Delay (days)",
-        "hint": "How many days after removal from retrieval indexes a forgotten atom is physically deleted from the database to reclaim storage. Allowed range: 1-365."
-      }
-    },
-    "channel_memory": {
-      "description": "Group channel memory",
-      "hint": "When enabled, group summaries are stored in a shared channel scope so any member of the group can recall them; recall searches the current scope and the channel scope together within one top_k budget. Disabled keeps the previous behavior.",
-      "enabled": {
-        "description": "Enable channel memory",
-        "hint": "Group summaries are stored under livingmemory:channel:<platform>:<group id>; personal memories (private summaries and explicit writes) keep their own scopes."
-      },
-      "min_user_slots": {
-        "description": "Minimum personal slots",
-        "hint": "Personal/session results kept at minimum during merged recall; channel results fill any gap. (Allowed: 0-5)"
-      },
-      "min_channel_slots": {
-        "description": "Minimum channel slots",
-        "hint": "Channel results kept at minimum during merged recall; personal results fill any gap. (Allowed: 0-5)"
-      },
-      "include_archived": {
-        "description": "Include archived memories in channel recall",
-        "hint": "Off by default: archived memories stay excluded. When on, only channel-scope results relax the status filter."
-      }
-    },
-    "migration_settings": {
-      "description": "Database Migration",
-      "hint": "Control database version upgrade behavior on plugin startup",
-      "auto_migrate": {
-        "description": "Auto Migrate",
-        "hint": "Automatically detect and upgrade outdated database versions on plugin startup. Recommended to keep enabled."
-      },
-      "create_backup": {
-        "description": "Auto Backup Before Migration",
-        "hint": "Automatically create a backup file before performing database migration to prevent data loss in case of migration failure. Recommended to keep enabled."
-      }
-    },
-    "index_rebuild_settings": {
-      "description": "Index Rebuild",
-      "hint": "Control batch size, Embedding request rate, and failure tolerance for the /lmem rebuild-index command. Low-spec cloud servers should keep concurrency small.",
-      "batch_size": {
-        "description": "Read Batch Size",
-        "hint": "Number of memories read from the documents table per batch. Larger values increase memory peak and affect more entries on failure. Recommended: 25-100. Allowed range: 1-500."
-      },
-      "embedding_batch_size": {
-        "description": "Embedding Batch Size",
-        "hint": "Number of texts included in a single Embedding API request. Reduce further if the provider has strict TPM rate limits. Allowed range: 1-256."
-      },
-      "tasks_limit": {
-        "description": "Embedding Concurrency",
-        "hint": "Internal concurrency limit for batch Embedding. To avoid triggering API rate limits, the default is 1. Allowed range: 1-8."
-      },
-      "max_retries": {
-        "description": "Batch Retry Count",
-        "hint": "Maximum retry attempts for a failed Embedding batch. Allowed range: 1-8."
-      },
-      "retry_base_delay": {
-        "description": "Retry Wait (seconds)",
-        "hint": "Base wait time for exponential backoff after a batch failure. At least 30 seconds will be waited when encountering 429/TPM rate limits. Allowed range: 0-60."
-      },
-      "batch_delay": {
-        "description": "Read Batch Interval (seconds)",
-        "hint": "Additional wait time between each documents read batch, used to proactively reduce overall rebuild rate. Allowed range: 0-10."
-      },
-      "request_delay": {
-        "description": "Embedding Request Interval (seconds)",
-        "hint": "Wait time between each Embedding API sub-request. Increase this first if 429/TPM is triggered frequently. Allowed range: 0-60."
-      },
-      "max_failure_ratio": {
-        "description": "Allowed Failure Ratio",
-        "hint": "During full vector rebuild, the new index will only be switched if the failure ratio does not exceed this value. 0.02 means up to 2% failure is allowed. Allowed range: 0-1."
-      }
-    },
-    "backup_settings": {
-      "description": "Periodic Backup",
-      "hint": "Create daily memory backups and prune daily backups past retention plus stale version backups so the data directory cannot grow without bound",
-      "enabled": {
-        "description": "Enable Daily Auto Backup",
-        "hint": "Automatically back up the database after daily decay tasks. Recommended to keep enabled."
-      },
-      "keep_days": {
-        "description": "Backup Retention Days",
-        "hint": "Retention days for daily and version backups. Version backups additionally keep only the 2 most recent ones, and total backup size is pruned from the oldest when it exceeds 512 MB. Default 7 days. Allowed range: 1-365."
-      }
-    },
-    "forgetting_agent": {
-      "description": "Auto Cleanup Settings",
-      "hint": "Archive (by default, instead of deleting) aged low-importance memories to keep the memory store and indexes bounded",
-      "auto_cleanup_enabled": {
-        "description": "Enable Daily Auto Cleanup",
-        "hint": "Automatically clean up eligible old memories after daily importance decay."
-      },
-      "auto_archived_enabled": {
-        "description": "Archive Instead of Delete",
-        "hint": "Enabled by default: cleanup candidates are removed from retrieval indexes and kept as restorable archived documents. Disable to delete them instead."
-      },
-      "cleanup_days_threshold": {
-        "description": "Cleanup Age Threshold (days)",
-        "hint": "Memories older than this many days become cleanup candidates. Default 120 days; they are processed only if importance is also below the threshold. Allowed range: 1-3650."
-      },
-      "cleanup_importance_threshold": {
-        "description": "Cleanup Importance Threshold",
-        "hint": "Only memories with importance below this value are cleaned up. Default 0.25 means memories below 25% importance. Allowed range: 0-1."
-      }
-    },
-    "memory_consolidation": {
-      "description": "Memory Store Consolidation",
-      "hint": "Periodically aggregate, organize, and summarize scattered low-value memories into more concise ones to control memory store size at the source",
-      "enabled": {
-        "description": "Enable Periodic Consolidation",
-        "hint": "When enabled, eligible scattered memories are automatically merged into concise summaries. Recommended when the memory store grows large."
-      },
-      "trigger": {
-        "description": "Trigger Mode",
-        "hint": "daily = run on the daily schedule; reflection = also check and run alongside each reflection.",
-        "labels": [
-          "Daily",
-          "On Reflection"
-        ]
-      },
-      "granularity": {
-        "description": "Consolidation Granularity",
-        "hint": "session = aggregate within the same session; semantic = cluster across sessions by semantic similarity.",
-        "labels": [
-          "Same Session",
-          "Semantic Clustering"
-        ]
-      },
-      "keep_original": {
-        "description": "Handling of Originals After Merge",
-        "hint": "archive = keep originals as archived (removed from retrieval but restorable); delete = remove originals permanently.",
-        "labels": [
-          "Archive",
-          "Delete"
-        ]
-      },
-      "min_memories_per_group": {
-        "description": "Minimum Memories Per Group",
-        "hint": "A group must contain at least this many memories to trigger consolidation, avoiding unnecessary LLM calls. Allowed range: 2-50."
-      },
-      "min_age_days": {
-        "description": "Minimum Memory Age (days)",
-        "hint": "Only consolidate memories older than this many days, avoiding recently-updated memories. Allowed range: 0-3650."
-      },
-      "max_importance": {
-        "description": "Maximum Importance",
-        "hint": "Only consolidate memories with importance below this value; high-importance memories stay untouched. Allowed range: 0-1."
-      },
-      "max_groups_per_run": {
-        "description": "Maximum Groups Per Run",
-        "hint": "Limits how many groups are consolidated per run to avoid triggering too many LLM calls at once. Allowed range: 1-100."
-      },
-      "semantic_similarity_threshold": {
-        "description": "Semantic Similarity Threshold",
-        "hint": "In semantic mode, two memories are grouped only when their similarity reaches this value. Allowed range: 0-1."
-      }
-    },
-    "memory_dedup": {
-      "description": "Write-time duplicate merging",
-      "hint": "Write-time duplicate merging",
-      "enabled": {
-        "description": "Enable near-duplicate detection",
-        "hint": "Before storing a summary memory, compare it with recent memories in the same session/persona; at or above the threshold, merge into the existing memory instead of adding a new one."
-      },
-      "similarity_threshold": {
-        "description": "Similarity threshold",
-        "hint": "Vector similarity threshold for merging; higher is more conservative. 0.90–0.95 is recommended."
-      },
-      "max_candidates": {
-        "description": "Candidates",
-        "hint": "Number of recent memories compared on each check."
-      },
-      "merge_sources": {
-        "description": "Keep source messages",
-        "hint": "Append new source messages to the existing memory when merging, for review and re-summarization."
-      },
-      "max_source_messages": {
-        "description": "Source message cap",
-        "hint": "Maximum number of source messages kept on a merged memory."
-      }
-    },
-    "profile_settings": {
-      "description": "User profile",
-      "hint": "Maintain a structured, versioned user profile per memory scope + persona. Updated incrementally during summaries and injected as a fixed short block on recall. Enabled by default; no extra LLM calls.",
-      "enabled": {
-        "description": "Enable user profile",
-        "hint": "Merge summary output into the user profile and inject the profile block on every recall; disable to stop all profile reads/writes."
-      },
-      "max_chars": {
-        "description": "Profile injection budget (chars)",
-        "hint": "Maximum characters for the injected profile text, independent of the memory injection budget. Larger values keep more detail but consume more context. (50–2000)"
-      },
-      "min_confidence": {
-        "description": "Minimum confidence",
-        "hint": "Profile updates only apply directly when confidence reaches this value and evidence is valid; otherwise they become pending candidates. (0–1)"
-      },
-      "history_limit": {
-        "description": "History version limit",
-        "hint": "Number of history versions kept per profile; oldest versions are trimmed without deleting the current profile. (1–200)"
-      },
-      "max_pending": {
-        "description": "Pending candidate limit",
-        "hint": "Low-confidence or evidence-less updates go to the pending list; oldest candidates are dropped beyond this limit. (1–500)"
-      }
-    },
-    "trace_settings": {
-      "description": "Recall tracing",
-      "hint": "Record explainable traces of every memory recall (candidates, routes, rejection reasons, final injection) to debug why a memory was or was not recalled. In-memory ring buffer only; disk persistence is opt-in and query text is not stored by default.",
-      "enabled": {
-        "description": "Enable recall tracing",
-        "hint": "When disabled the recall path records nothing and behaves exactly as before."
-      },
-      "max_records": {
-        "description": "In-memory records",
-        "hint": "Number of recent traces kept in the in-process ring buffer; 0 disables the buffer. Oldest records are overwritten."
-      },
-      "persist_enabled": {
-        "description": "Persist as JSONL",
-        "hint": "Append one JSON object per line to recall_traces/YYYYMMDD.jsonl in the data directory. Disabled by default to avoid continuous disk writes."
-      },
-      "include_query_text": {
-        "description": "Store raw query text",
-        "hint": "By default only a query hash is stored; enabling this includes the user's raw query in traces, so enable it with privacy in mind."
-      },
-      "max_file_mb": {
-        "description": "Per-day file limit",
-        "hint": "New traces stop being appended to a JSONL file once it reaches this size."
-      },
-      "retention_days": {
-        "description": "Retention days",
-        "hint": "JSONL trace files older than this are cleaned up on the next write."
-      }
-    },
-    "external_api": {
-      "description": "External memory API",
-      "hint": "Let external agent terminals read and write memories with API keys (disabled by default). Create keys with /lmem apikey or the dashboard, then use the bundled MCP bridge.",
-      "enabled": {
-        "description": "Enable external memory API",
-        "hint": "Starts a dedicated HTTP listener (default 127.0.0.1:7801) serving /page/external. When disabled every external endpoint returns 404. Reload the plugin after changing."
-      },
-      "listen_host": {
-        "description": "Listen address",
-        "hint": "Bind address for the external API. Keep loopback 127.0.0.1 and let a reverse proxy expose it, if needed."
-      },
-      "listen_port": {
-        "description": "Listen port",
-        "hint": "Port for the external API listener, default 7801. Reload the plugin after changing."
-      },
-      "max_request_bytes": {
-        "description": "Max request body bytes",
-        "hint": "Largest accepted request body, default 262144 (256 KiB); larger requests return 400."
-      },
-      "default_rate_limit_per_min": {
-        "description": "Default requests per minute",
-        "hint": "Default per-key request budget for new keys; can be overridden per key."
-      },
-      "default_write_limit_per_min": {
-        "description": "Default writes per minute",
-        "hint": "Default per-key write budget for new keys. Read requests do not consume it."
-      },
-      "audit_retention_days": {
-        "description": "Audit retention days",
-        "hint": "Audit JSONL lives in the plugin data directory (external_api_audit.jsonl) and is trimmed to this many days, default 30."
-      },
-      "trust_proxy_headers": {
-        "description": "Trust proxy headers",
-        "hint": "Use X-Forwarded-For as the audit client address. Enable only behind a trusted reverse proxy."
-      }
+    "pages": {
+        "dashboard": {
+            "title": "Memory Dashboard",
+            "description": "Browse, edit, and curate long-term memories."
+        }
     }
-  },
-  "pages": {
-    "dashboard": {
-      "title": "Memory Dashboard",
-      "description": "Browse, edit, and curate long-term memories."
-    }
-  }
 }
