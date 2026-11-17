@@ -12,7 +12,6 @@ import aiosqlite
 
 from astrbot.api import logger
 
-from .sqlite_connection import backup_sqlite_file
 from .schema import (
     DB_VERSION_SCHEMA_STATEMENTS,
     DOCUMENTS_INDEX_STATEMENTS,
@@ -20,6 +19,7 @@ from .schema import (
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
     PROFILE_SCHEMA_STATEMENTS,
 )
+from .sqlite_connection import backup_sqlite_file
 
 
 class DBMigration:
