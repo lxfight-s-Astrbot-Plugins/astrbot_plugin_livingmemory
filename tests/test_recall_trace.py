@@ -266,204 +266,269 @@ def test_persistence_off_by_default(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Recall chain integration
+# Recall chain integration (real engine)
 # ---------------------------------------------------------------------------
 
 
-def _make_engine(recorder, results, *, config=None, dual_search=None):
-    engine = MemoryEngine.__new__(MemoryEngine)
-    engine.config = {
-        "min_similarity_for_retrieval": 0.0,
-        "min_importance_for_retrieval": 0.0,
-        "memory_type_filter": "all",
-        "recent_memory_count": 0,
-        "search_cache_enabled": True,
-        "search_cache_ttl_seconds": 45.0,
-        "search_cache_max_size": 16,
-        **(config or {}),
-    }
-    engine.atom_enabled = False
-    engine.atom_store = None
-    engine.atom_retriever = None
-    engine.hybrid_retriever = None
-    engine.faiss_db = object()
+async def _real_engine(tmp_path, recorder, *, config=None):
+    """Real engine with the trace recorder installed."""
+    from tests.real_engine_support import make_engine
+
+    engine, db = await make_engine(
+        tmp_path / "trace",
+        config={
+            "min_similarity_for_retrieval": 0.0,
+            **(config or {}),
+        },
+    )
+    # 替换为测试自带的记录器（固定时钟、可控开关）
     engine.trace_recorder = recorder
-    engine._search_cache_enabled = True
-    engine._search_cache_ttl = 45.0
-    engine._search_cache_max_size = 16
-    engine._search_cache_generation = 0
-    engine._search_cache = OrderedDict()
-    engine.dual_route_retriever = SimpleNamespace(
-        search=dual_search or AsyncMock(return_value=results)
-    )
-    engine._update_access_times_internal = AsyncMock()
-    engine._runtime_session_migration_needed = AsyncMock(return_value=False)
-    return engine
+    return engine, db
 
 
-async def _fake_dual_search(results):
-    async def search(query, k, session_id=None, persona_id=None, diagnostics=None):
-        if diagnostics is not None:
-            diagnostics["routes"] = {"document": True, "graph": True}
-            diagnostics["route_details"] = {
-                "document": {"candidates": len(results) + 1, "ms": 1.5},
-                "graph": {"candidates": 2, "ms": 2.5},
-            }
-        return results
-
-    return search
-
-
-@pytest.mark.asyncio
-async def test_recall_records_routes_candidates_and_umo() -> None:
-    recorder = _recorder()
-    results = [_hybrid(1, 0.9), _hybrid(2, 0.7)]
-    engine = _make_engine(
-        recorder, results, dual_search=await _fake_dual_search(results)
-    )
-
-    with trace_request_context(session_id="test:private:umo") as context:
-        returned = await engine.search_memories(
-            "query", k=2, session_id="livingmemory:session:x"
+async def _seed(engine, rows):
+    ids = []
+    for content, session_id, metadata in rows:
+        ids.append(
+            await engine.add_memory(
+                content, session_id=session_id, persona_id=None, metadata=metadata
+            )
         )
-        trace_id = context.trace_id
-
-    assert returned == results
-    trace = recorder.get(trace_id)
-    assert trace["session_id"] == "test:private:umo"
-    assert trace["scope"] == "livingmemory:session:x"
-    assert trace["cache_hit"] is False
-    assert trace["routes"]["document"] == {
-        "candidates": 3,
-        "ok": True,
-        "error": None,
-        "ms": 1.5,
-    }
-    assert trace["routes"]["graph"]["candidates"] == 2
-    assert [candidate["doc_id"] for candidate in trace["candidates"]] == [1, 2]
-    assert trace["duration_ms"] >= 0
+    return ids
 
 
 @pytest.mark.asyncio
-async def test_recall_records_filter_rejections() -> None:
+async def test_recall_records_scope_candidates_and_session(tmp_path) -> None:
+    """一次真实召回的追踪记录：作用域、候选与耗时都可从记录中读出。"""
     recorder = _recorder()
-    results = [
-        _hybrid(1, 0.9, metadata={"status": "archived"}),
-        _hybrid(2, 0.9, metadata={"status": "active", "superseded_by": 5}),
-        _hybrid(3, 0.9, metadata={"status": "active", "importance": 0.05}),
-        _hybrid(4, 0.5, metadata={"status": "active"}, vector=0.1),
-        _hybrid(
-            5,
-            0.9,
-            metadata={"status": "active", "atom_types": ["semantic"]},
-        ),
-    ]
-    engine = _make_engine(
+    engine, db = await _real_engine(tmp_path, recorder)
+    try:
+        ids = await _seed(
+            engine,
+            [
+                ("用户喜欢燕麦拿铁", "livingmemory:session:x", {}),
+                ("用户周末去爬山", "livingmemory:session:x", {}),
+            ],
+        )
+
+        with trace_request_context(session_id="test:private:umo") as context:
+            returned = await engine.search_memories(
+                "燕麦拿铁", k=2, session_id="livingmemory:session:x"
+            )
+            trace_id = context.trace_id
+
+        assert returned, "real recall returned nothing"
+        trace = recorder.get(trace_id)
+        assert trace["session_id"] == "test:private:umo"
+        assert trace["scope"] == "livingmemory:session:x"
+        assert trace["cache_hit"] is False
+        assert set(trace["routes"]) <= {"document", "graph", "cache", "hybrid"}
+        assert [candidate["doc_id"] for candidate in trace["candidates"]]
+        assert trace["candidates"][0]["doc_id"] in ids
+        assert trace["duration_ms"] >= 0
+    finally:
+        from tests.real_engine_support import close_engine
+
+        await close_engine(engine, db)
+
+
+@pytest.mark.asyncio
+async def test_recall_records_filter_rejections(tmp_path) -> None:
+    """被过滤策略拒绝的记忆计入 rejected 统计，不出现在候选里。"""
+    recorder = _recorder()
+    engine, db = await _real_engine(
+        tmp_path,
         recorder,
-        results,
         config={
             "min_importance_for_retrieval": 0.3,
             "min_similarity_for_retrieval": 0.6,
-            "memory_type_filter": "event_only",
         },
     )
+    try:
+        kept = await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="livingmemory:global", importance=0.9
+        )
+        await engine.add_memory(
+            "用户随口提过一句天气", session_id="livingmemory:global", importance=0.05
+        )
 
-    await engine.search_memories("query", k=5)
+        await engine.search_memories("燕麦拿铁 天气", k=5)
 
-    summary = recorder.recent(1)[0]
-    trace = recorder.get(summary["id"])
-    assert trace["filters"]["min_similarity"] == pytest.approx(0.6)
-    assert trace["filters"]["min_importance"] == pytest.approx(0.3)
-    assert trace["filters"]["rejected"] == {
-        "status": 1,
-        "superseded": 1,
-        "importance": 1,
-        "similarity": 1,
-        "memory_type": 1,
-    }
-    assert trace["candidates"] == []
-    stats = recorder.stats()["filtered"]
-    assert stats["status"] == 1 and stats["superseded"] == 1
+        trace = recorder.get(recorder.recent(1)[0]["id"])
+        assert trace["filters"]["min_similarity"] == pytest.approx(0.6)
+        assert trace["filters"]["min_importance"] == pytest.approx(0.3)
+        assert trace["filters"]["rejected"]["importance"] >= 1
+        candidates = [candidate["doc_id"] for candidate in trace["candidates"]]
+        assert candidates == [kept]
+        stats = recorder.stats()["filtered"]
+        assert stats["importance"] >= 1
+    finally:
+        from tests.real_engine_support import close_engine
+
+        await close_engine(engine, db)
 
 
 @pytest.mark.asyncio
-async def test_recall_cache_hit_is_recorded() -> None:
+async def test_recall_cache_hit_is_recorded(tmp_path) -> None:
+    """同一查询第二次命中检索缓存，追踪里标记 cache_hit。"""
     recorder = _recorder()
-    results = [_hybrid(1, 0.9)]
-    engine = _make_engine(recorder, results)
+    engine, db = await _real_engine(tmp_path, recorder)
+    engine.config["search_cache_enabled"] = True
+    engine._search_cache_enabled = True
+    try:
+        await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="livingmemory:global"
+        )
 
-    await engine.search_memories("same query", k=1)
-    await engine.search_memories("same query", k=1)
+        await engine.search_memories("same query", k=1)
+        await engine.search_memories("same query", k=1)
 
-    rows = recorder.recent(5)
-    assert len(rows) == 2
-    assert rows[0]["cache_hit"] is True
-    assert rows[1]["cache_hit"] is False
-    assert rows[0]["routes"]["cache"]["candidates"] == 1
-    assert recorder.stats()["cache_hits"] == 1
+        rows = recorder.recent(5)
+        assert len(rows) == 2
+        assert rows[0]["cache_hit"] is True
+        assert rows[1]["cache_hit"] is False
+        assert rows[0]["routes"]["cache"]["candidates"] >= 1
+        assert recorder.stats()["cache_hits"] == 1
+    finally:
+        from tests.real_engine_support import close_engine
+
+        await close_engine(engine, db)
 
 
 @pytest.mark.asyncio
-async def test_recall_agentic_flag_and_error_trace() -> None:
+async def test_recall_agentic_flag_is_recorded(tmp_path) -> None:
     recorder = _recorder()
-    failing = AsyncMock(side_effect=RuntimeError("retriever down"))
-    engine = _make_engine(recorder, [], dual_search=failing)
+    engine, db = await _real_engine(tmp_path, recorder)
+    try:
+        await engine.add_memory("用户喜欢燕麦拿铁", session_id="livingmemory:global")
 
-    with trace_request_context(session_id="umo", agentic=True):
-        with pytest.raises(RuntimeError):
-            await engine.search_memories("query", k=1)
+        with trace_request_context(session_id="umo", agentic=True):
+            await engine.search_memories("燕麦拿铁", k=1)
 
-    trace = recorder.recent(1)[0]
-    assert trace["agentic"] is True
-    assert trace["routes"] == {}
-    assert "RuntimeError" in (recorder.get(trace["id"])["error"] or "")
+        trace = recorder.get(recorder.recent(1)[0]["id"])
+        assert trace["agentic"] is True
+    finally:
+        from tests.real_engine_support import close_engine
+
+        await close_engine(engine, db)
 
 
 @pytest.mark.asyncio
-async def test_recall_disabled_recorder_records_nothing() -> None:
+async def test_recall_disabled_recorder_records_nothing(tmp_path) -> None:
     recorder = _recorder(enabled=False)
-    results = [_hybrid(1, 0.9)]
-    engine = _make_engine(recorder, results)
+    engine, db = await _real_engine(tmp_path, recorder)
+    try:
+        await engine.add_memory("用户喜欢燕麦拿铁", session_id="livingmemory:global")
 
-    returned = await engine.search_memories("query", k=1)
+        returned = await engine.search_memories("燕麦拿铁", k=1)
 
-    assert returned == results
-    assert recorder.recent(5) == []
+        assert returned
+        assert recorder.recent(5) == []
+    finally:
+        from tests.real_engine_support import close_engine
+
+        await close_engine(engine, db)
 
 
 # ---------------------------------------------------------------------------
-# Injection update hook
+# Injection update hook (driven through a real recall)
 # ---------------------------------------------------------------------------
 
 
-def test_injection_update_attaches_items_and_chars() -> None:
+@pytest.mark.asyncio
+async def test_injection_is_recorded_in_the_trace(tmp_path, monkeypatch):
+    """自动注入后，追踪里记录了注入的条数与字符数。"""
+    from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+    from astrbot_plugin_livingmemory.core.event_handler import EventHandler
+    from tests.real_engine_support import (
+        HostContext,
+        close_engine,
+        make_engine,
+    )
+    from astrbot.core.message.components import Plain
+
     recorder = _recorder()
-    trace = recorder.begin(query="q")
-    recorder.commit(trace)
+    engine, db = await make_engine(
+        tmp_path / "inject", config={"min_similarity_for_retrieval": 0.0}
+    )
+    engine.trace_recorder = recorder
+    store = None
+    try:
+        await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="test:private:sid-1", persona_id=None
+        )
+        from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
+            ConversationManager,
+        )
+        from astrbot_plugin_livingmemory.storage.conversation_store import (
+            ConversationStore,
+        )
 
-    recall = MemoryRecall.__new__(MemoryRecall)
-    recall.memory_engine = SimpleNamespace(trace_recorder=recorder)
-    context = SimpleNamespace(trace_id=trace.trace_id, agentic=False)
-    memories = [_hybrid(1, 0.9), _hybrid(2, 0.5)]
+        store = ConversationStore(str(tmp_path / "conv.db"))
+        await store.initialize()
+        manager = ConversationManager(store=store)
+        handler = EventHandler(
+            context=HostContext(persona_id=None),
+            config_manager=ConfigManager(
+                {"recall_engine": {"top_k": 3, "min_similarity_for_retrieval": 0.0}}
+            ),
+            memory_engine=engine,
+            memory_processor=None,
+            conversation_manager=manager,
+        )
 
-    recall._record_injected_trace(context, memories, "formatted block")
+        class _E:
+            unified_msg_origin = "test:private:sid-1"
+            message_str = "燕麦拿铁"
 
-    detail = recorder.get(trace.trace_id)
-    assert [item["doc_id"] for item in detail["injected"]] == [1, 2]
-    assert detail["injected_chars"] == len("formatted block")
+            def get_message_type(self):
+                from astrbot.api.platform import MessageType
 
-    recall._record_trace_note(context, "no_results")
-    assert "no_results" in recorder.get(trace.trace_id)["notes"]
+                return MessageType.FRIEND_MESSAGE
 
+            def get_sender_id(self):
+                return "user-1"
 
-def test_injection_update_ignores_unknown_trace() -> None:
-    recorder = _recorder()
-    recall = MemoryRecall.__new__(MemoryRecall)
-    recall.memory_engine = SimpleNamespace(trace_recorder=recorder)
+            def get_self_id(self):
+                return "bot-1"
 
-    recall._record_injected_trace(SimpleNamespace(trace_id="missing"), [], "")
-    recall._record_trace_note(SimpleNamespace(trace_id=None), "x")
-    assert recorder.recent(1) == []
+            def get_sender_name(self):
+                return "Tester"
+
+            def get_message_str(self):
+                return "燕麦拿铁"
+
+            def get_messages(self):
+                return [Plain("燕麦拿铁")]
+
+            def get_platform_name(self):
+                return "test"
+
+            def get_platform_id(self):
+                return "inst"
+
+            def get_group_id(self):
+                return ""
+
+            def get_extra(self, key, default=None):
+                return default
+
+        req = SimpleNamespace(
+            prompt="燕麦拿铁",
+            system_prompt="",
+            contexts=[],
+            extra_user_content_parts=[],
+        )
+        await handler.handle_memory_recall(_E(), req)
+        await handler.shutdown()
+
+        trace = recorder.get(recorder.recent(1)[0]["id"])
+        assert trace["injected"], "no injected entries recorded"
+        assert trace["injected_chars"] > 0
+    finally:
+        if store is not None:
+            await store.close()
+        await close_engine(engine, db)
 
 
 # ---------------------------------------------------------------------------

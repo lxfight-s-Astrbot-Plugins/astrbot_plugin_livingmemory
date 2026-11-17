@@ -1,604 +1,471 @@
-"""
-Event handler tests: WebUI edit/retry reconciliation and reflection guards.
+"""WebUI 编辑/重试对账与反思守卫的黑盒测试。
+
+真实会话库、记忆引擎与事件钩子参与运行；LLM 总结通过边界桩（Provider）
+控制返回时机与内容。断言对象是库里最终的消息、游标与记忆，而不是内部调用记录。
 """
 
 import asyncio
+import json
 import logging
-from unittest.mock import AsyncMock, Mock, patch
+import time
+from types import SimpleNamespace
 
 import pytest
-from tests.event_handler_support import conversation_manager as conversation_manager
-from tests.event_handler_support import handler as handler
-from tests.event_handler_support import memory_engine as memory_engine
-from tests.event_handler_support import memory_processor as memory_processor
+import pytest_asyncio
 
+from astrbot.api.provider import LLMResponse
+from astrbot.core.message.components import Plain
+from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 
-from tests.event_handler_support import (
-    _make_event,
-    _make_real_handler,
-    _make_req,
-    _make_resp,
-    _seed_turns,
+from tests.real_engine_support import (
+    HostContext,
+    close_handler,
+    make_handler,
+    make_engine,
 )
 
-# ==================== WebUI 编辑/重试历史对账测试 ====================
+SESSION_ID = "test:private:sid-1"
+
+
+class _SummaryProvider:
+    """Summary provider double: returns a fixed JSON payload, optionally gated.
+
+    Args:
+        importance: Importance reported in the summary payload.
+        gate: Optional event the provider waits on before answering.
+        error: Optional exception raised instead of answering.
+    """
+
+    def __init__(self, *, importance: float = 0.82, gate=None, error=None) -> None:
+        self.importance = importance
+        self.gate = gate
+        self.error = error
+        self.calls = 0
+
+    async def text_chat(self, prompt=None, **_kwargs) -> LLMResponse:
+        self.calls += 1
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.error is not None:
+            raise self.error
+        payload = {
+            "summary": "用户在讨论跑步习惯与周末安排。",
+            "topics": ["health"],
+            "key_facts": ["用户开始跑步"],
+            "sentiment": "positive",
+            "importance": self.importance,
+        }
+        return LLMResponse(role="assistant", completion_text=json.dumps(payload))
+
+
+class _Event:
+    def __init__(
+        self,
+        *,
+        group: bool = False,
+        umo: str = SESSION_ID,
+        text: str = "hello",
+        checkpoint: str | None = None,
+    ) -> None:
+        self.unified_msg_origin = umo
+        self._group = group
+        self.message_str = text
+        self._checkpoint = checkpoint
+        self.sender_id = "user-1"
+        self.sender_name = "Tester"
+
+    def get_message_type(self):
+        from astrbot.api.platform import MessageType
+
+        return MessageType.GROUP_MESSAGE if self._group else MessageType.FRIEND_MESSAGE
+
+    def get_sender_id(self):
+        return self.sender_id
+
+    def get_self_id(self):
+        return "bot-1"
+
+    def get_sender_name(self):
+        return self.sender_name
+
+    def get_message_str(self):
+        return self.message_str
+
+    def get_messages(self):
+        return [Plain(self.message_str)] if self.message_str else []
+
+    def get_platform_name(self):
+        return "test"
+
+    def get_platform_id(self):
+        return "test-instance"
+
+    def get_group_id(self):
+        return "gid-1" if self._group else ""
+
+    def get_extra(self, key, default=None):
+        if self._checkpoint is not None:
+            return self._checkpoint
+        return default
+
+
+def _req(prompt: str = "hello", *, contexts=None):
+    return SimpleNamespace(
+        prompt=prompt,
+        system_prompt="",
+        contexts=list(contexts or []),
+        extra_user_content_parts=[],
+    )
+
+
+def _resp(text: str):
+    return SimpleNamespace(
+        role="assistant",
+        completion_text=text,
+        is_chunk=False,
+        tools_call_name=None,
+        tools_call_extra_content=None,
+    )
+
+
+def _checkpoint_contexts(*ids: str):
+    return [{"role": "_checkpoint", "content": {"id": item}} for item in ids]
+
+
+def _now(offset: int = 0) -> float:
+    """Past-based timestamps so messages added later sort after seeded rows."""
+    return time.time() - 60 + offset
+
+
+async def _seed(manager, rows) -> None:
+    """Seed (role, content, checkpoint) rows into the conversation store."""
+    for index, (role, content, checkpoint) in enumerate(rows):
+        await manager.add_message(
+            session_id=SESSION_ID,
+            role=role,
+            content=content,
+            sender_id="user-1" if role == "user" else "bot-1",
+            metadata={"llm_checkpoint_id": checkpoint} if checkpoint else {},
+            timestamp=_now(index),
+        )
+
+
+async def _rows(store) -> list[Message]:
+    return await store.get_session_messages_asc(SESSION_ID)
+
+
+def _dump(rows: list[Message]) -> list[tuple[str, str, str | None]]:
+    return [
+        (row.role, row.content, (row.metadata or {}).get("llm_checkpoint_id"))
+        for row in rows
+    ]
+
+
+@pytest_asyncio.fixture
+async def bundle(tmp_path):
+    items = await make_handler(tmp_path, host=HostContext(persona_id=None))
+    try:
+        yield items
+    finally:
+        await close_handler(*items)
+
+
+# ==================== 编辑/重试对账 ====================
 
 
 @pytest.mark.asyncio
-async def test_edit_resend_reconciles_store_to_llm_history(tmp_path):
-    """编辑上一条消息并重发（整轮回滚）：库内旧轮应被清理，当前轮只存一次。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
-    )
-    await manager.add_message(
-        session_id=sid,
-        role="assistant",
-        content="a1",
-        sender_id="bot1",
-        metadata={"llm_checkpoint_id": "C1"},
-    )
+async def test_edit_and_resend_replaces_the_old_turn(bundle):
+    """编辑上一条消息后重发：库内旧轮被清理，只保留编辑后的当前轮。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1"), ("assistant", "a1", "C1")])
 
-    # 编辑后 LLM 历史为空（整轮被撤销），新请求携带新 checkpoint C2
-    event = _make_event(checkpoint="C2")
-    req = _make_req("q1-edited")
-    req.contexts = []
+    event = _Event(text="q1-edited", checkpoint="C2")
+    await handler.handle_memory_recall(event, _req("q1-edited", contexts=[]))
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert [m.role for m in rows] == ["user"]
-    assert rows[0].content == "q1-edited"
-    assert rows[0].metadata["llm_checkpoint_id"] == "C2"
-    session = await store.get_session(sid)
+    assert _dump(await _rows(store)) == [("user", "q1-edited", "C2")]
+    session = await store.get_session(SESSION_ID)
     assert session.message_count == 1
 
-    await handler.shutdown()
-    await store.close()
-
 
 @pytest.mark.asyncio
-async def test_regenerate_reconciles_reverted_tail(tmp_path):
-    """重试上一条对话：库内被撤销的尾轮应被删除，头部轮次保留。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    for checkpoint, user_text, bot_text in (
-        ("C1", "q1", "a1"),
-        ("C2", "q2", "a2"),
-    ):
-        await manager.add_message(
-            session_id=sid,
-            role="user",
-            content=user_text,
-            sender_id="u1",
-            metadata={"llm_checkpoint_id": checkpoint},
-        )
-        await manager.add_message(
-            session_id=sid,
-            role="assistant",
-            content=bot_text,
-            sender_id="bot1",
-            metadata={"llm_checkpoint_id": checkpoint},
-        )
+async def test_regenerate_drops_the_reverted_tail(bundle):
+    """重试上一条对话：被撤销的尾轮删除，头部轮次保留。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(
+        manager,
+        [
+            ("user", "q1", "C1"),
+            ("assistant", "a1", "C1"),
+            ("user", "q2", "C2"),
+            ("assistant", "a2", "C2"),
+        ],
+    )
 
-    # LLM 历史只剩 C1 轮（C2 轮被重试撤销），新请求 checkpoint C3
-    event = _make_event(checkpoint="C3")
-    req = _make_req("q2")
-    req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
+    event = _Event(text="q2", checkpoint="C3")
+    await handler.handle_memory_recall(event, _req("q2", contexts=_checkpoint_contexts("C1")))
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert [m.role for m in rows] == ["user", "assistant", "user"]
-    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == [
-        "C1",
-        "C1",
-        "C3",
+    assert _dump(await _rows(store)) == [
+        ("user", "q1", "C1"),
+        ("assistant", "a1", "C1"),
+        ("user", "q2", "C3"),
     ]
-    session = await store.get_session(sid)
-    assert session.message_count == 3
-
-    await handler.shutdown()
-    await store.close()
 
 
 @pytest.mark.asyncio
-async def test_reconcile_skips_group_events(tmp_path):
-    """群聊事件不应触发对账（被动捕获的消息不在 LLM 历史中）。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
-    )
-    await manager.add_message(
-        session_id=sid,
-        role="assistant",
-        content="a1",
-        sender_id="bot1",
-        metadata={"llm_checkpoint_id": "C1"},
-    )
+async def test_group_events_never_reconcile(bundle):
+    """群聊消息不在 LLM 历史中，不能触发对账。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1"), ("assistant", "a1", "C1")])
 
-    event = _make_event(group=True)
-    event.unified_msg_origin = "test:group:gid-1"
-    req = _make_req("hello")
-    req.contexts = []
+    event = _Event(group=True, umo="test:group:gid-1", text="hello")
+    await handler.handle_memory_recall(event, _req("hello", contexts=[]))
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    # 群聊既有消息未被删除，也未存储用户消息
-    rows = await store.get_session_messages_asc(sid)
-    assert len(rows) == 2
-
-    await handler.shutdown()
-    await store.close()
+    assert len(await _rows(store)) == 2
 
 
 @pytest.mark.asyncio
-async def test_reconcile_skips_without_checkpoints(tmp_path):
-    """非 webchat：contexts 与库内均无 checkpoint → 零行为变化。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-    )
-    await manager.add_message(
-        session_id=sid,
-        role="assistant",
-        content="a1",
-        sender_id="bot1",
-    )
+async def test_requests_without_checkpoints_keep_the_history(bundle):
+    """非 webchat 请求（无 checkpoint）不做对账，只追加新消息。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", None), ("assistant", "a1", None)])
 
-    event = _make_event(group=False)
-    req = _make_req("q2")
-    req.contexts = [{"role": "user", "content": "q1"}]
+    await handler.handle_memory_recall(_Event(text="q2"), _req("q2"))
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert len(rows) == 3  # 旧两条保留 + 新用户消息
-    assert rows[-1].role == "user"
-    assert rows[-1].content == "q2"
-
-    await handler.shutdown()
-    await store.close()
+    assert _dump(await _rows(store)) == [
+        ("user", "q1", None),
+        ("assistant", "a1", None),
+        ("user", "q2", None),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_reflection_guard_skips_stale_assistant(tmp_path):
-    """重试瞬间迟到的旧 bot 回复应被跳过，不污染会话库。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
+async def test_image_turn_is_preserved_while_a_later_rollback_is_applied(bundle):
+    """纯图片轮（只有 assistant 行）不阻断对账，回滚仍能清理其后的轮次。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(
+        manager,
+        [
+            ("user", "q1", "C1"),
+            ("assistant", "a1", "C1"),
+            ("assistant", "a2", "C2"),
+            ("user", "q3", "C3"),
+            ("assistant", "a3", "C3"),
+        ],
     )
 
-    # 旧轮次（C1）的回复在新轮次（C2）之后才到达 → 应跳过
-    event = _make_event(checkpoint="C2")
-    resp = _make_resp("old reply")
-    await handler.handle_memory_reflection(event, resp)
+    # 正常新请求 C4：LLM 历史与库一致 → 不删
+    await handler.handle_memory_recall(
+        _Event(text="q4", checkpoint="C4"),
+        _req("q4", contexts=_checkpoint_contexts("C1", "C2", "C3")),
+    )
+    assert [row[0] for row in _dump(await _rows(store))] == [
+        "user",
+        "assistant",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
 
-    assert await store.get_message_count(sid) == 1
+    # 回滚 C3：清掉 C3 轮，保留图片轮 C2
+    await handler.handle_memory_recall(
+        _Event(text="q4-again", checkpoint="C5"),
+        _req("q4-again", contexts=_checkpoint_contexts("C1", "C2")),
+    )
+    assert _dump(await _rows(store)) == [
+        ("user", "q1", "C1"),
+        ("assistant", "a1", "C1"),
+        ("assistant", "a2", "C2"),
+        ("user", "q4-again", "C5"),
+    ]
 
-    await handler.shutdown()
-    await store.close()
+
+# ==================== 反思守卫 ====================
 
 
 @pytest.mark.asyncio
-async def test_reflection_guard_logs_warning_for_superseded_reply(tmp_path, caplog):
-    """#289：被取代的回复被丢弃时必须告警，并带上 session 与旧->新 checkpoint。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
+async def test_late_reply_from_a_replaced_turn_is_dropped(bundle):
+    """新轮已开始后，旧轮迟到的回复被丢弃。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1")])
+
+    await handler.handle_memory_reflection(
+        _Event(checkpoint="C2"), _resp("old reply")
     )
 
-    event = _make_event(checkpoint="C2")
+    assert await store.get_message_count(SESSION_ID) == 1
+
+
+@pytest.mark.asyncio
+async def test_dropped_reply_is_reported_with_both_checkpoints(bundle, caplog):
+    """被取代的回复必须留下带 session 与旧→新 checkpoint 的告警。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1")])
+
     with caplog.at_level(logging.WARNING):
-        await handler.handle_memory_reflection(event, _make_resp("old reply"))
+        await handler.handle_memory_reflection(
+            _Event(checkpoint="C2"), _resp("old reply")
+        )
 
-    # 行为不变：回复仍被丢弃
-    assert await store.get_message_count(sid) == 1
+    assert await store.get_message_count(SESSION_ID) == 1
     warned = [
         record.getMessage()
         for record in caplog.records
         if record.levelno == logging.WARNING
     ]
     assert any(
-        sid in message and "C1" in message and "C2" in message and "被取代" in message
+        SESSION_ID in message and "C1" in message and "C2" in message
         for message in warned
     ), warned
 
-    await handler.shutdown()
-    await store.close()
-
 
 @pytest.mark.asyncio
-async def test_reflection_guard_stores_matching_assistant(tmp_path):
-    """checkpoint 匹配时助手消息正常入库，且带 checkpoint 标记。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
+async def test_matching_checkpoint_reply_is_stored(bundle):
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1")])
+
+    await handler.handle_memory_reflection(
+        _Event(checkpoint="C1"), _resp("proper reply")
     )
 
-    event = _make_event(checkpoint="C1")
-    resp = _make_resp("proper reply")
-    await handler.handle_memory_reflection(event, resp)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert len(rows) == 2
-    assert rows[1].role == "assistant"
-    assert rows[1].metadata["llm_checkpoint_id"] == "C1"
-
-    await handler.shutdown()
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_reconcile_gated_on_checkpoint_extra(handler, conversation_manager):
-    """非 webchat（事件无 llm_checkpoint_id extra）不触发对账，避免每次读库。"""
-    # 无 checkpoint extra（Mock 自动返回 Mock，非 str）→ 不调用对账
-    event = _make_event(group=False)
-    req = _make_req("hello")
-    req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
-    await handler.handle_memory_recall(event, req)
-    conversation_manager.reconcile_session_tail.assert_not_awaited()
-
-    # 携带 checkpoint extra → 调用对账
-    event2 = _make_event(group=False, checkpoint="C9")
-    await handler.handle_memory_recall(event2, req)
-    conversation_manager.reconcile_session_tail.assert_awaited_once()
-    call_args = conversation_manager.reconcile_session_tail.await_args.args
-    assert call_args[0] == event2.unified_msg_origin
-
-
-@pytest.mark.asyncio
-async def test_image_turn_does_not_break_reconciliation(tmp_path):
-    """纯图片轮次（user 行未入库）不应让对账静默失效；回滚仍被清理。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-
-    for role, content, checkpoint in (
+    assert _dump(await _rows(store)) == [
         ("user", "q1", "C1"),
-        ("assistant", "a1", "C1"),
-        # 纯图片轮 C2：user 行未入库，仅 assistant 行存在
-        ("assistant", "a2", "C2"),
-        ("user", "q3", "C3"),
-        ("assistant", "a3", "C3"),
-    ):
-        await manager.add_message(
-            session_id=sid,
-            role=role,
-            content=content,
-            sender_id="u1" if role == "user" else "bot1",
-            metadata={"llm_checkpoint_id": checkpoint},
-        )
-
-    # 正常新请求 C4：LLM 历史与库一致（含图片轮）→ 不删任何内容
-    event = _make_event(checkpoint="C4")
-    req = _make_req("q4")
-    req.contexts = [
-        {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2", "C3")
+        ("assistant", "proper reply", "C1"),
     ]
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert [m.role for m in rows] == [
-        "user",
-        "assistant",
-        "assistant",
-        "user",
-        "assistant",
-        "user",
-    ]
-
-    # 回滚 C3/C4：对账仍能清理回滚尾部（图片轮 C2 保留）
-    event2 = _make_event(checkpoint="C5")
-    req2 = _make_req("q4-again")
-    req2.contexts = [
-        {"role": "_checkpoint", "content": {"id": c}} for c in ("C1", "C2")
-    ]
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event2, req2)
-
-    rows = await store.get_session_messages_asc(sid)
-    assert [m.role for m in rows] == ["user", "assistant", "assistant", "user"]
-    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == [
-        "C1",
-        "C1",
-        "C2",
-        "C5",
-    ]
-
-    await handler.shutdown()
-    await store.close()
 
 
 @pytest.mark.asyncio
-async def test_reflection_guard_allows_image_turn_reply(tmp_path):
-    """库尾为 assistant 且 checkpoint 不同（纯图片轮次回复）应正常入库。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await manager.add_message(
-        session_id=sid,
-        role="user",
-        content="q1",
-        sender_id="u1",
-        metadata={"llm_checkpoint_id": "C1"},
-    )
-    await manager.add_message(
-        session_id=sid,
-        role="assistant",
-        content="a1",
-        sender_id="bot1",
-        metadata={"llm_checkpoint_id": "C1"},
+async def test_image_turn_reply_is_stored(bundle):
+    """库尾为 assistant 且 checkpoint 不同（纯图片轮次）时，回复正常入库。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1"), ("assistant", "a1", "C1")])
+
+    await handler.handle_memory_reflection(
+        _Event(checkpoint="C2"), _resp("image reply")
     )
 
-    # 图片轮 C2 的回复：无 user 行，尾行 = a(C1)（assistant 且 checkpoint 不同）
-    event = _make_event(checkpoint="C2")
-    resp = _make_resp("image reply")
-    await handler.handle_memory_reflection(event, resp)
-
-    rows = await store.get_session_messages_asc(sid)
+    rows = await _rows(store)
     assert len(rows) == 3
     assert rows[-1].metadata["llm_checkpoint_id"] == "C2"
 
-    await handler.shutdown()
-    await store.close()
 
-
-# ---------------------------------------------------------------------------
-# WebUI 编辑/重试回滚 vs 后台总结任务：修订号 / 原子游标 / 任务取消
-# ---------------------------------------------------------------------------
+# ==================== 回滚 vs 后台总结 ====================
 
 
 @pytest.mark.asyncio
-async def test_rollback_bumps_revision_and_cancels_inflight_task(tmp_path):
-    """检测到回滚时：推进会话修订号，并取消该会话进行中的总结任务。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await _seed_turns(manager, sid, ("C1", "C2"))
-    assert await manager.get_session_revision(sid) == 0
-
-    # 模拟一个仍在执行（等待 LLM）的后台总结任务
-    async def _slow_task():
-        await asyncio.sleep(30)
-
-    inflight = asyncio.create_task(_slow_task())
-    handler._storage_session_tasks[sid] = inflight
-
-    # LLM 历史只剩 C1 轮 → C2 轮被回滚
-    event = _make_event(checkpoint="C3")
-    req = _make_req("q-C2-edited")
-    req.contexts = [{"role": "_checkpoint", "content": {"id": "C1"}}]
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = None
-        await handler.handle_memory_recall(event, req)
-
-    assert await manager.get_session_revision(sid) == 1
-
-    await asyncio.wait({inflight}, timeout=2)
-    assert inflight.cancelled(), "回滚应取消该会话进行中的总结任务"
-
-    await handler.shutdown()
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_slow_summary_discarded_when_rollback_happens(tmp_path):
-    """慢总结期间发生编辑/重试回滚：不得写入过期内容，也不得复活旧游标。"""
-    engine = Mock()
-    engine.search_memories = AsyncMock(return_value=[])
-    engine.add_memory = AsyncMock(return_value=1)
-    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
-    sid = "test:private:sid-1"
-    await _seed_turns(manager, sid, ("C1", "C2"))
-
-    messages = await manager.get_messages_range(sid, 0, 4)
-    assert len(messages) == 4
-
-    async def _slow_process(**_kwargs):
-        # LLM 慢返回期间：用户编辑上一条消息并重发（等价于回滚 C2 轮）
-        await manager.reconcile_session_tail(sid, ["C1"])
-        return "summary", {"topics": ["t"]}, 0.5
-
-    processor = Mock()
-    processor.process_conversation = AsyncMock(side_effect=_slow_process)
-    processor.classify_atoms_from_metadata = Mock(return_value=[])
-    handler._memory_reflection.memory_processor = processor
-
-    await handler._memory_reflection._storage_task(
-        session_id=sid,
-        history_messages=messages,
-        persona_id=None,
-        start_index=0,
-        end_index=4,
-        retry_count=0,
+async def test_rollback_during_a_slow_summary_discards_the_summary(tmp_path):
+    """总结进行中发生编辑/重试：过期内容不得入库，游标也不得推进。"""
+    gate = asyncio.Event()
+    provider = _SummaryProvider(gate=gate)
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path, llm_provider=provider, host=HostContext()
     )
-
-    # 过期总结被丢弃：不写记忆、不推进游标、不记录待重试范围
-    engine.add_memory.assert_not_awaited()
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 0
-    assert await manager.get_session_metadata(sid, "pending_summary", None) is None
-    # 回滚本身仍然生效：库内只剩 C1 轮
-    rows = await store.get_session_messages_asc(sid)
-    assert [m.metadata.get("llm_checkpoint_id") for m in rows] == ["C1", "C1"]
-
-    await handler.shutdown()
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_failed_summary_does_not_record_pending_after_rollback(tmp_path):
-    """LLM 失败叠加回滚：不得记录已失效范围的待重试总结（否则下次会总结已撤销内容）。"""
-    engine = Mock()
-    engine.search_memories = AsyncMock(return_value=[])
-    engine.add_memory = AsyncMock(return_value=1)
-    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
-    sid = "test:private:sid-1"
-    await _seed_turns(manager, sid, ("C1", "C2"))
-    messages = await manager.get_messages_range(sid, 0, 4)
-
-    async def _failing_process(**_kwargs):
-        await manager.reconcile_session_tail(sid, ["C1"])
-        raise RuntimeError("llm down")
-
-    processor = Mock()
-    processor.process_conversation = AsyncMock(side_effect=_failing_process)
-    processor.classify_atoms_from_metadata = Mock(return_value=[])
-    handler._memory_reflection.memory_processor = processor
-
-    await handler._memory_reflection._storage_task(
-        session_id=sid,
-        history_messages=messages,
-        persona_id=None,
-        start_index=0,
-        end_index=4,
-        retry_count=0,
-    )
-
-    assert await manager.get_session_metadata(sid, "pending_summary", None) is None
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 0
-
-    await handler.shutdown()
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_summary_cursor_commit_is_rejected_after_revision_change(tmp_path):
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:stale-summary"
     try:
-        await _seed_turns(manager, sid, ("C1",))
-        messages = await manager.get_messages_range(sid, 0, 2)
-        await manager.bump_session_revision(sid)
-        assert await manager.commit_summary_cursor(sid, messages[-1], 0) is False
-        assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 0
-    finally:
+        await _seed(
+            manager,
+            [
+                ("user", "q1", "C1"),
+                ("assistant", "a1", "C1"),
+                ("user", "q2", "C2"),
+                ("assistant", "a2", "C2"),
+            ],
+        )
+        await handler.handle_memory_reflection(
+            _Event(checkpoint="C3"), _resp("a3")
+        )
+        # 后台任务已启动并阻塞在 provider 上；此时用户编辑并重发
+        await asyncio.sleep(0.05)
+        await handler.handle_memory_recall(
+            _Event(text="q2-edited", checkpoint="C4"),
+            _req("q2-edited", contexts=_checkpoint_contexts("C1")),
+        )
+        gate.set()
         await handler.shutdown()
-        await store.close()
+
+        assert (await engine.get_statistics())["total_memories"] == 0
+        assert await manager.get_session_metadata(SESSION_ID, "last_summarized_index", 0) == 0
+        assert await manager.get_session_metadata(SESSION_ID, "pending_summary", None) is None
+        # 回滚本身生效：库内只剩 C1 轮与编辑后的新轮
+        assert [row[2] for row in _dump(await _rows(store))] == ["C1", "C1", "C4"]
+    finally:
+        await close_handler(handler, manager, store, engine, db)
 
 
 @pytest.mark.asyncio
-async def test_metadata_update_if_revision_rejects_stale_revision(tmp_path):
-    """会话修订号变化后，带校验的元数据写入必须被拒绝。"""
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:private:sid-1"
-    await _seed_turns(manager, sid, ("C1",))
+async def test_failed_summary_after_rollback_records_no_pending_retry(tmp_path):
+    """LLM 失败叠加回滚：不得把已撤销范围记成待重试。"""
+    gate = asyncio.Event()
+    provider = _SummaryProvider(gate=gate, error=RuntimeError("llm down"))
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path, llm_provider=provider, host=HostContext()
+    )
+    try:
+        await _seed(
+            manager,
+            [
+                ("user", "q1", "C1"),
+                ("assistant", "a1", "C1"),
+                ("user", "q2", "C2"),
+                ("assistant", "a2", "C2"),
+            ],
+        )
+        await handler.handle_memory_reflection(_Event(checkpoint="C3"), _resp("a3"))
+        await asyncio.sleep(0.05)
+        await handler.handle_memory_recall(
+            _Event(text="q2-edited", checkpoint="C4"),
+            _req("q2-edited", contexts=_checkpoint_contexts("C1")),
+        )
+        gate.set()
+        await handler.shutdown()
+
+        assert await manager.get_session_metadata(SESSION_ID, "pending_summary", None) is None
+        assert await manager.get_session_metadata(SESSION_ID, "last_summarized_index", 0) == 0
+        assert (await engine.get_statistics())["total_memories"] == 0
+    finally:
+        await close_handler(handler, manager, store, engine, db)
+
+
+# ==================== 游标与修订号（ConversationManager 公开 API） ====================
+
+
+@pytest.mark.asyncio
+async def test_summary_cursor_commit_is_rejected_after_a_rollback(bundle):
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1"), ("assistant", "a1", "C1")])
+    messages = await manager.get_messages_range(SESSION_ID, 0, 2)
+
+    await manager.bump_session_revision(SESSION_ID)
+
+    assert (
+        await manager.commit_summary_cursor(SESSION_ID, messages[-1], 0) is False
+    )
+    assert (
+        await manager.get_session_metadata(SESSION_ID, "last_summarized_index", 0)
+        == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_checked_metadata_write_rejects_a_stale_revision(bundle):
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, [("user", "q1", "C1"), ("assistant", "a1", "C1")])
 
     assert (
         await manager.update_session_metadata_if_revision(
-            sid, "last_summarized_index", 2, 0
+            SESSION_ID, "last_summarized_index", 2, 0
         )
         is True
     )
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 2
 
-    await manager.bump_session_revision(sid)
+    await manager.bump_session_revision(SESSION_ID)
+
     assert (
         await manager.update_session_metadata_if_revision(
-            sid, "last_summarized_index", 9, 0
+            SESSION_ID, "last_summarized_index", 9, 0
         )
         is False
     )
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 2
-
-    await handler.shutdown()
-    await store.close()
-
-
-@pytest.mark.asyncio
-async def test_storage_task_aborts_when_caller_revision_is_stale(tmp_path):
-    """调用方在读取总结范围前捕获的修订号已过期：连 LLM 都不应再调用。
-
-    覆盖"范围计算完成 → 后台任务启动"之间发生回滚的窗口。
-    """
-    engine = Mock()
-    engine.search_memories = AsyncMock(return_value=[])
-    engine.add_memory = AsyncMock(return_value=1)
-    handler, manager, store = await _make_real_handler(tmp_path, memory_engine=engine)
-    sid = "test:private:sid-1"
-    await _seed_turns(manager, sid, ("C1", "C2"))
-    messages = await manager.get_messages_range(sid, 0, 4)
-
-    # 范围读取之后、任务启动之前发生回滚
-    await manager.bump_session_revision(sid)
-
-    processor = Mock()
-    processor.process_conversation = AsyncMock(return_value=("summary", {}, 0.5))
-    processor.classify_atoms_from_metadata = Mock(return_value=[])
-    handler._memory_reflection.memory_processor = processor
-
-    await handler._memory_reflection._storage_task(
-        session_id=sid,
-        history_messages=messages,
-        persona_id=None,
-        start_index=0,
-        end_index=4,
-        retry_count=0,
-        expected_revision=0,
+    assert (
+        await manager.get_session_metadata(SESSION_ID, "last_summarized_index", 0)
+        == 2
     )
-
-    processor.process_conversation.assert_not_awaited()
-    engine.add_memory.assert_not_awaited()
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 0
-
-    await handler.shutdown()
-    await store.close()

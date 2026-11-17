@@ -11,7 +11,68 @@ from unittest.mock import Mock
 
 import pytest
 
-from tests.event_handler_support import _make_event, _make_real_handler, _make_resp
+from types import SimpleNamespace
+
+from astrbot.core.message.components import Plain
+
+from tests.real_engine_support import (
+    make_handler_bundle as _make_real_handler,
+)
+
+
+class _Event:
+    """Minimal AstrBot event carrying a plain-text message."""
+
+    unified_msg_origin = "test:private:sid-1"
+    message_str = "hello"
+    sender_id = "user-1"
+    sender_name = "Tester"
+
+    def get_message_type(self):
+        from astrbot.api.platform import MessageType
+
+        return MessageType.FRIEND_MESSAGE
+
+    def get_sender_id(self):
+        return self.sender_id
+
+    def get_self_id(self):
+        return "bot-1"
+
+    def get_sender_name(self):
+        return self.sender_name
+
+    def get_message_str(self):
+        return self.message_str
+
+    def get_messages(self):
+        return [Plain(self.message_str)]
+
+    def get_platform_name(self):
+        return "test"
+
+    def get_platform_id(self):
+        return "test-instance"
+
+    def get_group_id(self):
+        return ""
+
+    def get_extra(self, key, default=None):
+        return default
+
+
+def _make_event() -> _Event:
+    return _Event()
+
+
+def _make_resp(text: str = "assistant reply"):
+    return SimpleNamespace(
+        role="assistant",
+        completion_text=text,
+        is_chunk=False,
+        tools_call_name=None,
+        tools_call_extra_content=None,
+    )
 
 
 def _make_tool_resp(text: str = "工具轮助手文字"):
