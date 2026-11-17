@@ -245,12 +245,22 @@ def test_adapter_scope_preserves_existing_session_and_persona_settings():
     with adapter_access(legacy, event):
         assert adapter_sql("metadata") == ("1", [])
         assert resolve_memory_scope(legacy, event) == event.unified_msg_origin
-    config = _config(
+    # 空名单等同未配置：不额外限制适配器（#442）。
+    empty = _config(
         filtering_settings={"shared_adapter_ids": [], "memory_scope_mode": "global"}
     )
-    with adapter_access(config, event):
+    with adapter_access(empty, event):
+        assert adapter_sql("metadata") == ("1", [])
+        assert resolve_memory_scope(empty, event) == GLOBAL_MEMORY_SCOPE
+    listed = _config(
+        filtering_settings={
+            "shared_adapter_ids": ["test-instance"],
+            "memory_scope_mode": "global",
+        }
+    )
+    with adapter_access(listed, event):
         assert adapter_sql("metadata")[1] == ["test-instance"]
-        assert resolve_memory_scope(config, event) == GLOBAL_MEMORY_SCOPE
+        assert resolve_memory_scope(listed, event) == GLOBAL_MEMORY_SCOPE
 
 
 @pytest.mark.asyncio
@@ -261,13 +271,14 @@ async def test_adapter_access_is_task_local():
         current_adapter_access,
     )
 
-    config = _config(filtering_settings={"shared_adapter_ids": []})
+    config = _config(filtering_settings={"shared_adapter_ids": ["qq-instance"]})
 
     async def read(platform):
         with adapter_access(config, _Event(platform=platform)):
             await asyncio.sleep(0)
             return current_adapter_access.get().adapter_ids
 
+    # 名单只含 qq-instance：qq 看到自己，wechat 未入选时也只看自己。
     assert await asyncio.gather(read("qq"), read("wechat")) == [
         ("qq-instance",),
         ("wechat-instance",),
