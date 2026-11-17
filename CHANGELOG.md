@@ -7,6 +7,30 @@
 
 ## [Unreleased]
 
+### 记忆质量
+
+- 原子分类不再把姓名中的单字「爱」当作偏好，也不再把所有「时间词 + 动作词」判为未来计划；过去/完成表述（`昨天已经完成调试`）归为 `EPISODIC`，`明天准备继续调试` 仍为 `PLANNED`。已入库原子不重算，仅影响新分类。([#445](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/445), [#453](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/453))
+- 总结解析失败时不再逐字段正则回退：只能从夹杂散文的响应中解析完整 JSON 对象，否则按解析失败重试；`key_facts` 出现纯标点残片时质量判为 `low`。([#446](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/446), [#458](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/458))
+- 对话助手身份忽略 `unknown_selfid` 占位（qq_official 私聊），回退到平台实例名，图谱不再出现 `UNKNOWN_SELFID`。([#439](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/439), [#454](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/454))
+
+### 召回与图谱
+
+- 自动注入不再强化记忆：`access_count` / `last_access_time` 只由显式检索（`recall_long_term_memory`）与深读（`read_memory_evidence`，仅首屏）写入，近期补位与分页续读不计数，避免被动注入造成 rich-get-richer。([#427](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/427))
+- 图入口 FTS 改为存储 CJK 单字 + 相邻二字组，查询端长词展开为同款二字组；启动时按 `PRAGMA user_version` 一次性回填旧库，中文关键词可直接命中未分词原文。([#450](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/450), [#459](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/459))
+- `/lmem rebuild-graph` 读取 `index_rebuild_settings.embedding_batch_size`（1–256 钳制）作为向量批量，修复 DashScope 等小批量 Provider 重建失败。([#429](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/429), [#455](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/455))
+
+### Provider 与配置
+
+- 新增 `embedding_provider_resolver`：写入、去重、召回、归档恢复、图重建与索引重建前重新解析宿主当前的 Embedding Provider，保存 Provider 配置后无需重载插件；维度变化时提示重建索引。([#441](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/441), [#457](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/457))
+- `filtering_settings.use_persona_filtering` 收敛为只控制召回：关闭后仍解析并写入真实 `persona_id`（文档、原子、图谱、档案与总结提示词），跨人格共享召回。([#438](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/438), [#460](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/460))
+- 新增可选记忆元数据 `visibility`（`public` / `private`）与 `disclosed`，自动注入对「私下经历且用户未被告知」的记忆追加提示；提示词可编辑，`recall_engine.private_memory_notice_enabled` 可关闭，无需迁移。([#390](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/390), [#430](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/430))
+- 启动时轻量探测 `networkx`，缺包交给宿主自动安装；图谱社区分组只在缺少 `networkx` 本体时降级为单集群。([#448](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/448))
+
+### 日志与文档
+
+- 滑动窗口总结日志改为「本次片段 N 轮」，避免与 `summary_trigger_rounds` 触发阈值混淆。([#444](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/444), [#456](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/456))
+- 更新 `use_persona_filtering`、`visibility` 相关配置说明（中英日俄 i18n、`_conf_schema.json`、`docs/configuration.md` 与英文版）。
+
 ### Dashboard 设置页
 
 - 设置页改为按需加载：模块与字段渲染移出首屏 `app.min.js`，首次进入设置页时才加载 `settings.min.js`；首屏 gzip 由 81,597 B 降至 79,185 B（预算 81,920 B）。
@@ -16,7 +40,7 @@
 
 ### 验证
 
-- 前端 208 项测试、Dashboard 构建产物与首屏体积门禁通过。
+- 后端 1,670 项测试、Ruff 检查与格式化通过；前端 208 项测试、Dashboard 构建产物与首屏体积门禁通过。
 
 ## [2.13.0] - 2026-11-13
 
