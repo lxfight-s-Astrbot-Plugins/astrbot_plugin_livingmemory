@@ -12,6 +12,7 @@ import aiosqlite
 
 from astrbot.api import logger
 
+from .sqlite_connection import backup_sqlite_file
 from .schema import (
     DB_VERSION_SCHEMA_STATEMENTS,
     DOCUMENTS_INDEX_STATEMENTS,
@@ -660,43 +661,7 @@ class DBMigration:
             )
 
             logger.info(f"正在创建数据库备份: {backup_path}")
-            tmp_backup_path = backup_path.with_name(
-                f".{backup_path.name}.{datetime.now().strftime('%f')}.tmp"
-            )
-            if tmp_backup_path.exists():
-                tmp_backup_path.unlink()
-
-            # 优先使用 VACUUM INTO 生成紧凑一致性快照并校验完整性，全部通过后再原子发布；
-            # 若底层 SQLite 不支持或失败，再回退到 online backup API。
-            try:
-                async with aiosqlite.connect(self.db_path) as source:
-                    await source.execute("PRAGMA busy_timeout = 10000")
-                    await source.commit()
-                    try:
-                        await source.execute("VACUUM INTO ?", (str(tmp_backup_path),))
-                    except Exception as vacuum_err:
-                        logger.debug(
-                            f"VACUUM INTO 备份回退到 sqlite.backup ({db_path.name}): {vacuum_err}"
-                        )
-                        if tmp_backup_path.exists():
-                            tmp_backup_path.unlink()
-                        async with aiosqlite.connect(str(tmp_backup_path)) as dest:
-                            await source.backup(dest)
-
-                async with aiosqlite.connect(str(tmp_backup_path)) as verify_db:
-                    cursor = await verify_db.execute("PRAGMA quick_check")
-                    row = await cursor.fetchone()
-                    await cursor.close()
-                    if row is None or row[0] != "ok":
-                        raise RuntimeError(f"backup integrity check failed: {row}")
-
-                tmp_backup_path.replace(backup_path)
-            finally:
-                if tmp_backup_path.exists():
-                    try:
-                        tmp_backup_path.unlink()
-                    except OSError:
-                        pass
+            await asyncio.to_thread(backup_sqlite_file, db_path, backup_path)
 
             logger.info(f"数据库备份成功: {backup_path}")
             return str(backup_path)

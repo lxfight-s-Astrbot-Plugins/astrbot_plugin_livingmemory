@@ -22,6 +22,11 @@ from typing import NamedTuple
 
 from astrbot.api import logger
 
+from ...storage.sqlite_connection import (
+    backup_sqlite_file,
+    ensure_backup_disk_space,
+)
+
 # Match metadata.yaml; backup manifests use this plugin version.
 PLUGIN_VERSION = "2.13.0"
 
@@ -105,6 +110,9 @@ class BackupManager:
         backups_root.mkdir(parents=True, exist_ok=True)
         backup_dir = backups_root / f"v{old_label}"
         self._recover_interrupted_publish(backup_dir)
+        ensure_backup_disk_space(
+            backups_root, self._estimate_backup_bytes(), label="版本备份"
+        )
         staging_dir = backups_root / (
             f".v{old_label}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         )
@@ -168,13 +176,29 @@ class BackupManager:
         logger.info(f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}")
         return str(backup_dir)
 
+    def _estimate_backup_bytes(self) -> int:
+        """Estimate minimum free disk space needed for all matched backup files."""
+        seen: set[Path] = set()
+        total = 0
+        for pattern in _BACKUP_PATTERNS:
+            for file_path in self.data_dir.glob(pattern):
+                if not file_path.is_file() or file_path in seen:
+                    continue
+                seen.add(file_path)
+                total += file_path.stat().st_size
+        return total
+
     def _stage_primary_file(
         self, file_path: Path, dest: Path, compacted_dbs: set[str]
     ) -> int:
         """Stage a primary data file into the transaction directory."""
         if file_path.suffix == ".db":
-            if not self._backup_sqlite_compact(file_path, dest):
-                raise RuntimeError(f"SQLite 紧凑备份失败: {file_path.name}")
+            try:
+                backup_sqlite_file(file_path, dest)
+            except sqlite3.Error as exc:
+                raise RuntimeError(
+                    f"SQLite 紧凑备份失败 ({file_path.name}): {exc}"
+                ) from exc
             compacted_dbs.add(file_path.name)
             return 1
 
@@ -238,48 +262,12 @@ class BackupManager:
     @staticmethod
     def _backup_sqlite_compact(src: Path, dest: Path) -> bool:
         """Create a compact standalone SQLite snapshot atomically via ``VACUUM INTO``."""
-        tmp_dest = dest.with_name(
-            f".{dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
-        )
-        connection: sqlite3.Connection | None = None
-        verify_conn: sqlite3.Connection | None = None
         try:
-            if not src.is_file() or src.stat().st_size < 16:
-                raise sqlite3.DatabaseError("invalid or empty SQLite file")
-            with src.open("rb") as fh:
-                if fh.read(16) != b"SQLite format 3\x00":
-                    raise sqlite3.DatabaseError("invalid SQLite header")
-
-            connection = sqlite3.connect(str(src), timeout=10.0, isolation_level=None)
-            connection.execute("PRAGMA busy_timeout = 10000")
-            connection.execute("VACUUM INTO ?", (str(tmp_dest),))
-            connection.close()
-            connection = None
-
-            verify_conn = sqlite3.connect(str(tmp_dest), timeout=10.0)
-            row = verify_conn.execute("PRAGMA quick_check").fetchone()
-            verify_conn.close()
-            verify_conn = None
-            if row is None or row[0] != "ok":
-                raise sqlite3.DatabaseError(f"quick_check failed: {row}")
-
-            os.replace(tmp_dest, dest)
+            backup_sqlite_file(src, dest)
             return True
         except (sqlite3.Error, OSError) as exc:
-            logger.warning(
-                f"[BackupManager] VACUUM INTO 紧凑备份失败 ({src.name}): {exc}"
-            )
+            logger.warning(f"[BackupManager] SQLite 紧凑备份失败 ({src.name}): {exc}")
             return False
-        finally:
-            if connection is not None:
-                connection.close()
-            if verify_conn is not None:
-                verify_conn.close()
-            try:
-                if tmp_dest.exists():
-                    tmp_dest.unlink()
-            except OSError:
-                pass
 
     async def backup_if_needed_async(self) -> str | None:
         """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""

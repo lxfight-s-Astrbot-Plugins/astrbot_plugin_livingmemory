@@ -156,8 +156,14 @@ class GraphMemoryManager:
             await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
             return True
 
-    async def cleanup_orphan_vectors(self, *, batch_size: int = 200) -> int:
-        """Reconcile and delete vector documents no longer referenced by graph_entries."""
+    async def cleanup_orphan_vectors(
+        self, *, batch_size: int = 200, dry_run: bool = False
+    ) -> int:
+        """Reconcile and delete vector documents no longer referenced by graph_entries.
+
+        When ``dry_run`` is True, logs and returns the orphan candidate count
+        without modifying the graph vector store.
+        """
         async with self._rebuild_gate:
             if self._rebuild_active:
                 return 0
@@ -166,6 +172,13 @@ class GraphMemoryManager:
             orphans = [doc_id for doc_id in stored if doc_id not in referenced]
             if not orphans:
                 return 0
+            sample_ids = orphans[:5]
+            logger.info(
+                f"[GraphMemory] 检测到 {len(orphans)} 条未被引用的孤儿图向量文档"
+                f"（dry_run={dry_run}, sample={sample_ids}）"
+            )
+            if dry_run:
+                return len(orphans)
             step = max(1, int(batch_size))
             removed = 0
             for start in range(0, len(orphans), step):

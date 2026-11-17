@@ -84,12 +84,12 @@
     "storage": "Storage usage (storage): database={db_size} MB, WAL={wal_size} MB, data dir={data_dir} MB",
     "backups": "Backups (backups): files={count}, size={size} MB, latest={latest}",
     "last_decay": "Last decay (last_decay): {last_decay}",
-    "hint": "Hint: /lmem diag compact runs VACUUM to shrink the database (slow on large data; avoid writes meanwhile)",
+    "hint": "Hint: /lmem diag compact runs VACUUM across all three DBs and irreversibly converts legacy DBs to auto_vacuum=INCREMENTAL (slow on large data; avoid writes meanwhile)",
     "action_name": "Data diagnostics",
     "collecting": "Collecting data diagnostics...",
     "compact": {
-      "starting": "Compacting database (VACUUM), this may take a while on large data...",
-      "done": "Compaction done (compact): database {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, reclaimed {reclaimed} MB"
+      "starting": "Compacting databases (VACUUM, irreversibly converting to auto_vacuum=INCREMENTAL), this may take a while on large data...",
+      "done": "Compaction done (compact, auto_vacuum=INCREMENTAL enabled irreversibly): database {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, reclaimed {reclaimed} MB"
     }
   },
   "search": {

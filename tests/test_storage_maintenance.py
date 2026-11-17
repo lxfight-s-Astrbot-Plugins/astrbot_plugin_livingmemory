@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from unittest.mock import AsyncMock
 import aiosqlite
 import pytest
 
+import astrbot_plugin_livingmemory.storage.sqlite_connection as sqlite_conn_mod
 from astrbot_plugin_livingmemory.core.managers.backup_manager import (
     PLUGIN_VERSION,
     BackupManager,
@@ -26,7 +29,10 @@ from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
 )
 from astrbot_plugin_livingmemory.storage.db_migration import DBMigration
 from astrbot_plugin_livingmemory.storage.graph_store import GraphStore
-from astrbot_plugin_livingmemory.storage.sqlite_connection import open_connection
+from astrbot_plugin_livingmemory.storage.sqlite_connection import (
+    backup_sqlite_file,
+    open_connection,
+)
 from tests.test_memory_engine import _FakeFaissDB
 
 
@@ -531,3 +537,119 @@ async def test_compact_storage_truncates_post_vacuum_wal_on_wal_mode_db(
         assert result["bytes_reclaimed"] > 0
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphan_vectors_dry_run_counts_without_deleting(tmp_path: Path):
+    graph_store = GraphStore(str(tmp_path / "livingmemory.db"))
+    await graph_store.initialize()
+
+    entry = GraphEntry(
+        entry_key="k-1",
+        source_memory_id=1,
+        session_id="s1",
+        persona_id="p1",
+        entry_type="fact",
+        content="Alice likes Tea",
+        metadata={},
+    )
+    entry_ids = await graph_store.store_graph_structure([], [], [entry])
+    await graph_store.update_entry_vector_doc_ids({entry_ids[0]: 1})
+
+    storage = _FakeGraphVectorStorage(
+        {
+            1: {"id": 1, "doc_id": "vec_live", "text": "active", "metadata": {}},
+            2: {"id": 2, "doc_id": "vec_orphan", "text": "orphan", "metadata": {}},
+        }
+    )
+    retriever = GraphVectorRetriever(storage)
+    manager = GraphMemoryManager(graph_store, retriever, GraphExtractor())
+
+    dry_count = await manager.cleanup_orphan_vectors(dry_run=True)
+    assert dry_count == 1
+    assert 2 in storage.docs
+
+    removed = await manager.cleanup_orphan_vectors(dry_run=False)
+    assert removed == 1
+    assert 2 not in storage.docs
+    assert 1 in storage.docs
+
+
+def test_backup_if_needed_reports_insufficient_disk_space_and_preserves_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    db_path = tmp_path / "livingmemory.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)")
+        conn.execute("INSERT INTO t (body) VALUES (?)", ("x" * 2048,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    existing_dir = tmp_path / "backups" / "v2.12.0"
+    existing_dir.mkdir(parents=True)
+    (existing_dir / "keep.txt").write_text("existing", encoding="utf-8")
+
+    mgr = BackupManager(str(tmp_path))
+    mgr.version_file.write_text("2.12.0", encoding="utf-8")
+
+    monkeypatch.setattr(
+        shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=1024, used=1000, free=64),
+    )
+
+    with pytest.raises(OSError, match="磁盘空间不足") as exc_info:
+        mgr.backup_if_needed()
+
+    assert exc_info.value.errno == errno.ENOSPC
+    assert mgr.get_stored_version() == "2.12.0"
+    assert (existing_dir / "keep.txt").read_text(encoding="utf-8") == "existing"
+
+
+def test_backup_sqlite_file_falls_back_to_online_backup_on_vacuum_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    src = tmp_path / "source.db"
+    conn = sqlite3.connect(str(src), isolation_level=None)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, val TEXT)")
+        conn.execute("INSERT INTO items (val) VALUES ('persisted-via-online-backup')")
+    finally:
+        conn.close()
+
+    real_connect = sqlite3.connect
+
+    class _ConnProxy:
+        def __init__(self, inner: sqlite3.Connection):
+            self._inner = inner
+
+        def execute(self, sql: str, *args, **kwargs):
+            if sql.strip().upper().startswith("VACUUM INTO"):
+                raise sqlite3.OperationalError("simulated vacuum unsupported")
+            return self._inner.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name: str):
+            return getattr(self._inner, name)
+
+    def proxy_connect(database, *args, **kwargs):
+        inner = real_connect(database, *args, **kwargs)
+        if Path(database) == src:
+            return _ConnProxy(inner)
+        return inner
+
+    monkeypatch.setattr(sqlite_conn_mod.sqlite3, "connect", proxy_connect)
+
+    dest = tmp_path / "dest.db"
+    backup_sqlite_file(src, dest)
+    assert dest.is_file()
+
+    verify = real_connect(str(dest))
+    try:
+        assert verify.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        rows = verify.execute("SELECT val FROM items").fetchall()
+        assert rows == [("persisted-via-online-backup",)]
+    finally:
+        verify.close()

@@ -5,7 +5,7 @@ LivingMemory commands use the `/lmem` prefix.
 | Command | Description |
 | --- | --- |
 | `/lmem status` | Show memory statistics and, while maintenance is active or abnormal, its state, progress, and message |
-| `/lmem diag [compact]` | Inspect database, graph, and backup diagnostics; pass `compact` to convert to incremental auto-vacuum and `VACUUM` the main, graph-document, and conversation databases |
+| `/lmem diag [compact]` | Inspect database, graph, and backup diagnostics; pass `compact` to `VACUUM` and irreversibly convert legacy main, graph-document, and conversation databases to `auto_vacuum=INCREMENTAL` |
 | `/lmem search <query> [k]` | Search long-term memories; `k` defaults to 5 |
 | `/lmem forget <id>` | Delete a specific memory |
 | `/lmem rebuild-index` | Rebuild or repair document indexes (full pass) |
