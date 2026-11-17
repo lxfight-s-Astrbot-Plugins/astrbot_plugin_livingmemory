@@ -125,6 +125,7 @@ LivingMemory 的默认配置已经适合大多数场景。真正需要调整的�
 | `filtering_settings.memory_scope_mode` | `legacy` | `legacy` 保持旧行为；也可按会话、用户或全局共享 |
 | `filtering_settings.use_session_filtering` | `true` | 仅在 `legacy` 模式下控制会话过滤 |
 | `filtering_settings.isolated_sessions` | 空 | 始终强制隔离的完整会话 ID，每行一个 |
+| `filtering_settings.group_blacklist` | 空 | 群聊记忆黑名单，在设置页从已记录的群聊中勾选；命中的群聊不写入、不总结、不召回记忆 |
 | `access_control.whitelist_enabled` | `false` | 仅允许名单内身份使用长期记忆 |
 | `access_control.allowed_ids` | 空 | 用户 ID、`平台:用户 ID`、群组 ID 或完整会话 ID |
 | `access_control.identity_aliases` | 空 | `来源身份=统一名称`，每行一个 |

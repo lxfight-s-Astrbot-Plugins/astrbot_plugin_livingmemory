@@ -1,688 +1,692 @@
 {
-  "metadata": {
-    "display_name": "LivingMemory",
-    "short_desc": "拥有完整记忆生命周期的智能长期记忆插件",
-    "desc": "为 AstrBot 打造的、拥有完整记忆生命周期的智能长期记忆插件（v2.0 重构版）。"
-  },
-  "config": {
-    "bot_language": {
-      "description": "机器人回复语言",
-      "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский，ja=日本語。",
-      "options": {
-        "zh": "中文",
-        "en": "English",
-        "ru": "Русский",
-        "ja": "日本語"
-      },
-      "labels": [
-        "中文",
-        "English",
-        "Русский",
-        "日本語"
-      ]
+    "metadata": {
+        "display_name": "LivingMemory",
+        "short_desc": "拥有完整记忆生命周期的智能长期记忆插件",
+        "desc": "为 AstrBot 打造的、拥有完整记忆生命周期的智能长期记忆插件（v2.0 重构版）。"
     },
-    "access_control": {
-      "description": "记忆访问控制",
-      "hint": "限制哪些用户或会话可以使用长期记忆，并统一跨平台身份名称。",
-      "whitelist_enabled": {
-        "description": "启用记忆白名单",
-        "hint": "开启后，仅允许名单中的用户、群组或会话触发记忆捕获、总结、召回和 Agent 记忆工具。名单为空时拒绝所有记忆操作。"
-      },
-      "allowed_ids": {
-        "description": "记忆白名单",
-        "hint": "每行填写一个用户 ID、平台:用户 ID、群组 ID 或完整会话 ID；也支持逗号和分号分隔。"
-      },
-      "identity_aliases": {
-        "description": "用户身份别名",
-        "hint": "每行填写 source=统一名称。source 可使用平台:用户 ID、用户 ID 或当前用户名，例如 telegram:12345=小明。"
-      }
+    "config": {
+        "bot_language": {
+            "description": "机器人回复语言",
+            "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский，ja=日本語。",
+            "options": {
+                "zh": "中文",
+                "en": "English",
+                "ru": "Русский",
+                "ja": "日本語"
+            },
+            "labels": [
+                "中文",
+                "English",
+                "Русский",
+                "日本語"
+            ]
+        },
+        "access_control": {
+            "description": "记忆访问控制",
+            "hint": "限制哪些用户或会话可以使用长期记忆，并统一跨平台身份名称。",
+            "whitelist_enabled": {
+                "description": "启用记忆白名单",
+                "hint": "开启后，仅允许名单中的用户、群组或会话触发记忆捕获、总结、召回和 Agent 记忆工具。名单为空时拒绝所有记忆操作。"
+            },
+            "allowed_ids": {
+                "description": "记忆白名单",
+                "hint": "每行填写一个用户 ID、平台:用户 ID、群组 ID 或完整会话 ID；也支持逗号和分号分隔。"
+            },
+            "identity_aliases": {
+                "description": "用户身份别名",
+                "hint": "每行填写 source=统一名称。source 可使用平台:用户 ID、用户 ID 或当前用户名，例如 telegram:12345=小明。"
+            }
+        },
+        "provider_settings": {
+            "description": "模型提供商",
+            "hint": "配置记忆系统使用的 AI 模型",
+            "embedding_provider_id": {
+                "description": "Embedding 模型 ID",
+                "hint": "必填：用于生成记忆向量的 Embedding Provider ID（如 openai_embedding）。留空仅在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败；请先在 AstrBot 后台「LLM 配置」中启用 Embedding Provider，再在此填写其 ID。"
+            },
+            "llm_provider_id": {
+                "description": "LLM 模型 ID",
+                "hint": "用于总结对话、评估记忆重要性的大语言模型 ID。留空使用 AstrBot 默认。推荐使用推理能力较强的模型。"
+            },
+            "llm_fallback_provider_ids": {
+                "description": "备用 LLM 模型列表",
+                "hint": "按顺序尝试的备用 Provider ID（JSON 数组，如 [\"openai_gpt-4o\",\"gemini-2.5-pro\"]）。主 Provider 超时、限流（429）、5xx 或鉴权失败时自动切换；解析/格式错误不切换。留空不启用回退。"
+            },
+            "llm_call_timeout_seconds": {
+                "description": "单次 LLM 调用超时（秒）",
+                "hint": "每个 Provider 单次调用的超时时间，超时后视为不可用并切换到下一个 Provider。（允许范围：5–600）"
+            },
+            "llm_stream_mode": {
+                "description": "使用流式调用",
+                "hint": "记忆处理调用 LLM 的方式。auto（默认）：优先非流式，遇到“模型不支持非流式请求”错误时自动改用流式；always：始终流式（适用于仅接受 stream=true 的服务）；never：始终非流式（旧行为）。",
+                "labels": [
+                    "自动（推荐）",
+                    "始终流式",
+                    "始终非流式"
+                ]
+            }
+        },
+        "session_manager": {
+            "description": "会话管理",
+            "hint": "管理用户会话状态和对话历史的缓存行为",
+            "enable_full_group_capture": {
+                "description": "捕获群聊所有消息",
+                "hint": "是否捕获群聊中的所有消息（包括非 @Bot 的消息）。开启后群聊中每条消息都会被记录，有助于构建更完整的群聊上下文。"
+            },
+            "max_sessions": {
+                "description": "最大缓存会话数",
+                "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。（允许范围：1–10000）"
+            },
+            "session_ttl": {
+                "description": "会话空闲超时（秒）",
+                "hint": "会话超过此时间无活动后从缓存移除。默认 3600（1 小时）。（允许范围：60–86400）"
+            },
+            "context_window_size": {
+                "description": "上下文窗口大小（条）",
+                "hint": "传给 LLM 的最大历史消息条数。越大上下文越丰富，但消耗 token 越多。建议 20-100。（允许范围：1–1000）"
+            },
+            "max_messages_per_session": {
+                "description": "单会话最大历史消息数",
+                "hint": "数据库中每个会话保留的历史消息上限。超过后只会删除已经完成总结的最旧消息，避免丢失未总结上下文。（允许范围：100–10000）"
+            },
+            "cleanup_batch_size": {
+                "description": "历史消息批量清理数量",
+                "hint": "会话历史超过上限后，每次至少尝试删除的旧已总结消息数量。值过小会导致超限后每轮只删少量消息。（允许范围：1–1000）"
+            }
+        },
+        "recall_engine": {
+            "description": "记忆召回",
+            "hint": "控制记忆检索和注入到对话的行为",
+            "top_k": {
+                "description": "单次召回数量",
+                "hint": "每次检索返回的最相关记忆条数。设为 0 可跳过自动召回和注入，仅保留历史注入片段清理。建议 3-10。（允许范围：0–50）"
+            },
+            "max_k": {
+                "description": "主动检索最大数量",
+                "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数。用于限制工具单次召回规模，建议 5-10。（允许范围：1–50）"
+            },
+            "importance_weight": {
+                "description": "重要性权重",
+                "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。（允许范围：0–10）"
+            },
+            "min_importance_for_retrieval": {
+                "description": "召回最低重要性",
+                "hint": "过滤重要性低于该值的记忆。范围 0-1，设为 0 表示不过滤。"
+            },
+            "min_similarity_for_retrieval": {
+                "description": "召回最低向量相似度",
+                "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。默认 0.45，设为 0 表示不过滤。"
+            },
+            "recent_memory_count": {
+                "description": "近期记忆保留数量",
+                "hint": "仅在相关性结果不足单次召回数量时，用当前范围内的近期记忆补位；不再为它们保留固定槽位。默认 0（关闭）。"
+            },
+            "recent_memory_max_age_hours": {
+                "description": "近期记忆时间窗口（小时）",
+                "hint": "只保留该时间窗口内的近期记忆。默认 72 小时，设为 0 表示不限制时间。（允许范围：0–8760）"
+            },
+            "memory_type_filter": {
+                "description": "记忆类型过滤",
+                "hint": "all 召回全部记忆；event_only 排除可明确识别为纯偏好或纯关系的记忆。旧记录没有类型元数据时保持可召回。",
+                "labels": [
+                    "全部记忆",
+                    "事件与事实"
+                ]
+            },
+            "fallback_to_vector": {
+                "description": "降级到纯向量检索",
+                "hint": "混合检索失败或结果为空时，自动降级为纯向量检索。建议开启。"
+            },
+            "rerank_enabled": {
+                "description": "启用 Rerank 重排序",
+                "hint": "在 RRF 融合后调用 Rerank 模型对候选记忆按查询相关性重排序，替代 RRF 排名作为相关性评分来源。需先在 AstrBot「服务提供商」中配置一个 Rerank 类型提供商。"
+            },
+            "rerank_provider_id": {
+                "description": "Rerank 提供商 ID",
+                "hint": "AstrBot「服务提供商」中 Rerank 类型提供商的 ID。留空时即使开启重排序也会自动跳过。"
+            },
+            "rerank_candidates": {
+                "description": "重排序候选数量",
+                "hint": "送入 Rerank 模型的融合候选记忆条数，重排序后仅保留 top_k 条。值越大排序越准，但每次召回的 Rerank API 调用成本越高，建议 10-30。（允许范围：2–100）"
+            },
+            "fusion_mode": {
+                "description": "融合模式",
+                "hint": "双路检索结果的融合方式：score 按归一化分数加权融合（默认）；rrf 使用倒数排名融合。",
+                "labels": [
+                    "归一化分数",
+                    "倒数排名融合（RRF）"
+                ]
+            },
+            "fusion_bm25_weight": {
+                "description": "融合 BM25 权重",
+                "hint": "score 融合模式下 BM25 路分数的权重，向量路权重为 1 - 该值。范围 0–1。"
+            },
+            "fusion_agreement_bonus": {
+                "description": "双路一致性奖励",
+                "hint": "同一条记忆同时被 BM25 与向量两路命中时追加的分数奖励。范围 0–1。"
+            },
+            "recall_candidate_multiplier": {
+                "description": "召回候选扩窗倍数",
+                "hint": "融合前每路召回的候选数为 top_k × 该倍数。值越大召回越宽但耗时越高。范围 1–10。"
+            },
+            "injection_method": {
+                "description": "记忆注入位置",
+                "hint": "记忆以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、不写入对话历史。",
+                "labels": [
+                    "追加到用户消息末尾"
+                ]
+            },
+            "auto_remove_injected": {
+                "description": "自动清除历史注入残留",
+                "hint": "注入新记忆前自动从请求上下文中移除老版本注入方式残留在对话历史里的记忆片段（新版本注入不会产生残留）。建议开启。"
+            },
+            "inject_with_recent_context": {
+                "description": "启用跨轮次上下文扩展检索",
+                "hint": "启用后检索记忆时会自动拼接最近 2 轮对话（当前消息 + Bot 上一条回复 + 用户上一条消息）作为扩展查询，提升召回记忆与当前话题的相关性，减少无关记忆干扰。"
+            },
+            "recent_context_max_age_seconds": {
+                "description": "扩展上下文最大间隔（秒）",
+                "hint": "仅使用该时间范围内的历史消息扩展召回查询，避免新话题被过久之前的上下文干扰。设为 0 表示不限制时间。"
+            },
+            "search_cache_enabled": {
+                "description": "启用短期检索缓存",
+                "hint": "短时间内相同会话和相同查询会复用检索结果，降低连续追问时的 SQLite/FAISS 开销。"
+            },
+            "search_cache_ttl_seconds": {
+                "description": "检索缓存 TTL 秒数",
+                "hint": "缓存保留时间。写入、更新、删除记忆时会自动失效。设为 0 可关闭缓存。（允许范围：0–600）"
+            },
+            "search_cache_max_size": {
+                "description": "检索缓存最大条目数",
+                "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。（允许范围：0–10000）"
+            },
+            "private_memory_notice_enabled": {
+                "description": "私密记忆注入提示",
+                "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。"
+            },
+            "tokenizer": {
+                "description": "中文分词器",
+                "hint": "jieba：词级分词，召回更准，首次使用常驻约 55 MB；builtin：内置单字/英文词元，不导入 jieba、省内存。切换后需要 /lmem rebuild-index 重建索引。",
+                "labels": [
+                    "jieba 词级分词",
+                    "内置分词（省内存）"
+                ]
+            }
+        },
+        "importance_decay": {
+            "description": "重要性衰减",
+            "hint": "随时间逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
+            "decay_rate": {
+                "description": "每日衰减率",
+                "hint": "每天对记忆重要性的衰减比例。默认 0.005 表示每天降低 0.5%；访问会降低有效衰减率。设为 0 可禁用衰减。（允许范围：0–1）"
+            },
+            "access_decay_window_days": {
+                "description": "访问强化窗口（天）",
+                "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。（允许范围：1–3650）"
+            },
+            "access_decay_max_count": {
+                "description": "访问强化次数上限",
+                "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。（允许范围：1–10000）"
+            },
+            "access_count_decay_multiplier": {
+                "description": "访问次数保留比例",
+                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。（允许范围：0–1）"
+            },
+            "protected_importance_threshold": {
+                "description": "重要记忆保护阈值",
+                "hint": "重要性达到该值的记忆不参与每日重要性衰减。默认 0.6，保护重要性 60% 以上的记忆。（允许范围：0–1）"
+            }
+        },
+        "fusion_strategy": {
+            "description": "检索融合策略",
+            "hint": "BM25 和向量检索结果的融合参数（内部使用 RRF 算法）",
+            "rrf_k": {
+                "description": "RRF 融合参数 k",
+                "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。（允许范围：1–1000）"
+            }
+        },
+        "filtering_settings": {
+            "description": "记忆隔离设置",
+            "hint": "",
+            "use_persona_filtering": {
+                "description": "按人格隔离记忆",
+                "hint": "只控制召回：开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰；关闭后跨人格共享召回。关闭时反思总结仍会记录真实 persona_id 与其 system_prompt 语境。"
+            },
+            "use_session_filtering": {
+                "description": "按会话隔离记忆",
+                "hint": "仅在记忆作用域模式为 legacy 时生效。开启后每个会话独立；关闭后不按会话过滤。"
+            },
+            "memory_scope_mode": {
+                "description": "记忆作用域模式",
+                "hint": "legacy 保持旧版配置；session 按实际会话隔离；user 让同一平台用户跨私聊和群聊共享；global 全局共享。切换模式不会迁移已有记忆，旧记忆仍留在原作用域；如需召回，请执行 /lmem migrate-scope <target> apply。",
+                "labels": [
+                    "Legacy（旧版）",
+                    "按会话隔离",
+                    "按用户共享",
+                    "全局共享"
+                ]
+            },
+            "isolated_sessions": {
+                "description": "强制隔离会话",
+                "hint": "每行填写一个完整会话 ID。这些会话始终使用独立记忆作用域，不受 user、global 或旧版关闭会话过滤设置影响。"
+            },
+            "shared_adapter_ids": {
+                "description": "互通的适配器",
+                "hint": ""
+            },
+            "group_blacklist": {
+                "description": "群聊记忆黑名单",
+                "hint": "从会话列表中选择要屏蔽的群聊。命中的群聊不写入、不总结、不召回记忆，也不影响 bot 正常对话。"
+            }
+        },
+        "reflection_engine": {
+            "description": "记忆生成设置",
+            "hint": "控制何时触发对话总结并生成记忆",
+            "summary_trigger_rounds": {
+                "description": "总结触发轮次",
+                "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。（允许范围：1–100）"
+            },
+            "window_split_by_day": {
+                "description": "按天切分总结窗口",
+                "hint": "开启后跨天对话不再合并进同一条记忆：一次总结只覆盖最老的那一天，较新的部分留待后续触发。"
+            },
+            "window_split_gap_minutes": {
+                "description": "空闲间隔切分（分钟）",
+                "hint": "相邻消息间隔超过该分钟数时只总结最老片段；0 = 不按空闲间隔切分。（允许范围：0–1440）"
+            },
+            "include_source_time_tags": {
+                "description": "写入来源时间标签",
+                "hint": "根据原始消息时间确定性地写入日期范围，并加入检索摘要；不依赖大模型推断时间。"
+            },
+            "source_retention_importance_threshold": {
+                "description": "原文保留重要性阈值",
+                "hint": "总结重要性达到该值时，将原始消息独立保存，供详情核验、Agent 深度回溯和重新总结。范围 0-1；设为 1 仅保留满分记忆。"
+            },
+            "max_segments_per_run": {
+                "description": "单次反思最大片段数",
+                "hint": "一次触发最多连续总结多少个按天/空闲切分出的片段。达到上限后停止，剩余积压在下一次触发继续消费。（允许范围：1–50）"
+            },
+            "max_messages_per_segment": {
+                "description": "单段总结消息上限"
+            }
+        },
+        "agent_tools": {
+            "description": "Agent 主动记忆工具",
+            "hint": "控制是否向 AstrBot Agent 注册长期记忆召回与写入工具。",
+            "enable_recall_tool": {
+                "description": "启用主动召回工具",
+                "hint": "开启后注册 recall_long_term_memory，允许 Agent 主动检索长期记忆。"
+            },
+            "enable_agentic_recall_beta": {
+                "description": "Beta：自主多轮回忆",
+                "hint": "试验功能，需同时开启上方主动回忆工具。开启后增强 recall_long_term_memory（支持按当前发言人查找、按时间范围过滤、排除已看候选），新增 read_memory_evidence 深读工具，并注入自主回忆规则；搜索与深读共享单请求预算。关闭则恢复旧检索逻辑。保存并成功重载后对新请求生效。"
+            },
+            "enable_memorize_tool": {
+                "description": "启用主动记忆写入工具",
+                "hint": "开启后注册 memorize_long_term_memory，允许 Agent 主动写入长期记忆。"
+            },
+            "enable_forget_tool": {
+                "description": "启用主动遗忘工具（管理员）",
+                "hint": "开启后注册 forget_long_term_memory，仅管理员可调用；只做可逆归档（软删除），不会物理删除，管理员可从 WebUI 记忆页把状态改回 active 恢复。默认关闭。"
+            },
+            "forget_tool_max_memories": {
+                "description": "遗忘工具单次最大条数",
+                "hint": "一次工具调用最多归档的记忆条数，超出将被整批拒绝。（允许范围：1–10）"
+            },
+            "forget_tool_cooldown_seconds": {
+                "description": "遗忘工具冷却时间（秒）",
+                "hint": "同一会话两次成功归档之间的最小间隔，冷却期内调用会被拒绝；0 = 不限制。（允许范围：0–3600）"
+            },
+            "agentic_recall_max_calls": {
+                "description": "自主回忆最大工具调用次数",
+                "hint": "单次请求内记忆搜索/深读工具共享的最大调用次数，建议 3-6。（允许范围：1–20）"
+            },
+            "agentic_recall_time_budget_seconds": {
+                "description": "自主回忆工具耗时预算（秒）",
+                "hint": "从本轮首次记忆工具调用起，记忆工具累计可工作的最长时间，超时后停止检索并基于已有证据回答，建议 10-60。（允许范围：1–300）"
+            },
+            "agentic_recall_max_result_chars": {
+                "description": "自主回忆单次返回长度上限（字符）",
+                "hint": "Beta 记忆工具单次返回内容的最大字符数，超出部分可分页续读，建议 4000-30000。（允许范围：500–100000）"
+            },
+            "enable_profile_tool": {
+                "description": "启用用户档案工具",
+                "hint": "开启后注册 update_user_profile，允许 Agent 主动写入用户档案；写入走相同的证据与置信度规则并记录历史版本。默认关闭。"
+            }
+        },
+        "graph_memory": {
+            "description": "图记忆双路检索",
+            "hint": "启用后会同时维护文档路和图路，两边都支持关键词与向量检索，再统一融合召回结果。",
+            "enabled": {
+                "description": "启用图记忆检索",
+                "hint": "开启后自动构建图节点、边和图向量索引。建议开启。"
+            },
+            "document_route_weight": {
+                "description": "文档路权重",
+                "hint": "文档路融合分数在最终双路排序中的占比。（允许范围：0–1）"
+            },
+            "graph_route_weight": {
+                "description": "图路权重",
+                "hint": "图路融合分数在最终双路排序中的占比。（允许范围：0–1）"
+            },
+            "cross_route_bonus": {
+                "description": "双路命中加分",
+                "hint": "同一记忆同时被文档路和图路命中时增加的额外分数。（允许范围：0–0.5）"
+            },
+            "expansion_limit": {
+                "description": "图邻居扩展上限",
+                "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。（允许范围：1–200）"
+            },
+            "expansion_hops": {
+                "description": "图扩展跳数",
+                "hint": "图关键词检索从命中节点向外扩展的跳数。默认 1；设为 2 可召回间接关联，但会增加少量查询开销。（允许范围：1–2）"
+            },
+            "second_hop_weight": {
+                "description": "二跳扩展权重",
+                "hint": "二跳图候选的分数权重。值越高，间接关系越容易进入最终召回。（允许范围：0–1）"
+            },
+            "dynamic_route_weighting": {
+                "description": "动态路由权重",
+                "hint": "根据查询中的关系、时间、定义类意图，自动调整文档路和图路权重。"
+            },
+            "max_topics_per_memory": {
+                "description": "单记忆最大主题数",
+                "hint": "从一条记忆中最多提取多少个 topics 节点。（允许范围：1–20）"
+            },
+            "max_participants_per_memory": {
+                "description": "单记忆最大参与者数",
+                "hint": "从一条记忆中最多提取多少个 participants 节点。（允许范围：1–30）"
+            },
+            "max_facts_per_memory": {
+                "description": "单记忆最大事实数",
+                "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。（允许范围：1–30）"
+            },
+            "atom_enabled": {
+                "description": "启用记忆原子化",
+                "hint": "开启后每条 key_fact 独立为一个记忆原子，拥有自己的存活时间和衰减曲线。关闭则完全回退到原来的粗粒度行为。"
+            },
+            "atom_maintenance_interval_hours": {
+                "description": "原子维护间隔（小时）",
+                "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。（允许范围：1–168）"
+            },
+            "atom_forget_delay_days": {
+                "description": "原子遗忘延迟（天）",
+                "hint": "过期原子在多少天后从检索索引中彻底移除。（允许范围：1–90）"
+            },
+            "atom_purge_delay_days": {
+                "description": "遗忘原子物理清理延迟（天）",
+                "hint": "已从检索索引移除的遗忘原子，在多少天后从数据库物理删除以回收存储空间。（允许范围：1–365）"
+            }
+        },
+        "channel_memory": {
+            "description": "群聊频道公共记忆",
+            "hint": "开启后群聊总结写入当前群共享的频道作用域，群内任何成员提问都能召回；召回时联合当前作用域与频道作用域，共享 top_k 预算。关闭时行为与旧版一致。",
+            "enabled": {
+                "description": "启用频道公共记忆",
+                "hint": "群聊总结写入 livingmemory:channel:<平台>:<群ID> 公共作用域，个人记忆（私聊总结、显式写入）仍按各自作用域保存。"
+            },
+            "min_user_slots": {
+                "description": "个人作用域保底槽位",
+                "hint": "联合召回时至少保留的个人/会话作用域结果条数，不足时由频道结果补齐。（允许范围：0–5）"
+            },
+            "min_channel_slots": {
+                "description": "频道作用域保底槽位",
+                "hint": "联合召回时至少保留的频道作用域结果条数，不足时由个人结果补齐。（允许范围：0–5）"
+            },
+            "include_archived": {
+                "description": "频道召回包含归档记忆",
+                "hint": "默认关闭：归档记忆继续排除在召回之外。开启后仅对频道作用域结果放宽状态过滤。"
+            }
+        },
+        "migration_settings": {
+            "description": "数据库迁移",
+            "hint": "控制插件启动时的数据库版本升级行为",
+            "auto_migrate": {
+                "description": "自动迁移",
+                "hint": "插件启动时自动检测并升级旧版本数据库。建议保持开启。"
+            },
+            "create_backup": {
+                "description": "迁移前自动备份",
+                "hint": "执行数据库迁移前自动创建备份文件，防止迁移失败导致数据丢失。建议保持开启。"
+            }
+        },
+        "index_rebuild_settings": {
+            "description": "索引重建",
+            "hint": "控制 /lmem rebuild-index 的分批大小、Embedding 请求速率和失败容忍度。低配云服务器建议保持较小并发。",
+            "batch_size": {
+                "description": "读取批量",
+                "hint": "每批从 documents 表读取的记忆条数。越大内存峰值越高、失败时影响的条数越多，建议 25-100。（允许范围：1–500）"
+            },
+            "embedding_batch_size": {
+                "description": "Embedding 批量",
+                "hint": "单次 Embedding API 请求包含的文本数量。服务商 TPM 限流严格时继续调小。（允许范围：1–256）"
+            },
+            "tasks_limit": {
+                "description": "Embedding 并发",
+                "hint": "批量 Embedding 内部并发上限。为避免触发 API 限流，默认 1。（允许范围：1–8）"
+            },
+            "max_retries": {
+                "description": "批次重试次数",
+                "hint": "单个 Embedding 批次失败后的最大重试次数。（允许范围：1–8）"
+            },
+            "retry_base_delay": {
+                "description": "重试等待秒数",
+                "hint": "批次失败后的指数退避基础等待时间。遇到 429/TPM 限流时会至少等待 30 秒。（允许范围：0–60）"
+            },
+            "batch_delay": {
+                "description": "读取批次间隔秒数",
+                "hint": "每个 documents 读取批次之间的额外等待时间，用于主动降低整体重建速率。（允许范围：0–10）"
+            },
+            "request_delay": {
+                "description": "Embedding 请求间隔秒数",
+                "hint": "每个 Embedding API 子请求之间的等待时间。频繁触发 429/TPM 时优先增大此项。（允许范围：0–60）"
+            },
+            "max_failure_ratio": {
+                "description": "允许失败比例",
+                "hint": "全量向量重建时，失败比例不超过该值才允许切换新索引。0.02 表示最多允许 2% 失败。（允许范围：0–1）"
+            }
+        },
+        "backup_settings": {
+            "description": "定期备份",
+            "hint": "每日自动备份记忆数据库，并自动清理超过保留天数的每日备份与过期版本备份，防止数据目录无限增长",
+            "enabled": {
+                "description": "启用每日自动备份",
+                "hint": "每日衰减任务执行后自动备份数据库。建议开启。"
+            },
+            "keep_days": {
+                "description": "备份保留天数",
+                "hint": "每日备份与版本备份的保留天数；版本备份额外只保留最近 2 份，备份总量超过 512 MB 时从最旧开始清理。默认保留 7 天。（允许范围：1–365）"
+            }
+        },
+        "forgetting_agent": {
+            "description": "自动清理设置",
+            "hint": "定期将时间久远且重要性低的旧记忆归档（默认不删除），控制记忆库与索引规模",
+            "auto_cleanup_enabled": {
+                "description": "启用每日自动清理",
+                "hint": "每日重要性衰减后自动清理符合条件的旧记忆。"
+            },
+            "auto_archived_enabled": {
+                "description": "自动归档而非删除",
+                "hint": "默认开启：自动清理候选会从检索索引移除并保留为 archived 文档，可在 Dashboard 中恢复；关闭后会直接删除。"
+            },
+            "cleanup_days_threshold": {
+                "description": "清理天数阈值（天）",
+                "hint": "记忆创建超过该天数后进入清理候选。默认 120 天，需同时满足重要性低于阈值才处理。（允许范围：1–3650）"
+            },
+            "cleanup_importance_threshold": {
+                "description": "清理重要性阈值",
+                "hint": "重要性低于该值的旧记忆才会被清理。默认 0.25 表示重要性低于 25% 的记忆。（允许范围：0–1）"
+            }
+        },
+        "memory_consolidation": {
+            "description": "记忆库定期整合",
+            "hint": "定期把零散的低价值记忆聚合、整理、总结为更精炼的记忆，从源头控制记忆库规模",
+            "enabled": {
+                "description": "启用记忆库定期整合",
+                "hint": "开启后按触发方式自动聚合符合条件的零散记忆。建议在记忆库较大时开启。"
+            },
+            "trigger": {
+                "description": "触发方式",
+                "hint": "daily=每日定时执行；reflection=每次反思时顺带检查并执行。",
+                "labels": [
+                    "每日定时",
+                    "反思时"
+                ]
+            },
+            "granularity": {
+                "description": "聚合粒度",
+                "hint": "session=按同一会话聚合；semantic=跨会话按语义相似度聚类聚合。",
+                "labels": [
+                    "同一会话",
+                    "语义聚类"
+                ]
+            },
+            "keep_original": {
+                "description": "整合后旧记忆的处理",
+                "hint": "archive=归档保留（可从检索索引移除并恢复）；delete=直接删除。",
+                "labels": [
+                    "归档保留",
+                    "直接删除"
+                ]
+            },
+            "min_memories_per_group": {
+                "description": "每组最少记忆数",
+                "hint": "一组中记忆数达到该值才触发整合，避免为少量记忆做无谓的 LLM 调用。（允许范围：2–50）"
+            },
+            "min_age_days": {
+                "description": "最小记忆年龄（天）",
+                "hint": "只整合创建时间早于该天数的记忆，避免整合还在活跃更新的近期记忆。（允许范围：0–3650）"
+            },
+            "max_importance": {
+                "description": "最大重要性",
+                "hint": "只整合重要性低于该值的记忆，高重要性记忆保持不变。（允许范围：0–1）"
+            },
+            "max_groups_per_run": {
+                "description": "每次最多整合组数",
+                "hint": "限制单次运行整合的组数，避免一次性触发过多 LLM 调用。（允许范围：1–100）"
+            },
+            "semantic_similarity_threshold": {
+                "description": "语义聚类相似度阈值",
+                "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。（允许范围：0–1）"
+            }
+        },
+        "memory_dedup": {
+            "description": "写入时近重复合并",
+            "hint": "写入时近重复合并",
+            "enabled": {
+                "description": "启用近重复检测",
+                "hint": "写入总结记忆前，与同会话/同人格的近期记忆比较；相似度达到阈值时合并到已有记忆，而不是新增一条。"
+            },
+            "similarity_threshold": {
+                "description": "相似度阈值",
+                "hint": "触发合并的向量相似度阈值，越高越保守。建议 0.90–0.95。"
+            },
+            "max_candidates": {
+                "description": "候选数量",
+                "hint": "每次检测比较的最近记忆条数。"
+            },
+            "merge_sources": {
+                "description": "保留来源消息",
+                "hint": "合并时把新的来源消息追加到已有记忆，便于回溯与重新总结。"
+            },
+            "max_source_messages": {
+                "description": "来源消息上限",
+                "hint": "合并后单条记忆最多保留的来源消息条数。"
+            }
+        },
+        "profile_settings": {
+            "description": "用户档案",
+            "hint": "按「记忆作用域 + 人格」维护结构化、可版本化的用户档案；总结时增量更新，召回时作为固定短块注入。默认开启，不额外增加 LLM 调用。",
+            "enabled": {
+                "description": "启用用户档案",
+                "hint": "开启后总结产出会合并进用户档案，并在每次召回时注入档案短块；关闭后完全不读写档案。"
+            },
+            "max_chars": {
+                "description": "档案注入字符上限",
+                "hint": "档案注入文本的最大字符数，独立于记忆注入预算。越大信息越全，占用的上下文也越多。（50–2000）"
+            },
+            "min_confidence": {
+                "description": "最低置信度",
+                "hint": "档案更新达到该置信度且证据有效时才直接生效；否则进入待确认候选。（0–1）"
+            },
+            "history_limit": {
+                "description": "历史版本上限",
+                "hint": "每个档案保留的历史版本条数，超出后清理最旧版本，不删除当前档案。（1–200）"
+            },
+            "max_pending": {
+                "description": "待确认候选上限",
+                "hint": "低置信度或证据不足的档案更新进入待确认列表，最多保留条数。（1–500）"
+            }
+        },
+        "trace_settings": {
+            "description": "召回追踪",
+            "hint": "记录每次记忆召回的可解释轨迹（候选、路由、过滤原因、最终注入），用于排查“为什么召回到/没召回到这条记忆”。只写入内存环形缓冲；开启落盘后才写入数据目录，且默认不保存查询原文。",
+            "enabled": {
+                "description": "启用召回追踪",
+                "hint": "关闭后召回链路不再记录任何追踪信息，仅保留原有行为。"
+            },
+            "max_records": {
+                "description": "内存保留条数",
+                "hint": "进程内环形缓冲保留的最近追踪条数；0 表示关闭。超出后最旧记录被覆盖。"
+            },
+            "persist_enabled": {
+                "description": "落盘为 JSONL",
+                "hint": "开启后按天写入数据目录的 recall_traces/YYYYMMDD.jsonl；默认关闭，避免持续写盘。"
+            },
+            "include_query_text": {
+                "description": "保存查询原文",
+                "hint": "默认只保存查询哈希；开启后追踪会包含用户查询原文，请按隐私要求谨慎启用。"
+            },
+            "max_file_mb": {
+                "description": "单日文件上限",
+                "hint": "单个 JSONL 文件达到该大小后当天不再写入新追踪。"
+            },
+            "retention_days": {
+                "description": "保留天数",
+                "hint": "超过该天数的 JSONL 追踪文件会在下次写入时自动清理。"
+            }
+        },
+        "external_api": {
+            "description": "外部记忆 API",
+            "hint": "允许外部 Agent 终端通过 API Key 读写记忆（默认关闭）。开启后使用 /lmem apikey 或 Dashboard 生成 Key，并可用内置 MCP bridge。",
+            "enabled": {
+                "description": "启用外部记忆 API",
+                "hint": "开启后插件启动独立 HTTP 监听（默认 127.0.0.1:7801），提供 /page/external 接口；关闭时所有外部接口返回 404。修改后需重载插件。"
+            },
+            "listen_host": {
+                "description": "监听地址",
+                "hint": "外部 API 绑定地址，默认仅本机 127.0.0.1。若经反向代理暴露，保持回环地址并由代理转发。"
+            },
+            "listen_port": {
+                "description": "监听端口",
+                "hint": "外部 API 监听端口，默认 7801。修改后需重载插件。"
+            },
+            "max_request_bytes": {
+                "description": "请求体上限（字节）",
+                "hint": "单个请求体最大字节数，默认 262144（256 KiB），超过返回 400。"
+            },
+            "default_rate_limit_per_min": {
+                "description": "默认每分钟请求上限",
+                "hint": "新建 API Key 的默认每分钟请求数，可在创建 Key 时覆盖。"
+            },
+            "default_write_limit_per_min": {
+                "description": "默认每分钟写入上限",
+                "hint": "新建 API Key 的默认每分钟写入次数；召回、查询不计入写入限流。"
+            },
+            "audit_retention_days": {
+                "description": "审计日志保留天数",
+                "hint": "审计日志位于插件数据目录 external_api_audit.jsonl，按配置天数自动清理，默认 30 天。"
+            },
+            "trust_proxy_headers": {
+                "description": "信任反向代理头",
+                "hint": "开启后审计日志使用 X-Forwarded-For 作为客户端地址；仅在请求确实经过可信反向代理时开启。"
+            }
+        }
     },
-    "provider_settings": {
-      "description": "模型提供商",
-      "hint": "配置记忆系统使用的 AI 模型",
-      "embedding_provider_id": {
-        "description": "Embedding 模型 ID",
-        "hint": "必填：用于生成记忆向量的 Embedding Provider ID（如 openai_embedding）。留空仅在 AstrBot 存在可用 Embedding Provider 时回退到第一个，可能选错模型或导致向量/图索引初始化失败；请先在 AstrBot 后台「LLM 配置」中启用 Embedding Provider，再在此填写其 ID。"
-      },
-      "llm_provider_id": {
-        "description": "LLM 模型 ID",
-        "hint": "用于总结对话、评估记忆重要性的大语言模型 ID。留空使用 AstrBot 默认。推荐使用推理能力较强的模型。"
-      },
-      "llm_fallback_provider_ids": {
-        "description": "备用 LLM 模型列表",
-        "hint": "按顺序尝试的备用 Provider ID（JSON 数组，如 [\"openai_gpt-4o\",\"gemini-2.5-pro\"]）。主 Provider 超时、限流（429）、5xx 或鉴权失败时自动切换；解析/格式错误不切换。留空不启用回退。"
-      },
-      "llm_call_timeout_seconds": {
-        "description": "单次 LLM 调用超时（秒）",
-        "hint": "每个 Provider 单次调用的超时时间，超时后视为不可用并切换到下一个 Provider。（允许范围：5–600）"
-      },
-      "llm_stream_mode": {
-        "description": "使用流式调用",
-        "hint": "记忆处理调用 LLM 的方式。auto（默认）：优先非流式，遇到“模型不支持非流式请求”错误时自动改用流式；always：始终流式（适用于仅接受 stream=true 的服务）；never：始终非流式（旧行为）。",
-        "labels": [
-          "自动（推荐）",
-          "始终流式",
-          "始终非流式"
-        ]
-      }
-    },
-    "session_manager": {
-      "description": "会话管理",
-      "hint": "管理用户会话状态和对话历史的缓存行为",
-      "enable_full_group_capture": {
-        "description": "捕获群聊所有消息",
-        "hint": "是否捕获群聊中的所有消息（包括非 @Bot 的消息）。开启后群聊中每条消息都会被记录，有助于构建更完整的群聊上下文。"
-      },
-      "max_sessions": {
-        "description": "最大缓存会话数",
-        "hint": "内存中同时保留的最大会话数（LRU 淘汰）。超出后最久未使用的会话从缓存移除，但数据仍保存在数据库中。（允许范围：1–10000）"
-      },
-      "session_ttl": {
-        "description": "会话空闲超时（秒）",
-        "hint": "会话超过此时间无活动后从缓存移除。默认 3600（1 小时）。（允许范围：60–86400）"
-      },
-      "context_window_size": {
-        "description": "上下文窗口大小（条）",
-        "hint": "传给 LLM 的最大历史消息条数。越大上下文越丰富，但消耗 token 越多。建议 20-100。（允许范围：1–1000）"
-      },
-      "max_messages_per_session": {
-        "description": "单会话最大历史消息数",
-        "hint": "数据库中每个会话保留的历史消息上限。超过后只会删除已经完成总结的最旧消息，避免丢失未总结上下文。（允许范围：100–10000）"
-      },
-      "cleanup_batch_size": {
-        "description": "历史消息批量清理数量",
-        "hint": "会话历史超过上限后，每次至少尝试删除的旧已总结消息数量。值过小会导致超限后每轮只删少量消息。（允许范围：1–1000）"
-      }
-    },
-    "recall_engine": {
-      "description": "记忆召回",
-      "hint": "控制记忆检索和注入到对话的行为",
-      "top_k": {
-        "description": "单次召回数量",
-        "hint": "每次检索返回的最相关记忆条数。设为 0 可跳过自动召回和注入，仅保留历史注入片段清理。建议 3-10。（允许范围：0–50）"
-      },
-      "max_k": {
-        "description": "主动检索最大数量",
-        "hint": "Agent 主动调用长期记忆检索工具时允许返回的最大记忆条数。用于限制工具单次召回规模，建议 5-10。（允许范围：1–50）"
-      },
-      "importance_weight": {
-        "description": "重要性权重",
-        "hint": "混合评分中记忆重要性的占比系数。值越大，重要性高的记忆越优先被召回。（允许范围：0–10）"
-      },
-      "min_importance_for_retrieval": {
-        "description": "召回最低重要性",
-        "hint": "过滤重要性低于该值的记忆。范围 0-1，设为 0 表示不过滤。"
-      },
-      "min_similarity_for_retrieval": {
-        "description": "召回最低向量相似度",
-        "hint": "过滤向量相似度低于该值的候选；纯关键词命中不受影响。默认 0.45，设为 0 表示不过滤。"
-      },
-      "recent_memory_count": {
-        "description": "近期记忆保留数量",
-        "hint": "仅在相关性结果不足单次召回数量时，用当前范围内的近期记忆补位；不再为它们保留固定槽位。默认 0（关闭）。"
-      },
-      "recent_memory_max_age_hours": {
-        "description": "近期记忆时间窗口（小时）",
-        "hint": "只保留该时间窗口内的近期记忆。默认 72 小时，设为 0 表示不限制时间。（允许范围：0–8760）"
-      },
-      "memory_type_filter": {
-        "description": "记忆类型过滤",
-        "hint": "all 召回全部记忆；event_only 排除可明确识别为纯偏好或纯关系的记忆。旧记录没有类型元数据时保持可召回。",
-        "labels": [
-          "全部记忆",
-          "事件与事实"
-        ]
-      },
-      "fallback_to_vector": {
-        "description": "降级到纯向量检索",
-        "hint": "混合检索失败或结果为空时，自动降级为纯向量检索。建议开启。"
-      },
-      "rerank_enabled": {
-        "description": "启用 Rerank 重排序",
-        "hint": "在 RRF 融合后调用 Rerank 模型对候选记忆按查询相关性重排序，替代 RRF 排名作为相关性评分来源。需先在 AstrBot「服务提供商」中配置一个 Rerank 类型提供商。"
-      },
-      "rerank_provider_id": {
-        "description": "Rerank 提供商 ID",
-        "hint": "AstrBot「服务提供商」中 Rerank 类型提供商的 ID。留空时即使开启重排序也会自动跳过。"
-      },
-      "rerank_candidates": {
-        "description": "重排序候选数量",
-        "hint": "送入 Rerank 模型的融合候选记忆条数，重排序后仅保留 top_k 条。值越大排序越准，但每次召回的 Rerank API 调用成本越高，建议 10-30。（允许范围：2–100）"
-      },
-      "fusion_mode": {
-        "description": "融合模式",
-        "hint": "双路检索结果的融合方式：score 按归一化分数加权融合（默认）；rrf 使用倒数排名融合。",
-        "labels": [
-          "归一化分数",
-          "倒数排名融合（RRF）"
-        ]
-      },
-      "fusion_bm25_weight": {
-        "description": "融合 BM25 权重",
-        "hint": "score 融合模式下 BM25 路分数的权重，向量路权重为 1 - 该值。范围 0–1。"
-      },
-      "fusion_agreement_bonus": {
-        "description": "双路一致性奖励",
-        "hint": "同一条记忆同时被 BM25 与向量两路命中时追加的分数奖励。范围 0–1。"
-      },
-      "recall_candidate_multiplier": {
-        "description": "召回候选扩窗倍数",
-        "hint": "融合前每路召回的候选数为 top_k × 该倍数。值越大召回越宽但耗时越高。范围 1–10。"
-      },
-      "injection_method": {
-        "description": "记忆注入位置",
-        "hint": "记忆以 mark_as_temp 临时片段追加到当前用户消息末尾，由 AstrBot 保存历史时自动过滤，不影响前缀缓存、不写入对话历史。",
-        "labels": [
-          "追加到用户消息末尾"
-        ]
-      },
-      "auto_remove_injected": {
-        "description": "自动清除历史注入残留",
-        "hint": "注入新记忆前自动从请求上下文中移除老版本注入方式残留在对话历史里的记忆片段（新版本注入不会产生残留）。建议开启。"
-      },
-      "inject_with_recent_context": {
-        "description": "启用跨轮次上下文扩展检索",
-        "hint": "启用后检索记忆时会自动拼接最近 2 轮对话（当前消息 + Bot 上一条回复 + 用户上一条消息）作为扩展查询，提升召回记忆与当前话题的相关性，减少无关记忆干扰。"
-      },
-      "recent_context_max_age_seconds": {
-        "description": "扩展上下文最大间隔（秒）",
-        "hint": "仅使用该时间范围内的历史消息扩展召回查询，避免新话题被过久之前的上下文干扰。设为 0 表示不限制时间。"
-      },
-      "search_cache_enabled": {
-        "description": "启用短期检索缓存",
-        "hint": "短时间内相同会话和相同查询会复用检索结果，降低连续追问时的 SQLite/FAISS 开销。"
-      },
-      "search_cache_ttl_seconds": {
-        "description": "检索缓存 TTL 秒数",
-        "hint": "缓存保留时间。写入、更新、删除记忆时会自动失效。设为 0 可关闭缓存。（允许范围：0–600）"
-      },
-      "search_cache_max_size": {
-        "description": "检索缓存最大条目数",
-        "hint": "限制内存中保留的检索结果数量。超过上限时自动淘汰最久未使用的结果。（允许范围：0–10000）"
-      },
-      "private_memory_notice_enabled": {
-        "description": "私密记忆注入提示",
-        "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。"
-      },
-      "tokenizer": {
-        "description": "中文分词器",
-        "hint": "jieba：词级分词，召回更准，首次使用常驻约 55 MB；builtin：内置单字/英文词元，不导入 jieba、省内存。切换后需要 /lmem rebuild-index 重建索引。",
-        "labels": [
-          "jieba 词级分词",
-          "内置分词（省内存）"
-        ]
-      }
-    },
-    "importance_decay": {
-      "description": "重要性衰减",
-      "hint": "随时间逐步降低旧记忆的重要性，防止旧信息长期占据高权重",
-      "decay_rate": {
-        "description": "每日衰减率",
-        "hint": "每天对记忆重要性的衰减比例。默认 0.005 表示每天降低 0.5%；访问会降低有效衰减率。设为 0 可禁用衰减。（允许范围：0–1）"
-      },
-      "access_decay_window_days": {
-        "description": "访问强化窗口（天）",
-        "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。（允许范围：1–3650）"
-      },
-      "access_decay_max_count": {
-        "description": "访问强化次数上限",
-        "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。（允许范围：1–10000）"
-      },
-      "access_count_decay_multiplier": {
-        "description": "访问次数保留比例",
-        "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。（允许范围：0–1）"
-      },
-      "protected_importance_threshold": {
-        "description": "重要记忆保护阈值",
-        "hint": "重要性达到该值的记忆不参与每日重要性衰减。默认 0.6，保护重要性 60% 以上的记忆。（允许范围：0–1）"
-      }
-    },
-    "fusion_strategy": {
-      "description": "检索融合策略",
-      "hint": "BM25 和向量检索结果的融合参数（内部使用 RRF 算法）",
-      "rrf_k": {
-        "description": "RRF 融合参数 k",
-        "hint": "值越小越强调排名靠前的结果，值越大融合越平滑。推荐 30-120，默认 60。（允许范围：1–1000）"
-      }
-    },
-    "filtering_settings": {
-      "description": "记忆隔离设置",
-      "hint": "",
-      "use_persona_filtering": {
-        "description": "按人格隔离记忆",
-        "hint": "只控制召回：开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰；关闭后跨人格共享召回。关闭时反思总结仍会记录真实 persona_id 与其 system_prompt 语境。"
-      },
-      "use_session_filtering": {
-        "description": "按会话隔离记忆",
-        "hint": "仅在记忆作用域模式为 legacy 时生效。开启后每个会话独立；关闭后不按会话过滤。"
-      },
-      "memory_scope_mode": {
-        "description": "记忆作用域模式",
-        "hint": "legacy 保持旧版配置；session 按实际会话隔离；user 让同一平台用户跨私聊和群聊共享；global 全局共享。切换模式不会迁移已有记忆，旧记忆仍留在原作用域；如需召回，请执行 /lmem migrate-scope <target> apply。",
-        "labels": [
-          "Legacy（旧版）",
-          "按会话隔离",
-          "按用户共享",
-          "全局共享"
-        ]
-      },
-      "isolated_sessions": {
-        "description": "强制隔离会话",
-        "hint": "每行填写一个完整会话 ID。这些会话始终使用独立记忆作用域，不受 user、global 或旧版关闭会话过滤设置影响。"
-      },
-      "shared_adapter_ids": {
-        "description": "互通的适配器",
-        "hint": ""
-      }
-    },
-    "reflection_engine": {
-      "description": "记忆生成设置",
-      "hint": "控制何时触发对话总结并生成记忆",
-      "summary_trigger_rounds": {
-        "description": "总结触发轮次",
-        "hint": "累计对话达到该轮次（一问一答为一轮）后触发总结并写入记忆。（允许范围：1–100）"
-      },
-      "window_split_by_day": {
-        "description": "按天切分总结窗口",
-        "hint": "开启后跨天对话不再合并进同一条记忆：一次总结只覆盖最老的那一天，较新的部分留待后续触发。"
-      },
-      "window_split_gap_minutes": {
-        "description": "空闲间隔切分（分钟）",
-        "hint": "相邻消息间隔超过该分钟数时只总结最老片段；0 = 不按空闲间隔切分。（允许范围：0–1440）"
-      },
-      "include_source_time_tags": {
-        "description": "写入来源时间标签",
-        "hint": "根据原始消息时间确定性地写入日期范围，并加入检索摘要；不依赖大模型推断时间。"
-      },
-      "source_retention_importance_threshold": {
-        "description": "原文保留重要性阈值",
-        "hint": "总结重要性达到该值时，将原始消息独立保存，供详情核验、Agent 深度回溯和重新总结。范围 0-1；设为 1 仅保留满分记忆。"
-      },
-      "max_segments_per_run": {
-        "description": "单次反思最大片段数",
-        "hint": "一次触发最多连续总结多少个按天/空闲切分出的片段。达到上限后停止，剩余积压在下一次触发继续消费。（允许范围：1–50）"
-      },
-      "max_messages_per_segment": {
-        "description": "单段总结消息上限"
-      }
-    },
-    "agent_tools": {
-      "description": "Agent 主动记忆工具",
-      "hint": "控制是否向 AstrBot Agent 注册长期记忆召回与写入工具。",
-      "enable_recall_tool": {
-        "description": "启用主动召回工具",
-        "hint": "开启后注册 recall_long_term_memory，允许 Agent 主动检索长期记忆。"
-      },
-      "enable_agentic_recall_beta": {
-        "description": "Beta：自主多轮回忆",
-        "hint": "试验功能，需同时开启上方主动回忆工具。开启后增强 recall_long_term_memory（支持按当前发言人查找、按时间范围过滤、排除已看候选），新增 read_memory_evidence 深读工具，并注入自主回忆规则；搜索与深读共享单请求预算。关闭则恢复旧检索逻辑。保存并成功重载后对新请求生效。"
-      },
-      "enable_memorize_tool": {
-        "description": "启用主动记忆写入工具",
-        "hint": "开启后注册 memorize_long_term_memory，允许 Agent 主动写入长期记忆。"
-      },
-      "enable_forget_tool": {
-        "description": "启用主动遗忘工具（管理员）",
-        "hint": "开启后注册 forget_long_term_memory，仅管理员可调用；只做可逆归档（软删除），不会物理删除，管理员可从 WebUI 记忆页把状态改回 active 恢复。默认关闭。"
-      },
-      "forget_tool_max_memories": {
-        "description": "遗忘工具单次最大条数",
-        "hint": "一次工具调用最多归档的记忆条数，超出将被整批拒绝。（允许范围：1–10）"
-      },
-      "forget_tool_cooldown_seconds": {
-        "description": "遗忘工具冷却时间（秒）",
-        "hint": "同一会话两次成功归档之间的最小间隔，冷却期内调用会被拒绝；0 = 不限制。（允许范围：0–3600）"
-      },
-      "agentic_recall_max_calls": {
-        "description": "自主回忆最大工具调用次数",
-        "hint": "单次请求内记忆搜索/深读工具共享的最大调用次数，建议 3-6。（允许范围：1–20）"
-      },
-      "agentic_recall_time_budget_seconds": {
-        "description": "自主回忆工具耗时预算（秒）",
-        "hint": "从本轮首次记忆工具调用起，记忆工具累计可工作的最长时间，超时后停止检索并基于已有证据回答，建议 10-60。（允许范围：1–300）"
-      },
-      "agentic_recall_max_result_chars": {
-        "description": "自主回忆单次返回长度上限（字符）",
-        "hint": "Beta 记忆工具单次返回内容的最大字符数，超出部分可分页续读，建议 4000-30000。（允许范围：500–100000）"
-      },
-      "enable_profile_tool": {
-        "description": "启用用户档案工具",
-        "hint": "开启后注册 update_user_profile，允许 Agent 主动写入用户档案；写入走相同的证据与置信度规则并记录历史版本。默认关闭。"
-      }
-    },
-    "graph_memory": {
-      "description": "图记忆双路检索",
-      "hint": "启用后会同时维护文档路和图路，两边都支持关键词与向量检索，再统一融合召回结果。",
-      "enabled": {
-        "description": "启用图记忆检索",
-        "hint": "开启后自动构建图节点、边和图向量索引。建议开启。"
-      },
-      "document_route_weight": {
-        "description": "文档路权重",
-        "hint": "文档路融合分数在最终双路排序中的占比。（允许范围：0–1）"
-      },
-      "graph_route_weight": {
-        "description": "图路权重",
-        "hint": "图路融合分数在最终双路排序中的占比。（允许范围：0–1）"
-      },
-      "cross_route_bonus": {
-        "description": "双路命中加分",
-        "hint": "同一记忆同时被文档路和图路命中时增加的额外分数。（允许范围：0–0.5）"
-      },
-      "expansion_limit": {
-        "description": "图邻居扩展上限",
-        "hint": "图关键词检索时从命中节点扩展到邻居条目的最大候选数。（允许范围：1–200）"
-      },
-      "expansion_hops": {
-        "description": "图扩展跳数",
-        "hint": "图关键词检索从命中节点向外扩展的跳数。默认 1；设为 2 可召回间接关联，但会增加少量查询开销。（允许范围：1–2）"
-      },
-      "second_hop_weight": {
-        "description": "二跳扩展权重",
-        "hint": "二跳图候选的分数权重。值越高，间接关系越容易进入最终召回。（允许范围：0–1）"
-      },
-      "dynamic_route_weighting": {
-        "description": "动态路由权重",
-        "hint": "根据查询中的关系、时间、定义类意图，自动调整文档路和图路权重。"
-      },
-      "max_topics_per_memory": {
-        "description": "单记忆最大主题数",
-        "hint": "从一条记忆中最多提取多少个 topics 节点。（允许范围：1–20）"
-      },
-      "max_participants_per_memory": {
-        "description": "单记忆最大参与者数",
-        "hint": "从一条记忆中最多提取多少个 participants 节点。（允许范围：1–30）"
-      },
-      "max_facts_per_memory": {
-        "description": "单记忆最大事实数",
-        "hint": "从一条记忆中最多提取多少条 key_facts 进入图索引。（允许范围：1–30）"
-      },
-      "atom_enabled": {
-        "description": "启用记忆原子化",
-        "hint": "开启后每条 key_fact 独立为一个记忆原子，拥有自己的存活时间和衰减曲线。关闭则完全回退到原来的粗粒度行为。"
-      },
-      "atom_maintenance_interval_hours": {
-        "description": "原子维护间隔（小时）",
-        "hint": "生命周期管理器每隔多少小时执行一次过期/遗忘检查。（允许范围：1–168）"
-      },
-      "atom_forget_delay_days": {
-        "description": "原子遗忘延迟（天）",
-        "hint": "过期原子在多少天后从检索索引中彻底移除。（允许范围：1–90）"
-      },
-      "atom_purge_delay_days": {
-        "description": "遗忘原子物理清理延迟（天）",
-        "hint": "已从检索索引移除的遗忘原子，在多少天后从数据库物理删除以回收存储空间。（允许范围：1–365）"
-      }
-    },
-    "channel_memory": {
-      "description": "群聊频道公共记忆",
-      "hint": "开启后群聊总结写入当前群共享的频道作用域，群内任何成员提问都能召回；召回时联合当前作用域与频道作用域，共享 top_k 预算。关闭时行为与旧版一致。",
-      "enabled": {
-        "description": "启用频道公共记忆",
-        "hint": "群聊总结写入 livingmemory:channel:<平台>:<群ID> 公共作用域，个人记忆（私聊总结、显式写入）仍按各自作用域保存。"
-      },
-      "min_user_slots": {
-        "description": "个人作用域保底槽位",
-        "hint": "联合召回时至少保留的个人/会话作用域结果条数，不足时由频道结果补齐。（允许范围：0–5）"
-      },
-      "min_channel_slots": {
-        "description": "频道作用域保底槽位",
-        "hint": "联合召回时至少保留的频道作用域结果条数，不足时由个人结果补齐。（允许范围：0–5）"
-      },
-      "include_archived": {
-        "description": "频道召回包含归档记忆",
-        "hint": "默认关闭：归档记忆继续排除在召回之外。开启后仅对频道作用域结果放宽状态过滤。"
-      }
-    },
-    "migration_settings": {
-      "description": "数据库迁移",
-      "hint": "控制插件启动时的数据库版本升级行为",
-      "auto_migrate": {
-        "description": "自动迁移",
-        "hint": "插件启动时自动检测并升级旧版本数据库。建议保持开启。"
-      },
-      "create_backup": {
-        "description": "迁移前自动备份",
-        "hint": "执行数据库迁移前自动创建备份文件，防止迁移失败导致数据丢失。建议保持开启。"
-      }
-    },
-    "index_rebuild_settings": {
-      "description": "索引重建",
-      "hint": "控制 /lmem rebuild-index 的分批大小、Embedding 请求速率和失败容忍度。低配云服务器建议保持较小并发。",
-      "batch_size": {
-        "description": "读取批量",
-        "hint": "每批从 documents 表读取的记忆条数。越大内存峰值越高、失败时影响的条数越多，建议 25-100。（允许范围：1–500）"
-      },
-      "embedding_batch_size": {
-        "description": "Embedding 批量",
-        "hint": "单次 Embedding API 请求包含的文本数量。服务商 TPM 限流严格时继续调小。（允许范围：1–256）"
-      },
-      "tasks_limit": {
-        "description": "Embedding 并发",
-        "hint": "批量 Embedding 内部并发上限。为避免触发 API 限流，默认 1。（允许范围：1–8）"
-      },
-      "max_retries": {
-        "description": "批次重试次数",
-        "hint": "单个 Embedding 批次失败后的最大重试次数。（允许范围：1–8）"
-      },
-      "retry_base_delay": {
-        "description": "重试等待秒数",
-        "hint": "批次失败后的指数退避基础等待时间。遇到 429/TPM 限流时会至少等待 30 秒。（允许范围：0–60）"
-      },
-      "batch_delay": {
-        "description": "读取批次间隔秒数",
-        "hint": "每个 documents 读取批次之间的额外等待时间，用于主动降低整体重建速率。（允许范围：0–10）"
-      },
-      "request_delay": {
-        "description": "Embedding 请求间隔秒数",
-        "hint": "每个 Embedding API 子请求之间的等待时间。频繁触发 429/TPM 时优先增大此项。（允许范围：0–60）"
-      },
-      "max_failure_ratio": {
-        "description": "允许失败比例",
-        "hint": "全量向量重建时，失败比例不超过该值才允许切换新索引。0.02 表示最多允许 2% 失败。（允许范围：0–1）"
-      }
-    },
-    "backup_settings": {
-      "description": "定期备份",
-      "hint": "每日自动备份记忆数据库，并自动清理超过保留天数的每日备份与过期版本备份，防止数据目录无限增长",
-      "enabled": {
-        "description": "启用每日自动备份",
-        "hint": "每日衰减任务执行后自动备份数据库。建议开启。"
-      },
-      "keep_days": {
-        "description": "备份保留天数",
-        "hint": "每日备份与版本备份的保留天数；版本备份额外只保留最近 2 份，备份总量超过 512 MB 时从最旧开始清理。默认保留 7 天。（允许范围：1–365）"
-      }
-    },
-    "forgetting_agent": {
-      "description": "自动清理设置",
-      "hint": "定期将时间久远且重要性低的旧记忆归档（默认不删除），控制记忆库与索引规模",
-      "auto_cleanup_enabled": {
-        "description": "启用每日自动清理",
-        "hint": "每日重要性衰减后自动清理符合条件的旧记忆。"
-      },
-      "auto_archived_enabled": {
-        "description": "自动归档而非删除",
-        "hint": "默认开启：自动清理候选会从检索索引移除并保留为 archived 文档，可在 Dashboard 中恢复；关闭后会直接删除。"
-      },
-      "cleanup_days_threshold": {
-        "description": "清理天数阈值（天）",
-        "hint": "记忆创建超过该天数后进入清理候选。默认 120 天，需同时满足重要性低于阈值才处理。（允许范围：1–3650）"
-      },
-      "cleanup_importance_threshold": {
-        "description": "清理重要性阈值",
-        "hint": "重要性低于该值的旧记忆才会被清理。默认 0.25 表示重要性低于 25% 的记忆。（允许范围：0–1）"
-      }
-    },
-    "memory_consolidation": {
-      "description": "记忆库定期整合",
-      "hint": "定期把零散的低价值记忆聚合、整理、总结为更精炼的记忆，从源头控制记忆库规模",
-      "enabled": {
-        "description": "启用记忆库定期整合",
-        "hint": "开启后按触发方式自动聚合符合条件的零散记忆。建议在记忆库较大时开启。"
-      },
-      "trigger": {
-        "description": "触发方式",
-        "hint": "daily=每日定时执行；reflection=每次反思时顺带检查并执行。",
-        "labels": [
-          "每日定时",
-          "反思时"
-        ]
-      },
-      "granularity": {
-        "description": "聚合粒度",
-        "hint": "session=按同一会话聚合；semantic=跨会话按语义相似度聚类聚合。",
-        "labels": [
-          "同一会话",
-          "语义聚类"
-        ]
-      },
-      "keep_original": {
-        "description": "整合后旧记忆的处理",
-        "hint": "archive=归档保留（可从检索索引移除并恢复）；delete=直接删除。",
-        "labels": [
-          "归档保留",
-          "直接删除"
-        ]
-      },
-      "min_memories_per_group": {
-        "description": "每组最少记忆数",
-        "hint": "一组中记忆数达到该值才触发整合，避免为少量记忆做无谓的 LLM 调用。（允许范围：2–50）"
-      },
-      "min_age_days": {
-        "description": "最小记忆年龄（天）",
-        "hint": "只整合创建时间早于该天数的记忆，避免整合还在活跃更新的近期记忆。（允许范围：0–3650）"
-      },
-      "max_importance": {
-        "description": "最大重要性",
-        "hint": "只整合重要性低于该值的记忆，高重要性记忆保持不变。（允许范围：0–1）"
-      },
-      "max_groups_per_run": {
-        "description": "每次最多整合组数",
-        "hint": "限制单次运行整合的组数，避免一次性触发过多 LLM 调用。（允许范围：1–100）"
-      },
-      "semantic_similarity_threshold": {
-        "description": "语义聚类相似度阈值",
-        "hint": "语义聚类模式下，两条记忆相似度达到该值才归为同一组。（允许范围：0–1）"
-      }
-    },
-    "memory_dedup": {
-      "description": "写入时近重复合并",
-      "hint": "写入时近重复合并",
-      "enabled": {
-        "description": "启用近重复检测",
-        "hint": "写入总结记忆前，与同会话/同人格的近期记忆比较；相似度达到阈值时合并到已有记忆，而不是新增一条。"
-      },
-      "similarity_threshold": {
-        "description": "相似度阈值",
-        "hint": "触发合并的向量相似度阈值，越高越保守。建议 0.90–0.95。"
-      },
-      "max_candidates": {
-        "description": "候选数量",
-        "hint": "每次检测比较的最近记忆条数。"
-      },
-      "merge_sources": {
-        "description": "保留来源消息",
-        "hint": "合并时把新的来源消息追加到已有记忆，便于回溯与重新总结。"
-      },
-      "max_source_messages": {
-        "description": "来源消息上限",
-        "hint": "合并后单条记忆最多保留的来源消息条数。"
-      }
-    },
-    "profile_settings": {
-      "description": "用户档案",
-      "hint": "按「记忆作用域 + 人格」维护结构化、可版本化的用户档案；总结时增量更新，召回时作为固定短块注入。默认开启，不额外增加 LLM 调用。",
-      "enabled": {
-        "description": "启用用户档案",
-        "hint": "开启后总结产出会合并进用户档案，并在每次召回时注入档案短块；关闭后完全不读写档案。"
-      },
-      "max_chars": {
-        "description": "档案注入字符上限",
-        "hint": "档案注入文本的最大字符数，独立于记忆注入预算。越大信息越全，占用的上下文也越多。（50–2000）"
-      },
-      "min_confidence": {
-        "description": "最低置信度",
-        "hint": "档案更新达到该置信度且证据有效时才直接生效；否则进入待确认候选。（0–1）"
-      },
-      "history_limit": {
-        "description": "历史版本上限",
-        "hint": "每个档案保留的历史版本条数，超出后清理最旧版本，不删除当前档案。（1–200）"
-      },
-      "max_pending": {
-        "description": "待确认候选上限",
-        "hint": "低置信度或证据不足的档案更新进入待确认列表，最多保留条数。（1–500）"
-      }
-    },
-    "trace_settings": {
-      "description": "召回追踪",
-      "hint": "记录每次记忆召回的可解释轨迹（候选、路由、过滤原因、最终注入），用于排查“为什么召回到/没召回到这条记忆”。只写入内存环形缓冲；开启落盘后才写入数据目录，且默认不保存查询原文。",
-      "enabled": {
-        "description": "启用召回追踪",
-        "hint": "关闭后召回链路不再记录任何追踪信息，仅保留原有行为。"
-      },
-      "max_records": {
-        "description": "内存保留条数",
-        "hint": "进程内环形缓冲保留的最近追踪条数；0 表示关闭。超出后最旧记录被覆盖。"
-      },
-      "persist_enabled": {
-        "description": "落盘为 JSONL",
-        "hint": "开启后按天写入数据目录的 recall_traces/YYYYMMDD.jsonl；默认关闭，避免持续写盘。"
-      },
-      "include_query_text": {
-        "description": "保存查询原文",
-        "hint": "默认只保存查询哈希；开启后追踪会包含用户查询原文，请按隐私要求谨慎启用。"
-      },
-      "max_file_mb": {
-        "description": "单日文件上限",
-        "hint": "单个 JSONL 文件达到该大小后当天不再写入新追踪。"
-      },
-      "retention_days": {
-        "description": "保留天数",
-        "hint": "超过该天数的 JSONL 追踪文件会在下次写入时自动清理。"
-      }
-    },
-    "external_api": {
-      "description": "外部记忆 API",
-      "hint": "允许外部 Agent 终端通过 API Key 读写记忆（默认关闭）。开启后使用 /lmem apikey 或 Dashboard 生成 Key，并可用内置 MCP bridge。",
-      "enabled": {
-        "description": "启用外部记忆 API",
-        "hint": "开启后插件启动独立 HTTP 监听（默认 127.0.0.1:7801），提供 /page/external 接口；关闭时所有外部接口返回 404。修改后需重载插件。"
-      },
-      "listen_host": {
-        "description": "监听地址",
-        "hint": "外部 API 绑定地址，默认仅本机 127.0.0.1。若经反向代理暴露，保持回环地址并由代理转发。"
-      },
-      "listen_port": {
-        "description": "监听端口",
-        "hint": "外部 API 监听端口，默认 7801。修改后需重载插件。"
-      },
-      "max_request_bytes": {
-        "description": "请求体上限（字节）",
-        "hint": "单个请求体最大字节数，默认 262144（256 KiB），超过返回 400。"
-      },
-      "default_rate_limit_per_min": {
-        "description": "默认每分钟请求上限",
-        "hint": "新建 API Key 的默认每分钟请求数，可在创建 Key 时覆盖。"
-      },
-      "default_write_limit_per_min": {
-        "description": "默认每分钟写入上限",
-        "hint": "新建 API Key 的默认每分钟写入次数；召回、查询不计入写入限流。"
-      },
-      "audit_retention_days": {
-        "description": "审计日志保留天数",
-        "hint": "审计日志位于插件数据目录 external_api_audit.jsonl，按配置天数自动清理，默认 30 天。"
-      },
-      "trust_proxy_headers": {
-        "description": "信任反向代理头",
-        "hint": "开启后审计日志使用 X-Forwarded-For 作为客户端地址；仅在请求确实经过可信反向代理时开启。"
-      }
+    "pages": {
+        "dashboard": {
+            "title": "记忆面板",
+            "description": "浏览、编辑与整理长期记忆。"
+        }
     }
-  },
-  "pages": {
-    "dashboard": {
-      "title": "记忆面板",
-      "description": "浏览、编辑与整理长期记忆。"
-    }
-  }
 }

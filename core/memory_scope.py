@@ -394,8 +394,44 @@ def memory_scope_visible(
     return scopes is None or metadata.get("session_id") in scopes
 
 
+def is_group_blacklisted(config: Any, event: Any) -> bool:
+    """Whether this event's group or session is on the memory blacklist.
+
+    A blacklisted group skips capture, reflection, recall and the agent memory
+    tools entirely; it does not affect normal conversation. Entries match a
+    group id, a full session id, a session prefix (``<entry>:``) or a trailing
+    segment (``:<entry>``), so both "paste the group id" and "paste the UMO"
+    work across adapters (#440).
+    """
+    blocked = {
+        value.casefold()
+        for value in parse_value_list(
+            _config_get(config, "filtering_settings.group_blacklist", "")
+        )
+    }
+    if not blocked:
+        return False
+    group_id = _event_value(event, "get_group_id", "group_id").casefold()
+    session_id = _event_value(
+        event, "unified_msg_origin", "unified_msg_origin"
+    ).casefold()
+    if group_id and group_id in blocked:
+        return True
+    if not session_id:
+        return False
+    if session_id in blocked:
+        return True
+    return any(
+        session_id.startswith(f"{entry}:") or session_id.endswith(f":{entry}")
+        for entry in blocked
+    )
+
+
 def is_event_memory_allowed(config: Any, event: Any) -> bool:
-    """Apply the plugin-level allowlist consistently to every entry point."""
+    """Apply the plugin-level blacklist and allowlist to every entry point."""
+    # 黑名单优先：命中即拒绝，与白名单是否开启无关
+    if is_group_blacklisted(config, event):
+        return False
     if not _config_get(config, "access_control.whitelist_enabled", False):
         return True
     allowed = {
@@ -490,6 +526,7 @@ __all__ = [
     "resolve_channel_memory_scope",
     "resolve_event_memory_access",
     "is_event_memory_allowed",
+    "is_group_blacklisted",
     "is_suspicious_session_id",
     "parse_identity_aliases",
     "parse_value_list",

@@ -127,6 +127,7 @@ Memories may carry optional `visibility` (`public` / `private`) and `disclosed` 
 | `filtering_settings.memory_scope_mode` | `legacy` | Preserve legacy behavior, or scope by session, user, or globally |
 | `filtering_settings.use_session_filtering` | `true` | Controls session filtering only in `legacy` mode |
 | `filtering_settings.isolated_sessions` | Empty | Full session IDs that must always remain isolated, one per line |
+| `filtering_settings.group_blacklist` | Empty | Group memory blacklist, picked from recorded groups in the settings page; blocked groups skip capture, reflection and recall |
 | `access_control.whitelist_enabled` | `false` | Allow only listed identities to use long-term memory |
 | `access_control.allowed_ids` | Empty | User ID, `platform:user ID`, group ID, or full session ID |
 | `access_control.identity_aliases` | Empty | One `source identity=canonical name` mapping per line |

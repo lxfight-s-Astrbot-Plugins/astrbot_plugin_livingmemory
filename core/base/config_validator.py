@@ -112,6 +112,7 @@ class FilteringConfig(BaseModel):
     )
     isolated_sessions: str = ""
     shared_adapter_ids: list[str] | None = None
+    group_blacklist: list[str] | None = None
 
 
 class AccessControlConfig(BaseModel):
