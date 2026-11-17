@@ -415,6 +415,7 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
             llm_provider=None,
             config=None,
             rerank_provider_resolver=None,
+            embedding_provider_resolver=None,
         ):
             self.db_path = db_path
             self.faiss_db = faiss_db
@@ -586,6 +587,7 @@ async def test_complete_initialization_skips_graph_db_when_disabled(
             llm_provider=None,
             config=None,
             rerank_provider_resolver=None,
+            embedding_provider_resolver=None,
         ):
             self.db_path = db_path
             self.faiss_db = faiss_db

@@ -45,6 +45,10 @@ class _CrudHarness(MemoryEngineCrudMixin):
         self.atom_enabled = False
         self.atom_store = None
 
+    def _sync_embedding_provider(self) -> None:
+        """No vector store in this harness; provider refresh is a no-op."""
+        return None
+
     async def _write_memory_atoms(self, *args, **kwargs):
         return None
 
