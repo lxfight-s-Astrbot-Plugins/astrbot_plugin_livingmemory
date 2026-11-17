@@ -1,5 +1,37 @@
 # Releases and Upgrades
 
+## 2.14.0 · November 17, 2026
+
+2.14.0 upgrades memory quality, cross-adapter scoping, and the dashboard 3D galaxy view: it fixes atom classification, summary-parse regex fallback, graph-entry CJK bigram FTS, and passive-injection access inflation; adds a group memory blacklist, platform-independent user scoping, private-memory visibility notices, and live Embedding Provider resolution; and upgrades the 3D knowledge graph into multi-morphology astronomical galaxies with a deep-space observatory HUD alongside an on-demand categorized Settings workspace. Public commands and database schema remain compatible, with no manual migration required.
+
+[Download 2.14.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.0)
+
+### What changed
+
+- **Memory quality**: atom classification no longer treats single characters inside names as preferences and classifies completed past statements as `EPISODIC` rather than `PLANNED` (#445); summary parsing drops the field-by-field regex fallback and marks `key_facts` with punctuation-only fragments as `low` (#446); `qq_official` private chats ignore the `unknown_selfid` placeholder and fall back to the platform instance name (#439).
+- **Recall and graph**: automatic injection no longer updates `access_count` or `last_access_time` — only `recall_long_term_memory` and the first page of `read_memory_evidence` strengthen memories (#427); graph-entry FTS stores CJK unigrams plus adjacent bigrams and backfills existing stores at startup (#450); `/lmem rebuild-graph` batches vectors by `index_rebuild_settings.embedding_batch_size` (#429).
+- **Providers and scoping**: `embedding_provider_resolver` resolves the active host Embedding Provider before each embedding operation without reloading the plugin (#441); `filtering_settings.use_persona_filtering` now gates only recall while writes still record the real `persona_id` (#438); optional `visibility` / `disclosed` metadata and `recall_engine.private_memory_notice_enabled` add notices for undisclosed private memories (#390); new `filtering_settings.group_blacklist` (#440) and `filtering_settings.user_scope_ignore_platform` (#442); an empty `filtering_settings.shared_adapter_ids` list is treated as unset (#442), `/lmem migrate-scope` migrates user profiles and graph-vector metadata (#373), and startup probes `networkx` lazily (#448).
+- **3D galaxy and UI**: the 3D graph renders spiral, barred-spiral, flocculent, ring, elliptical and cluster morphologies with galactic bulges, thin-disk dust and inter-community tidal star streams; 3D node labels (`.space-node-label`) become blurred HUD capsules with glowing type dots (`.is-hub` and `.is-focus`), the bottom HUD docks a floating telemetry strip opposite LED-equipped space controls, and the 3D node inspector restores badges and 3-column metrics; the sidebar, 2D graph, memory table, recall studio, system KPI cards, prompt grid, profiles and diagnostics pages are polished (#469).
+- **Settings redesign**: the settings module splits into on-demand `settings.min.js` with category and subgroup tabs, item counts, search clear, a modified-only filter and toggle switches (#443).
+- **Logging and engineering**: sliding-window reflection logs report segment rounds (#444); mock-driven white-box suites using `__new__` are replaced by real-engine black-box tests in `tests/test_plugin_blackbox.py` and `tests/real_engine_support.py` (#467, #468).
+
+### Behavior changes
+
+- Automatic injection no longer increments `access_count`; only explicit calls to `recall_long_term_memory` or the first page of `read_memory_evidence` strengthen memories.
+- Turning off `filtering_settings.use_persona_filtering` still writes the session's real `persona_id` and only relaxes persona filtering during recall.
+- The first start after upgrading backfills the graph-entry CJK bigram FTS index via `PRAGMA user_version` and skips it on subsequent starts.
+- Saving a new host Embedding Provider takes effect immediately; if the vector dimension changes, run `/lmem rebuild-index` and `/lmem rebuild-graph`.
+
+### Verification
+
+Backend: 1,616 tests, 86% coverage, both recall golden-set checks, and Ruff check/format pass; frontend: 210 tests, the first-load budget gate (80,518 B gzip against 81,920 B) and the VitePress build pass; CI backend and frontend pass on PRs #427, #430, #443, #448 and #453–#469.
+
+### Installing and upgrading
+
+1. Stop the plugin and back up the full data directory, update to 2.14.0, then restart AstrBot and reopen the plugin views.
+2. No manual migration is required; the first start automatically backfills the graph-entry bigram FTS index via `PRAGMA user_version`.
+3. If the dashboard looks stale after upgrading, hard-refresh the page to load the new `styles.min.css`, `graph-3d.min.js` and `settings.min.js` assets.
+
 ## 2.13.0 · November 13, 2026
 
 2.13.0 is a dashboard appearance release: the default look is upgraded to macOS 26 Liquid Glass, the appearance panel gains customization, and the style layer is consolidated — unified design tokens, duplicated declarations covered by the skin removed, empty states and card spacing filled in, and the diagnostics page rebuilt on the skin. No command, configuration, injection format or database schema changes and no migration.

@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-11-17
+
+2.14.0 是记忆质量、跨端作用域与 Dashboard 3D 星图升级版本：修复原子分类、总结解析回退、图入口中文二字组 FTS 与被动注入访问计数污染，新增群聊记忆黑名单、用户模式跨平台共享、私密记忆可见性提示与 Embedding Provider 动态重解析，并将 3D 知识图谱升级为多形态天体星系与深空天文台 HUD 界面、重做设置页为按需加载的分类导航工作台。公开命令与数据库结构保持兼容，图入口 FTS 在启动时自动按 `PRAGMA user_version` 回填。
+
 ### 记忆质量
 
 - 原子分类不再把姓名中的单字「爱」当作偏好，也不再把所有「时间词 + 动作词」判为未来计划；过去/完成表述（`昨天已经完成调试`）归为 `EPISODIC`，`明天准备继续调试` 仍为 `PLANNED`。已入库原子不重算，仅影响新分类。([#445](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/445), [#453](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/453))
@@ -30,21 +34,32 @@
 - `/lmem migrate-scope` 补齐用户档案与图向量文档元数据：换端后档案不再失联，图谱向量路可正常召回；档案唯一约束冲突时跳过该行并计入剩余量，图向量更新幂等可重跑收敛。([#373](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/373), [#463](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/463))
 - 启动时轻量探测 `networkx`，缺包交给宿主自动安装；图谱社区分组只在缺少 `networkx` 本体时降级为单集群。([#448](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/448))
 
-### 日志与文档
+### Dashboard 与 3D 图谱
+
+- **3D 星系形态与深空渲染**：按社区拓扑分配旋涡、棒旋、絮状、环状、椭圆星系与星团等天体形态，补充银核隆起（含棒旋核球）、薄盘星尘及连接社区的潮汐星流与宇宙纤维，收敛社区间距并丰富星系倾角分布。([#469](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/469))
+- **3D 天文台 HUD 与节点检视**：3D 节点标签升级为磨砂深空胶囊（按节点类型渲染发光色点，区分星系中心 `.is-hub` 与焦点 `.is-focus`）；底部布局重构为左下悬浮遥测条与右下带状态指示灯的空间控制舱；恢复并美化 3D 节点检视抽屉中的类型徽章、三列遥测指标（度 / 条目 / 权重）与关联记忆卡片。([#469](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/469))
+- **全局工作台视觉升级**：升级侧边栏分组分割与选中光晕、2D 图谱统计胶囊与发光图例、记忆筛选与导入导出卡片、召回测试结果卡、系统概览多彩顶栏 KPI 卡片与渐变分布条、多列提示词卡片网格、用户档案页、诊断页与详情抽屉；清理 `styles.css` 中被皮肤覆盖的冗余声明。([#469](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/469))
+- **设置页按需加载与重做**：设置页模块移出首屏 `app.min.js`，首次进入时按需加载 `settings.min.js`；顶部新增「全部配置 / 常用推荐 / 五类配置」页签与项目计数、分类内子页签切换、搜索清空及「仅显示已修改」筛选，布尔项改为开关。([#443](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/443))
+
+### 日志、文档与工程化
 
 - 滑动窗口总结日志改为「本次片段 N 轮」，避免与 `summary_trigger_rounds` 触发阈值混淆。([#444](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/444), [#456](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/456))
-- 更新 `use_persona_filtering`、`visibility` 相关配置说明（中英日俄 i18n、`_conf_schema.json`、`docs/configuration.md` 与英文版）。
-
-### Dashboard 设置页
-
-- 设置页改为按需加载：模块与字段渲染移出首屏 `app.min.js`，首次进入设置页时才加载 `settings.min.js`；首屏 gzip 由 81,597 B 降至 79,185 B（预算 81,920 B）。
-- 设置页重做导航：顶部新增「全部配置 / 常用推荐 / 五类配置」页签与各页签项目计数，分类内按配置段切换子页签，搜索时给出匹配数量并支持一键清除。
-- 新增「仅显示已修改」筛选：非默认值字段左侧高亮并标注「已修改」，无修改时显示空状态。
-- 字段布局改为左侧标签、配置路径与说明，右侧控件；布尔项改为开关，恢复默认按钮与修改标记同排展示。
+- 更新 `use_persona_filtering`、`visibility`、`group_blacklist`、`user_scope_ignore_platform` 相关配置说明（中英日俄 i18n、`_conf_schema.json`、`docs/configuration.md` 与英文版）。([#461](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/461), [#466](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/466))
+- 测试套件黑盒化重构：移除依赖 `__new__` 与 mock 调用记录的白盒测试，改为驱动真实 `PluginInitializer`、`MemoryEngine`（SQLite + FAISS）、`ConversationStore` 与 `EventHandler` 的端到端组件测试（新增 `tests/test_plugin_blackbox.py` 与 `tests/real_engine_support.py`）。([#467](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/467), [#468](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/468))
 
 ### 验证
 
-- 后端 1,699 项测试、Ruff 检查与格式化通过；前端 208 项测试、Dashboard 构建产物与首屏体积门禁通过。
+- 后端 1,616 项测试、覆盖率 86%、召回 golden set 2 项、Ruff 检查与格式化通过；前端 210 项测试、Dashboard 构建产物与首屏体积门禁（首屏 gzip 80,518 B / 预算 81,920 B）、VitePress 构建通过。
+- PR #427、#430、#443、#448、#453–#469 的 CI：backend 与 frontend 均通过。
+
+### 行为变化与升级注意
+
+1. 自动注入不再增加记忆的 `access_count` 或刷新 `last_access_time`；仅 Agent 显式调用 `recall_long_term_memory` 或 `read_memory_evidence` 首屏时才强化记忆。
+2. `filtering_settings.use_persona_filtering=false` 时仍会记录真实 `persona_id`，仅在召回阶段放开跨人格检索。
+3. 升级后首次启动会按 `PRAGMA user_version` 为既有图入口一次性回填 CJK 二字组 FTS 索引；无需手动执行数据库迁移。
+4. 切换 Embedding Provider 并保存配置后可立即生效；若新旧向量维度不一致，仍需按提示执行 `/lmem rebuild-index` 与 `/lmem rebuild-graph`。
+
+相关 PR：[#427](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/427)、[#430](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/430)、[#443](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/443)、[#448](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/448)、[#453](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/453)–[#469](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/469)
 
 ## [2.13.0] - 2026-11-13
 
