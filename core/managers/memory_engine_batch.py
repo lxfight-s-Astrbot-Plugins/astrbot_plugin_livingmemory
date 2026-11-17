@@ -685,8 +685,21 @@ class MemoryEngineBatchMixin:
                 yield batch
 
         self._invalidate_search_cache()
+        # Bound how many entries go into one embedding request. AstrBot's
+        # insert_batch sends the whole list to the provider, so providers with a
+        # small batch limit (e.g. DashScope caps at 20) fail the rebuild when the
+        # plugin keeps its own hard-coded 100.
+        try:
+            embedding_batch_size = int(
+                (getattr(self, "config", None) or {}).get(
+                    "index_rebuild_embedding_batch_size", 8
+                )
+            )
+        except (TypeError, ValueError):
+            embedding_batch_size = 8
+        embedding_batch_size = max(1, min(256, embedding_batch_size))
         return await self.graph_memory_manager.rebuild_memory_batches(
-            active_memory_batches()
+            active_memory_batches(), vector_batch_size=embedding_batch_size
         )
 
     async def apply_daily_decay(self, decay_rate: float, days: int = 1) -> int:

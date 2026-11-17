@@ -752,8 +752,10 @@ async def test_memory_engine_streams_active_graph_rebuild_batches(tmp_path: Path
         def __init__(self):
             self.batch_sizes = []
             self.memory_ids = []
+            self.vector_batch_size = None
 
-        async def rebuild_memory_batches(self, batches):
+        async def rebuild_memory_batches(self, batches, *, vector_batch_size=100):
+            self.vector_batch_size = vector_batch_size
             async for batch in batches:
                 self.batch_sizes.append(len(batch))
                 self.memory_ids.extend(memory_id for memory_id, _, _ in batch)
@@ -765,6 +767,7 @@ async def test_memory_engine_streams_active_graph_rebuild_batches(tmp_path: Path
 
     assert result == {"rebuilt": 400, "skipped": 0}
     assert recorder.batch_sizes == [200, 200]
+    assert recorder.vector_batch_size == 8
     assert recorder.memory_ids == list(range(1, 401))
     await engine.close()
 
