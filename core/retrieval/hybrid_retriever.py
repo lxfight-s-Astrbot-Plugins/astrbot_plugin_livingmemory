@@ -5,6 +5,7 @@
 
 import asyncio
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -457,9 +458,17 @@ class HybridRetriever:
             return results
 
         def _token_set(text: str) -> set[str]:
-            tokens = set(text.lower().split())
+            lowered = (text or "").lower()
+            tokens: set[str] = set(re.findall(r"[a-z0-9]+", lowered))
+            for match in re.finditer(r"[\u4e00-\u9fff]+", lowered):
+                run = match.group(0)
+                if len(run) == 1:
+                    tokens.add(run)
+                else:
+                    tokens.update(run[i : i + 2] for i in range(len(run) - 1))
             return tokens if tokens else {"<empty>"}
 
+        token_sets = {id(item): _token_set(item.content) for item in results}
         selected: list[HybridResult] = []
         candidates = list(results)
 
@@ -471,10 +480,10 @@ class HybridRetriever:
 
             best_idx = -1
             best_mmr = -1.0
-            selected_tokens = [_token_set(s.content) for s in selected]
+            selected_tokens = [token_sets[id(s)] for s in selected]
 
             for i, cand in enumerate(candidates):
-                cand_tokens = _token_set(cand.content)
+                cand_tokens = token_sets[id(cand)]
                 # 与已选结果的最大 Jaccard 相似度
                 max_sim = max(
                     len(cand_tokens & st) / max(len(cand_tokens | st), 1)

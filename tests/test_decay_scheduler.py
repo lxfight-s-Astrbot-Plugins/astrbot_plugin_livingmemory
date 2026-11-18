@@ -54,3 +54,24 @@ async def test_decay_failure_does_not_mark_today(
 
     assert result is False
     marked.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_backups_invokes_backup_manager_prune(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock
+    from astrbot_plugin_livingmemory.core.managers.backup_manager import BackupManager
+
+    pruned = AsyncMock()
+    monkeypatch.setattr(BackupManager, "prune_async", pruned)
+
+    scheduler = DecayScheduler(
+        memory_engine=Mock(),
+        decay_rate=0.01,
+        data_dir=str(tmp_path),
+        backup_keep_days=5,
+    )
+    await scheduler._cleanup_old_backups()
+
+    pruned.assert_awaited_once_with(keep_days=5)

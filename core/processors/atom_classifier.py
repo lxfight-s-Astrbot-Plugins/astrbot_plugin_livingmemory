@@ -15,7 +15,8 @@ _TIME_INDICATORS = re.compile(
     r"(?:上周|本周|下下周|下周)?周[一二三四五六日天]|"
     r"上周|本周|下下周|下周|"
     r"下个?月|上个?月|明年|后年|去年|前年|"
-    r"\d{1,2}月\d{1,2}[日号]|\d{4}年\d{1,2}月|"
+    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{4}年\d{1,2}月(?:\d{1,2}[日号]?)?|"
+    r"\d{1,2}月\d{1,2}[日号]|"
     r"上午|下午|晚上|凌晨|早上|中午|傍晚|"
     r"\d{1,2}[点时：:]\d{1,2}"
 )
@@ -124,17 +125,34 @@ def _parse_event_time(text: str) -> float | None:
         if word in text:
             return now + offset
 
+    # explicit full date like "2025-01-14", "2025/01/14", or "2025年1月14日"
+    full_date_match = re.search(
+        r"(?<!\d)(\d{4})(?:[-/年])(\d{1,2})(?:[-/月])(\d{1,2})(?:[日号])?(?!\d)",
+        text,
+    )
+    if full_date_match:
+        year = int(full_date_match.group(1))
+        month = int(full_date_match.group(2))
+        day = int(full_date_match.group(3))
+        try:
+            return datetime(year, month, day).timestamp()
+        except ValueError:
+            return None
+
     # month/day format like "5月30日"
     m = re.search(r"(\d{1,2})月(\d{1,2})[日号]", text)
     if m:
         month, day = int(m.group(1)), int(m.group(2))
         now_dt = datetime.fromtimestamp(now)
-        target = now_dt.replace(
-            month=month, day=day, hour=0, minute=0, second=0, microsecond=0
-        )
-        if target < now_dt:
-            target = target.replace(year=now_dt.year + 1)
-        return target.timestamp()
+        try:
+            target = now_dt.replace(
+                month=month, day=day, hour=0, minute=0, second=0, microsecond=0
+            )
+            if target.date() < now_dt.date():
+                target = target.replace(year=now_dt.year + 1)
+            return target.timestamp()
+        except ValueError:
+            return None
 
     return None
 
@@ -205,10 +223,14 @@ def _classify_single(text: str) -> tuple[AtomType, float, float | None]:
     has_past_state = bool(_PAST_STATE_PATTERNS.search(text))
 
     event_time = _parse_event_time(text) if has_time else None
+    now_date = datetime.fromtimestamp(time.time()).date()
+    is_past_event = has_past_state or (
+        event_time is not None and datetime.fromtimestamp(event_time).date() < now_date
+    )
 
     # PLANNED: time indicator + action verb → future event.
-    # Completed/past statements (「昨天已经完成调试」) are episodic, not plans.
-    if has_time and has_action and not has_past_state:
+    # Completed/past statements (「昨天已经完成调试」 or explicit past dates) are episodic, not plans.
+    if has_time and has_action and not is_past_event:
         return AtomType.PLANNED, 0.85, event_time
 
     # PREFERENCE: preference keywords dominate

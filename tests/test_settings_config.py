@@ -216,6 +216,18 @@ async def test_settings_routes_read_and_update_config() -> None:
     assert raw.saved == 1
     assert manager.get("recall_engine.top_k") == 7
 
+    reload_calls: list[bool] = []
+    handler.plugin.initializer = SimpleNamespace(
+        reload_runtime_config=lambda: reload_calls.append(True)
+    )
+    response = await client.post(
+        "/config/update",
+        json={"values": {"memory_dedup.similarity_threshold": 0.85}},
+    )
+    payload = await response.get_json()
+    assert payload["status"] == "ok"
+    assert reload_calls == [True]
+
     response = await client.post(
         "/config/update",
         json={"values": {"provider_settings.embedding_provider_id": "x"}},

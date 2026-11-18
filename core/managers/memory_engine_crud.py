@@ -108,6 +108,37 @@ class MemoryEngineCrudMixin:
         # 写入会触发 embedding；先跟随宿主切换到最新的 Provider 实例。
         self._sync_embedding_provider()
 
+        if (
+            atoms is None
+            and self.atom_enabled
+            and isinstance(metadata, dict)
+            and metadata.get("summary_schema_version") == "v2"
+        ):
+            raw_facts = metadata.get("key_facts")
+            if isinstance(raw_facts, list) and raw_facts:
+                from ..processors.atom_classifier import classify_atoms
+
+                fact_list = [
+                    str(item).strip() for item in raw_facts if str(item).strip()
+                ]
+                if fact_list:
+                    atoms = classify_atoms(
+                        key_facts=fact_list,
+                        topics=(
+                            metadata.get("topics")
+                            if isinstance(metadata.get("topics"), list)
+                            else None
+                        ),
+                        participants=(
+                            metadata.get("participants")
+                            if isinstance(metadata.get("participants"), list)
+                            else None
+                        ),
+                        parent_importance=importance,
+                        session_id=session_id,
+                        persona_id=persona_id,
+                    )
+
         full_metadata = self._build_memory_metadata(
             session_id=session_id,
             persona_id=persona_id,

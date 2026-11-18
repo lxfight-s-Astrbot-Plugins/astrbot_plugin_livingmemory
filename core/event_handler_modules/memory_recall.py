@@ -210,16 +210,23 @@ class MemoryRecall:
                             max_messages=5,
                             format_for_llm=False,
                         )
-                        if recent_messages and len(recent_messages) > 1:
-                            # recent_messages 按 timestamp DESC 排列（最新在前）
-                            # 跳过索引0（当前消息），取后续消息作为扩展上下文
+                        if recent_messages:
+                            # get_context returns messages in chronological order (oldest -> newest).
+                            # Drop the trailing item when it is the current turn stored above.
+                            history_messages = (
+                                recent_messages[:-1]
+                                if not is_group
+                                or str(recent_messages[-1].get("content", "")).strip()
+                                == actual_query.strip()
+                                else recent_messages
+                            )
                             context_parts = []
                             max_age_seconds = self.config_manager.get(
                                 "recall_engine.recent_context_max_age_seconds", 7200
                             )
                             now = time.time()
                             skipped_by_age = 0
-                            for msg in reversed(recent_messages[1:]):
+                            for msg in history_messages:
                                 if max_age_seconds > 0:
                                     timestamp = self._message_timestamp_seconds(
                                         msg.get("timestamp")
@@ -237,9 +244,9 @@ class MemoryRecall:
                                 expanded = " | ".join(context_parts)
                                 query_for_search = expanded + " " + actual_query
                                 logger.debug(
-                                    f"[{session_id}] 上下文扩展查询: "
-                                    f"{len(context_parts)}条历史消息 + 当前消息，"
-                                    f"按时间跳过={skipped_by_age}条"
+                                    f"[{session_id}] Expanded query with context: "
+                                    f"{len(context_parts)} history messages + current message, "
+                                    f"skipped_by_age={skipped_by_age}"
                                 )
                     except Exception as e:
                         logger.warning(f"[{session_id}] 获取上下文扩展失败: {e}")

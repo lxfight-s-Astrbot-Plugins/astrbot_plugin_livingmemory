@@ -1632,3 +1632,103 @@ async def test_dual_route_does_not_inject_when_graph_overlaps_documents():
 
     assert [result.doc_id for result in results] == [2, 1, 3, 4, 5]
     assert "graph_presence_injected" not in diagnostics
+
+
+@pytest.mark.asyncio
+async def test_dual_route_omits_missing_vector_scores_from_score_breakdown(
+    tmp_path: Path,
+):
+    retriever = _dual_route(_doc_route_results(1), _graph_route_results([99]))
+    results = await retriever.search("query", k=2)
+
+    assert len(results) == 2
+    for item in results:
+        breakdown = item.score_breakdown or {}
+        assert "document_vector_score" not in breakdown
+        assert "graph_vector_score" not in breakdown
+
+    from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+
+    engine = MemoryEngine(
+        db_path=str(tmp_path / "filter_policy.db"),
+        faiss_db=None,
+        config={"min_similarity_for_retrieval": 0.45},
+    )
+    filtered = engine._filter_by_retrieval_policy(results)
+    assert [item.doc_id for item in filtered] == [item.doc_id for item in results]
+
+
+def test_hybrid_mmr_deduplicates_chinese_sentences_without_spaces():
+    retriever = HybridRetriever(
+        bm25_retriever=cast(BM25Retriever, _DummyBM25()),
+        vector_retriever=cast(VectorRetriever, _DummyVector()),
+        rrf_fusion=RRFFusion(k=60),
+        config={"mmr_enabled": True, "mmr_lambda": 0.5},
+    )
+    candidates = [
+        HybridResult(
+            doc_id=1,
+            final_score=0.90,
+            rrf_score=0.90,
+            bm25_score=0.90,
+            vector_score=0.90,
+            content="用户非常喜欢喝冰美式咖啡和拿铁咖啡",
+            metadata={},
+        ),
+        HybridResult(
+            doc_id=2,
+            final_score=0.88,
+            rrf_score=0.88,
+            bm25_score=0.88,
+            vector_score=0.88,
+            content="用户平时喜欢喝冰美式咖啡和拿铁咖啡",
+            metadata={},
+        ),
+        HybridResult(
+            doc_id=3,
+            final_score=0.80,
+            rrf_score=0.80,
+            bm25_score=0.80,
+            vector_score=0.80,
+            content="下周三下午两点进行服务器数据库迁移演练",
+            metadata={},
+        ),
+    ]
+
+    selected = retriever._apply_mmr(candidates, k=2)
+
+    assert [item.doc_id for item in selected] == [1, 3]
+
+
+@pytest.mark.asyncio
+async def test_cached_read_connection_is_opened_once_under_concurrency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from astrbot_plugin_livingmemory.storage import sqlite_connection
+
+    real_open = sqlite_connection.open_connection
+    open_calls = 0
+
+    async def counting_open(db_path, **kwargs):
+        nonlocal open_calls
+        await asyncio.sleep(0.01)
+        open_calls += 1
+        return await real_open(db_path, **kwargs)
+
+    monkeypatch.setattr(
+        "astrbot_plugin_livingmemory.core.retrieval.bm25_retriever.open_connection",
+        counting_open,
+    )
+    retriever = BM25Retriever(
+        str(tmp_path / "concurrent_read.db"),
+        TextProcessor(),
+        cache_reads=True,
+    )
+
+    async def _use_conn():
+        async with retriever._read_connect() as conn:
+            assert conn is not None
+
+    await asyncio.gather(*(_use_conn() for _ in range(8)))
+    assert open_calls == 1
+    await retriever.close()

@@ -3,6 +3,7 @@ BM25检索器 - 基于SQLite FTS5的稀疏检索
 实现简洁的BM25检索功能,用于MemoryEngine的混合检索
 """
 
+import asyncio
 import json
 import re
 from contextlib import asynccontextmanager
@@ -86,6 +87,7 @@ class BM25Retriever:
         # 长生命周期实例（MemoryEngine）复用一条只读连接，写路径仍独立建连。
         self._cache_reads = cache_reads
         self._read_conn: aiosqlite.Connection | None = None
+        self._read_conn_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def _connect(self):
@@ -104,14 +106,17 @@ class BM25Retriever:
                 yield db
             return
         if self._read_conn is None:
-            self._read_conn = await open_connection(self.db_path)
+            async with self._read_conn_lock:
+                if self._read_conn is None:
+                    self._read_conn = await open_connection(self.db_path)
         yield self._read_conn
 
     async def close(self) -> None:
         """关闭复用的只读连接（插件卸载 / 重新初始化前调用，幂等）。"""
-        if self._read_conn is not None:
-            await self._read_conn.close()
-            self._read_conn = None
+        async with self._read_conn_lock:
+            if self._read_conn is not None:
+                await self._read_conn.close()
+                self._read_conn = None
 
     async def initialize(self):
         """
@@ -330,11 +335,11 @@ class BM25Retriever:
         from astrbot.api import logger
 
         try:
-            # 重新处理内容（异步卸载 jieba 分词到线程池）
+            # Re-tokenize content with CJK bigrams to stay consistent with add_document/search
             tokens = await self.text_processor.tokenize_async(
                 content, remove_stopwords=True
             )
-            processed_content = " ".join(tokens)
+            processed_content = " ".join(with_cjk_bigrams(tokens, content))
 
             async with self._connect() as db:
                 # 先删除旧索引

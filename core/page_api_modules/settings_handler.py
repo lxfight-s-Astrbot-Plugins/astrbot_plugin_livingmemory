@@ -333,6 +333,13 @@ class SettingsHandler:
             logger.warning("保存插件配置失败: %s", exc, exc_info=True)
             return self.utils.error(f"保存失败: {exc}")
 
+        initializer = getattr(self.plugin, "initializer", None)
+        if initializer is not None and hasattr(initializer, "reload_runtime_config"):
+            try:
+                initializer.reload_runtime_config()
+            except Exception as exc:
+                logger.warning("刷新运行期配置失败: %s", exc, exc_info=True)
+
         return self.utils.ok(
             {
                 "message": "saved",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
@@ -51,6 +52,7 @@ class AtomStore:
         # 写入与查询共用同一分词器，中文整句才能命中分词后的原子内容。
         self._text_processor = text_processor
         self._read_conn: aiosqlite.Connection | None = None
+        self._read_conn_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def _connect(self):
@@ -68,14 +70,17 @@ class AtomStore:
                 yield db
             return
         if self._read_conn is None:
-            self._read_conn = await open_connection(self.db_path)
+            async with self._read_conn_lock:
+                if self._read_conn is None:
+                    self._read_conn = await open_connection(self.db_path)
         yield self._read_conn
 
     async def close(self) -> None:
         """关闭复用的只读连接（插件卸载 / 重新初始化前调用，幂等）。"""
-        if self._read_conn is not None:
-            await self._read_conn.close()
-            self._read_conn = None
+        async with self._read_conn_lock:
+            if self._read_conn is not None:
+                await self._read_conn.close()
+                self._read_conn = None
 
     def _fts_format(self) -> str:
         return (

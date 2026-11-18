@@ -475,24 +475,18 @@ class TextProcessor:
         return [token for token in tokens if token not in self.stopwords]
 
     def preprocess_for_bm25(self, text: str) -> str:
-        """
-        为 BM25 索引预处理文本
-
-        返回空格分隔的 token 字符串,可直接用于 FTS5 索引
+        """Preprocess text for BM25 FTS5 indexing with CJK bigrams.
 
         Args:
-            text: 原始文本
+            text: Raw text to tokenize and expand.
 
         Returns:
-            预处理后的文本 (空格分隔的tokens)
-
-        Examples:
-            >>> processor = TextProcessor()
-            >>> processor.preprocess_for_bm25("我今天去图书馆")
-            "今天 图书馆"
+            Space-separated tokens including CJK character bigrams.
         """
+        from ..retrieval.bm25_retriever import with_cjk_bigrams
+
         tokens = self.tokenize(text, remove_stopwords=True)
-        return " ".join(tokens)
+        return " ".join(with_cjk_bigrams(tokens, text))
 
 
 # 便捷函数

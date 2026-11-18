@@ -734,14 +734,17 @@ class MemoryEngineBatchMixin:
             )
             access_window_start = time.time() - max(1.0, access_window_days) * 86400.0
             decay_filter = (
-                "json_extract(metadata, '$.importance') IS NOT NULL "
-                "OR metadata LIKE '%\"importance\"%'"
+                "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active' "
+                "AND (json_extract(metadata, '$.importance') IS NOT NULL "
+                "OR metadata LIKE '%\"importance\"%')"
             )
 
             def _compute_batch(rows: list[Any]) -> list[tuple[float, int]]:
                 updates: list[tuple[float, int]] = []
                 for row in rows:
                     metadata = safe_json_dict(row["metadata"])
+                    if str(metadata.get("status") or "active") != "active":
+                        continue
                     importance = clamp_float(metadata.get("importance"), default=0.5)
                     if importance >= protected_threshold:
                         continue
