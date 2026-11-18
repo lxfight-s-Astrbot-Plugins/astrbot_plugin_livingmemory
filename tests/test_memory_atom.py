@@ -175,6 +175,32 @@ def test_classify_atoms_batch() -> None:
         assert any(p in a.entities for p in ["张三", "李四"])
 
 
+def test_classify_atoms_handles_explicit_full_dates_and_today() -> None:
+    from datetime import datetime
+
+    past_iso = classify_atoms(["2020-01-14参加项目评审"])
+    assert len(past_iso) == 1
+    assert past_iso[0].atom_type == AtomType.EPISODIC
+
+    past_cn = classify_atoms(["2020年5月30日开会讨论方案"])
+    assert len(past_cn) == 1
+    assert past_cn[0].atom_type == AtomType.EPISODIC
+
+    future_iso = classify_atoms(["2099-05-30参加项目评审"])
+    assert len(future_iso) == 1
+    assert future_iso[0].atom_type == AtomType.PLANNED
+    assert future_iso[0].event_time is not None
+    assert datetime.fromtimestamp(future_iso[0].event_time).year == 2099
+
+    now_dt = datetime.fromtimestamp(time.time())
+    today_fact = f"{now_dt.month}月{now_dt.day}日参加项目评审"
+    today_atoms = classify_atoms([today_fact])
+    assert len(today_atoms) == 1
+    assert today_atoms[0].atom_type == AtomType.PLANNED
+    assert today_atoms[0].event_time is not None
+    assert datetime.fromtimestamp(today_atoms[0].event_time).year == now_dt.year
+
+
 # ---------- AtomStore persistence ----------
 
 

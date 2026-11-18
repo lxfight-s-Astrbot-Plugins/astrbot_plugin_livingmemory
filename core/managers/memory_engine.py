@@ -276,6 +276,7 @@ class MemoryEngine(
             stopwords_path,
             tokenizer=str(self.config.get("tokenizer", "jieba")),
         )
+        await self.text_processor.async_init()
 
         self.rrf_fusion = RRFFusion(k=self.config.get("rrf_k", 60))
 

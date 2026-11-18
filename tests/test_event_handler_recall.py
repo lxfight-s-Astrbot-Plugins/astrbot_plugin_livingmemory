@@ -440,3 +440,46 @@ async def test_shutdown_marks_the_handler_as_stopped(handler_bundle):
     await handler.shutdown()
 
     assert handler._shutting_down is True
+
+
+@pytest.mark.asyncio
+async def test_recall_with_recent_context_preserves_oldest_message_and_order(
+    handler_bundle, monkeypatch: pytest.MonkeyPatch
+):
+    handler, manager, store, engine, db = handler_bundle
+    handler.config_manager._config.setdefault("recall_engine", {})[
+        "inject_with_recent_context"
+    ] = True
+
+    now = _now()
+    await manager.add_message(
+        session_id=SESSION_ID,
+        role="user",
+        content="first question",
+        sender_id="user-1",
+        timestamp=now - 20,
+    )
+    await manager.add_message(
+        session_id=SESSION_ID,
+        role="assistant",
+        content="first answer",
+        sender_id="bot-1",
+        timestamp=now - 10,
+    )
+
+    captured_queries: list[str] = []
+    real_search = engine.search_memories
+
+    async def _recording_search(query: str, *args, **kwargs):
+        captured_queries.append(query)
+        return await real_search(query, *args, **kwargs)
+
+    monkeypatch.setattr(engine, "search_memories", _recording_search)
+
+    event = _Event(message_str="follow up question")
+    req = _req(prompt="follow up question")
+    await handler.handle_memory_recall(event, req)
+
+    assert captured_queries == [
+        "first question | first answer follow up question"
+    ]

@@ -664,6 +664,7 @@ class PluginInitializer(InitializerFaissMixin):
             "profile_min_confidence": get("profile_settings.min_confidence", 0.6),
             "profile_history_limit": get("profile_settings.history_limit", 20),
             "profile_max_pending": get("profile_settings.max_pending", 50),
+            "memory_dedup": self.config_manager.get_section("memory_dedup"),
             "trace_settings": {
                 "enabled": get("trace_settings.enabled", True),
                 "max_records": get("trace_settings.max_records", 50),
@@ -673,6 +674,110 @@ class PluginInitializer(InitializerFaissMixin):
                 "retention_days": get("trace_settings.retention_days", 7),
             },
         }
+
+    def reload_runtime_config(self) -> None:
+        """Refresh cached configuration on live runtime components after WebUI updates."""
+        if self.memory_engine is not None:
+            data_dir = Path(self.memory_engine.db_path).parent
+            new_config = self._build_memory_engine_config(data_dir)
+            self.memory_engine.config.update(new_config)
+            self.memory_engine._search_cache_enabled = bool(
+                new_config.get("search_cache_enabled", True)
+            )
+            self.memory_engine._search_cache_ttl = float(
+                new_config.get("search_cache_ttl_seconds", 45.0)
+            )
+            self.memory_engine._search_cache_max_size = int(
+                new_config.get("search_cache_max_size", 256)
+            )
+            if self.memory_engine.hybrid_retriever is not None:
+                hr = self.memory_engine.hybrid_retriever
+                hr.config.update(new_config)
+                hr.decay_rate = new_config.get("decay_rate", 0.01)
+                hr.fusion_mode = str(
+                    new_config.get("fusion_mode", "weighted_score")
+                ).lower()
+                hr.bm25_weight = float(new_config.get("bm25_weight", 0.5))
+                hr.agreement_bonus = float(new_config.get("agreement_bonus", 0.08))
+                hr.score_alpha = float(new_config.get("score_alpha", 0.5))
+                hr.score_beta = float(new_config.get("score_beta", 0.3))
+                hr.score_gamma = float(new_config.get("score_gamma", 0.2))
+                hr.mmr_enabled = new_config.get("mmr_enabled", False)
+                hr.mmr_lambda = new_config.get("mmr_lambda", 0.7)
+                hr.rerank_enabled = new_config.get("rerank_enabled", False)
+                hr.rerank_weight = new_config.get("rerank_weight", 0.4)
+            if self.memory_engine.dual_route_retriever is not None:
+                dr = self.memory_engine.dual_route_retriever
+                dr.config.update(new_config)
+                dr.document_weight = max(
+                    0.0, float(new_config.get("document_route_weight", 0.65))
+                )
+                dr.graph_weight = max(
+                    0.0, float(new_config.get("graph_route_weight", 0.35))
+                )
+                dr.route_agreement_bonus = max(
+                    0.0, float(new_config.get("route_agreement_bonus", 0.08))
+                )
+                dr.graph_presence_floor_ratio = max(
+                    0.0, float(new_config.get("graph_presence_floor_ratio", 0.35))
+                )
+                dr.intent_routing_enabled = bool(
+                    new_config.get("intent_routing_enabled", True)
+                )
+            if self.memory_engine.graph_keyword_retriever is not None:
+                gkr = self.memory_engine.graph_keyword_retriever
+                gkr.config.update(new_config)
+                gkr.expansion_hops = max(
+                    0, min(2, int(new_config.get("graph_expansion_hops", 1)))
+                )
+                gkr.expansion_limit = max(
+                    1, int(new_config.get("graph_expansion_limit", 12))
+                )
+                gkr.second_hop_weight = max(
+                    0.0,
+                    min(1.0, float(new_config.get("graph_second_hop_weight", 0.45))),
+                )
+            if self.memory_engine.graph_retriever is not None:
+                gr = self.memory_engine.graph_retriever
+                gr.config.update(new_config)
+                gr.decay_rate = float(new_config.get("decay_rate", 0.01))
+            if self.memory_engine.profile_manager is not None:
+                self.memory_engine.profile_manager.config.update(new_config)
+            self.memory_engine._invalidate_search_cache()
+
+        if self.conversation_manager is not None:
+            self.conversation_manager.identity_aliases = (
+                self.conversation_manager._parse_identity_aliases(
+                    self.config_manager.get("access_control.identity_aliases", "")
+                )
+            )
+
+        if self.memory_processor is not None:
+            self.memory_processor.config.update(
+                {
+                    "min_messages_for_summary": self.config_manager.get(
+                        "reflection_engine.min_messages_for_summary", 5
+                    ),
+                    "max_messages_for_summary": self.config_manager.get(
+                        "reflection_engine.max_messages_for_summary", 50
+                    ),
+                    "filter_trivial_messages": self.config_manager.get(
+                        "reflection_engine.filter_trivial_messages", True
+                    ),
+                    "min_message_length": self.config_manager.get(
+                        "reflection_engine.min_message_length", 10
+                    ),
+                    "llm_stream_mode": self.config_manager.get(
+                        "provider_settings.llm_stream_mode", "auto"
+                    ),
+                    "llm_fallback_provider_ids": self.config_manager.get(
+                        "provider_settings.llm_fallback_provider_ids", []
+                    ),
+                    "llm_call_timeout_seconds": self.config_manager.get(
+                        "provider_settings.llm_call_timeout_seconds", 60
+                    ),
+                }
+            )
 
     async def _init_conversation_layer(self, storage: dict[str, Any]) -> None:
         """初始化会话存储、会话管理器、记忆处理器与整合管理器。"""
@@ -728,13 +833,13 @@ class PluginInitializer(InitializerFaissMixin):
         )
 
     async def _init_index_and_scheduling(self, storage: dict[str, Any]) -> None:
-        """初始化索引维护器、停用词与衰减调度器。"""
-        self.index_validator = IndexValidator(str(storage["db_path"]), self.db)
-        await self._auto_rebuild_index_if_needed()
-
+        """Initialize index validator, stopwords, and decay scheduler."""
         if self.memory_engine and self.memory_engine.text_processor:
             await self.memory_engine.text_processor.async_init()
-            logger.info("TextProcessor 停用词已加载")
+            logger.info("TextProcessor stopwords loaded")
+
+        self.index_validator = IndexValidator(str(storage["db_path"]), self.db)
+        await self._auto_rebuild_index_if_needed()
 
         decay_rate = self.config_manager.get("importance_decay.decay_rate", 0.01)
         auto_cleanup_enabled = self.config_manager.get(
