@@ -7,9 +7,13 @@
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-11-19
+
 ### 修复
 
-- 图谱抽取跳过标记为 `is_bot` 的参与者。已有的机器人节点可通过 `/lmem rebuild-graph` 清理。([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472))
+- 图谱和人物统计排除标记为 `is_bot` 的参与者，记忆注入仍将机器人显示为「我」。更新后可由管理员执行 `/lmem rebuild-graph` 清理已有的机器人节点。([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472), [#473](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/473))
+- 修复仅通过关键词和图谱扩展命中的记忆被相似度阈值误滤的问题，修正上下文扩展顺序，并统一 BM25 中文二字组分词和双路评分。([#471](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/471))
+- 修复带完整日期的记忆原子分类，为结构化记忆补齐原子并在图谱重建时恢复原子元数据。保存 Dashboard 设置后刷新运行时配置，同时改善读连接并发、归档记忆衰减和定时备份清理。([#471](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/471))
 
 ## [2.14.0] - 2026-11-17
 
