@@ -19,6 +19,7 @@ from .schema import (
     MIGRATION_STATUS_SCHEMA_STATEMENTS,
     PROFILE_SCHEMA_STATEMENTS,
 )
+from .sqlite_connection import backup_sqlite_file
 
 
 class DBMigration:
@@ -660,11 +661,7 @@ class DBMigration:
             )
 
             logger.info(f"正在创建数据库备份: {backup_path}")
-
-            # 使用SQLite的备份API
-            async with aiosqlite.connect(self.db_path) as source:
-                async with aiosqlite.connect(str(backup_path)) as dest:
-                    await source.backup(dest)
+            await asyncio.to_thread(backup_sqlite_file, db_path, backup_path)
 
             logger.info(f"数据库备份成功: {backup_path}")
             return str(backup_path)
