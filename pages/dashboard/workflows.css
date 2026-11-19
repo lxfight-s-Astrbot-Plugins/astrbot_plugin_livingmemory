@@ -5,33 +5,83 @@
   display: grid;
   grid-template-columns: minmax(180px, 2fr) minmax(130px, 1fr) repeat(3, minmax(100px, 1fr)) auto auto;
   gap: 8px;
+  padding: 10px 12px;
   margin-bottom: 12px;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--card-edge);
 }
 #memory-filters :is(.input, .select) { width: 100%; min-width: 0; max-width: none !important; }
-.memory-transfer { flex: 0 0 auto; margin-bottom: 12px; border: 1px solid var(--border-normal); border-radius: var(--theme-radius); background: var(--bg-card); }
-.memory-transfer summary { padding: 10px 14px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.memory-transfer summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.transfer-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 0 14px 14px; }
-.transfer-sections section { min-width: 0; }
-.transfer-sections h3 { font-size: 13px; margin: 6px 0; }
-.transfer-sections p, .workflow-hint { color: var(--text-secondary); font-size: 12px; margin: 6px 0 12px; overflow-wrap: anywhere; }
+.memory-transfer { flex: 0 0 auto; margin-bottom: 12px; border: 0; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--card-edge); overflow: hidden; }
+.memory-transfer summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  list-style: none;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+.memory-transfer summary::-webkit-details-marker { display: none; }
+.memory-transfer summary:hover { background: var(--bg-hover); }
+.memory-transfer summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.8px solid var(--text-tertiary);
+  border-bottom: 1.8px solid var(--text-tertiary);
+  transform: rotate(-45deg);
+  transition: transform var(--transition-fast);
+}
+.memory-transfer[open] summary::after { transform: rotate(45deg); }
+.memory-transfer summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.transfer-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 4px 16px 16px; }
+.transfer-sections section {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--bg-tint);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+}
+.transfer-sections h3 { font-size: 13px; font-weight: 650; margin: 0 0 4px; color: var(--text-primary); }
+.transfer-sections p, .workflow-hint { color: var(--text-secondary); font-size: 12px; margin: 4px 0 10px; overflow-wrap: anywhere; }
 .transfer-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .transfer-controls .input { min-width: 0; max-width: 100%; }
-.memory-selection { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--accent-light); border-radius: var(--theme-radius); }
+.memory-selection {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 14px;
+  background: var(--accent-light);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
 .memory-selection[hidden] { display: none; }
 .memory-summary-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .memory-summary-line > .cons-badge { flex: 0 0 auto; }
 .memory-summary-line > .memory-open { flex: 1; min-width: 0; width: 0; }
 .memory-summary-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#mem-selection-count { margin-right: auto; font-size: 12px; }
-#transfer-feedback { flex: 0 0 auto; margin-bottom: 12px; border: 1px solid var(--border-normal); border-radius: var(--theme-radius); background: var(--bg-card); }
+#mem-selection-count { margin-right: auto; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+#transfer-feedback { flex: 0 0 auto; margin-bottom: 12px; border: 0; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--card-edge); }
 .pagination { flex-wrap: wrap; gap: 10px; }
 .pagination-size { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
 .discard-dialog p { color: var(--text-secondary); margin-bottom: 24px; }
 .discard-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 #recall-results[aria-busy="true"] { opacity: 0.55; }
-.graph-operation { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.graph-operation .input { flex: 1; min-width: 0; width: 100% !important; }
+.graph-operation { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.graph-operation .input {
+  flex: 1;
+  min-width: 0;
+  width: 100% !important;
+}
 .graph-operation .btn { flex: 0 0 auto; width: auto; }
 #page-graph #graph-reset-view { width: auto; flex-shrink: 0; }
 @media (max-width: 1300px) {
@@ -52,16 +102,14 @@
   .pagination-controls { flex: 1; }
 }
 
-.adapter-options { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.adapter-options label { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.adapter-options, .group-options { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.adapter-options label, .group-options label { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.field-empty { color: var(--text-secondary); font-size: 13px; }
 .adapter-ownership-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto; align-items: center; gap: 12px; padding: 12px 0; }
 .adapter-ownership-row > span { overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .adapter-ownership-row { grid-template-columns: minmax(0, 1fr) auto; }
   .adapter-ownership-row > span { grid-column: 1 / -1; }
-  .adapter-options label { min-height: 44px; }
-}
-
-@media (max-width: 640px) {
+  .adapter-options label, .group-options label { min-height: 44px; }
   .adapter-ownership-row .input, .adapter-ownership-row .btn { min-height: 44px; }
 }

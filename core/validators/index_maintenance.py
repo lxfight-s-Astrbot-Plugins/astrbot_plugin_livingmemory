@@ -412,13 +412,18 @@ class IndexValidator:
                     processed: list[tuple[int, str]] = []
                     for doc_id, _doc_uuid, text, _metadata_json in batch:
                         try:
+                            raw_text = text or ""
                             if hasattr(text_processor, "preprocess_for_bm25"):
                                 processed_content = text_processor.preprocess_for_bm25(
-                                    text or ""
+                                    raw_text
                                 )
                             else:
-                                tokens = text_processor.tokenize(text or "", True)
-                                processed_content = " ".join(tokens)
+                                from ..retrieval.bm25_retriever import with_cjk_bigrams
+
+                                tokens = text_processor.tokenize(raw_text, True)
+                                processed_content = " ".join(
+                                    with_cjk_bigrams(tokens, raw_text)
+                                )
                             processed.append((int(doc_id), processed_content))
                         except Exception as e:
                             failed_ids.add(int(doc_id))
@@ -973,6 +978,10 @@ class IndexValidator:
     ) -> dict[str, Any]:
         try:
             logger.info("开始分批安全重建索引。")
+            # 重建全过程都要算 embedding；先跟随宿主切换到最新的 Provider 实例。
+            sync_provider = getattr(memory_engine, "_sync_embedding_provider", None)
+            if callable(sync_provider):
+                sync_provider()
             options = self._get_rebuild_options(memory_engine)
             total = await self._get_document_count()
 

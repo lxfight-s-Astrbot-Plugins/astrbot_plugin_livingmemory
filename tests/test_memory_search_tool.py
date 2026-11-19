@@ -1,507 +1,393 @@
-"""Tests for the active long-term memory search tool."""
+"""`recall_long_term_memory` 工具的黑盒测试。
+
+工具、检索链、SQLite 与向量索引都是真实实现；只把 AstrBot 宿主（人格与
+Provider 查找）替换为桩。断言对象是工具返回的 JSON 与库里的实际数据，
+而不是内部协作对象的调用记录。
+"""
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.memory_scope import GLOBAL_MEMORY_SCOPE
 from astrbot_plugin_livingmemory.core.tools.memory_search_tool import MemorySearchTool
 
+from tests.real_engine_support import HostContext, close_engine, make_engine
 
 SESSION_ID = "test:private:session-1"
+USER_SCOPE = "livingmemory:user:test:user-1"
 
 
-@pytest.fixture
-def memory_engine():
-    engine = Mock()
-    engine.search_memories = AsyncMock(return_value=[])
-    return engine
+class _Event:
+    def __init__(self, umo: str = SESSION_ID) -> None:
+        self.unified_msg_origin = umo
+        self.sender_id = "user-1"
+        self.sender_name = "Tester"
+        self.message_str = "hello"
+
+    def get_sender_id(self):
+        return self.sender_id
+
+    def get_sender_name(self):
+        return self.sender_name
+
+    def get_self_id(self):
+        return "bot-1"
+
+    def get_platform_name(self):
+        return "test"
+
+    def get_platform_id(self):
+        return "test-instance"
+
+    def get_group_id(self):
+        return ""
+
+    def get_message_str(self):
+        return self.message_str
+
+    def get_messages(self):
+        return []
+
+    def get_extra(self, key, default=None):
+        return default
 
 
-@pytest.fixture
-def astr_context():
-    return Mock()
+def _run_context(umo: str = SESSION_ID):
+    return SimpleNamespace(context=SimpleNamespace(event=_Event(umo)))
 
 
-def _make_run_context():
-    event = Mock()
-    event.unified_msg_origin = "test:private:session-1"
+@pytest_asyncio.fixture
+async def engine(tmp_path):
+    engine, db = await make_engine(tmp_path / "engine")
+    try:
+        yield engine
+    finally:
+        await close_engine(engine, db)
 
-    run_context = Mock()
-    run_context.context = Mock()
-    run_context.context.event = event
-    return run_context
+
+def _tool(engine, *, config=None, context=None):
+    return MemorySearchTool(
+        context=context or HostContext(persona_id="persona-a"),
+        config_manager=ConfigManager(config or {}),
+        memory_engine=engine,
+    )
+
+
+async def _seed(engine, texts_scopes) -> list[int]:
+    ids = []
+    for content, scope, persona in texts_scopes:
+        ids.append(
+            await engine.add_memory(
+                content, session_id=scope, persona_id=persona, importance=0.8
+            )
+        )
+    return ids
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_uses_filtering_settings(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "recall_engine": {"top_k": 3, "max_k": 8},
-                "filtering_settings": {
-                    "use_session_filtering": True,
-                    "use_persona_filtering": True,
-                },
-            }
-        ),
-        memory_engine=memory_engine,
+async def test_session_scope_only_returns_memories_from_that_session(engine):
+    own, other = await _seed(
+        engine,
+        [
+            ("User prefers jasmine tea", SESSION_ID, "persona-a"),
+            ("User dislikes coffee", "test:private:other-session", "persona-a"),
+        ],
     )
-    memory_engine.search_memories = AsyncMock(return_value=[])
+    tool = _tool(engine)
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        raw_result = await tool.call(_make_run_context(), query="喜欢的游戏", k=6)
+    result = json.loads(await tool.call(_run_context(), query="tea coffee"))
 
-    result = json.loads(raw_result)
-    assert result["query"] == "喜欢的游戏"
+    ids = [item["id"] for item in result["results"]]
+    assert own in ids
+    assert other not in ids
     assert result["applied_filters"] == {
         "session_filtered": True,
         "persona_filtered": True,
     }
-    memory_engine.search_memories.assert_awaited_once_with(
-        query="喜欢的游戏",
-        k=6,
-        session_id="test:private:session-1",
-        persona_id="persona_a",
-    )
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_disables_filters_when_config_disabled(
-    memory_engine, astr_context
-):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "filtering_settings": {
-                    "use_session_filtering": False,
-                    "use_persona_filtering": False,
-                }
-            }
-        ),
-        memory_engine=memory_engine,
+async def test_disabling_session_filtering_reaches_other_sessions(engine):
+    _, other = await _seed(
+        engine,
+        [
+            ("User prefers jasmine tea", SESSION_ID, "persona-a"),
+            ("User dislikes coffee", "test:private:other-session", "persona-a"),
+        ],
+    )
+    tool = _tool(
+        engine,
+        config={"filtering_settings": {"use_session_filtering": False}},
     )
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        await tool.call(_make_run_context(), query="项目约定")
+    result = json.loads(await tool.call(_run_context(), query="coffee tea"))
 
-    memory_engine.search_memories.assert_awaited_once_with(
-        query="项目约定",
-        k=5,
-        session_id=None,
-        persona_id=None,
-    )
-    get_persona.assert_not_awaited()
+    assert other in [item["id"] for item in result["results"]]
+    assert result["applied_filters"]["session_filtered"] is False
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_uses_user_scope(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "filtering_settings": {
-                    "memory_scope_mode": "user",
-                    "use_persona_filtering": False,
-                }
-            }
-        ),
-        memory_engine=memory_engine,
+async def test_user_scope_shares_memory_across_sessions(engine):
+    shared, foreign = await _seed(
+        engine,
+        [
+            ("User keeps a spare key", USER_SCOPE, "persona-a"),
+            ("Another user keeps a key", "livingmemory:user:test:other-user", "persona-a"),
+        ],
     )
-    run_context = _make_run_context()
-    event = run_context.context.event
-    event.get_platform_name = Mock(return_value="test")
-    event.get_sender_id = Mock(return_value="user-1")
-
-    await tool.call(run_context, query="跨会话项目")
-
-    memory_engine.search_memories.assert_awaited_once_with(
-        query="跨会话项目",
-        k=5,
-        session_id="livingmemory:user:test:user-1",
-        persona_id=None,
+    tool = _tool(
+        engine,
+        config={"filtering_settings": {"memory_scope_mode": "user"}},
     )
+
+    result = json.loads(
+        await tool.call(_run_context("test:private:another-session"), query="spare key")
+    )
+
+    ids = [item["id"] for item in result["results"]]
+    assert shared in ids
+    assert foreign not in ids
+    assert result["applied_filters"]["session_filtered"] is False
+
+
+@pytest.mark.asyncio
+async def test_global_scope_crosses_sessions(engine):
+    first, second = await _seed(
+        engine,
+        [
+            ("User prefers jasmine tea", GLOBAL_MEMORY_SCOPE, "persona-a"),
+            ("User dislikes coffee", GLOBAL_MEMORY_SCOPE, "persona-a"),
+        ],
+    )
+    tool = _tool(engine, config={"filtering_settings": {"memory_scope_mode": "global"}})
+
+    result = json.loads(await tool.call(_run_context(), query="tea coffee"))
+
+    ids = [item["id"] for item in result["results"]]
+    assert {first, second} <= set(ids)
+    assert result["applied_filters"]["session_filtered"] is False
 
 
 @pytest.mark.parametrize(
-    ("filtering_settings", "expected_session_id", "expected_session_filtered"),
+    ("settings", "expected_session_filtered"),
     [
-        # legacy 默认：作用域即当前会话，属于会话级过滤
-        ({"use_session_filtering": True}, SESSION_ID, True),
-        # Disabled session filtering leaves only adapter and persona restrictions.
-        ({"use_session_filtering": False}, None, False),
-        ({"memory_scope_mode": "session"}, SESSION_ID, True),
-        ({"memory_scope_mode": "global"}, GLOBAL_MEMORY_SCOPE, False),
-        ({"memory_scope_mode": "user"}, "livingmemory:user:test:user-1", False),
-        # isolated_sessions 始终强制会话级作用域，即使配置为 global
+        ({"use_session_filtering": True}, True),
+        ({"use_session_filtering": False}, False),
+        ({"memory_scope_mode": "session"}, True),
+        ({"memory_scope_mode": "global"}, False),
+        ({"memory_scope_mode": "user"}, False),
         (
             {"memory_scope_mode": "global", "isolated_sessions": SESSION_ID},
-            SESSION_ID,
             True,
         ),
     ],
-    ids=[
-        "legacy-session-filtering",
-        "legacy-no-filtering",
-        "session",
-        "global",
-        "user",
-        "isolated-session-overrides-global",
-    ],
 )
 @pytest.mark.asyncio
-async def test_memory_search_tool_reports_actual_session_filtering(
-    memory_engine,
-    astr_context,
-    filtering_settings,
-    expected_session_id,
-    expected_session_filtered,
+async def test_reported_session_filtering_matches_effective_scope(
+    engine, settings, expected_session_filtered
 ):
-    """session_filtered 只在实际按会话过滤时为 True（global/user/legacy 关闭均不算）。"""
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "filtering_settings": {
-                    **filtering_settings,
-                    "use_persona_filtering": False,
-                }
-            }
-        ),
-        memory_engine=memory_engine,
-    )
-    run_context = _make_run_context()
-    event = run_context.context.event
-    event.get_platform_name = Mock(return_value="test")
-    event.get_sender_id = Mock(return_value="user-1")
+    tool = _tool(engine, config={"filtering_settings": settings})
 
-    result = json.loads(await tool.call(run_context, query="scope report"))
+    result = json.loads(await tool.call(_run_context(), query="anything"))
 
-    assert result["applied_filters"] == {
-        "session_filtered": expected_session_filtered,
-        "persona_filtered": False,
-    }
-    assert memory_engine.search_memories.await_args.kwargs["session_id"] == (
-        expected_session_id
-    )
+    assert result["applied_filters"]["session_filtered"] is expected_session_filtered
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_denies_unlisted_user(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "access_control": {
-                    "whitelist_enabled": True,
-                    "allowed_ids": "another-user",
-                }
-            }
-        ),
-        memory_engine=memory_engine,
+async def test_persona_filtering_limits_results_to_the_current_persona(engine):
+    own, other = await _seed(
+        engine,
+        [
+            ("User prefers jasmine tea", SESSION_ID, "persona-a"),
+            ("User dislikes coffee", SESSION_ID, "persona-b"),
+        ],
     )
-    run_context = _make_run_context()
-    run_context.context.event.get_sender_id = Mock(return_value="user-1")
+    tool = MemorySearchTool(
+        context=HostContext(persona_id="persona-a"),
+        config_manager=ConfigManager(
+            {"filtering_settings": {"use_persona_filtering": True}}
+        ),
+        memory_engine=engine,
+    )
 
-    result = json.loads(await tool.call(run_context, query="private memory"))
+    result = json.loads(await tool.call(_run_context(), query="tea coffee"))
+
+    ids = [item["id"] for item in result["results"]]
+    assert own in ids
+    assert other not in ids
+    assert result["applied_filters"]["persona_filtered"] is True
+
+
+@pytest.mark.asyncio
+async def test_denies_user_outside_the_whitelist(engine):
+    await _seed(engine, [("User prefers jasmine tea", SESSION_ID, "persona-a")])
+    tool = _tool(
+        engine,
+        config={"access_control": {"whitelist_enabled": True, "allowed_ids": "other"}},
+    )
+
+    result = json.loads(await tool.call(_run_context(), query="tea"))
 
     assert result["error"] == "memory access is not allowed"
-    memory_engine.search_memories.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_serializes_results(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(
-        return_value=[
-            Mock(
-                doc_id=7,
-                content="用户喜欢高难度动作游戏",
-                final_score=0.91,
-                metadata={
-                    "importance": 0.8,
-                    "session_id": "test:private:session-1",
-                    "persona_id": "persona_a",
-                    "create_time": 100.0,
-                    "last_access_time": 200.0,
-                },
-            )
-        ]
-    )
-    memory_engine.get_memory_source = AsyncMock()
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        raw_result = await tool.call(_make_run_context(), query="游戏偏好")
-
-    result = json.loads(raw_result)
-    assert result["count"] == 1
-    assert result["results"][0] == {
-        "id": 7,
-        "content": "用户喜欢高难度动作游戏",
-        "score": 0.91,
-        "importance": 0.8,
-        "session_id": "test:private:session-1",
-        "persona_id": "persona_a",
-        "create_time": 100.0,
-        "last_access_time": 200.0,
-    }
-    memory_engine.get_memory_source.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_includes_retained_source_on_request(
-    memory_engine, astr_context
-):
-    memory_engine.search_memories = AsyncMock(
-        return_value=[
-            Mock(
-                doc_id=9,
-                content="summary",
-                final_score=0.9,
-                metadata={"has_source": True},
-            )
-        ]
-    )
-    memory_engine.get_memory_source = AsyncMock(
-        return_value=[{"role": "user", "content": "exact detail"}]
-    )
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new=AsyncMock(return_value="persona_a"),
-    ):
-        result = json.loads(
-            await tool.call(_make_run_context(), query="details", include_source=True)
-        )
-
-    assert result["results"][0]["source_messages"][0]["content"] == "exact detail"
-    memory_engine.get_memory_source.assert_awaited_once_with(9)
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_serializes_non_dict_metadata(
-    memory_engine, astr_context
-):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(
-        return_value=[
-            Mock(
-                doc_id=8,
-                content="用户提到过想学摄影",
-                final_score=0.55,
-                metadata=None,
-            )
-        ]
-    )
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        raw_result = await tool.call(_make_run_context(), query="摄影")
-
-    result = json.loads(raw_result)
-    assert result["results"][0] == {
-        "id": 8,
-        "content": "用户提到过想学摄影",
-        "score": 0.55,
-        "importance": None,
-        "session_id": None,
-        "persona_id": None,
-        "create_time": None,
-        "last_access_time": None,
-    }
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_limits_k_by_config(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager({"recall_engine": {"top_k": 5, "max_k": 4}}),
-        memory_engine=memory_engine,
-    )
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        await tool.call(_make_run_context(), query="偏好", k=9)
-
-    memory_engine.search_memories.assert_awaited_once_with(
-        query="偏好",
-        k=4,
-        session_id="test:private:session-1",
-        persona_id="persona_a",
-    )
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_clamps_low_k_to_one(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(
-            {
-                "recall_engine": {"top_k": 3, "max_k": 8},
-                "filtering_settings": {
-                    "use_session_filtering": True,
-                    "use_persona_filtering": True,
-                },
-            }
-        ),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(return_value=[])
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-
-        await tool.call(_make_run_context(), query="test query", k=0)
-        called_k_zero = memory_engine.search_memories.await_args.kwargs["k"]
-        assert called_k_zero == 1
-
-        memory_engine.search_memories.reset_mock()
-        await tool.call(_make_run_context(), query="test query", k=-3)
-        called_k_negative = memory_engine.search_memories.await_args.kwargs["k"]
-        assert called_k_negative == 1
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_falls_back_to_default_k_for_invalid_input(
-    memory_engine, astr_context
-):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager({"recall_engine": {"top_k": 3, "max_k": 8}}),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(return_value=[])
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        await tool.call(_make_run_context(), query="test query", k="bad")
-
-    memory_engine.search_memories.assert_awaited_once_with(
-        query="test query",
-        k=3,
-        session_id="test:private:session-1",
-        persona_id="persona_a",
-    )
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_returns_structured_error_for_empty_query(
-    memory_engine, astr_context
-):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-
-    raw_result = await tool.call(_make_run_context(), query="   ")
-    result = json.loads(raw_result)
-
     assert result["results"] == []
-    assert result["error"] == "query is empty"
-    memory_engine.search_memories.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_returns_not_initialized_error(memory_engine):
-    tool = MemorySearchTool(
-        context=None,
-        config_manager=None,
-        memory_engine=memory_engine,
+async def test_results_carry_the_fields_the_model_needs(engine):
+    (doc_id,) = await _seed(
+        engine, [("User likes story games", SESSION_ID, "persona-a")]
+    )
+    tool = _tool(engine)
+
+    result = json.loads(await tool.call(_run_context(), query="story games"))
+
+    item = result["results"][0]
+    assert item["id"] == doc_id
+    assert "story games" in item["content"]
+    assert item["importance"] == pytest.approx(0.8)
+    assert item["session_id"] == SESSION_ID
+    assert item["persona_id"] == "persona-a"
+    assert isinstance(item["score"], float)
+    assert item["create_time"] is not None
+
+
+@pytest.mark.asyncio
+async def test_include_source_returns_the_original_messages(engine):
+    await engine.add_memory(
+        "User described a bookshelf project",
+        session_id=SESSION_ID,
+        persona_id="persona-a",
+        source_messages=[
+            {"role": "user", "content": "I want to build a bookshelf"},
+            {"role": "assistant", "content": "What wood?"},
+        ],
+    )
+    tool = _tool(engine)
+
+    with_source = json.loads(
+        await tool.call(_run_context(), query="bookshelf", include_source=True)
+    )
+    without_source = json.loads(
+        await tool.call(_run_context(), query="bookshelf", include_source=False)
     )
 
-    raw_result = await tool.call(_make_run_context(), query="测试")
-    result = json.loads(raw_result)
+    assert with_source["results"][0]["source_messages"][0]["content"] == (
+        "I want to build a bookshelf"
+    )
+    assert "source_messages" not in without_source["results"][0]
+
+
+@pytest.mark.asyncio
+async def test_k_is_limited_by_the_configured_maximum(engine):
+    await _seed(
+        engine,
+        [
+            (f"User likes tea variety {index}", SESSION_ID, "persona-a")
+            for index in range(6)
+        ],
+    )
+    tool = _tool(engine, config={"recall_engine": {"top_k": 5, "max_k": 3}})
+
+    result = json.loads(await tool.call(_run_context(), query="tea variety", k=10))
+
+    assert len(result["results"]) <= 3
+
+
+@pytest.mark.asyncio
+async def test_k_is_clamped_to_at_least_one(engine):
+    await _seed(engine, [("User likes tea", SESSION_ID, "persona-a")])
+    tool = _tool(engine)
+
+    result = json.loads(await tool.call(_run_context(), query="tea", k=0))
+
+    assert len(result["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_k_falls_back_to_the_configured_default(engine):
+    await _seed(engine, [("User likes tea", SESSION_ID, "persona-a")])
+    tool = _tool(engine, config={"recall_engine": {"top_k": 2}})
+
+    result = json.loads(await tool.call(_run_context(), query="tea", k="many"))
+
+    assert len(result["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_recall_records_access_but_passive_recall_does_not(
+    engine, monkeypatch
+):
+    """显式检索计入访问统计，被动检索不计入（#427）。"""
+    (doc_id,) = await _seed(engine, [("User likes tea", SESSION_ID, "persona-a")])
+    # 访问统计按 3 秒窗口合并写；测试里把窗口压到 0 再触发检索，
+    # 断言仍只看库里的最终数据。
+    monkeypatch.setattr(engine, "_ACCESS_UPDATE_DEBOUNCE_SECONDS", 0.0)
+
+    async def access_count() -> int:
+        record = await engine.get_memory(doc_id)
+        metadata = record["metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        return int(metadata.get("access_count") or 0)
+
+    await engine.search_memories("tea", 5, session_id=SESSION_ID, track_access=True)
+    await asyncio.sleep(0.05)
+    explicit = await access_count()
+
+    await engine.search_memories("tea", 5, session_id=SESSION_ID, track_access=False)
+    await asyncio.sleep(0.05)
+    passive = await access_count()
+
+    assert explicit >= 1
+    assert passive == explicit
+
+
+@pytest.mark.asyncio
+async def test_empty_query_returns_a_structured_error(engine):
+    tool = _tool(engine)
+
+    result = json.loads(await tool.call(_run_context(), query="   "))
 
     assert result == {
-        "query": "测试",
+        "query": "",
         "count": 0,
         "results": [],
-        "error": "memory search tool is not initialized",
+        "error": "query is empty",
     }
-    memory_engine.search_memories.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_memory_search_tool_hides_internal_exception_details(
-    memory_engine, astr_context
-):
+async def test_uninitialized_tool_reports_missing_dependencies():
+    tool = MemorySearchTool(context=None, config_manager=None, memory_engine=None)
+
+    result = json.loads(await tool.call(_run_context(), query="测试"))
+
+    assert result["error"] == "memory search tool is not initialized"
+
+
+@pytest.mark.asyncio
+async def test_internal_failure_does_not_leak_details():
+    """底层故障时返回稳定的 internal_error，不把异常文本透给模型。
+
+    这里在工具的外部协作对象边界注入失败（引擎抛错），断言的是工具的
+    错误契约，而不是引擎的内部实现。
+    """
+    class _BrokenEngine:
+        async def search_memories(self, **_kwargs):
+            raise RuntimeError("secret db path")
+
     tool = MemorySearchTool(
-        context=astr_context,
+        context=HostContext(persona_id="persona-a"),
         config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(
-        side_effect=RuntimeError("secret db path")
+        memory_engine=_BrokenEngine(),
     )
 
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        raw_result = await tool.call(_make_run_context(), query="异常")
+    result = json.loads(await tool.call(_run_context(), query="tea"))
 
-    result = json.loads(raw_result)
     assert result["error"] == "internal_error"
-    assert "secret db path" not in raw_result
-
-
-@pytest.mark.asyncio
-async def test_memory_search_tool_propagates_cancellation(memory_engine, astr_context):
-    tool = MemorySearchTool(
-        context=astr_context,
-        config_manager=ConfigManager(),
-        memory_engine=memory_engine,
-    )
-    memory_engine.search_memories = AsyncMock(side_effect=asyncio.CancelledError())
-
-    with patch(
-        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
-        new_callable=AsyncMock,
-    ) as get_persona:
-        get_persona.return_value = "persona_a"
-        with pytest.raises(asyncio.CancelledError):
-            await tool.call(_make_run_context(), query="取消")
+    assert "secret" not in json.dumps(result)

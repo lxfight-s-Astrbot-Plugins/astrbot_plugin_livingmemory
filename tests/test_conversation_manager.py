@@ -139,8 +139,25 @@ async def test_private_assistant_uses_explicit_bot_fallback_without_self_id(
     )
 
     assert message.sender_id == "bot:test-instance"
-    assert message.sender_name == "Bot"
+    assert message.sender_name == "test-instance"
     assert message.group_id is None
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_private_assistant_ignores_unknown_selfid_placeholder(tmp_path: Path):
+    """qq_official private chats report unknown_selfid; it must not be stored (#439)."""
+    store = ConversationStore(str(tmp_path / "unknown-selfid.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    event = _DummyEvent("test:private:s-unknown", self_id="unknown_selfid")
+
+    message = await manager.add_message_from_event(
+        event, role="assistant", content="world"
+    )
+
+    assert message.sender_id == "bot:test-instance"
+    assert message.sender_name == "test-instance"
     await store.close()
 
 

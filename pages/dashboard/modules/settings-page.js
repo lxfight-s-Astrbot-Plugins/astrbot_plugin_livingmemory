@@ -489,13 +489,15 @@ export class SettingsPage {
     const value = this._fieldValue(field);
     const isModified = this._isFieldModified(field);
     let control = "";
-    if (field.type === "adapter-list") {
+    if (field.type === "adapter-list" || field.type === "group-list") {
+      /* 两者都是"从动态来源复选"：适配器实例 / 插件已记录的群聊。 */
       const selected = value ?? field.options;
-      control = '<fieldset class="adapter-options" aria-label="' + esc(field.label) + '" ' + common +
-        ' data-original="' + (value === null ? "null" : "set") + '">' + field.options.map((id, i) =>
+      const cssClass = field.type === "adapter-list" ? "adapter-options" : "group-options";
+      control = '<fieldset class="' + cssClass + '" aria-label="' + esc(field.label) + '" ' + common +
+        ' data-original="' + (value === null ? "null" : "set") + '">' + (field.options.length ? field.options.map((id, i) =>
         '<label><input type="checkbox" value="' + esc(id) + '"' +
         (selected.includes(id) ? ' checked' : '') + '> ' + esc(field.option_labels[i]) + '</label>'
-      ).join("") + '</fieldset>';
+      ).join("") : '<span class="field-empty">' + esc(window.t("settings.groupListEmpty")) + '</span>') + '</fieldset>';
     } else if (field.type === "bool") {
       control =
         '<label class="settings-switch"><input type="checkbox" ' +
@@ -605,7 +607,7 @@ export class SettingsPage {
     const path = control.dataset.settingPath;
     const type = control.dataset.type;
     if (!path) return;
-    if (type === "adapter-list") {
+    if (type === "adapter-list" || type === "group-list") {
       this._formValues[path] = Array.from(
         control.querySelectorAll("input:checked"),
         (input) => input.value

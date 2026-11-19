@@ -324,6 +324,9 @@ class MemoryEngineBatchMixin:
         if str(metadata.get("status") or "active") != "archived":
             return True
 
+        # 恢复归档记忆需要重新计算向量；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
+
         embedding_storage = getattr(self.faiss_db, "embedding_storage", None)
         embedding_insert = getattr(embedding_storage, "insert", None)
         embedding_delete = getattr(embedding_storage, "delete", None)
@@ -685,8 +688,23 @@ class MemoryEngineBatchMixin:
                 yield batch
 
         self._invalidate_search_cache()
+        # 重建图向量需要大量 embedding；先跟随宿主切换到最新的 Provider 实例。
+        self._sync_embedding_provider()
+        # Bound how many entries go into one embedding request. AstrBot's
+        # insert_batch sends the whole list to the provider, so providers with a
+        # small batch limit (e.g. DashScope caps at 20) fail the rebuild when the
+        # plugin keeps its own hard-coded 100.
+        try:
+            embedding_batch_size = int(
+                (getattr(self, "config", None) or {}).get(
+                    "index_rebuild_embedding_batch_size", 8
+                )
+            )
+        except (TypeError, ValueError):
+            embedding_batch_size = 8
+        embedding_batch_size = max(1, min(256, embedding_batch_size))
         return await self.graph_memory_manager.rebuild_memory_batches(
-            active_memory_batches()
+            active_memory_batches(), vector_batch_size=embedding_batch_size
         )
 
     async def apply_daily_decay(self, decay_rate: float, days: int = 1) -> int:
@@ -716,14 +734,17 @@ class MemoryEngineBatchMixin:
             )
             access_window_start = time.time() - max(1.0, access_window_days) * 86400.0
             decay_filter = (
-                "json_extract(metadata, '$.importance') IS NOT NULL "
-                "OR metadata LIKE '%\"importance\"%'"
+                "COALESCE(json_extract(metadata, '$.status'), 'active') = 'active' "
+                "AND (json_extract(metadata, '$.importance') IS NOT NULL "
+                "OR metadata LIKE '%\"importance\"%')"
             )
 
             def _compute_batch(rows: list[Any]) -> list[tuple[float, int]]:
                 updates: list[tuple[float, int]] = []
                 for row in rows:
                     metadata = safe_json_dict(row["metadata"])
+                    if str(metadata.get("status") or "active") != "active":
+                        continue
                     importance = clamp_float(metadata.get("importance"), default=0.5)
                     if importance >= protected_threshold:
                         continue

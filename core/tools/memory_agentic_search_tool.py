@@ -161,7 +161,7 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             event,
             recall_session_id,
             recall_persona_id,
-            channel_scope,
+            extra_scopes,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
         with adapter_access(self.config_manager, event):
@@ -269,9 +269,12 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                 "session_id": recall_session_id,
                 "persona_id": recall_persona_id,
                 "identity_key": identity_key,
+                # 被动注入是系统替模型做的，不算“使用”；显式检索是模型自己
+                # 发起的，更接近“使用”，与基线 recall_long_term_memory 一致。
+                "track_access": True,
             }
-            if channel_scope:
-                agentic_kwargs["extra_scopes"] = [channel_scope]
+            if extra_scopes:
+                agentic_kwargs["extra_scopes"] = extra_scopes
             try:
                 with trace_request_context(
                     session_id=event.unified_msg_origin,
@@ -323,6 +326,13 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
             evidence_by_id: dict[int, dict[str, Any]] = {}
 
             if include_source and outcome.results:
+                # Retrieval already counted each doc once for this tool call
+                # (track_access=True). Re-counting in read_one could straddle the
+                # 3s flush boundary and write twice; worse, it would make "one
+                # call, one count" timing-dependent and the tests flaky. Counting
+                # belongs to retrieval; s:0:0 continuations must not repeat it.
+                # Multiple tool calls separated by a flush boundary are counted
+                # separately — that is intended, each call is a separate access.
 
                 async def read_one(memory):
                     try:

@@ -388,6 +388,12 @@
                     "max": 10000,
                     "step": 1
                 }
+            },
+            "private_memory_notice_enabled": {
+                "description": "私密记忆注入提示",
+                "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。",
+                "type": "bool",
+                "default": true
             }
         }
     },
@@ -399,7 +405,7 @@
         "items": {
             "decay_rate": {
                 "description": "每日衰减率",
-                "hint": "每天对记忆重要性的衰减比例。默认 0.005 表示每天降低 0.5%；访问会降低有效衰减率。设为 0 可禁用衰减。（允许范围：0–1）",
+                "hint": "每天对记忆重要性的衰减比例。默认 0.005 表示每天降低 0.5%；显式检索或深读会降低有效衰减率，被动注入不计数。深读与检索共用 3 秒合并写入。设为 0 可禁用衰减。（允许范围：0–1）",
                 "type": "float",
                 "default": 0.005,
                 "slider": {
@@ -410,7 +416,7 @@
             },
             "access_decay_window_days": {
                 "description": "访问强化窗口(天)",
-                "hint": "在该窗口内被访问过的记忆，会根据访问次数降低有效衰减率。（允许范围：1–3650）",
+                "hint": "在该窗口内被显式检索或深读过的记忆，会根据访问次数降低有效衰减率；被动注入不计数。深读与检索共用 3 秒合并写入。（允许范围：1–3650）",
                 "type": "float",
                 "default": 30.0,
                 "slider": {
@@ -421,7 +427,7 @@
             },
             "access_decay_max_count": {
                 "description": "访问强化次数上限",
-                "hint": "达到该访问次数时获得最大衰减保护；超过后不会继续增强。（允许范围：1–10000）",
+                "hint": "达到该显式访问次数时获得最大衰减保护；超过后不会继续增强。被动注入不计数，深读与检索共用 3 秒合并写入。（允许范围：1–10000）",
                 "type": "int",
                 "default": 10,
                 "slider": {
@@ -432,7 +438,7 @@
             },
             "access_count_decay_multiplier": {
                 "description": "访问次数保留比例",
-                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减。（允许范围：0–1）",
+                "hint": "每次每日衰减后访问次数按该比例回落，避免旧热点记忆永久不衰减；访问次数仅来自显式检索与深读，二者共用 3 秒合并写入。（允许范围：0–1）",
                 "type": "float",
                 "default": 0.5,
                 "slider": {
@@ -480,7 +486,7 @@
         "items": {
             "use_persona_filtering": {
                 "description": "按人格隔离记忆",
-                "hint": "开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰。",
+                "hint": "只控制召回：开启后只召回与当前人格相关的记忆，不同人格的记忆互不干扰；关闭后跨人格共享召回。关闭时反思总结仍会记录真实 persona_id 与其 system_prompt 语境。",
                 "type": "bool",
                 "default": true
             },
@@ -513,6 +519,18 @@
                 "hint": "",
                 "type": "list",
                 "default": null
+            },
+            "group_blacklist": {
+                "description": "群聊记忆黑名单",
+                "hint": "从会话列表中选择要屏蔽的群聊。命中的群聊不写入、不总结、不召回记忆，也不影响 bot 正常对话。",
+                "type": "list",
+                "default": []
+            },
+            "user_scope_ignore_platform": {
+                "description": "跨适配器共享用户记忆",
+                "hint": "仅在作用域模式为 user 时生效。开启后同一身份在不同适配器（如 aiocqhttp 与 qq_official）之间共享记忆，作用域不再包含平台段；检索会同时匹配旧的平台作用域，历史记忆无需迁移。身份依赖 access_control.identity_aliases 对齐。",
+                "type": "bool",
+                "default": false
             }
         }
     },

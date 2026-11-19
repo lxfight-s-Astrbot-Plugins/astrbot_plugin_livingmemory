@@ -40,3 +40,21 @@ async def test_short_entity_query_matches_by_bigram(tmp_path):
     results = await retriever.search("雪菲")
 
     assert [result.doc_id for result in results] == [1]
+
+    updated_text = "我改成了在曼特宁产区的豆子里挑深烘焙"
+    async with retriever._connect() as db:
+        await db.execute(
+            "UPDATE documents SET text = ? WHERE id = 1",
+            (updated_text,),
+        )
+        await db.commit()
+    assert await retriever.update_document(1, updated_text) is True
+
+    updated_results = await retriever.search("特宁")
+    assert [result.doc_id for result in updated_results] == [1]
+
+
+def test_preprocess_for_bm25_includes_cjk_bigrams():
+    processor = TextProcessor()
+    processed = processor.preprocess_for_bm25("我喜欢在耶加雪菲产区喝咖啡")
+    assert "雪菲" in processed.split()

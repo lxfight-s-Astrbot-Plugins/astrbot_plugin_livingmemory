@@ -40,9 +40,12 @@ global       ``livingmemory:global``
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import aiosqlite
 
 from astrbot.api import logger
 
@@ -58,12 +61,18 @@ _DOC_SCOPE_EXPR = f"COALESCE(json_extract({_DOC_OBJECT_EXPR}, '$.session_id'), '
 # memory_atoms / graph_entries 表中的作用域列（两张表列名相同）
 _SCOPE_COLUMN_EXPR = "COALESCE(session_id, '')"
 
-# 参与迁移的三张表：documents 必选，另外两张只在图记忆启用时创建
+# 参与迁移的主库表：documents 必选，其余只在对应功能开启时创建。
+# memory_profiles 以 scope 列存储作用域，与另外三张表的 session_id 不同名。
 _TABLE_SCOPE_EXPRS: tuple[tuple[str, str], ...] = (
     ("documents", _DOC_SCOPE_EXPR),
     ("memory_atoms", _SCOPE_COLUMN_EXPR),
     ("graph_entries", _SCOPE_COLUMN_EXPR),
+    ("memory_profiles", "COALESCE(scope, '')"),
 )
+
+# 图向量文档存在独立的 livingmemory_graph_documents.db 中，检索按
+# metadata.session_id 过滤，漏迁移会让图谱向量路整体召回不到（#373）。
+_GRAPH_VECTOR_SCOPE_EXPR = _DOC_SCOPE_EXPR
 
 
 @dataclass
@@ -73,6 +82,8 @@ class ScopeBreakdown:
     documents: dict[str, int] = field(default_factory=dict)
     atoms: dict[str, int] = field(default_factory=dict)
     graph_entries: dict[str, int] = field(default_factory=dict)
+    profiles: dict[str, int] = field(default_factory=dict)
+    graph_vectors: dict[str, int] = field(default_factory=dict)
     missing_tables: list[str] = field(default_factory=list)
 
     @property
@@ -81,11 +92,19 @@ class ScopeBreakdown:
             sum(self.documents.values())
             + sum(self.atoms.values())
             + sum(self.graph_entries.values())
+            + sum(self.profiles.values())
+            + sum(self.graph_vectors.values())
         )
 
     @property
     def scopes(self) -> list[str]:
-        return sorted(set(self.documents) | set(self.atoms) | set(self.graph_entries))
+        return sorted(
+            set(self.documents)
+            | set(self.atoms)
+            | set(self.graph_entries)
+            | set(self.profiles)
+            | set(self.graph_vectors)
+        )
 
 
 @dataclass
@@ -97,11 +116,19 @@ class MigrationPlan:
     documents: int = 0
     atoms: int = 0
     graph_entries: int = 0
+    profiles: int = 0
+    graph_vectors: int = 0
     by_source: dict[str, int] = field(default_factory=dict)
 
     @property
     def total(self) -> int:
-        return self.documents + self.atoms + self.graph_entries
+        return (
+            self.documents
+            + self.atoms
+            + self.graph_entries
+            + self.profiles
+            + self.graph_vectors
+        )
 
     @property
     def is_noop(self) -> bool:
@@ -116,13 +143,21 @@ class MigrationResult:
     documents: int = 0
     atoms: int = 0
     graph_entries: int = 0
+    profiles: int = 0
+    graph_vectors: int = 0
     backup_path: str | None = None
     # 提交后复核仍未落到目标作用域的记录数（并发写入时为非 0）
     remaining: int = 0
 
     @property
     def total(self) -> int:
-        return self.documents + self.atoms + self.graph_entries
+        return (
+            self.documents
+            + self.atoms
+            + self.graph_entries
+            + self.profiles
+            + self.graph_vectors
+        )
 
 
 class ScopeMigrator:
@@ -130,12 +165,30 @@ class ScopeMigrator:
 
     Args:
         db_connection: 插件主库连接（aiosqlite 风格：``execute`` / ``commit``）。
+        graph_doc_path: 图向量文档库路径（``livingmemory_graph_documents.db``）。
+            与主库分属不同文件，无法与主库事务原子提交，因此按"主库先提交、
+            图向量后更新"执行；操作本身幂等，失败后重跑即可收敛。
     """
 
-    def __init__(self, db_connection: Any) -> None:
+    def __init__(self, db_connection: Any, *, graph_doc_path: Any = None) -> None:
         if db_connection is None:
             raise ValueError("db_connection 不能为空")
         self._db = db_connection
+        self._graph_doc_path = Path(graph_doc_path) if graph_doc_path else None
+
+    @asynccontextmanager
+    async def _graph_doc_connection(self):
+        """打开图向量文档库；未配置或文件不存在时产出 None。"""
+        path = self._graph_doc_path
+        if path is None or not path.exists():
+            yield None
+            return
+        connection = await aiosqlite.connect(str(path))
+        try:
+            await connection.execute("PRAGMA busy_timeout = 15000")
+            yield connection
+        finally:
+            await connection.close()
 
     async def _existing_tables(self) -> set[str]:
         """探测迁移涉及的表在当前库中是否存在（图记忆关闭时可能缺表）。"""
@@ -172,8 +225,23 @@ class ScopeMigrator:
                 breakdown.documents = counts
             elif table == "memory_atoms":
                 breakdown.atoms = counts
+            elif table == "memory_profiles":
+                breakdown.profiles = counts
             else:
                 breakdown.graph_entries = counts
+
+        async with self._graph_doc_connection() as graph_db:
+            if graph_db is None or not await _table_exists(graph_db, "documents"):
+                if self._graph_doc_path is not None:
+                    breakdown.missing_tables.append("graph vector documents")
+                return breakdown
+            cursor = await graph_db.execute(
+                f"SELECT {_GRAPH_VECTOR_SCOPE_EXPR} AS scope, COUNT(*) "
+                "FROM documents GROUP BY scope"
+            )
+            breakdown.graph_vectors = {
+                str(scope): int(count) for scope, count in await cursor.fetchall()
+            }
 
         return breakdown
 
@@ -218,8 +286,28 @@ class ScopeMigrator:
                 plan.documents = counted
             elif table == "memory_atoms":
                 plan.atoms = counted
+            elif table == "memory_profiles":
+                plan.profiles = counted
             else:
                 plan.graph_entries = counted
+
+        async with self._graph_doc_connection() as graph_db:
+            if graph_db is None or not await _table_exists(graph_db, "documents"):
+                return plan
+            sql = (
+                f"SELECT {_GRAPH_VECTOR_SCOPE_EXPR} AS scope, COUNT(*) "
+                f"FROM documents WHERE {_GRAPH_VECTOR_SCOPE_EXPR} <> ?"
+            )
+            params = [target]
+            if source is not None:
+                sql += f" AND {_GRAPH_VECTOR_SCOPE_EXPR} = ?"
+                params.append(source)
+            sql += " GROUP BY scope"
+            cursor = await graph_db.execute(sql, tuple(params))
+            for scope, count in await cursor.fetchall():
+                plan.graph_vectors += int(count)
+                key = str(scope)
+                plan.by_source[key] = plan.by_source.get(key, 0) + int(count)
 
         return plan
 
@@ -245,9 +333,16 @@ class ScopeMigrator:
         幂等性：WHERE 条件包含 ``<> target``，因此重复执行不会重复改写，
         也不会破坏此前记录的 ``old_session_id``。
 
-        事务：三张表的 UPDATE 在同一事务内提交，任一步失败都会 ``rollback``，
+        事务：主库各表的 UPDATE 在同一事务内提交，任一步失败都会 ``rollback``，
         不会把半成品留给共享连接；``VACUUM INTO`` 不能在事务中执行，因此备份前
         先把连接上可能残留的未提交写入落盘。
+
+        图向量文档位于独立文件，无法与主库原子提交：主库提交后再更新它。该更新
+        幂等，失败时按剩余量上报，重跑即可收敛。
+
+        ``memory_profiles`` 带有 ``UNIQUE(scope, persona_id)``：目标作用域已存在
+        同一人格的档案时不改写该行，避免整次迁移因唯一约束失败；未迁移的行会
+        体现在 ``remaining`` 与日志中。
         """
         result = MigrationResult(target=plan.target)
 
@@ -292,7 +387,31 @@ class ScopeMigrator:
                 (table, f"UPDATE {table} SET session_id = ? WHERE {where}", params)
             )
 
-        counts = {"documents": 0, "memory_atoms": 0, "graph_entries": 0}
+        if "memory_profiles" in existing:
+            profile_where = (
+                "COALESCE(scope, '') <> ? "
+                # 目标作用域已有同一人格的档案时跳过，否则触发唯一约束
+                "AND NOT EXISTS (SELECT 1 FROM memory_profiles AS other "
+                "WHERE other.scope = ? AND other.persona_id IS memory_profiles.persona_id)"
+            )
+            profile_params: list[Any] = [plan.target, plan.target, plan.target]
+            if plan.source is not None:
+                profile_where += " AND COALESCE(scope, '') = ?"
+                profile_params.append(plan.source)
+            statements.append(
+                (
+                    "memory_profiles",
+                    f"UPDATE memory_profiles SET scope = ? WHERE {profile_where}",
+                    profile_params,
+                )
+            )
+
+        counts = {
+            "documents": 0,
+            "memory_atoms": 0,
+            "graph_entries": 0,
+            "memory_profiles": 0,
+        }
         try:
             for table, sql, params in statements:
                 cursor = await self._db.execute(sql, tuple(params))
@@ -307,6 +426,8 @@ class ScopeMigrator:
         result.documents = counts["documents"]
         result.atoms = counts["memory_atoms"]
         result.graph_entries = counts["graph_entries"]
+        result.profiles = counts["memory_profiles"]
+        result.graph_vectors = await self._migrate_graph_vectors(plan, stamp)
 
         # 提交后复核：仍有记录未落到目标作用域时（并发写入/异常数据）如实上报
         remaining = await self.plan(plan.target, source=plan.source)
@@ -318,6 +439,52 @@ class ScopeMigrator:
 
         logger.info(
             f"[作用域迁移] 已迁移 documents={result.documents} "
-            f"atoms={result.atoms} graph_entries={result.graph_entries} -> {plan.target}"
+            f"atoms={result.atoms} graph_entries={result.graph_entries} "
+            f"profiles={result.profiles} graph_vectors={result.graph_vectors} "
+            f"-> {plan.target}"
         )
         return result
+
+    async def _migrate_graph_vectors(self, plan: MigrationPlan, stamp: float) -> int:
+        """把图向量文档的作用域改写为目标；返回实际更新的行数。"""
+        async with self._graph_doc_connection() as graph_db:
+            if graph_db is None or not await _table_exists(graph_db, "documents"):
+                return 0
+            where = f"{_GRAPH_VECTOR_SCOPE_EXPR} <> ?"
+            params: list[Any] = [plan.target, stamp, plan.target]
+            if plan.source is not None:
+                where += f" AND {_GRAPH_VECTOR_SCOPE_EXPR} = ?"
+                params.append(plan.source)
+            try:
+                cursor = await graph_db.execute(
+                    f"""
+                    UPDATE documents
+                    SET metadata = json_set(
+                        {_DOC_OBJECT_EXPR},
+                        '$.session_id', ?,
+                        '$.migrated_at', ?,
+                        '$.old_session_id',
+                        json_extract({_DOC_OBJECT_EXPR}, '$.session_id')
+                    )
+                    WHERE {where}
+                    """,
+                    tuple(params),
+                )
+                await graph_db.commit()
+            except Exception:
+                await graph_db.rollback()
+                # 主库已经提交；这里单独失败时明确告知重跑即可收敛
+                logger.error(
+                    "[作用域迁移] 图向量文档迁移失败；主库已完成，重跑迁移即可补齐",
+                    exc_info=True,
+                )
+                return 0
+            return int(cursor.rowcount or 0)
+
+
+async def _table_exists(connection: aiosqlite.Connection, table: str) -> bool:
+    """只读探测独立库中的表是否存在。"""
+    cursor = await connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    )
+    return await cursor.fetchone() is not None

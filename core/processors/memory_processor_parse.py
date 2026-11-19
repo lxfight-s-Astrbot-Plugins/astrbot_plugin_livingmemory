@@ -146,82 +146,42 @@ def parse_llm_response(response_text: str, is_group_chat: bool) -> dict[str, Any
 
 def extract_by_regex(text: str, is_group_chat: bool) -> dict[str, Any] | None:
     """
-    使用正则表达式从文本中提取结构化数据(备用方案)
+    从夹杂散文的响应中找出可完整解析的 JSON 块（备用方案）。
+
+    只接受整体合法的 JSON 对象。逐字段正则提取已被移除：模型输出未转义双引号时，
+    ``"summary"\\s*:\\s*"([^"]+)"`` 会在第一个内部引号处截断，产出「小明选了」这类
+    半句，并被质量检查当作正常记忆写入（#446）。
 
     Args:
         text: 响应文本
         is_group_chat: 是否为群聊
 
     Returns:
-        提取的结构化数据；完全无法提取到 summary 时返回 None，由调用方按
-        解析失败处理（不再返回占位内容）。
+        完整 JSON 块的结构化数据；没有可整体解析的 JSON 时返回 None，由调用方
+        按解析失败处理（不再返回拼接出的残缺内容）。
     """
     logger.debug("[MemoryProcessor] 开始使用正则表达式提取结构化数据")
-    data = get_default_structured_data(is_group_chat)
-    extracted = False
 
     try:
-        # 先尝试找到完整的 JSON 块
+        # 只尝试完整 JSON 块；解析失败的块不再退回逐字段提取。
         json_matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
 
         for i, match in enumerate(json_matches):
             try:
-                # 尝试解析每个匹配的块
                 parsed = json.loads(match)
-                if "summary" in parsed:
-                    logger.info(
-                        f"[MemoryProcessor]  成功从第 {i + 1} 个 JSON 块中解析数据"
-                    )
-                    data = parsed
-                    extracted = True
-                    break
             except json.JSONDecodeError:
                 continue
+            if isinstance(parsed, dict) and "summary" in parsed:
+                logger.info(f"[MemoryProcessor]  成功从第 {i + 1} 个 JSON 块中解析数据")
+                return parsed
 
-        # 如果没有找到完整的 JSON，尝试单独提取字段
-        if not extracted:
-            # 提取summary
-            summary_match = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
-            if summary_match:
-                data["summary"] = summary_match.group(1)
-                extracted = True
-
-            # 提取importance
-            importance_match = re.search(r'"importance"\s*:\s*([0-9.]+)', text)
-            if importance_match:
-                data["importance"] = float(importance_match.group(1))
-
-            # 提取sentiment
-            sentiment_match = re.search(r'"sentiment"\s*:\s*"(\w+)"', text)
-            if sentiment_match:
-                data["sentiment"] = sentiment_match.group(1)
-
-            # 提取 topics 数组
-            topics_match = re.search(r'"topics"\s*:\s*\[(.*?)\]', text, re.DOTALL)
-            if topics_match:
-                topics_str = topics_match.group(1)
-                topics = re.findall(r'"([^"]+)"', topics_str)
-                data["topics"] = topics[:5]
-
-            # 提取 key_facts 数组
-            facts_match = re.search(r'"key_facts"\s*:\s*\[(.*?)\]', text, re.DOTALL)
-            if facts_match:
-                facts_str = facts_match.group(1)
-                facts = re.findall(r'"([^"]+)"', facts_str)
-                data["key_facts"] = facts[:5]
-
-        if extracted:
-            logger.info(
-                f"[MemoryProcessor] 正则提取完成，提取到的字段: {list(data.keys())}"
-            )
-        else:
-            logger.warning("[MemoryProcessor] 正则提取未能获得任何可用字段")
-
+        logger.warning(
+            "[MemoryProcessor] 正则提取未找到可完整解析的 JSON 块，按解析失败处理"
+        )
     except Exception as e:
         logger.error(f"[MemoryProcessor]  正则提取失败: {e}", exc_info=True)
-        return None
 
-    return data if extracted else None
+    return None
 
 
 def normalize_parsed_data(data: dict, is_group_chat: bool) -> dict[str, Any]:
@@ -347,7 +307,7 @@ def validate_summary_quality(structured_data: dict[str, Any]) -> str:
 
     检查规则：
     1. summary 不能为空或过短（< 10 字符）
-    2. key_facts 至少有 1 条
+    2. key_facts 至少有 1 条，且不能是纯标点/符号残片
     3. importance 在合法范围内
     4. summary 不含泛化词（"某用户"、"有人"等）
 
@@ -361,6 +321,9 @@ def validate_summary_quality(structured_data: dict[str, Any]) -> str:
     if not summary or len(summary.strip()) < 10:
         return "low"
     if not key_facts:
+        return "low"
+    # 截断残片：字段被截断时容易产出「,」「；」这类纯标点条目（#446）。
+    if any(not re.search(r"\w", str(fact)) for fact in key_facts):
         return "low"
     if not isinstance(importance, (int, float)) or not (0.0 <= importance <= 1.0):
         return "low"

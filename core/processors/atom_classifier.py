@@ -15,7 +15,8 @@ _TIME_INDICATORS = re.compile(
     r"(?:上周|本周|下下周|下周)?周[一二三四五六日天]|"
     r"上周|本周|下下周|下周|"
     r"下个?月|上个?月|明年|后年|去年|前年|"
-    r"\d{1,2}月\d{1,2}[日号]|\d{4}年\d{1,2}月|"
+    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{4}年\d{1,2}月(?:\d{1,2}[日号]?)?|"
+    r"\d{1,2}月\d{1,2}[日号]|"
     r"上午|下午|晚上|凌晨|早上|中午|傍晚|"
     r"\d{1,2}[点时：:]\d{1,2}"
 )
@@ -32,9 +33,21 @@ _RELATION_PATTERNS = re.compile(
     r"合作|合伙|夫妻|情侣|邻居|室友|老乡"
 )
 
+# 不使用单字「爱」「不爱」作关键词：姓名（如「爱丽丝」）会命中，导致误判为偏好。
+# 只保留不会出现在常见姓名开头的明确表达。
 _PREFERENCE_PATTERNS = re.compile(
-    r"喜欢|讨厌|爱|不爱|偏好|最爱|不喜欢|热衷于|沉迷|"
-    r"爱吃|爱喝|喜欢喝|喜欢去|讨厌吃|讨厌去"
+    r"喜欢|讨厌|偏好|偏爱|最爱|不喜欢|热衷于|沉迷|"
+    r"热爱|爱好|"
+    r"爱吃|爱喝|爱看|爱听|爱玩|爱去|爱读|"
+    r"不爱吃|不爱喝|不爱去|"
+    r"喜欢喝|喜欢去|讨厌吃|讨厌去"
+)
+
+# 过去/完成状态标记：与未来计划互斥，避免「昨天已经完成调试」被判为 PLANNED。
+_PAST_STATE_PATTERNS = re.compile(
+    r"昨天|前天|上周|去年|前年|上个?月|"
+    r"已经|曾经|刚刚|刚才|"
+    r"完成了|做过了|去过了|吃过了|看过了|结束了"
 )
 
 _PERSON_PATTERNS = re.compile(
@@ -112,17 +125,34 @@ def _parse_event_time(text: str) -> float | None:
         if word in text:
             return now + offset
 
+    # explicit full date like "2025-01-14", "2025/01/14", or "2025年1月14日"
+    full_date_match = re.search(
+        r"(?<!\d)(\d{4})(?:[-/年])(\d{1,2})(?:[-/月])(\d{1,2})(?:[日号])?(?!\d)",
+        text,
+    )
+    if full_date_match:
+        year = int(full_date_match.group(1))
+        month = int(full_date_match.group(2))
+        day = int(full_date_match.group(3))
+        try:
+            return datetime(year, month, day).timestamp()
+        except ValueError:
+            return None
+
     # month/day format like "5月30日"
     m = re.search(r"(\d{1,2})月(\d{1,2})[日号]", text)
     if m:
         month, day = int(m.group(1)), int(m.group(2))
         now_dt = datetime.fromtimestamp(now)
-        target = now_dt.replace(
-            month=month, day=day, hour=0, minute=0, second=0, microsecond=0
-        )
-        if target < now_dt:
-            target = target.replace(year=now_dt.year + 1)
-        return target.timestamp()
+        try:
+            target = now_dt.replace(
+                month=month, day=day, hour=0, minute=0, second=0, microsecond=0
+            )
+            if target.date() < now_dt.date():
+                target = target.replace(year=now_dt.year + 1)
+            return target.timestamp()
+        except ValueError:
+            return None
 
     return None
 
@@ -190,11 +220,17 @@ def _classify_single(text: str) -> tuple[AtomType, float, float | None]:
     has_stative = bool(_STATIVE_PATTERNS.search(text))
     has_relation = bool(_RELATION_PATTERNS.search(text))
     has_preference = bool(_PREFERENCE_PATTERNS.search(text))
+    has_past_state = bool(_PAST_STATE_PATTERNS.search(text))
 
     event_time = _parse_event_time(text) if has_time else None
+    now_date = datetime.fromtimestamp(time.time()).date()
+    is_past_event = has_past_state or (
+        event_time is not None and datetime.fromtimestamp(event_time).date() < now_date
+    )
 
-    # PLANNED: time indicator + action verb → future event
-    if has_time and has_action:
+    # PLANNED: time indicator + action verb → future event.
+    # Completed/past statements (「昨天已经完成调试」 or explicit past dates) are episodic, not plans.
+    if has_time and has_action and not is_past_event:
         return AtomType.PLANNED, 0.85, event_time
 
     # PREFERENCE: preference keywords dominate

@@ -257,28 +257,35 @@ class DecayScheduler:
             logger.error(f"[衰减调度] 备份异常: {e}", exc_info=True)
 
     async def _cleanup_old_backups(self) -> None:
-        """删除超过保留天数的旧备份文件"""
-        if not self.db_migration:
-            return
+        """Prune expired backups and enforce total backup size budget."""
         try:
-            db_path = Path(self.db_migration.db_path)
-            backup_dir = db_path.parent / "backups"
-            if not backup_dir.exists():
-                return
+            if self.db_migration:
+                db_path = Path(self.db_migration.db_path)
+                backup_dir = db_path.parent / "backups"
+                if backup_dir.exists():
+                    cutoff = datetime.now().timestamp() - self.backup_keep_days * 86400
+                    removed = 0
+                    for f in backup_dir.glob(f"{db_path.stem}_backup_*.db"):
+                        if f.stat().st_mtime < cutoff:
+                            f.unlink()
+                            removed += 1
+                    if removed:
+                        logger.info(
+                            f"[DecayScheduler] Pruned {removed} expired daily backups "
+                            f"(keep_days={self.backup_keep_days})"
+                        )
+                data_root = self.data_dir or db_path.parent
+            else:
+                data_root = self.data_dir
 
-            cutoff = datetime.now().timestamp() - self.backup_keep_days * 86400
-            removed = 0
-            for f in backup_dir.glob(f"{db_path.stem}_backup_*.db"):
-                if f.stat().st_mtime < cutoff:
-                    f.unlink()
-                    removed += 1
+            if data_root:
+                from ..managers.backup_manager import BackupManager
 
-            if removed:
-                logger.info(
-                    f"[衰减调度] 清理过期备份 {removed} 个（保留 {self.backup_keep_days} 天）"
+                await BackupManager(str(data_root)).prune_async(
+                    keep_days=self.backup_keep_days
                 )
         except Exception as e:
-            logger.warning(f"[衰减调度] 清理旧备份失败: {e}")
+            logger.warning(f"[DecayScheduler] Failed to prune old backups: {e}")
 
     def _seconds_until_next_run(self) -> float:
         """计算距离下次执行的秒数"""

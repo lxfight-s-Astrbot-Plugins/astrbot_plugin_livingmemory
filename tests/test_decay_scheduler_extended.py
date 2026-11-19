@@ -1,6 +1,8 @@
 """Extended tests for DecayScheduler to improve coverage."""
 
 import asyncio
+import json
+import time
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 
@@ -174,151 +176,189 @@ class TestDecaySchedulerMissedDaysCalculation:
 
 
 class TestDecaySchedulerExecution:
-    """测试衰减执行"""
+    """衰减执行：用真实引擎验证记忆重要性确实下降。"""
+
+    @staticmethod
+    async def _engine_and_memory(tmp_path):
+        from tests.real_engine_support import make_engine
+
+        engine, db = await make_engine(
+            tmp_path / "decay", config={"auto_cleanup_enabled": False}
+        )
+        memory_id = await engine.add_memory(
+            "用户喜欢燕麦拿铁",
+            session_id="livingmemory:global",
+            persona_id=None,
+            # 高于 protected_importance_threshold(0.6) 的记忆受保护，
+            # 这里用 0.5 以便观察衰减效果
+            importance=0.5,
+        )
+        return engine, db, memory_id
+
+    @staticmethod
+    async def _importance(engine, memory_id: int) -> float:
+        record = await engine.get_memory_record(memory_id)
+        metadata = json.loads(record["metadata"])
+        return float(metadata["importance"])
 
     @pytest.mark.asyncio
-    async def test_execute_decay_with_zero_rate(self, tmp_path, mock_memory_engine):
-        """测试衰减率为0时跳过衰减"""
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.0,  # 衰减率为0
-            data_dir=str(tmp_path),
-        )
+    async def test_decay_reduces_importance(self, tmp_path):
+        from tests.real_engine_support import close_engine
 
-        success = await scheduler._execute_decay(1)
-        assert success is True
-        mock_memory_engine.apply_daily_decay.assert_not_called()
+        engine, db, memory_id = await self._engine_and_memory(tmp_path)
+        try:
+            before = await self._importance(engine, memory_id)
+            scheduler = DecayScheduler(
+                memory_engine=engine, decay_rate=0.01, data_dir=str(tmp_path)
+            )
 
-    @pytest.mark.asyncio
-    async def test_execute_decay_normal(
-        self, tmp_path, mock_memory_engine, mock_db_migration
-    ):
-        """测试正常衰减执行"""
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-            db_migration=mock_db_migration,
-            backup_enabled=True,
-        )
+            success = await scheduler._execute_decay(1)
 
-        success = await scheduler._execute_decay(1)
-
-        assert success is True
-        mock_memory_engine.apply_daily_decay.assert_called_once_with(0.01, 1)
-        mock_memory_engine.cleanup_old_memories.assert_called_once()
-        mock_memory_engine.maintain_storage.assert_called_once()
-        mock_db_migration.create_backup.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_execute_decay_multiple_days(self, tmp_path, mock_memory_engine):
-        """测试补偿多天衰减"""
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-        )
-
-        success = await scheduler._execute_decay(5)
+            after = await self._importance(engine, memory_id)
+        finally:
+            await close_engine(engine, db)
 
         assert success is True
-        mock_memory_engine.apply_daily_decay.assert_called_once_with(0.01, 5)
+        assert after < before
+        assert after == pytest.approx(before * 0.99, abs=1e-6)
 
     @pytest.mark.asyncio
-    async def test_execute_decay_with_auto_cleanup_disabled(
-        self, tmp_path, mock_memory_engine
-    ):
-        """测试禁用自动清理时不执行清理"""
-        mock_memory_engine.config["auto_cleanup_enabled"] = False
+    async def test_zero_rate_leaves_importance_untouched(self, tmp_path):
+        from tests.real_engine_support import close_engine
 
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-        )
+        engine, db, memory_id = await self._engine_and_memory(tmp_path)
+        try:
+            before = await self._importance(engine, memory_id)
+            scheduler = DecayScheduler(
+                memory_engine=engine, decay_rate=0.0, data_dir=str(tmp_path)
+            )
 
-        success = await scheduler._execute_decay(1)
+            success = await scheduler._execute_decay(1)
+
+            after = await self._importance(engine, memory_id)
+        finally:
+            await close_engine(engine, db)
 
         assert success is True
-        mock_memory_engine.cleanup_old_memories.assert_not_called()
+        assert after == pytest.approx(before)
 
     @pytest.mark.asyncio
-    async def test_execute_decay_with_backup_disabled(
-        self, tmp_path, mock_memory_engine, mock_db_migration
-    ):
-        """测试禁用备份时不执行备份"""
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-            db_migration=mock_db_migration,
-            backup_enabled=False,  # 禁用备份
-        )
+    async def test_missed_days_are_compensated(self, tmp_path):
+        """补偿多天时按天数累计衰减，而不是只衰减一次。"""
+        from tests.real_engine_support import close_engine
 
-        success = await scheduler._execute_decay(1)
+        engine, db, memory_id = await self._engine_and_memory(tmp_path)
+        try:
+            before = await self._importance(engine, memory_id)
+            scheduler = DecayScheduler(
+                memory_engine=engine, decay_rate=0.01, data_dir=str(tmp_path)
+            )
 
-        assert success is True
-        mock_db_migration.create_backup.assert_not_called()
+            await scheduler._execute_decay(5)
 
-    @pytest.mark.asyncio
-    async def test_execute_decay_handles_cleanup_error(
-        self, tmp_path, mock_memory_engine
-    ):
-        """测试清理失败时仍然继续执行"""
-        mock_memory_engine.cleanup_old_memories = AsyncMock(
-            side_effect=Exception("Cleanup failed")
-        )
+            after = await self._importance(engine, memory_id)
+        finally:
+            await close_engine(engine, db)
 
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-        )
-
-        success = await scheduler._execute_decay(1)
-
-        # 清理失败不影响整体成功
-        assert success is True
-        mock_memory_engine.apply_daily_decay.assert_called_once()
+        # 重要性按 6 位小数落库，比较时放宽到该精度
+        assert after == pytest.approx(before * (0.99**5), abs=1e-4)
+        assert after < before * 0.99  # 明显多于单日衰减
 
     @pytest.mark.asyncio
-    async def test_execute_decay_handles_maintenance_error(
-        self, tmp_path, mock_memory_engine
-    ):
-        """测试存储维护失败时记录警告"""
-        mock_memory_engine.maintain_storage = AsyncMock(
-            side_effect=Exception("Maintenance failed")
-        )
+    async def test_decay_records_the_run_date(self, tmp_path):
+        """执行后写入状态文件，避免同一天重复衰减。"""
+        from tests.real_engine_support import close_engine
 
-        scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
-            decay_rate=0.01,
-            data_dir=str(tmp_path),
-        )
+        engine, db, _memory_id = await self._engine_and_memory(tmp_path)
+        try:
+            scheduler = DecayScheduler(
+                memory_engine=engine, decay_rate=0.01, data_dir=str(tmp_path)
+            )
 
-        success = await scheduler._execute_decay(1)
+            await scheduler._execute_decay(1)
 
-        # 维护失败不影响整体成功
-        assert success is True
+            state = await scheduler._load_state()
+        finally:
+            await close_engine(engine, db)
+
+        assert state.get("last_decay_date") == scheduler._get_today_str()
 
     @pytest.mark.asyncio
-    async def test_execute_decay_handles_decay_error(
-        self, tmp_path, mock_memory_engine
-    ):
-        """测试衰减本身失败时返回False"""
-        mock_memory_engine.apply_daily_decay = AsyncMock(
-            side_effect=Exception("Decay failed")
+    async def test_cleanup_runs_only_when_enabled(self, tmp_path):
+        """启用自动清理时，旧记忆会被清理掉（默认归档）。"""
+        from tests.real_engine_support import close_engine, make_engine
+
+        engine, db = await make_engine(
+            tmp_path / "cleanup",
+            config={
+                "auto_cleanup_enabled": True,
+                "auto_archived_enabled": True,
+                "cleanup_days_threshold": 1,
+                "cleanup_importance_threshold": 1.0,
+            },
         )
+        try:
+            old = await engine.add_memory(
+                "很久以前的低重要性记忆",
+                session_id="livingmemory:global",
+                persona_id=None,
+                importance=0.05,
+                preserve_create_time=True,
+                metadata={"create_time": time.time() - 10 * 86400},
+            )
+            scheduler = DecayScheduler(
+                memory_engine=engine, decay_rate=0.01, data_dir=str(tmp_path)
+            )
+
+            await scheduler._execute_decay(1)
+
+            record = await engine.get_memory_record(old)
+            assert json.loads(record["metadata"])["status"] == "archived"
+        finally:
+            await close_engine(engine, db)
+
+    @pytest.mark.asyncio
+    async def test_decay_failure_is_reported(self, tmp_path):
+        """衰减本身失败时返回 False，调度器不会误报成功。"""
+
+        class _BrokenEngine:
+            config = {"auto_cleanup_enabled": False}
+
+            async def apply_daily_decay(self, rate, days):
+                raise RuntimeError("Decay failed")
 
         scheduler = DecayScheduler(
-            memory_engine=mock_memory_engine,
+            memory_engine=_BrokenEngine(), decay_rate=0.01, data_dir=str(tmp_path)
+        )
+
+        assert await scheduler._execute_decay(1) is False
+
+    @pytest.mark.asyncio
+    async def test_cleanup_failure_does_not_fail_the_run(self, tmp_path):
+        """清理失败不影响整次衰减，状态仍会推进。"""
+
+        class _CleanupBrokenEngine:
+            config = {
+                "auto_cleanup_enabled": True,
+                "cleanup_days_threshold": 30,
+                "cleanup_importance_threshold": 0.3,
+            }
+
+            async def apply_daily_decay(self, rate, days):
+                return 1
+
+            async def cleanup_old_memories(self, **_kwargs):
+                raise RuntimeError("Cleanup failed")
+
+        scheduler = DecayScheduler(
+            memory_engine=_CleanupBrokenEngine(),
             decay_rate=0.01,
             data_dir=str(tmp_path),
         )
 
-        success = await scheduler._execute_decay(1)
-
-        assert success is False
+        assert await scheduler._execute_decay(1) is True
+        state = await scheduler._load_state()
+        assert state.get("last_decay_date") == scheduler._get_today_str()
 
 
 class TestDecaySchedulerBackup:

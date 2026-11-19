@@ -113,17 +113,22 @@ History above `max_messages_per_session` first discards summarized messages. If 
 | `recall_engine.injection_method` | `extra_user_content` | Memory injection mode (the only supported add-only temporary-part injection) |
 | `recall_engine.inject_with_recent_context` | `false` | Expands the query with recent conversation |
 | `recall_engine.search_cache_enabled` | `true` | Enables short-term retrieval caching |
+| `recall_engine.private_memory_notice_enabled` | `true` | Appends a "the user has not been told" notice to memories with `visibility=private` and `disclosed=false`; disable to omit it |
 
 `extra_user_content` is the only supported injection mode: memories are appended to the current user message as a `mark_as_temp` temporary part that AstrBot filters out when saving conversation history, so injection never affects the prefix cache and **never touches AstrBot's conversation history**. The plugin no longer rewrites history message formats or writes content into history. The legacy `user_message_before` / `user_message_after` / `fake_tool_call` / `fake_tool_call_deepseek_v4` / `system_prompt` options are all deprecated and automatically fall back to `extra_user_content`.
+
+Memories may carry optional `visibility` (`public` / `private`) and `disclosed` (boolean) metadata in `documents.metadata`; no database migration is needed and rows without these fields behave as `public` / `true`. When `visibility=private` and `disclosed=false`, automatic injection appends a notice stating that this is a private experience the user has not been told about. Edit the `private_memory_injection_notice` prompt to customise the text, or disable it entirely with `recall_engine.private_memory_notice_enabled`.
 
 ## Memory isolation
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `filtering_settings.use_persona_filtering` | `true` | Only recall memories for the current persona |
+| `filtering_settings.use_persona_filtering` | `true` | Recall only: filters recall by the current persona; when disabled, recall is shared across personas while reflections still record the real `persona_id` |
 | `filtering_settings.memory_scope_mode` | `legacy` | Preserve legacy behavior, or scope by session, user, or globally |
 | `filtering_settings.use_session_filtering` | `true` | Controls session filtering only in `legacy` mode |
 | `filtering_settings.isolated_sessions` | Empty | Full session IDs that must always remain isolated, one per line |
+| `filtering_settings.user_scope_ignore_platform` | `false` | Only in `user` mode: one identity shares memory across adapters, with no platform segment in the scope; recall also matches legacy scopes, so existing memories need no migration |
+| `filtering_settings.group_blacklist` | Empty | Group memory blacklist, picked from recorded groups in the settings page; blocked groups skip capture, reflection and recall |
 | `access_control.whitelist_enabled` | `false` | Allow only listed identities to use long-term memory |
 | `access_control.allowed_ids` | Empty | User ID, `platform:user ID`, group ID, or full session ID |
 | `access_control.identity_aliases` | Empty | One `source identity=canonical name` mapping per line |

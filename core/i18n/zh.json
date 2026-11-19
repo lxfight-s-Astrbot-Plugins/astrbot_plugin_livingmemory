@@ -121,18 +121,18 @@
     "action_name": "作用域迁移",
     "usage": "用法: /lmem migrate-scope <target> [apply] [source]\n\ntarget 支持:\n• global —— 迁移到全局作用域 livingmemory:global\n• session —— 迁移到当前会话\n• user —— 迁移到当前用户（跨私聊/群聊共享）\n• 其他字符串 —— 按字面作用域使用\n\napply 可选（也接受 dry-run 显式预览）：默认仅预览，传 apply 才会真正写库。\nsource 可选（必须放在 apply 之后），仅迁移该来源作用域的记录；all / * / - 表示全部来源。\n\n示例:\n  /lmem migrate-scope global                # 预览批量迁移\n  /lmem migrate-scope global apply          # 执行批量迁移\n  /lmem migrate-scope global apply <scope>  # 仅迁移指定来源",
     "empty_scope": "(空作用域)",
-    "scope_line": "• {scope}: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条",
-    "survey": "当前作用域分布（记忆 / 原子 / 图记忆）:\n{scopes}\n\n合计: {total} 条",
+    "scope_line": "• {scope}: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条 / 档案 {profiles} 条 / 图向量 {graph_vectors} 条",
+    "survey": "当前作用域分布（记忆 / 原子 / 图记忆 / 档案 / 图向量）:\n{scopes}\n\n合计: {total} 条",
     "nothing_to_do": "没有需要迁移的记录：它们已经位于目标作用域 {target}。",
     "source_matched_nothing": "来源作用域 {source} 未匹配到需要迁移的记录（目标作用域 {target}）。",
     "missing_tables": "提示: 当前数据库缺少以下可选表，已跳过: {tables}",
     "any_source": "全部来源",
     "impact_line": "• {scope}: {count} 条",
-    "plan": "迁移预览（dry-run）\n\n目标作用域: {target}\n来源限制: {source}\n\n将影响:\n{impact}\n\n共 {total} 条（记忆 {documents} / 原子 {atoms} / 图记忆 {graph_entries}）",
+    "plan": "迁移预览（dry-run）\n\n目标作用域: {target}\n来源限制: {source}\n\n将影响:\n{impact}\n\n共 {total} 条（记忆 {documents} / 原子 {atoms} / 图记忆 {graph_entries} / 档案 {profiles} / 图向量 {graph_vectors}）",
     "dry_run_hint": "以上仅为预览，未写入任何数据。\n确认无误后执行: /lmem migrate-scope <target> apply [source]",
-    "done": "作用域迁移完成。\n\n目标作用域: {target}\n已更新: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条（共 {total} 条）\n数据库备份: {backup}",
+    "done": "作用域迁移完成。\n\n目标作用域: {target}\n已更新: 记忆 {documents} 条 / 原子 {atoms} 条 / 图记忆 {graph_entries} 条 / 档案 {profiles} 条 / 图向量 {graph_vectors} 条（共 {total} 条）\n数据库备份: {backup}",
     "remaining_notice": "注意: 仍有 {remaining} 条记录未落到目标作用域 {target}（可能有并发写入），请重新执行迁移。",
-    "rebuild_hint": "图记忆条目已在同一事务中完成迁移；如图谱召回仍异常，可执行 /lmem rebuild-graph 重建。"
+    "rebuild_hint": "图记忆条目已随主库迁移，图向量的文档元数据也已同步；如图谱召回仍异常，可执行 /lmem rebuild-graph 重建。"
   },
   "rebuild_graph": {
     "action_name": "重建图记忆",

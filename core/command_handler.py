@@ -430,17 +430,22 @@ class CommandHandler(ExternalApiCommandMixin):
             return
 
         try:
+            # /lmem search 属于检索：人格隔离只由 recall_persona_id 决定。
             with trace_request_context(
                 session_id=event.unified_msg_origin,
                 scope=access.scope,
-                persona_id=access.persona_id,
+                persona_id=access.recall_persona_id,
             ):
-                results = await self.memory_engine.search_memories(
-                    query=query.strip(),
-                    k=k,
-                    session_id=access.scope,
-                    persona_id=access.persona_id,
-                )
+                search_kwargs: dict[str, Any] = {
+                    "query": query.strip(),
+                    "k": k,
+                    "session_id": access.scope,
+                    "persona_id": access.recall_persona_id,
+                }
+                # 解耦模式与频道记忆会带来附加作用域；无附加作用域时保持原调用形态。
+                if access.extra_read_scopes:
+                    search_kwargs["extra_scopes"] = access.extra_read_scopes
+                results = await self.memory_engine.search_memories(**search_kwargs)
 
             if not results:
                 yield event.plain_result(t("search.no_results", query=query))
@@ -629,7 +634,15 @@ class CommandHandler(ExternalApiCommandMixin):
                 source_scope = self._resolve_target_scope(event, raw_source)
 
             db_connection = getattr(self.memory_engine, "db_connection", None)
-            migrator = ScopeMigrator(db_connection)
+            # 图向量文档在独立库里，检索按 metadata.session_id 过滤，必须一起迁移
+            graph_doc_path = getattr(
+                getattr(self.memory_engine, "graph_vector_db", None),
+                "doc_store_path",
+                None,
+            )
+            if not isinstance(graph_doc_path, (str, Path)):
+                graph_doc_path = None
+            migrator = ScopeMigrator(db_connection, graph_doc_path=graph_doc_path)
             breakdown = await migrator.survey()
             plan = await migrator.plan(resolved, source=source_scope)
 
@@ -640,6 +653,8 @@ class CommandHandler(ExternalApiCommandMixin):
                     documents=breakdown.documents.get(scope, 0),
                     atoms=breakdown.atoms.get(scope, 0),
                     graph_entries=breakdown.graph_entries.get(scope, 0),
+                    profiles=breakdown.profiles.get(scope, 0),
+                    graph_vectors=breakdown.graph_vectors.get(scope, 0),
                 )
                 for scope in breakdown.scopes
             )
@@ -689,6 +704,8 @@ class CommandHandler(ExternalApiCommandMixin):
                     documents=plan.documents,
                     atoms=plan.atoms,
                     graph_entries=plan.graph_entries,
+                    profiles=plan.profiles,
+                    graph_vectors=plan.graph_vectors,
                     total=plan.total,
                     source=source_scope or t("migrate_scope.any_source"),
                     impact=impact_detail,
@@ -709,6 +726,8 @@ class CommandHandler(ExternalApiCommandMixin):
                     documents=result.documents,
                     atoms=result.atoms,
                     graph_entries=result.graph_entries,
+                    profiles=result.profiles,
+                    graph_vectors=result.graph_vectors,
                     total=result.total,
                     backup=result.backup_path or t("common.never"),
                 )

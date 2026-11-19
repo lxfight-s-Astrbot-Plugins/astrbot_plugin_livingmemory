@@ -273,7 +273,11 @@ async def test_missing_optional_tables_are_skipped(tmp_path):
         assert breakdown.documents == {OLD_PRIVATE: 1}
         assert breakdown.atoms == {}
         assert breakdown.graph_entries == {}
-        assert breakdown.missing_tables == ["memory_atoms", "graph_entries"]
+        assert breakdown.missing_tables == [
+            "memory_atoms",
+            "graph_entries",
+            "memory_profiles",
+        ]
         assert breakdown.total == 1
 
         plan = await migrator.plan(TARGET)
@@ -407,5 +411,126 @@ async def test_malformed_and_non_object_metadata_are_normalized_and_migrated(tmp
             assert metadata["session_id"] == TARGET
 
         assert (await migrator.survey()).documents == {TARGET: 5}
+    finally:
+        await conn.close()
+
+
+async def _make_profiles(conn):
+    await conn.execute(
+        "CREATE TABLE memory_profiles ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, persona_id TEXT, "
+        "profile_json TEXT NOT NULL DEFAULT '{}', UNIQUE(scope, persona_id))"
+    )
+
+
+@pytest.mark.asyncio
+async def test_profiles_are_migrated_with_their_scope(tmp_path):
+    """用户档案按 scope 存储，漏迁移会让档案在换作用域后失联（#373）。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    await _make_profiles(conn)
+    await conn.execute(
+        "INSERT INTO memory_profiles (scope, persona_id) VALUES (?, ?)",
+        (OLD_PRIVATE, "p1"),
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        plan = await migrator.plan(TARGET)
+        assert plan.profiles == 1
+
+        result = await migrator.execute(plan)
+        assert result.profiles == 1
+
+        cursor = await conn.execute("SELECT scope, persona_id FROM memory_profiles")
+        assert await cursor.fetchall() == [(TARGET, "p1")]
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_profile_conflicts_are_skipped_instead_of_failing(tmp_path):
+    """目标作用域已有同一人格的档案时跳过该行，避免唯一约束让整次迁移失败。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    await _make_profiles(conn)
+    await conn.execute(
+        "INSERT INTO memory_profiles (scope, persona_id) VALUES (?, ?)",
+        (OLD_PRIVATE, "p1"),
+    )
+    await conn.execute(
+        "INSERT INTO memory_profiles (scope, persona_id) VALUES (?, ?)",
+        (TARGET, "p1"),
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        result = await migrator.execute(await migrator.plan(TARGET))
+
+        assert result.profiles == 0
+        # 冲突行留在原作用域，由 remaining 如实上报
+        assert result.remaining == 1
+        cursor = await conn.execute(
+            "SELECT scope FROM memory_profiles WHERE persona_id = 'p1' ORDER BY scope"
+        )
+        assert [row[0] for row in await cursor.fetchall()] == sorted(
+            [OLD_PRIVATE, TARGET]
+        )
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_vector_documents_are_migrated(tmp_path):
+    """图向量文档在独立库里，检索按 metadata.session_id 过滤，必须同步迁移。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    graph_path = tmp_path / "graph_docs.db"
+    graph_conn = await aiosqlite.connect(graph_path)
+    await graph_conn.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+    )
+    await graph_conn.execute(
+        "INSERT INTO documents (id, text, metadata) VALUES (1, 'x', ?)",
+        (json.dumps({"session_id": OLD_PRIVATE, "source_memory_id": 1}),),
+    )
+    await graph_conn.commit()
+    await graph_conn.close()
+    try:
+        migrator = ScopeMigrator(conn, graph_doc_path=graph_path)
+        breakdown = await migrator.survey()
+        assert breakdown.graph_vectors == {OLD_PRIVATE: 1}
+
+        plan = await migrator.plan(TARGET)
+        assert plan.graph_vectors == 1
+        assert plan.total == 2
+
+        result = await migrator.execute(plan)
+        assert result.graph_vectors == 1
+
+        verify = await aiosqlite.connect(graph_path)
+        try:
+            cursor = await verify.execute("SELECT metadata FROM documents")
+            (raw,) = await cursor.fetchone()
+        finally:
+            await verify.close()
+        metadata = json.loads(raw)
+        assert metadata["session_id"] == TARGET
+        assert metadata["old_session_id"] == OLD_PRIVATE
+        assert metadata["source_memory_id"] == 1
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_graph_document_db_is_reported_not_fatal(tmp_path):
+    """图记忆关闭（或文件缺失）时照常迁移主库，只把缺失情况列出来。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    try:
+        migrator = ScopeMigrator(conn, graph_doc_path=tmp_path / "missing.db")
+        breakdown = await migrator.survey()
+        assert breakdown.graph_vectors == {}
+        assert "graph vector documents" in breakdown.missing_tables
+
+        result = await migrator.execute(await migrator.plan(TARGET))
+        assert result.graph_vectors == 0
+        assert result.documents == 1
     finally:
         await conn.close()
