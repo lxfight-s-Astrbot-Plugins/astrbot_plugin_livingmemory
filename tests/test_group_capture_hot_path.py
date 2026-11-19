@@ -317,3 +317,45 @@ async def test_manager_handles_legacy_int_store_add_message(tmp_path):
         assert manager.pop_recent_message_count("s1") is None
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_warm_cache_normalizes_structured_content_like_sqlite(tmp_path):
+    store = ConversationStore(str(tmp_path / "structured-cache.db"))
+    await store.initialize()
+    manager = ConversationManager(store=store)
+    try:
+        await manager.add_message("s1", "user", "warmup", timestamp=100.0)
+        # Warm cache before inserting structured list content.
+        assert [m.content for m in await manager.get_messages("s1", limit=10)] == [
+            "warmup"
+        ]
+
+        structured_text = [
+            {"type": "text", "text": "图片里的日程是下午三点"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+        ]
+        structured_media_only = [
+            {"type": "image_url", "image_url": {"url": "https://example.com/b.png"}},
+        ]
+        written_text = await manager.add_message(
+            "s1", "user", structured_text, timestamp=101.0
+        )
+        written_media = await manager.add_message(
+            "s1", "user", structured_media_only, timestamp=102.0
+        )
+        assert written_text.content == "图片里的日程是下午三点"
+        assert written_media.content == "[图片消息]"
+
+        cached_messages = await manager.get_messages("s1", limit=10, use_cache=True)
+        sqlite_messages = await manager.get_messages("s1", limit=10, use_cache=False)
+        assert [m.content for m in cached_messages] == [
+            "warmup",
+            "图片里的日程是下午三点",
+            "[图片消息]",
+        ]
+        assert [m.content for m in cached_messages] == [
+            m.content for m in sqlite_messages
+        ]
+    finally:
+        await store.close()

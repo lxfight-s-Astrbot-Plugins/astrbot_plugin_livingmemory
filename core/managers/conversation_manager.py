@@ -299,12 +299,12 @@ class ConversationManager:
             if math.isfinite(provided_timestamp) and provided_timestamp > 0:
                 message_timestamp = provided_timestamp
 
-        # 创建消息对象
+        # 创建消息对象（规范化内容，确保写后缓存表示与 SQLite 读回一致）
         message = Message(
             id=0,  # 将由数据库分配
             session_id=session_id,
             role=role,
-            content=content,
+            content=Message.content_to_text(content),
             sender_id=sender_id,
             sender_name=sender_name,
             group_id=group_id,
