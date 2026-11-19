@@ -11,11 +11,7 @@ from astrbot_plugin_livingmemory.core.command_handler import CommandHandler
 from astrbot_plugin_livingmemory.core.managers.graph_memory_manager import (
     GraphMemoryManager,
 )
-from astrbot_plugin_livingmemory.core.models.graph_models import GraphEntry, GraphNode
-from astrbot_plugin_livingmemory.core.processors.graph_extractor import (
-    GraphMemoryExtractor,
-)
-from astrbot_plugin_livingmemory.core.processors.text_processor import TextProcessor
+from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
 from astrbot_plugin_livingmemory.core.retrieval.graph_vector_retriever import (
     GraphVectorRetriever,
 )
@@ -47,17 +43,20 @@ class _CompatGraphFaissDB:
         self.document_storage.next_id += 1
         self.document_storage.docs[doc_id] = {
             "id": doc_id,
+            "doc_id": f"uuid-{doc_id}",
             "text": content,
             "metadata": dict(metadata),
         }
         return doc_id
 
-    async def delete(self, metadata_filters=None, ids=None):
+    async def delete(self, doc_id: str):
+        for key, doc in list(self.document_storage.docs.items()):
+            if doc["doc_id"] == doc_id:
+                del self.document_storage.docs[key]
+
+    async def delete_documents(self, metadata_filters=None):
         if metadata_filters:
             self.deleted_filters.append(dict(metadata_filters))
-        if ids is not None:
-            for doc_id in ids:
-                self.document_storage.docs.pop(int(doc_id), None)
 
 
 class _DummyEvent:
@@ -74,30 +73,22 @@ async def _seed_graph_with_orphans(tmp_path: Path):
     retriever = GraphVectorRetriever(faiss_db)
     manager = GraphMemoryManager(
         graph_store=graph_store,
-        graph_extractor=GraphMemoryExtractor(),
         graph_vector_retriever=retriever,
-        text_processor=TextProcessor(tokenizer="builtin"),
+        graph_extractor=GraphExtractor(),
     )
 
-    live_vec_id = await faiss_db.insert("live", {"source_memory_id": 1})
+    indexed = await manager.index_memory(
+        1,
+        "Alice likes tea",
+        {"session_id": "s1", "participants": ["Alice"], "topics": ["tea"]},
+    )
+    assert indexed is True
+    live_ids = await graph_store.list_vector_doc_ids()
+    assert len(live_ids) == 1
+    live_vec_id = live_ids[0]
+
     orphan_a = await faiss_db.insert("orphan-a", {"source_memory_id": 99})
     orphan_b = await faiss_db.insert("orphan-b", {"source_memory_id": 100})
-
-    node = GraphNode(
-        node_key="person:alice",
-        node_type="person",
-        node_value="Alice",
-        canonical_value="alice",
-    )
-    entry = GraphEntry(
-        entry_key="fact:1:alice",
-        source_memory_id=1,
-        entry_type="fact",
-        content="Alice likes tea",
-        metadata={"source_memory_id": 1},
-        vector_doc_id=live_vec_id,
-    )
-    await graph_store.replace_memory_graph(1, [node], [], [entry])
     return manager, graph_store, faiss_db, live_vec_id, [orphan_a, orphan_b]
 
 
