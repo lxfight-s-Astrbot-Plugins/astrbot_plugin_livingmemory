@@ -64,7 +64,7 @@ def setup_bundle():
         side_effect=_update_session_metadata
     )
     conversation_manager.get_summary_window = AsyncMock(
-        return_value=(0, conversation_manager.get_messages_range.return_value)
+        return_value=(0, conversation_manager.get_messages_range.return_value, 0)
     )
 
     async def _commit_cursor(session_id, last_message, expected_revision):

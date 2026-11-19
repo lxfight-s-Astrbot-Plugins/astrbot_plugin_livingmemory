@@ -276,7 +276,7 @@ async def test_group_summary_is_written_to_channel_scope(tmp_path: Path):
         )
     _configure_processor(handler)
     plan = await handler._memory_reflection._build_reflection_window(
-        event, session_id, 4, 0, None, None
+        event, session_id, 4, None
     )
     assert plan is not None
     assert plan.memory_scope == CHANNEL
@@ -310,7 +310,7 @@ async def test_private_summary_stays_in_private_scope(tmp_path: Path):
         )
     _configure_processor(handler)
     plan = await handler._memory_reflection._build_reflection_window(
-        event, session_id, 4, 0, None, None
+        event, session_id, 4, None
     )
     assert plan is not None
     assert plan.memory_scope == session_id

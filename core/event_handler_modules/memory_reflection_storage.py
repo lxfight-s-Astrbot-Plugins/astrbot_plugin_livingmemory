@@ -9,6 +9,7 @@ from astrbot.api import logger
 from ..base.exceptions import LowQualityMemoryError, MemoryParseError
 from ..memory_scope import channel_scope_parts, is_channel_scope
 from ..memory_source import serialize_source_messages
+from ..models.conversation_models import Message
 
 _DEFAULT_MEMORY_SCOPE = object()
 
@@ -250,7 +251,7 @@ class MemoryReflectionStorageMixin:
     async def _storage_task(
         self,
         session_id: str,
-        history_messages: list[dict],
+        history_messages: list[Message],
         persona_id: str,
         start_index: int,
         end_index: int,
@@ -322,8 +323,7 @@ class MemoryReflectionStorageMixin:
                     logger.error(f"[{session_id}] MemoryProcessor 未初始化，记录待重试")
                     await self._record_pending_summary(
                         session_id,
-                        start_index,
-                        end_index,
+                        history_messages[-1],
                         retry_count,
                         expected_revision,
                     )
@@ -383,8 +383,7 @@ class MemoryReflectionStorageMixin:
                     )
                     await self._record_pending_summary(
                         session_id,
-                        start_index,
-                        end_index,
+                        history_messages[-1],
                         retry_count,
                         expected_revision,
                     )
@@ -397,8 +396,7 @@ class MemoryReflectionStorageMixin:
                     )
                     await self._record_pending_summary(
                         session_id,
-                        start_index,
-                        end_index,
+                        history_messages[-1],
                         retry_count,
                         expected_revision,
                     )
@@ -479,8 +477,7 @@ class MemoryReflectionStorageMixin:
                 logger.error(f"[{session_id}] 存储记忆失败: {e}", exc_info=True)
                 await self._record_pending_summary(
                     session_id,
-                    start_index,
-                    end_index,
+                    history_messages[-1],
                     retry_count,
                     expected_revision,
                 )
@@ -489,38 +486,21 @@ class MemoryReflectionStorageMixin:
     async def _record_pending_summary(
         self,
         session_id: str,
-        start_index: int,
-        end_index: int,
+        last_message: Message,
         current_retry_count: int,
         expected_revision: int | None = None,
-    ):
-        """记录待处理的失败总结信息（回滚后不得复活旧范围）。"""
-        if not self.conversation_manager:
-            return
-
-        new_retry_count = current_retry_count + 1
-        pending_summary = {
-            "start_index": start_index,
-            "end_index": end_index,
-            "retry_count": new_retry_count,
-        }
-
-        committed = await self._commit_session_metadata(
-            session_id, "pending_summary", pending_summary, expected_revision
+    ) -> None:
+        """Record a failed summary using its last message to account for head trims."""
+        committed = await self.conversation_manager.commit_summary_cursor(
+            session_id,
+            last_message,
+            expected_revision,
+            retry_count=current_retry_count + 1,
         )
         if not committed:
-            # 会话已被回滚/清空：该范围的消息已不存在，记录待重试会造成
-            # 下一次触发按旧范围总结已撤销内容
             logger.info(
-                f"[{session_id}] 会话已回滚（修订号变化），跳过记录待重试总结 "
-                f"范围=[{start_index}:{end_index}]"
+                f"[{session_id}] Session revised before recording summary retry"
             )
-            return
-
-        logger.warning(
-            f"[{session_id}] 记录待重试总结: 范围=[{start_index}:{end_index}], "
-            f"重试次数={new_retry_count}/3"
-        )
 
     def _on_storage_task_done(self, task: asyncio.Task, session_id: str):
         """存储任务完成回调"""

@@ -192,8 +192,8 @@ async def test_partial_summary_commits_its_message_anchor_after_head_trim(
 
 
 @pytest.mark.asyncio
-async def test_exhausted_retry_range_is_abandoned_without_storing(bundle):
-    """待重试范围达到 3 次后放弃：跳过该范围，不写入记忆。"""
+async def test_stale_retry_range_does_not_skip_the_unsummarized_prefix(bundle):
+    """历史待重试偏移与游标不一致时，从未总结的最早消息开始。"""
     handler, manager, store, engine, db = bundle
     sid = "test:group:pending-range"
     await _seed(manager, sid, 10)
@@ -207,8 +207,7 @@ async def test_exhausted_retry_range_is_abandoned_without_storing(bundle):
     await _settle(handler)
     await handler.shutdown()
 
-    assert (await engine.get_statistics())["total_memories"] == 0
-    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 4
+    assert await _windows(engine) == [(0, 4), (4, 8), (8, 11)]
 
 
 @pytest.mark.asyncio

@@ -125,7 +125,7 @@ async def _windows(engine) -> list[tuple[int, int]]:
             import json
 
             metadata = json.loads(metadata)
-        window = (metadata.get("source_window") or {})
+        window = metadata.get("source_window") or {}
         windows.append((window.get("start_index"), window.get("end_index")))
     return sorted(windows)
 
@@ -272,6 +272,76 @@ async def test_failed_summary_is_retried_instead_of_stored(tmp_path, error):
         await close_handler(handler, manager, store, engine, db)
 
 
+@pytest.mark.asyncio
+async def test_failed_summary_retries_and_skips_only_the_original_window(tmp_path):
+    provider = SummaryProvider(error=LowQualityMemoryError("summary rejected"))
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path, llm_provider=provider, host=HostContext()
+    )
+    try:
+        await _seed(
+            manager, GROUP_SESSION, [_day(25, 20, minute) for minute in range(4)]
+        )
+        await handler.handle_memory_reflection(_Event(), _resp())
+        await _settle(handler)
+
+        await _seed(
+            manager, GROUP_SESSION, [_day(25, 20, minute) for minute in range(4, 8)]
+        )
+        for retry_count in (2, 3):
+            await handler.handle_memory_reflection(_Event(), _resp())
+            await _settle(handler)
+            assert await manager.get_session_metadata(
+                GROUP_SESSION, "pending_summary", None
+            ) == {"start_index": 0, "end_index": 4, "retry_count": retry_count}
+
+        await handler.handle_memory_reflection(_Event(), _resp())
+        await _settle(handler)
+
+        assert provider.calls == 3
+        assert (
+            await manager.get_session_metadata(
+                GROUP_SESSION, "last_summarized_index", 0
+            )
+            == 4
+        )
+        assert (
+            await manager.get_session_metadata(GROUP_SESSION, "pending_summary", None)
+            is None
+        )
+    finally:
+        await close_handler(handler, manager, store, engine, db)
+
+
+@pytest.mark.asyncio
+async def test_failed_summary_records_retained_window_after_head_trim(tmp_path):
+    gate = asyncio.Event()
+    provider = SummaryProvider(
+        gate=gate, error=LowQualityMemoryError("summary rejected")
+    )
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path, llm_provider=provider, host=HostContext()
+    )
+    try:
+        await _seed(
+            manager, GROUP_SESSION, [_day(25, 20, minute) for minute in range(4)]
+        )
+        await handler.handle_memory_reflection(_Event(), _resp())
+        async with asyncio.timeout(3):
+            while provider.calls == 0:
+                await asyncio.sleep(0.01)
+
+        await manager.trim_session_messages(GROUP_SESSION, 2, delete_unsummarized=True)
+        gate.set()
+        await _settle(handler)
+
+        assert await manager.get_session_metadata(
+            GROUP_SESSION, "pending_summary", None
+        ) == {"start_index": 0, "end_index": 2, "retry_count": 1}
+    finally:
+        await close_handler(handler, manager, store, engine, db)
+
+
 async def _seed_old_round(manager, session_id: str, gap_minutes: float) -> None:
     old = time.time() - gap_minutes * 60
     await manager.add_message(
@@ -364,7 +434,10 @@ async def test_reflection_concurrency_is_capped(tmp_path):
             )
 
         await asyncio.gather(
-            *(handler.handle_memory_reflection(_Event(umo=s), _resp()) for s in sessions)
+            *(
+                handler.handle_memory_reflection(_Event(umo=s), _resp())
+                for s in sessions
+            )
         )
         await _settle(handler)
         await handler.shutdown()
