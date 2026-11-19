@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from astrbot.api import logger
+
 from ..memory_scope import normalize_memory_scopes
 from .vector_retriever import delete_faiss_documents_by_ids
 from .vector_search import retrieve_vectors
@@ -202,10 +204,71 @@ class GraphVectorRetriever:
         for vector_doc_id in vector_doc_ids:
             await self.delete_entry(vector_doc_id)
 
+    async def list_all_document_ids(self) -> list[int]:
+        """Return every numeric document id currently stored in the vector DB."""
+        document_storage = getattr(self.faiss_db, "document_storage", None)
+        if document_storage is None:
+            return []
+        get_session = getattr(document_storage, "get_session", None)
+        if callable(get_session):
+            from sqlalchemy import text
+
+            async with get_session() as session:
+                rows = (
+                    await session.execute(
+                        text("SELECT id FROM documents ORDER BY id ASC")
+                    )
+                ).all()
+            return [int(row[0]) for row in rows if row[0] is not None]
+        get_documents = getattr(document_storage, "get_documents", None)
+        if callable(get_documents):
+            docs = await get_documents(metadata_filters={}, limit=None)
+            return [int(doc["id"]) for doc in docs if doc.get("id") is not None]
+        return []
+
+    async def delete_entries_by_ids(
+        self,
+        vector_doc_ids: list[int],
+        *,
+        missing_ok: bool = False,
+    ) -> int:
+        """Delete explicit vector document IDs and return actual deleted count."""
+        unique_ids = list(dict.fromkeys(int(doc_id) for doc_id in vector_doc_ids))
+        if not unique_ids:
+            return 0
+
+        deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, unique_ids)
+        if deleted_ids is not None:
+            if len(deleted_ids) != len(unique_ids):
+                missing = sorted(set(unique_ids) - set(deleted_ids))
+                if not missing_ok:
+                    raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+                logger.debug(
+                    f"[GraphVector] 批量删除跳过已不存在的文档 ID: {missing[:10]}"
+                )
+            return len(deleted_ids)
+
+        deleted_count = 0
+        missing: list[int] = []
+        for vector_doc_id in unique_ids:
+            if await self.delete_entry(vector_doc_id):
+                deleted_count += 1
+            else:
+                missing.append(vector_doc_id)
+        if missing and not missing_ok:
+            raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+        if missing:
+            logger.debug(
+                f"[GraphVector] 兼容路径删除跳过已不存在的文档 ID: {missing[:10]}"
+            )
+        return deleted_count
+
     async def delete_entries_batch(
         self,
         entries_by_source: dict[int, list[int]],
-    ) -> None:
+        *,
+        missing_ok: bool = False,
+    ) -> int:
         """Delete several source memories with one FAISS save when supported."""
         vector_doc_ids = [
             vector_doc_id
@@ -213,17 +276,29 @@ class GraphVectorRetriever:
             for vector_doc_id in source_ids
         ]
         if not vector_doc_ids:
-            return
+            return 0
 
         deleted_ids = await delete_faiss_documents_by_ids(self.faiss_db, vector_doc_ids)
         if deleted_ids is not None:
             if len(deleted_ids) != len(set(vector_doc_ids)):
                 missing = sorted(set(vector_doc_ids) - set(deleted_ids))
-                raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
-            return
+                if not missing_ok:
+                    raise RuntimeError(f"批量图向量删除未找到文档: {missing}")
+                logger.debug(
+                    f"[GraphVector] 批量删除跳过已不存在的文档 ID: {missing[:10]}"
+                )
+            return len(deleted_ids)
 
+        deleted_count = 0
         for source_memory_id, source_ids in entries_by_source.items():
-            await self.delete_entries(source_memory_id, source_ids)
+            if int(source_memory_id) <= 0:
+                deleted_count += await self.delete_entries_by_ids(
+                    source_ids, missing_ok=missing_ok
+                )
+            else:
+                await self.delete_entries(source_memory_id, source_ids)
+                deleted_count += len(set(source_ids))
+        return deleted_count
 
     async def update_metadata(
         self, vector_doc_id: int, metadata: dict[str, Any]
