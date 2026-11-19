@@ -1,5 +1,18 @@
 # 版本与升级
 
+## 2.14.1 · 2026-11-19
+
+2.14.1 修复图谱人物统计、记忆召回和索引维护的问题。[下载 2.14.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.1)
+
+### 本次更新
+
+- 图谱和人物统计排除标记为 `is_bot` 的参与者，记忆注入仍将机器人显示为「我」。([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472))
+- 修复仅通过关键词和图谱扩展命中的记忆被误滤的问题，修正上下文扩展顺序，统一中文 BM25 分词和双路评分，并改进记忆原子分类与图谱重建。保存 Dashboard 设置后会刷新运行时配置，本版也改善了读连接并发、归档记忆衰减和备份清理。([#471](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/471))
+
+### 安装与升级
+
+更新 LivingMemory 后重载插件。如果旧图谱里已经有机器人节点，请由管理员执行一次 `/lmem rebuild-graph` 重新生成图谱索引。
+
 ## 2.14.0 · 2026-11-17
 
 2.14.0 是记忆质量、跨端作用域与 Dashboard 3D 星图升级版本：修正原子分类、总结解析回退、图入口二字组 FTS 与被动注入访问强化，新增群聊记忆黑名单、用户模式跨平台共享、私密记忆可见性提示与 Embedding Provider 动态重解析，并将 3D 知识图谱升级为多形态天体星系与深空天文台 HUD 界面、重做设置页为按需加载的分类导航工作台。公开命令与数据库结构兼容，无需手动迁移。

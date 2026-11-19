@@ -1,5 +1,18 @@
 # Releases and Upgrades
 
+## 2.14.1 · November 19, 2026
+
+2.14.1 fixes issues in graph person counts, memory recall, and index maintenance. [Download 2.14.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.1)
+
+### What changed
+
+- The graph and its person counts exclude participants marked `is_bot`. Injected memories still refer to the bot in the first person. ([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472))
+- The release preserves keyword-only and graph-expansion-only recall hits, fixes context ordering, aligns Chinese BM25 tokenization and dual-route scoring, and improves atom classification and graph rebuilds. Saving Dashboard settings refreshes runtime configuration. The release also improves read connection concurrency, archived-memory decay, and backup pruning. ([#471](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/471))
+
+### Installing and upgrading
+
+Reload LivingMemory after updating. If the existing graph contains bot person nodes, an administrator can run `/lmem rebuild-graph` to regenerate the graph index.
+
 ## 2.14.0 · November 17, 2026
 
 2.14.0 upgrades memory quality, cross-adapter scoping, and the dashboard 3D galaxy view: it fixes atom classification, summary-parse regex fallback, graph-entry CJK bigram FTS, and passive-injection access inflation; adds a group memory blacklist, platform-independent user scoping, private-memory visibility notices, and live Embedding Provider resolution; and upgrades the 3D knowledge graph into multi-morphology astronomical galaxies with a deep-space observatory HUD alongside an on-demand categorized Settings workspace. Public commands and database schema remain compatible, with no manual migration required.
