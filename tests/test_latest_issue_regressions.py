@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from astrbot_plugin_livingmemory.core.models.memory_atom import MemoryAtom
 from astrbot_plugin_livingmemory.core.processors.graph_extractor import GraphExtractor
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
@@ -11,10 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pages" / "dashboard"
 
 
-def _identity(display_name: str, *, is_bot: bool = False) -> dict:
+def _identity(
+    display_name: str, *, sender_id: str = "10001", is_bot: bool = False
+) -> dict:
     return {
-        "identity_key": "aiocqhttp:10001",
-        "sender_id": "10001",
+        "identity_key": f"aiocqhttp:{sender_id}",
+        "sender_id": sender_id,
         "platform": "aiocqhttp",
         "display_name": display_name,
         "aliases": [display_name],
@@ -67,6 +71,34 @@ def test_atom_graph_uses_stable_person_nodes_instead_of_name_topics() -> None:
         for node in graph.nodes
     )
     assert any(edge.relation_type == "mentioned_in" for edge in graph.edges)
+
+
+@pytest.mark.parametrize("use_atoms", [False, True], ids=["legacy", "atoms"])
+@pytest.mark.parametrize("has_user", [True, False], ids=["user-and-bot", "bot-only"])
+def test_graph_excludes_bot_participants(use_atoms: bool, has_user: bool) -> None:
+    content = "确认周五发布"
+    metadata = {
+        "participants": ["小助手"],
+        "participant_identities": [
+            _identity("小助手", sender_id="8888", is_bot=True),
+        ],
+    }
+    if has_user:
+        metadata["participants"].append("寒露")
+        metadata["participant_identities"].append(_identity("寒露"))
+    atom = MemoryAtom(
+        parent_memory_id=1,
+        content=content,
+        entities=["发布计划", *metadata["participants"]],
+    )
+
+    graph = GraphExtractor().extract(1, content, metadata, [atom] if use_atoms else None)
+
+    assert [node.node_key for node in graph.nodes if node.node_type == "person"] == (
+        ["person:account:aiocqhttp:10001"] if has_user else []
+    )
+    assert all(node.value != "小助手" for node in graph.nodes)
+    assert metadata["participant_identities"][0]["is_bot"] is True
 
 
 def test_participant_identity_keeps_alias_history_and_latest_display_name() -> None:
