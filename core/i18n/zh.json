@@ -90,6 +90,11 @@
     "compact": {
       "starting": "开始压缩数据库（VACUUM），大库可能耗时，请稍候...",
       "done": "压缩完成 (compact): 数据库 {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 释放 {reclaimed} MB"
+    },
+    "orphans": {
+      "disabled": "图谱记忆未启用，无法预览孤儿图向量。",
+      "rebuild_active": "图谱重建正在进行中，请等待重建完成后再执行孤儿图向量预览。",
+      "preview": "孤儿图向量预览 (只读，不删除): 向量库文档={stored}, graph_entries 引用={referenced}, 候选孤儿={orphans}, 样例 ID=[{samples}]"
     }
   },
   "search": {
