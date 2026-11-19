@@ -170,7 +170,7 @@ Summary windows are still triggered by unsummarized rounds, but they no longer m
 
 Retained source is written only to the SQLite `memory_sources` table, not to vector, BM25, graph, or atom indexes, so it does not increase vector count. It does increase database disk usage. Re-summarizing from Dashboard calls the LLM once, replaces the old memory, and regenerates its embedding and all derived indexes.
 
-Each input contains at most `max_messages_per_segment` messages; earlier day/idle boundaries still split first. The same task continues up to `max_segments_per_run`. Retries start at the retained unsummarized cursor; abandoning a repeatedly failed segment skips only that segment. Reflection-triggered consolidation is scheduled after backlog processing, and its persistence shares a lock with reflection while LLM inference remains concurrent.
+Each input contains at most `max_messages_per_segment` messages, with earlier day or idle boundaries taking precedence. The same task continues up to `max_segments_per_run`. A retry uses the retained messages from the original segment. Later messages wait for the next segment. Reaching the retry limit skips only the failed segment. Reflection-triggered consolidation is scheduled after backlog processing, and its persistence shares a lock with reflection while LLM inference remains concurrent.
 
 
 ## Agent tools

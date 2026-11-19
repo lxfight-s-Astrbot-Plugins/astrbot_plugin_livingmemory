@@ -723,24 +723,33 @@ class ConversationManager:
 
     async def get_summary_window(
         self, session_id: str, limit: int
-    ) -> tuple[int, list[Message]]:
+    ) -> tuple[int, list[Message], int]:
         """Read a cursor and its bounded snapshot without an intervening head trim."""
         async with self._session_lock(session_id):
             session = await self.store.get_session(session_id)
             metadata = session.metadata
             start = int(metadata.get("last_summarized_index", 0) or 0)
             pending = metadata.get("pending_summary")
-            if pending:
-                start = min(start, int(pending.get("start_index", start)))
+            retry_count = 0
+            # A retry belongs to the current cursor. An older offset can be
+            # stale after trimming while a summary was in flight.
+            if pending and int(pending["start_index"]) == start:
+                limit = int(pending["end_index"]) - start
+                retry_count = int(pending["retry_count"])
             messages = await self.store.get_messages_range(
                 session_id, offset=start, limit=limit
             )
-            return start, messages
+            return start, messages, retry_count
 
     async def commit_summary_cursor(
-        self, session_id: str, last_message: Message, expected_revision: int | None
+        self,
+        session_id: str,
+        last_message: Message,
+        expected_revision: int | None,
+        *,
+        retry_count: int = 0,
     ) -> bool:
-        """Atomically locate a completed snapshot in the retained history."""
+        """Commit or record a retry for a snapshot in the retained history."""
         async with self._session_lock(session_id):
             if (
                 expected_revision is not None
@@ -748,9 +757,13 @@ class ConversationManager:
             ):
                 return False
             await self.store.commit_summary_cursor(
-                session_id, last_message.timestamp, last_message.id
+                session_id,
+                last_message.timestamp,
+                last_message.id,
+                retry_count=retry_count,
             )
-            await self.invalidate_cache(session_id)
+            if not retry_count:
+                await self.invalidate_cache(session_id)
             return True
 
     async def trim_session_messages(

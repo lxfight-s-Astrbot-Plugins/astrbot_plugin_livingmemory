@@ -456,9 +456,14 @@ class ConversationStore:
         return int(row["count"])
 
     async def commit_summary_cursor(
-        self, session_id: str, timestamp: float, message_id: int
+        self,
+        session_id: str,
+        timestamp: float,
+        message_id: int,
+        *,
+        retry_count: int = 0,
     ) -> None:
-        """Commit a completed snapshot by its stable last-message position."""
+        """Commit or record a retry by the snapshot's stable last-message position."""
         async with self._write_lock:
             row = await (
                 await self.connection.execute(
@@ -469,10 +474,17 @@ class ConversationStore:
                 )
             ).fetchone()
             metadata = json.loads(row[0] or "{}")
-            metadata["last_summarized_index"] = max(
-                int(metadata.get("last_summarized_index", 0) or 0), int(row[1])
-            )
             metadata["pending_summary"] = None
+            cursor = int(metadata.get("last_summarized_index", 0) or 0)
+            end = int(row[1])
+            if not retry_count:
+                metadata["last_summarized_index"] = max(cursor, end)
+            elif end - cursor >= 2:
+                metadata["pending_summary"] = {
+                    "start_index": cursor,
+                    "end_index": end,
+                    "retry_count": retry_count,
+                }
             try:
                 await self.connection.execute(
                     "UPDATE sessions SET metadata = ? WHERE session_id = ?",
