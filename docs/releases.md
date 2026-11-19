@@ -1,5 +1,18 @@
 # 版本与升级
 
+## 2.14.2 · 2026-11-19
+
+2.14.2 修复记忆总结误判和重试窗口扩大。 [下载 2.14.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.2)
+
+### 本次更新
+
+- 质量检查识别原对话中的昵称，允许「圣某人」这类包含泛称字样的昵称和 `"0.7"` 这样的字符串评分。总结被拒绝时，日志会显示具体原因。
+- 重试使用原片段范围，后续消息留给新的总结窗口。达到重试上限时，游标只跳过失败片段。 [#478](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/478)
+
+### 安装与升级
+
+更新到 2.14.2 后重载 LivingMemory。后续总结和待重试片段会应用新版规则。
+
 ## 2.14.1 · 2026-11-19
 
 2.14.1 修复图谱人物统计、记忆召回和索引维护的问题。[下载 2.14.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.1)

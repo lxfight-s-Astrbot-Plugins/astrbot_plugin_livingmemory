@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.14.1 稳定版
+      text: 2.14.2 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.14.1 已发布
+## 2.14.2 已发布
 
-2.14.1 修复机器人被计入图谱人物的问题，并改进记忆召回、原子分类和索引维护。下载与升级步骤见[版本与升级](/releases)。
+2.14.2 修复昵称被误判导致记忆总结失败的问题，并让重试沿用原片段范围。下载与升级步骤见[版本与升级](/releases)。
 
 ## 这份文档适合谁？
 
