@@ -84,12 +84,12 @@
     "storage": "存储占用 (storage): 数据库={db_size} MB, WAL={wal_size} MB, 数据目录={data_dir} MB",
     "backups": "备份 (backups): 文件={count}, 大小={size} MB, 最近={latest}",
     "last_decay": "上次衰减 (last_decay): {last_decay}",
-    "hint": "提示: /lmem diag compact 可对三库执行 VACUUM 压缩并将旧库转为不可自动回退的 INCREMENTAL 模式（大库耗时，期间避免写入）",
+    "hint": "提示: /lmem diag compact 可执行 VACUUM 压缩数据库（大库耗时，期间避免写入）",
     "action_name": "数据体检",
     "collecting": "正在收集数据体检信息...",
     "compact": {
-      "starting": "开始压缩数据库（VACUUM，并将三库转为不可逆的 auto_vacuum=INCREMENTAL 模式），大库可能耗时，请稍候...",
-      "done": "压缩完成 (compact，已启用增量 auto_vacuum=2 不可逆转换): 数据库 {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 释放 {reclaimed} MB"
+      "starting": "开始压缩数据库（VACUUM），大库可能耗时，请稍候...",
+      "done": "压缩完成 (compact): 数据库 {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 释放 {reclaimed} MB"
     }
   },
   "search": {

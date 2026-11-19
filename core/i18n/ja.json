@@ -84,12 +84,12 @@
     "storage": "ストレージ (storage): データベース={db_size} MB, WAL={wal_size} MB, データディレクトリ={data_dir} MB",
     "backups": "バックアップ (backups): ファイル={count}, サイズ={size} MB, 最新={latest}",
     "last_decay": "前回の減衰 (last_decay): {last_decay}",
-    "hint": "ヒント: /lmem diag compact で3つのDBに対して VACUUM を実行し、不可逆な auto_vacuum=INCREMENTAL へ変換できます（大規模データでは時間がかかり、実行中は書き込みを避けてください）",
+    "hint": "ヒント: /lmem diag compact で VACUUM を実行してデータベースを圧縮できます（大規模データでは時間がかかり、実行中は書き込みを避けてください）",
     "action_name": "データ診断",
     "collecting": "データ診断情報を収集中...",
     "compact": {
-      "starting": "データベースを圧縮しています (VACUUM、不可逆な auto_vacuum=INCREMENTAL 変換を含む)。大規模データでは時間がかかる場合があります...",
-      "done": "圧縮完了 (compact、auto_vacuum=INCREMENTAL へ不可逆変換済み): データベース {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 解放 {reclaimed} MB"
+      "starting": "データベースを圧縮しています (VACUUM)。大規模データでは時間がかかる場合があります...",
+      "done": "圧縮完了 (compact): データベース {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 解放 {reclaimed} MB"
     }
   },
   "search": {

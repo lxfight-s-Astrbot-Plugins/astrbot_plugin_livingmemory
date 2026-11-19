@@ -423,3 +423,45 @@ async def test_forget_unknown_memory_reports_failure(plugin):
     reply = (await _collect(plugin.forget(_Event(), 9999)))[-1]
 
     assert "失败" in reply or "未找到" in reply
+
+
+@pytest.mark.asyncio
+async def test_boot_upgrade_skips_zero_byte_conversations_db(monkeypatch, tmp_path):
+    (tmp_path / ".plugin_version").write_text("2.12.0", encoding="utf-8")
+    (tmp_path / "conversations.db").write_bytes(b"")
+    (tmp_path / "decay_state.json").write_text('{"ok": true}', encoding="utf-8")
+
+    plugin, _ = await _boot_plugin(monkeypatch, tmp_path)
+    try:
+        backup_dir = tmp_path / "backups" / "v2.12.0"
+        assert backup_dir.is_dir()
+        assert (backup_dir / "decay_state.json").is_file()
+        assert not (backup_dir / "conversations.db").exists()
+        assert (tmp_path / "conversations.db").stat().st_size > 0
+        version = (tmp_path / ".plugin_version").read_text(encoding="utf-8").strip()
+        assert version != "2.12.0"
+    finally:
+        await plugin.terminate()
+
+
+@pytest.mark.asyncio
+async def test_boot_continues_when_version_backup_fails_and_preserves_state(
+    monkeypatch, tmp_path
+):
+    (tmp_path / ".plugin_version").write_text("2.12.0", encoding="utf-8")
+    # Corrupted unused graph DB causes BackupManager transactional backup to abort.
+    (tmp_path / "livingmemory_graph_documents.db").write_bytes(
+        b"corrupted sqlite bytes"
+    )
+    existing_backup = tmp_path / "backups" / "v2.12.0"
+    existing_backup.mkdir(parents=True)
+    (existing_backup / "keep.txt").write_text("prior-backup", encoding="utf-8")
+
+    plugin, _ = await _boot_plugin(monkeypatch, tmp_path)
+    try:
+        version = (tmp_path / ".plugin_version").read_text(encoding="utf-8").strip()
+        assert version == "2.12.0"
+        marker = (existing_backup / "keep.txt").read_text(encoding="utf-8")
+        assert marker == "prior-backup"
+    finally:
+        await plugin.terminate()

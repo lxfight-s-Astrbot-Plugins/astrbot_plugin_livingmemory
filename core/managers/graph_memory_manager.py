@@ -183,42 +183,6 @@ class GraphMemoryManager:
             await self.graph_vector_retriever.delete_entries_batch(memory_vec_map)
             return True
 
-    async def cleanup_orphan_vectors(
-        self, *, batch_size: int = 200, dry_run: bool = False
-    ) -> int:
-        """Reconcile and delete vector documents no longer referenced by graph_entries.
-
-        When ``dry_run`` is True, logs and returns the orphan candidate count
-        without modifying the graph vector store.
-        """
-        async with self._rebuild_gate:
-            if self._rebuild_active:
-                return 0
-            referenced = set(await self.graph_store.list_vector_doc_ids())
-            stored = await self.graph_vector_retriever.list_all_document_ids()
-            orphans = [doc_id for doc_id in stored if doc_id not in referenced]
-            if not orphans:
-                return 0
-            sample_ids = orphans[:5]
-            logger.info(
-                f"[GraphMemory] 检测到 {len(orphans)} 条未被引用的孤儿图向量文档"
-                f"（dry_run={dry_run}, sample={sample_ids}）"
-            )
-            if dry_run:
-                return len(orphans)
-            step = max(1, int(batch_size))
-            removed = 0
-            for start in range(0, len(orphans), step):
-                batch = orphans[start : start + step]
-                removed += await self.graph_vector_retriever.delete_entries_by_ids(
-                    batch, missing_ok=True
-                )
-            if removed:
-                logger.info(
-                    f"[GraphMemory] 已自动清理 {removed} 条未被引用的孤儿图向量文档"
-                )
-            return removed
-
     async def rebuild_memory_batches(
         self,
         memory_batches: AsyncIterable[list[tuple[int, str, dict[str, Any]]]],
@@ -371,7 +335,7 @@ class GraphMemoryManager:
             if old_vector_doc_ids:
                 try:
                     await self.graph_vector_retriever.delete_entries_batch(
-                        old_vector_doc_ids, missing_ok=True
+                        old_vector_doc_ids
                     )
                 except asyncio.CancelledError:
                     raise
@@ -382,12 +346,6 @@ class GraphMemoryManager:
                         "图谱已切换，但旧图向量清理失败；保留新一代索引",
                         exc_info=True,
                     )
-            try:
-                await self.cleanup_orphan_vectors()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.warning("图谱重建后清理历史孤儿图向量失败", exc_info=True)
             return {"rebuilt": rebuilt, "skipped": skipped}
         except BaseException:
             if not switched and new_vector_doc_ids:

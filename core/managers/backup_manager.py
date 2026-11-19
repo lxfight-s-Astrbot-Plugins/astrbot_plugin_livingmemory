@@ -193,6 +193,14 @@ class BackupManager:
     ) -> int:
         """Stage a primary data file into the transaction directory."""
         if file_path.suffix == ".db":
+            wal_path = Path(f"{file_path}-wal")
+            has_wal_data = wal_path.is_file() and wal_path.stat().st_size > 0
+            if file_path.stat().st_size == 0 and not has_wal_data:
+                logger.info(
+                    f"[BackupManager] 跳过未初始化的空数据库文件: {file_path.name}"
+                )
+                compacted_dbs.add(file_path.name)
+                return 0
             try:
                 backup_sqlite_file(file_path, dest)
             except sqlite3.Error as exc:

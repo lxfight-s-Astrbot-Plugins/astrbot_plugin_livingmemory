@@ -5,7 +5,6 @@ LivingMemory 的命令统一使用 `/lmem` 前缀。
 | 命令 | 说明 |
 | --- | --- |
 | `/lmem status` | 查看记忆库统计；索引维护进行中或异常时同时显示状态、进度和消息 |
-| `/lmem diag [compact]` | 查看数据库/图谱/备份诊断信息；传入 `compact` 对主库、图文档库和会话库执行 `VACUUM` 压缩并将历史库转为 `auto_vacuum=INCREMENTAL`（该结构转换不可逆，无法自动退回旧模式） |
 | `/lmem search <query> [k]` | 搜索长期记忆，`k` 默认为 5 |
 | `/lmem forget <id>` | 删除指定记忆 |
 | `/lmem rebuild-index` | 重建或补写文档索引（全量） |
