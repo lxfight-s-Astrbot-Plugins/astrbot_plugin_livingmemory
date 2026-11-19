@@ -41,7 +41,8 @@ class ConversationManager:
     _UNKNOWN_SENDER_NAMES = {
         "",
         "unknown",
-        "Unknown",
+        "unknown_selfid",
+        "unknown_self_id",
         "none",
         "null",
         "n/a",
@@ -377,7 +378,10 @@ class ConversationManager:
         fallback_scope = (
             platform_id or cls._normalize_sender_name(platform) or "unknown"
         )
-        return f"bot:{fallback_scope}", bot_name or "Bot"
+        # Some adapters (qq_official private chats) report an unknown self id and
+        # expose no bot nickname. The configured platform instance id is the most
+        # readable stable identity we can fall back to (it is what logs show).
+        return f"bot:{fallback_scope}", bot_name or platform_id or "Bot"
 
     @classmethod
     def _format_raw_user_name(cls, raw_user, sender_id: str | None) -> str | None:

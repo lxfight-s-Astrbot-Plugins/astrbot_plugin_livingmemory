@@ -121,18 +121,18 @@
     "action_name": "Миграция области",
     "usage": "Использование: /lmem migrate-scope <target> [apply] [source]\n\ntarget:\n• global — глобальная область livingmemory:global\n• session — текущая сессия\n• user — текущий пользователь (общая для ЛС и групп)\n• любая другая строка — используется буквально\n\napply — необязательно (также принимается dry-run): по умолчанию только предпросмотр, добавьте apply для записи.\nsource — необязательно (только после apply), ограничивает миграцию исходной областью; all / * / - означают все источники.\n\nПримеры:\n  /lmem migrate-scope global                # предпросмотр массовой миграции\n  /lmem migrate-scope global apply          # выполнить массовую миграцию\n  /lmem migrate-scope global apply <scope>  # только указанный источник",
     "empty_scope": "(пустая область)",
-    "scope_line": "• {scope}: записей {documents} / атомов {atoms} / записей графа {graph_entries}",
-    "survey": "Распределение по областям (записи / атомы / записи графа):\n{scopes}\n\nВсего: {total}",
+    "scope_line": "• {scope}: воспоминания {documents} / атомы {atoms} / графовые записи {graph_entries} / профили {profiles} / графовые векторы {graph_vectors}",
+    "survey": "Текущее распределение по scope (воспоминания / атомы / графовые записи / профили / графовые векторы):\n{scopes}\n\nВсего: {total}",
     "nothing_to_do": "Нечего мигрировать: все записи уже в целевой области {target}.",
     "source_matched_nothing": "В исходной области {source} нет записей для миграции (целевая область {target}).",
     "missing_tables": "Примечание: необязательные таблицы отсутствуют в этой БД и пропущены: {tables}",
     "any_source": "все источники",
     "impact_line": "• {scope}: {count}",
-    "plan": "Предпросмотр миграции (dry-run)\n\nЦелевая область: {target}\nОграничение источника: {source}\n\nБудет затронуто:\n{impact}\n\nВсего {total} (записей {documents} / атомов {atoms} / записей графа {graph_entries})",
+    "plan": "Предпросмотр миграции (dry-run)\n\nЦелевой scope: {target}\nФильтр источника: {source}\n\nБудет затронуто:\n{impact}\n\nВсего {total} (воспоминания {documents} / атомы {atoms} / графовые записи {graph_entries} / профили {profiles} / графовые векторы {graph_vectors})",
     "dry_run_hint": "Это только предпросмотр, данные не изменены.\nДля выполнения: /lmem migrate-scope <target> apply [source]",
-    "done": "Миграция области завершена.\n\nЦелевая область: {target}\nОбновлено: записей {documents} / атомов {atoms} / записей графа {graph_entries} (всего {total})\nРезервная копия БД: {backup}",
+    "done": "Миграция scope завершена.\n\nЦелевой scope: {target}\nОбновлено: воспоминания {documents} / атомы {atoms} / графовые записи {graph_entries} / профили {profiles} / графовые векторы {graph_vectors} (всего {total})\nРезервная копия базы: {backup}",
     "remaining_notice": "Примечание: {remaining} записей всё ещё не в целевой области {target} (возможна параллельная запись); повторите миграцию.",
-    "rebuild_hint": "Записи графа мигрированы в той же транзакции; выполняйте /lmem rebuild-graph только если поиск по графу всё ещё выглядит устаревшим."
+    "rebuild_hint": "Записи графа перенесены вместе с основной базой, метаданные графовых векторов синхронизированы. Если поиск по графу всё ещё неверен, выполните /lmem rebuild-graph."
   },
   "rebuild_graph": {
     "action_name": "Перестроение графовой памяти",

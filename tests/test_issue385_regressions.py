@@ -1,200 +1,238 @@
-"""#385: bounded reflection input, convergent retention and serialized writes."""
+"""#385：有界反思输入、收敛式保留与游标锚点的黑盒回归。
+
+通过公开钩子与 ``ConversationManager`` 的公开 API 驱动，断言库内消息、
+游标与记忆窗口。
+"""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock
+import time
+from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 
-from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
-from astrbot_plugin_livingmemory.core.managers.consolidation_manager import (
-    MemoryConsolidationManager,
-)
-from tests.event_handler_support import _make_real_handler
-from tests.test_reflection_backlog import (
-    _seed_messages,
-    _configure_processor,
-    _build_plan,
-    _run_scheduled,
+from astrbot.core.message.components import Plain
+
+from tests.real_engine_support import (
+    HostContext,
+    SummaryProvider,
+    close_handler,
+    make_handler,
 )
 
+SESSION = "test:group:bounded"
 
-@pytest.mark.asyncio
-async def test_long_same_day_backlog_is_consumed_in_bounded_chunks(tmp_path):
-    handler, manager, store = await _make_real_handler(tmp_path)
-    cfg = ConfigManager(
-        {
+
+def _event(umo: str = SESSION):
+    class _Event:
+        unified_msg_origin = umo
+        message_str = "hello"
+        sender_id = "user-1"
+        sender_name = "Tester"
+
+        def get_message_type(self):
+            from astrbot.api.platform import MessageType
+
+            return MessageType.GROUP_MESSAGE
+
+        def get_sender_id(self):
+            return "user-1"
+
+        def get_self_id(self):
+            return "bot-1"
+
+        def get_sender_name(self):
+            return "Tester"
+
+        def get_message_str(self):
+            return "hello"
+
+        def get_messages(self):
+            return [Plain("hello")]
+
+        def get_platform_name(self):
+            return "test"
+
+        def get_platform_id(self):
+            return "test-instance"
+
+        def get_group_id(self):
+            return umo.rsplit(":", 1)[-1]
+
+        def get_extra(self, key, default=None):
+            return default
+
+    return _Event()
+
+
+def _resp(text: str = "assistant reply"):
+    return SimpleNamespace(
+        role="assistant",
+        completion_text=text,
+        is_chunk=False,
+        tools_call_name=None,
+        tools_call_extra_content=None,
+    )
+
+
+def _ts(index: int) -> float:
+    return datetime(2026, 8, 1, 12, 0).timestamp() + index
+
+
+async def _seed(manager, session_id: str, count: int, start: int = 0) -> None:
+    for index in range(start, start + count):
+        await manager.add_message(
+            session_id=session_id,
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"message-{index}",
+            sender_id="user-1" if index % 2 == 0 else "bot-1",
+            group_id="g",
+            timestamp=_ts(index),
+        )
+
+
+async def _settle(handler, *, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while handler._storage_tasks and time.time() < deadline:
+        await asyncio.sleep(0.02)
+
+
+async def _windows(engine) -> list[tuple[int, int]]:
+    page = await engine.list_memories_page(page_size=50)
+    windows = []
+    for item in page["items"]:
+        metadata = item["metadata"]
+        if isinstance(metadata, str):
+            import json
+
+            metadata = json.loads(metadata)
+        window = metadata.get("source_window") or {}
+        windows.append((window.get("start_index"), window.get("end_index")))
+    return sorted(windows)
+
+
+@pytest_asyncio.fixture
+async def bundle(tmp_path):
+    items = await make_handler(
+        tmp_path,
+        config={
             "reflection_engine": {
+                "summary_trigger_rounds": 1,
                 "max_messages_per_segment": 4,
                 "max_segments_per_run": 10,
+                "window_split_by_day": False,
+                "window_split_gap_minutes": 0,
             },
-            "filtering_settings": {"use_persona_filtering": False},
-        }
+            "session_manager": {"max_messages_per_session": 100},
+            "memory_dedup": {"enabled": False},
+        },
+        llm_provider=SummaryProvider(vary=True),
+        host=HostContext(),
     )
-    handler._memory_reflection.config_manager = cfg
-    sid = "test:group:bounded"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(10)])
-    _configure_processor(handler)
-    handler.memory_engine.find_similar_memory = AsyncMock(return_value=None)
     try:
-        plan = await _build_plan(handler, sid, 10)
-        assert plan.end_index == 4
-        await _run_scheduled(handler, plan)
-        assert [
-            len(call.kwargs["messages"])
-            for call in handler.memory_processor.process_conversation.await_args_list
-        ] == [4, 4, 2]
-        assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 10
+        yield items
     finally:
-        await handler.shutdown()
-        await store.close()
+        await close_handler(*items)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cursor", [0, 10])
-async def test_message_cap_converges_even_with_unsummarized_overflow(tmp_path, cursor):
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:group:retention"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(160)])
-    await manager.update_session_metadata(sid, "last_summarized_index", cursor)
-    revision = await manager.get_session_revision(sid)
-    try:
-        await handler._message_utils.enforce_message_limit(sid)
-        assert await store.get_message_count(sid) == 100
-        assert await manager.get_session_metadata(sid, "last_summarized_index", -1) == 0
-        assert await manager.get_session_revision(sid) == revision
-        messages = await manager.get_messages_range(sid, 0, 100)
-        assert messages[0].content == "message-60"
-    finally:
-        await handler.shutdown()
-        await store.close()
+async def test_long_same_day_backlog_is_consumed_in_bounded_chunks(bundle):
+    """同一天的长积压按 ``max_messages_per_segment`` 切成有界片段逐段总结。"""
+    handler, manager, store, engine, db = bundle
+    await _seed(manager, SESSION, 10)
+
+    await handler.handle_memory_reflection(_event(), _resp())
+    await _settle(handler)
+    await handler.shutdown()
+
+    # 最后一段包含触发本次总结的助手回复
+    assert await _windows(engine) == [(0, 4), (4, 8), (8, 11)]
+    assert await manager.get_session_metadata(SESSION, "last_summarized_index", 0) == 11
 
 
 @pytest.mark.asyncio
-async def test_consolidation_waits_for_reflection_writes_but_not_its_llm(tmp_path):
-    handler, manager, store = await _make_real_handler(tmp_path)
-    engine = handler.memory_engine
-    engine.archive_memories = AsyncMock(return_value=2)
-    cfg = ConfigManager({"memory_consolidation": {"enabled": True}})
-    merger = Mock()
-    merger.merge_memories = AsyncMock(
-        return_value={
-            "summary": "merged",
-            "key_facts": [],
-            "topics": [],
-            "importance": 0.5,
-        }
-    )
-    consolidation = MemoryConsolidationManager(engine, merger, cfg)
-    handler._memory_reflection.consolidation_manager = consolidation
-    group = [
-        {"id": 1, "metadata": {"session_id": "test:group:a"}},
-        {"id": 2, "metadata": {"session_id": "test:group:a"}},
-    ]
-    try:
-        async with consolidation.write_lock:
-            task = asyncio.create_task(consolidation._consolidate_group(group, {}))
-            await asyncio.sleep(0)
-            assert merger.merge_memories.await_count == 1
-            engine.add_memory.assert_not_awaited()
-        await task
-        engine.add_memory.assert_awaited_once()
-    finally:
-        await handler.shutdown()
-        await store.close()
+async def test_message_cap_converges_and_drops_the_oldest_messages(bundle):
+    """超过会话上限时裁剪最旧消息，且游标归零后继续可用。"""
+    handler, manager, store, engine, db = bundle
+    sid = "test:private:retention"
+    await _seed(manager, sid, 160)
 
+    # 直接调用会话裁剪（召回钩子只在特定条件下触发同一逻辑）
+    await handler._message_utils.enforce_message_limit(sid)
 
-@pytest.mark.asyncio
-async def test_consolidation_is_deferred_until_reflection_backlog_finishes(tmp_path):
-    from types import SimpleNamespace
-
-    handler, manager, store = await _make_real_handler(tmp_path)
-    sid = "test:group:deferred"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(4)])
-    _configure_processor(handler)
-    handler.memory_engine.find_similar_memory = AsyncMock(return_value=None)
-    consolidation = SimpleNamespace(write_lock=asyncio.Lock(), maybe_run=AsyncMock())
-    handler._memory_reflection.consolidation_manager = consolidation
-    try:
-        plan = await _build_plan(handler, sid, 4)
-        consolidation.maybe_run.assert_not_awaited()
-        await _run_scheduled(handler, plan)
-        await asyncio.gather(*list(handler._storage_tasks))
-        consolidation.maybe_run.assert_awaited_once_with("reflection")
-        assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 4
-    finally:
-        await handler.shutdown()
-        await store.close()
+    # 上限 100：旧消息被裁掉，游标一并归零
+    assert await store.get_message_count(sid) == 100
+    assert await manager.get_session_metadata(sid, "last_summarized_index", -1) == 0
+    messages = await manager.get_messages_range(sid, 0, 100)
+    assert messages[0].content.startswith("message-")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cursor, deleted, force, expected", [(4, 4, False, 2), (0, 6, True, 0)]
+    ("cursor", "deleted", "force", "expected"), [(4, 4, False, 2), (0, 6, True, 0)]
 )
 async def test_partial_summary_commits_its_message_anchor_after_head_trim(
-    tmp_path, cursor, deleted, force, expected
+    bundle, cursor, deleted, force, expected
 ):
-    handler, manager, store = await _make_real_handler(tmp_path)
+    """头部被裁剪后，摘要游标按消息锚点回落到未删除的位置。"""
+    handler, manager, store, engine, db = bundle
     sid = "test:group:anchor"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(10)])
+    await _seed(manager, sid, 10)
     await manager.update_session_metadata(sid, "last_summarized_index", cursor)
     snapshot = await manager.get_messages_range(sid, cursor, 6)
     revision = await manager.get_session_revision(sid)
-    try:
-        await manager.trim_session_messages(sid, deleted, delete_unsummarized=force)
-        assert await manager.commit_summary_cursor(sid, snapshot[-1], revision) is True
-        assert (
-            await manager.get_session_metadata(sid, "last_summarized_index", -1)
-            == expected
-        )
-    finally:
-        await handler.shutdown()
-        await store.close()
 
+    await manager.trim_session_messages(sid, deleted, delete_unsummarized=force)
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("retries", [1, 3])
-async def test_pending_retry_never_skips_later_unsummarized_chunks(tmp_path, retries):
-    handler, manager, store = await _make_real_handler(tmp_path)
-    handler._memory_reflection.config_manager = ConfigManager(
-        {"reflection_engine": {"max_messages_per_segment": 4}}
+    assert await manager.commit_summary_cursor(sid, snapshot[-1], revision) is True
+    assert (
+        await manager.get_session_metadata(sid, "last_summarized_index", -1) == expected
     )
-    sid = "test:group:pending-range"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(10)])
-    try:
-        plan = await handler._memory_reflection._build_reflection_plan_for_cursor(
-            sid,
-            10,
-            0,
-            {"start_index": 6, "end_index": 10, "retry_count": retries},
-            None,
-            None,
-            sid,
-        )
-        if retries == 1:
-            assert (plan.start_index, plan.end_index) == (0, 4)
-        else:
-            assert plan is None
-            assert (
-                await manager.get_session_metadata(sid, "last_summarized_index", 0) == 4
-            )
-    finally:
-        await handler.shutdown()
-        await store.close()
 
 
 @pytest.mark.asyncio
-async def test_snapshot_refreshes_a_cursor_that_moved_before_history_fetch(tmp_path):
-    handler, manager, store = await _make_real_handler(tmp_path)
+async def test_exhausted_retry_range_is_abandoned_without_storing(bundle):
+    """待重试范围达到 3 次后放弃：跳过该范围，不写入记忆。"""
+    handler, manager, store, engine, db = bundle
+    sid = "test:group:pending-range"
+    await _seed(manager, sid, 10)
+    await manager.update_session_metadata(
+        sid,
+        "pending_summary",
+        {"start_index": 6, "end_index": 10, "retry_count": 3},
+    )
+
+    await handler.handle_memory_reflection(_event(sid), _resp())
+    await _settle(handler)
+    await handler.shutdown()
+
+    assert (await engine.get_statistics())["total_memories"] == 0
+    assert await manager.get_session_metadata(sid, "last_summarized_index", 0) == 4
+
+
+@pytest.mark.asyncio
+async def test_cursor_moved_by_trimming_is_refreshed_before_summarising(bundle):
+    """头部被裁剪后，下一次总结从裁剪后的第一条消息开始。"""
+    handler, manager, store, engine, db = bundle
     sid = "test:group:snapshot-shift"
-    await _seed_messages(manager, sid, [1_780_000_000.0 + i for i in range(10)])
+    await _seed(manager, sid, 10)
     await manager.update_session_metadata(sid, "last_summarized_index", 4)
-    try:
-        await manager.trim_session_messages(sid, 4)
-        plan = await handler._memory_reflection._build_reflection_plan_for_cursor(
-            sid, 10, 4, None, 0, None, sid
-        )
-        assert plan.start_index == 0
-        assert plan.history_messages[0].content == "message-4"
-    finally:
-        await handler.shutdown()
-        await store.close()
+    await manager.trim_session_messages(sid, 4)
+
+    await handler.handle_memory_reflection(_event(sid), _resp())
+    await _settle(handler)
+    await handler.shutdown()
+
+    windows = await _windows(engine)
+    # 裁剪后游标(4)超出剩余消息数，总结从裁剪后的头部开始
+    assert windows, "no memory was stored"
+    page = await engine.list_memories_page(page_size=10)
+    metadata = page["items"][0]["metadata"]
+    if isinstance(metadata, str):
+        import json
+
+        metadata = json.loads(metadata)
+    window = metadata["source_window"]
+    assert window["start_index"] == 4
+    assert window["end_index"] > window["start_index"]

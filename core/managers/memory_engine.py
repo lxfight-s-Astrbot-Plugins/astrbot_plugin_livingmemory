@@ -108,6 +108,7 @@ class MemoryEngine(
         llm_provider=None,
         config: dict[str, Any] | None = None,
         rerank_provider_resolver: Callable[[], Any] | None = None,
+        embedding_provider_resolver: Callable[[], Any] | None = None,
     ):
         """
         初始化记忆引擎
@@ -127,6 +128,9 @@ class MemoryEngine(
                 - stopwords_path: 停用词文件路径(可选)
             rerank_provider_resolver: 返回RerankProvider实例的可调用对象(可选)。
                 动态解析以适配AstrBot的Provider实例重建,传None时跳过重排序。
+            embedding_provider_resolver: 返回当前EmbeddingProvider实例的可调用
+                对象(可选)。使用前重新解析以适配AstrBot保存 Provider 配置后的
+                实例重建,传None时沿用启动时注入的实例。
         """
         self.db_path = db_path
         self.faiss_db = faiss_db
@@ -134,6 +138,7 @@ class MemoryEngine(
         self.llm_provider = llm_provider
         self.config = config or {}
         self.rerank_provider_resolver = rerank_provider_resolver
+        self.embedding_provider_resolver = embedding_provider_resolver
         self.graph_enabled = bool(self.config.get("graph_memory_enabled", False))
         self.atom_enabled = bool(
             self.config.get(
@@ -218,6 +223,43 @@ class MemoryEngine(
         )
         self.db_connection.row_factory = aiosqlite.Row
 
+    def _sync_embedding_provider(self) -> None:
+        """把向量库指向宿主当前的 Embedding Provider 实例。
+
+        AstrBot 保存 Provider 配置时会终止旧实例并重建（``ProviderManager.reload``），
+        启动时注入的实例因此可能属于已终止的 Provider，继续使用会一直带着旧
+        Key 报错，只有重载插件才恢复。解析本身是字典查找，调用开销可忽略。
+        """
+        resolver = getattr(self, "embedding_provider_resolver", None)
+        if resolver is None:
+            return
+        try:
+            provider = resolver()
+        except Exception as exc:
+            logger.debug(f"[MemoryEngine] 解析 Embedding Provider 失败: {exc}")
+            return
+        if provider is None:
+            return
+        for vec_db in (self.faiss_db, self.graph_vector_db):
+            if vec_db is None:
+                continue
+            current = getattr(vec_db, "embedding_provider", None)
+            if current is provider:
+                continue
+            try:
+                expected_dim = int(provider.get_dim())
+            except Exception:
+                expected_dim = 0
+            storage = getattr(vec_db, "embedding_storage", None)
+            index_dim = int(getattr(getattr(storage, "index", None), "d", 0))
+            if expected_dim and index_dim and expected_dim != index_dim:
+                logger.warning(
+                    f"[MemoryEngine] Embedding Provider 维度已从 {index_dim} 变为 "
+                    f"{expected_dim}，现有索引不兼容；请重建索引"
+                )
+            vec_db.embedding_provider = provider
+            logger.info("[MemoryEngine] 已刷新 Embedding Provider 实例")
+
     async def _migrate_adapter_ownership(self) -> None:
         """为历史记忆补写适配器归属。"""
         self.adapter_migrator = AdapterMigrator(
@@ -234,6 +276,7 @@ class MemoryEngine(
             stopwords_path,
             tokenizer=str(self.config.get("tokenizer", "jieba")),
         )
+        await self.text_processor.async_init()
 
         self.rrf_fusion = RRFFusion(k=self.config.get("rrf_k", 60))
 

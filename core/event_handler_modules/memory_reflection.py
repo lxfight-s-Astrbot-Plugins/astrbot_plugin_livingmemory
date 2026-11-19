@@ -525,10 +525,12 @@ class MemoryReflection(MemoryReflectionStorageMixin):
 
         messages_to_summarize = end_index - start_index
         rounds_to_summarize = messages_to_summarize // 2
+        # 这里记录的是本次片段的大小，不是触发阈值；窗口会按日期/空闲边界切分，
+        # 片段轮数常小于 summary_trigger_rounds，措辞需避免被误读为「阈值被改小」。
         logger.info(
             f"[{session_id}] 滑动窗口总结: "
             f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
-            f"本次总结 {rounds_to_summarize} 轮"
+            f"本次片段 {rounds_to_summarize} 轮"
         )
         history_messages = candidate_messages[:messages_to_summarize]
         if retry_count >= 3:

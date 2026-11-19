@@ -69,6 +69,12 @@ class MemoryRecall:
             storage_session_tasks if storage_session_tasks is not None else {}
         )
 
+    def _private_memory_notice(self) -> str | None:
+        """返回私密记忆提示覆盖值：``None`` 用默认提示，空串关闭提示。"""
+        if self.config_manager.get("recall_engine.private_memory_notice_enabled", True):
+            return None
+        return ""
+
     @staticmethod
     def _message_timestamp_seconds(value) -> float | None:
         if isinstance(value, (int, float)):
@@ -188,7 +194,8 @@ class MemoryRecall:
                     self.config_manager, self.context, event
                 )
                 recall_session_id = recall_access.scope
-                recall_persona_id = recall_access.persona_id
+                # 检索过滤受 use_persona_filtering 控制；写入/档案仍用真实人格。
+                recall_persona_id = recall_access.recall_persona_id
 
                 # 使用原始用户输入作为召回关键字
                 query_for_search = actual_query
@@ -203,16 +210,23 @@ class MemoryRecall:
                             max_messages=5,
                             format_for_llm=False,
                         )
-                        if recent_messages and len(recent_messages) > 1:
-                            # recent_messages 按 timestamp DESC 排列（最新在前）
-                            # 跳过索引0（当前消息），取后续消息作为扩展上下文
+                        if recent_messages:
+                            # get_context returns messages in chronological order (oldest -> newest).
+                            # Drop the trailing item when it is the current turn stored above.
+                            history_messages = (
+                                recent_messages[:-1]
+                                if not is_group
+                                or str(recent_messages[-1].get("content", "")).strip()
+                                == actual_query.strip()
+                                else recent_messages
+                            )
                             context_parts = []
                             max_age_seconds = self.config_manager.get(
                                 "recall_engine.recent_context_max_age_seconds", 7200
                             )
                             now = time.time()
                             skipped_by_age = 0
-                            for msg in reversed(recent_messages[1:]):
+                            for msg in history_messages:
                                 if max_age_seconds > 0:
                                     timestamp = self._message_timestamp_seconds(
                                         msg.get("timestamp")
@@ -230,9 +244,9 @@ class MemoryRecall:
                                 expanded = " | ".join(context_parts)
                                 query_for_search = expanded + " " + actual_query
                                 logger.debug(
-                                    f"[{session_id}] 上下文扩展查询: "
-                                    f"{len(context_parts)}条历史消息 + 当前消息，"
-                                    f"按时间跳过={skipped_by_age}条"
+                                    f"[{session_id}] Expanded query with context: "
+                                    f"{len(context_parts)} history messages + current message, "
+                                    f"skipped_by_age={skipped_by_age}"
                                 )
                     except Exception as e:
                         logger.warning(f"[{session_id}] 获取上下文扩展失败: {e}")
@@ -242,7 +256,6 @@ class MemoryRecall:
                     f"[{session_id}] 开始记忆召回，查询='{query_for_search[:80]}...'"
                 )
 
-                channel_scope = recall_access.channel_scope
                 with trace_request_context(
                     session_id=session_id,
                     scope=recall_session_id,
@@ -254,7 +267,8 @@ class MemoryRecall:
                             k=self.config_manager.get("recall_engine.top_k", 5),
                             session_id=recall_session_id,
                             persona_id=recall_persona_id,
-                            extra_scopes=[channel_scope] if channel_scope else None,
+                            # 频道公共记忆 + 旧格式用户作用域（解耦模式下）
+                            extra_scopes=recall_access.extra_read_scopes or None,
                         )
                     except asyncio.CancelledError:
                         raise
@@ -266,8 +280,9 @@ class MemoryRecall:
                         )
                         recalled_memories = []
                 # 用户档案是固定短块：不占 top_k 名额，只计入追加的注入字符预算。
+                # 档案按人格分区存储，读取用真实人格，不受检索开关影响（#438）。
                 profile_text = await self._load_profile_injection_text(
-                    recall_session_id, recall_persona_id
+                    recall_session_id, recall_access.persona_id
                 )
 
                 memory_str = ""
@@ -297,7 +312,10 @@ class MemoryRecall:
                         )
 
                     try:
-                        memory_str = format_memories_for_injection(memory_list)
+                        memory_str = format_memories_for_injection(
+                            memory_list,
+                            private_notice=self._private_memory_notice(),
+                        )
                     except asyncio.CancelledError:
                         raise
                     except Exception:
@@ -357,7 +375,7 @@ class MemoryRecall:
 
         Args:
             scope: 解析后的记忆作用域。
-            persona_id: 人格 ID（未启用人格过滤时为 None）。
+            persona_id: 事件当前真实人格（不受人格检索开关影响）。
 
         Returns:
             紧凑档案文本；无档案/未启用/读取失败时返回空字符串。

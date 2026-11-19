@@ -28,7 +28,7 @@ from ...storage.sqlite_connection import (
 )
 
 # Match metadata.yaml; backup manifests use this plugin version.
-PLUGIN_VERSION = "2.13.0"
+PLUGIN_VERSION = "2.14.1"
 
 # Retention policies enforced by BackupManager.prune().
 KEEP_VERSION_BACKUPS = 2

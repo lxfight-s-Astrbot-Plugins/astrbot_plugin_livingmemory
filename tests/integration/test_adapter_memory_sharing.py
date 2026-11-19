@@ -176,7 +176,7 @@ async def test_adapter_predicate_precedes_keyword_limit_and_concurrent_caches(
     own = await engine.add_memory(
         "coffee", session_id=GLOBAL_MEMORY_SCOPE, metadata={"adapter_id": "qq-a"}
     )
-    config = {"filtering_settings": {"shared_adapter_ids": []}}
+    config = {"filtering_settings": {"shared_adapter_ids": ["qq-a"]}}
     with adapter_access(config, "qq-a"):
         assert [
             hit.doc_id
@@ -208,7 +208,7 @@ async def test_consolidation_candidates_and_statistics_follow_the_adapter_filter
             metadata={"adapter_id": owner, "create_time": time.time() - 86400},
             preserve_create_time=True,
         )
-    with adapter_access({"filtering_settings": {"shared_adapter_ids": []}}, "qq-a"):
+    with adapter_access({"filtering_settings": {"shared_adapter_ids": ["qq-a"]}}, "qq-a"):
         candidates = await engine.get_consolidation_candidates(0.5, time.time())
         assert len(candidates) == 1
         assert candidates[0]["metadata"]["adapter_id"] == "qq-a"
@@ -253,7 +253,7 @@ async def test_vector_adapter_candidates_are_selected_before_the_global_expansio
 
     persister = install_async_persist(engine.faiss_db.embedding_storage)
     try:
-        with adapter_access({"filtering_settings": {"shared_adapter_ids": []}}, "qq-a"):
+        with adapter_access({"filtering_settings": {"shared_adapter_ids": ["qq-a"]}}, "qq-a"):
             hits = await engine.vector_retriever.search("coffee", 1)
             assert [hit.doc_id for hit in hits] == [total]
     finally:
@@ -304,3 +304,23 @@ async def test_search_tool_crosses_adapters_when_legacy_session_filtering_is_dis
     )
     assert {row["id"] for row in output["results"]} == ids
     assert output["applied_filters"]["session_filtered"] is False
+
+
+@pytest.mark.asyncio
+async def test_empty_shared_adapter_list_behaves_like_unset(adapter_engine):
+    """空名单等同未配置：不再退回单实例隔离（#442）。"""
+    engine = adapter_engine
+    for owner in ("qq-a", "telegram-a"):
+        with adapter_access(
+            {"filtering_settings": {"shared_adapter_ids": []}}, owner, write=True
+        ):
+            await engine.add_memory(
+                "coffee preference " + owner,
+                session_id=GLOBAL_MEMORY_SCOPE,
+                persona_id="p",
+            )
+
+    with adapter_access({"filtering_settings": {"shared_adapter_ids": []}}, "qq-a"):
+        hits = await engine.search_memories("coffee", 10, GLOBAL_MEMORY_SCOPE, "p")
+
+    assert len(hits) == 2

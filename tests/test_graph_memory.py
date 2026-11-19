@@ -610,6 +610,7 @@ async def test_memory_engine_dual_route_promotes_graph_hits(tmp_path: Path):
             "participants": ["张三"],
             "key_facts": ["明天下午三点开会"],
             "canonical_summary": "项目讨论记录",
+            "summary_schema_version": "v2",
         },
     )
     other_id = await engine.add_memory(
@@ -662,6 +663,7 @@ async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
             "participants": ["张三"],
             "key_facts": ["明天下午三点开会"],
             "canonical_summary": "项目讨论记录",
+            "summary_schema_version": "v2",
         },
     )
     assert memory_id > 0
@@ -717,6 +719,15 @@ async def test_memory_engine_rebuild_graph_index(tmp_path: Path):
 
     stats = await engine.get_statistics()
     assert stats.get("graph_entries", 0) >= 1
+    assert engine.atom_store is not None
+    atoms_for_memory = await engine.atom_store.get_by_parent(memory_id)
+    assert len(atoms_for_memory) == 1
+    rebuilt_hits = await engine.graph_store.search_entries_by_bm25('"明天"', 10)
+    assert any(
+        hit["metadata"].get("atom_type") == "planned"
+        and (hit["metadata"].get("ttl_days") or 0) > 0
+        for hit in rebuilt_hits
+    )
     archived_graph = await engine.graph_store.get_subgraph_for_memories([archived_id])
     assert not archived_graph["memories"]
     await engine.close()
@@ -752,8 +763,10 @@ async def test_memory_engine_streams_active_graph_rebuild_batches(tmp_path: Path
         def __init__(self):
             self.batch_sizes = []
             self.memory_ids = []
+            self.vector_batch_size = None
 
-        async def rebuild_memory_batches(self, batches):
+        async def rebuild_memory_batches(self, batches, *, vector_batch_size=100):
+            self.vector_batch_size = vector_batch_size
             async for batch in batches:
                 self.batch_sizes.append(len(batch))
                 self.memory_ids.extend(memory_id for memory_id, _, _ in batch)
@@ -765,6 +778,7 @@ async def test_memory_engine_streams_active_graph_rebuild_batches(tmp_path: Path
 
     assert result == {"rebuilt": 400, "skipped": 0}
     assert recorder.batch_sizes == [200, 200]
+    assert recorder.vector_batch_size == 8
     assert recorder.memory_ids == list(range(1, 401))
     await engine.close()
 

@@ -66,6 +66,21 @@ def test_fuse_scores_returns_nothing_for_empty_input():
     assert RRFFusion(k=60).fuse_scores([], [], top_k=5) == []
 
 
+def test_fuse_scores_scales_single_route_hits_by_active_route_weight():
+    fusion = RRFFusion(k=60)
+    # Doc 1 hits both routes (BM25=0.8 -> norm 0.6, Vector=1.0 -> norm 1.0)
+    # Doc 2 only hits BM25 (BM25=1.0 -> norm 1.0, missing from Vector)
+    bm25 = [_bm25(2, 1.0), _bm25(1, 0.8), _bm25(3, 0.5)]
+    vector = [_vector(1, 1.0), _vector(3, 0.2)]
+
+    fused = fusion.fuse_scores(bm25, vector, top_k=3, bm25_weight=0.5, agreement_bonus=0.0)
+
+    by_id = {item.doc_id: item.rrf_score for item in fused}
+    assert by_id[2] == pytest.approx(0.5)
+    assert by_id[1] > by_id[2]
+    assert fused[0].doc_id == 1
+
+
 def _retriever(config, bm25, vector) -> HybridRetriever:
     return HybridRetriever(
         bm25_retriever=cast(BM25Retriever, bm25),

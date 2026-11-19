@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.13.0
+      text: Get 2.14.1
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.13.0 is released
+## 2.14.1 is released
 
-2.13.0 is a dashboard appearance release: the default look is upgraded to macOS 26 Liquid Glass and the appearance panel now customizes accent color, wallpaper, glass strength, corners, density and font, alongside a style-layer cleanup and several fixes. First-load gzip is 81,597 B, still within budget. No command, configuration or database migration changes. See [Releases and Upgrades](/en/releases) for downloads and upgrade steps.
+2.14.1 fixes the bot being counted as a person in the graph and improves memory recall, atom classification, and index maintenance. Downloads and upgrade steps are available in [Releases and Upgrades](/en/releases).
 
 ## Who is this for?
 

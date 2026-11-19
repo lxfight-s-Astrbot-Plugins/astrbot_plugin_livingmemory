@@ -1,5 +1,50 @@
 # 版本与升级
 
+## 2.14.1 · 2026-11-19
+
+2.14.1 修复图谱人物统计、记忆召回和索引维护的问题。[下载 2.14.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.1)
+
+### 本次更新
+
+- 图谱和人物统计排除标记为 `is_bot` 的参与者，记忆注入仍将机器人显示为「我」。([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472))
+- 修复仅通过关键词和图谱扩展命中的记忆被误滤的问题，修正上下文扩展顺序，统一中文 BM25 分词和双路评分，并改进记忆原子分类与图谱重建。保存 Dashboard 设置后会刷新运行时配置，本版也改善了读连接并发、归档记忆衰减和备份清理。([#471](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/471))
+
+### 安装与升级
+
+更新 LivingMemory 后重载插件。如果旧图谱里已经有机器人节点，请由管理员执行一次 `/lmem rebuild-graph` 重新生成图谱索引。
+
+## 2.14.0 · 2026-11-17
+
+2.14.0 是记忆质量、跨端作用域与 Dashboard 3D 星图升级版本：修正原子分类、总结解析回退、图入口二字组 FTS 与被动注入访问强化，新增群聊记忆黑名单、用户模式跨平台共享、私密记忆可见性提示与 Embedding Provider 动态重解析，并将 3D 知识图谱升级为多形态天体星系与深空天文台 HUD 界面、重做设置页为按需加载的分类导航工作台。公开命令与数据库结构兼容，无需手动迁移。
+
+[下载 2.14.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.0)
+
+### 本次更新
+
+- **记忆质量**：原子分类不再把姓名中的单字判为偏好，过去完成表述归为 `EPISODIC` 而非 `PLANNED`（#445）；总结解析失败时不再逐字段正则回退生成残缺事实，`key_facts` 含纯标点残片时判为 `low`（#446）；忽略 `qq_official` 私聊 `unknown_selfid` 占位并回退到平台实例名（#439）。
+- **召回与图谱**：自动注入不再更新 `access_count` 与 `last_access_time`，仅 `recall_long_term_memory` 与 `read_memory_evidence` 首屏触发访问强化（#427）；图入口 FTS 改为存储 CJK 单字与相邻二字组并在启动时回填旧库（#450）；`/lmem rebuild-graph` 按 `index_rebuild_settings.embedding_batch_size` 分批生成向量（#429）。
+- **Provider 与作用域**：新增 `embedding_provider_resolver`，保存宿主 Embedding Provider 配置后无需重载插件（#441）；`filtering_settings.use_persona_filtering` 仅控制召回阶段，写入仍保留真实 `persona_id`（#438）；新增 `visibility` / `disclosed` 私密记忆注入提示与 `recall_engine.private_memory_notice_enabled` 开关（#390）；新增 `filtering_settings.group_blacklist` 群聊记忆黑名单（#440）与 `filtering_settings.user_scope_ignore_platform` 跨适配器共享（#442）；修复空 `filtering_settings.shared_adapter_ids` 退化（#442），`/lmem migrate-scope` 补齐用户档案与图向量元数据迁移（#373），启动时轻量探测 `networkx`（#448）。
+- **3D 星图与界面**：3D 图谱支持旋涡、棒旋、絮状、环状、椭圆星系与星团形态，新增银核隆起、薄盘星尘与社区间潮汐星流；节点标签（`.space-node-label`）升级为带发光类型色点的深空 HUD 胶囊（区分 `.is-hub` 与 `.is-focus`），底部重构为悬浮遥测条与带状态灯的控制舱，并恢复 3D 节点检视面板的类型徽章与三列遥测指标；全局侧栏、2D 图谱、记忆表、召回页、系统页、提示词、档案页与诊断页全面升级（#469）。
+- **设置页重做**：设置页拆分为按需加载的 `settings.min.js`，新增分类与子分组页签、项目计数、搜索清空、「仅显示已修改」筛选与布尔开关控件（#443）。
+- **日志与工程化**：滑动窗口总结日志改为「本次片段 N 轮」（#444）；移除依赖 `__new__` 与 mock 调用断言的白盒测试，改为基于 `tests/test_plugin_blackbox.py` 与 `tests/real_engine_support.py` 的真实引擎黑盒测试（#467、#468）。
+
+### 行为变化
+
+- 自动注入不再强化记忆计数，仅显式调用 `recall_long_term_memory` 或 `read_memory_evidence` 首屏时增加 `access_count`。
+- 关闭 `filtering_settings.use_persona_filtering` 时仍会写入当前会话的真实 `persona_id`，仅在召回时跨人格共享。
+- 升级后首次启动会按 `PRAGMA user_version` 自动回填图入口二字组 FTS 索引，之后启动跳过。
+- 修改宿主 Embedding Provider 后立即生效；若向量维度改变，仍需执行 `/lmem rebuild-index` 与 `/lmem rebuild-graph`。
+
+### 验证
+
+后端 1,616 项测试、覆盖率 86%、召回 golden set 2 项、Ruff 检查与格式化通过；前端 210 项测试、首屏体积门禁（gzip 80,518 B / 预算 81,920 B）与 VitePress 构建通过；PR #427、#430、#443、#448、#453–#469 的 CI backend 与 frontend 均通过。
+
+### 安装与升级
+
+1. 停止插件并备份完整数据目录，更新至 2.14.0 后重新启动 AstrBot，并重新打开插件视图。
+2. 无需手动迁移；首次启动会自动按 `PRAGMA user_version` 回填图入口二字组 FTS 索引。
+3. 若管理页面样式显示异常，请强制刷新页面以加载新的 `styles.min.css`、`graph-3d.min.js` 与 `settings.min.js` 资源。
+
 ## 2.13.0 · 2026-11-13
 
 2.13.0 是 Dashboard 外观版本：默认外观升级到 macOS 26 Liquid Glass，新增外观面板自定义，并完成一轮样式层收敛——统一设计令牌、清理被皮肤覆盖的重复声明、补齐空状态与卡片留白、按皮肤重做诊断页。无命令、配置项、注入格式与数据库结构变化，无需迁移。

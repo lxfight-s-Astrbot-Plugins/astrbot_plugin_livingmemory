@@ -201,16 +201,16 @@ class RRFFusion:
         fused_scores: dict[int, float] = {}
         best_rank: dict[int, int] = {}
         span = max(len(bm25_results), len(vector_results), 1)
+        route_weight_total = (weight if bm25_norm else 0.0) + (
+            (1.0 - weight) if vector_norm else 0.0
+        )
         for doc_id in set(bm25_norm) | set(vector_norm):
             weighted_sum = 0.0
-            weight_total = 0.0
             if doc_id in bm25_norm:
                 weighted_sum += weight * bm25_norm[doc_id]
-                weight_total += weight
             if doc_id in vector_norm:
                 weighted_sum += (1.0 - weight) * vector_norm[doc_id]
-                weight_total += 1.0 - weight
-            score = weighted_sum / weight_total if weight_total else 0.0
+            score = weighted_sum / route_weight_total if route_weight_total else 0.0
             if agreement_bonus > 0 and doc_id in bm25_rank and doc_id in vector_rank:
                 # 两路都召回且名次越接近越可信：奖励跨路线共识，抑制单路噪声冒头
                 rank_gap = abs(bm25_rank[doc_id] - vector_rank[doc_id])

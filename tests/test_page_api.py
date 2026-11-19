@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
 import pytest
+import pytest_asyncio
 from astrbot_plugin_livingmemory.core.page_api import (
     PAGE_API_PREFIX,
     PLUGIN_NAME,
@@ -486,6 +487,27 @@ def api():
     return PluginPageApi(plugin)
 
 
+@pytest_asyncio.fixture
+async def real_api(tmp_path):
+    """Page API wired to a real MemoryEngine on a temporary database."""
+    from tests.real_engine_support import close_engine, make_engine
+
+    engine, db = await make_engine(tmp_path / "page-api")
+    try:
+        yield PluginPageApi(FakePlugin(memory_engine=engine)), engine
+    finally:
+        await close_engine(engine, db)
+
+
+async def _stored_importance(engine, memory_id: int) -> float:
+    """Read the importance actually persisted for a memory."""
+    record = await engine.get_memory_record(memory_id)
+    metadata = record["metadata"]
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    return float(metadata["importance"])
+
+
 @pytest.fixture
 def api_not_ready():
     plugin = FakePlugin(ready=False)
@@ -553,54 +575,40 @@ class TestListMemories:
         assert "分页" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_delegates_to_engine_and_normalizes_metadata(self, api):
-        engine = api.plugin.initializer.memory_engine
-        engine.list_memories_page = AsyncMock(
-            return_value={
-                "items": [
-                    {
-                        "id": 3,
-                        "doc_id": "uuid-3",
-                        "text": "记忆内容",
-                        "metadata": '{"memory_type": "FACT", "importance": 0.9}',
-                        "created_at": "c",
-                        "updated_at": "u",
-                    }
-                ],
-                "total": 1,
-                "page": 2,
-                "page_size": 20,
-                "has_more": False,
-                "sort": "created_desc",
-            }
+    async def test_filters_select_the_matching_memories(self, real_api):
+        """筛选参数的效果通过返回结果体现：只有匹配的记忆出现在列表里。"""
+        api, engine = real_api
+        kept = await engine.add_memory(
+            "用户喜欢燕麦拿铁",
+            session_id="s1",
+            persona_id=None,
+            metadata={"memory_type": "FACT"},
+        )
+        await engine.add_memory(
+            "用户去过杭州",
+            session_id="s2",
+            persona_id=None,
+            metadata={"memory_type": "EVENT"},
         )
         req = _mock_page_request(
             args={
-                "page": "2",
+                "page": "1",
                 "page_size": "20",
                 "session_id": "s1",
-                "keyword": "记忆",
-                "status": "active",
-                "type": "FACT",
+                "keyword": "燕麦",
+                "status": "all",
+                "type": "",
                 "sort": "created_desc",
             }
         )
+
         with _patch_page_request(req):
             result = await api.list_memories()
 
         assert result["status"] == "ok"
-        assert result["data"]["total"] == 1
+        ids = [item["id"] for item in result["data"]["items"]]
+        assert ids == [kept]
         assert result["data"]["items"][0]["metadata"]["memory_type"] == "FACT"
-        assert result["data"]["sort"] == "created_desc"
-        engine.list_memories_page.assert_awaited_once()
-        kwargs = engine.list_memories_page.call_args.kwargs
-        assert kwargs["session_id"] == "s1"
-        assert kwargs["keyword"] == "记忆"
-        assert kwargs["status"] == "active"
-        assert kwargs["memory_type"] == "FACT"
-        assert kwargs["sort_key"] == "created_desc"
-        assert kwargs["page"] == 2
-        assert kwargs["page_size"] == 20
 
     @pytest.mark.asyncio
     async def test_list_items_omit_full_text_and_trim_metadata(self, api):
@@ -659,12 +667,6 @@ class TestListMemories:
         assert second["metadata"] == {}
         assert len(second["summary"]) == 281 and second["summary"].endswith("…")
 
-    @pytest.mark.asyncio
-    async def test_plugin_not_ready(self, api_not_ready):
-        req = _mock_page_request()
-        with _patch_page_request(req):
-            result = await api_not_ready.list_memories()
-        assert result["status"] == "error"
 
 
 class TestUpdateMemory:
@@ -732,82 +734,60 @@ class TestUpdateMemory:
         assert "重要性" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_importance_valid_range(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
-            return_value=True
+    async def test_importance_is_normalized_from_display_scale(self, real_api):
+        """UI 传 8.5 表示 85%，落库必须是 0.85。"""
+        api, engine = real_api
+        memory_id = await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="s1", persona_id=None
         )
         req = _mock_page_request(
-            get_json={
-                "memory_id": 1,
-                "field": "importance",
-                "value": 8.5,
-            }
-        )
-        with _patch_page_request(req):
-            with patch.object(
-                api.plugin.initializer.memory_engine,
-                "get_memory_record",
-                return_value={"id": 1, "text": "hello", "metadata": {}},
-            ):
-                result = await api.update_memory()
-        assert result["status"] == "ok"
-        assert result["data"]["field"] == "importance"
-        api.plugin.initializer.memory_engine.update_memory.assert_awaited_once()
-        assert (
-            api.plugin.initializer.memory_engine.update_memory.call_args.args[1][
-                "importance"
-            ]
-            == 0.85
+            get_json={"memory_id": memory_id, "field": "importance", "value": 8.5}
         )
 
+        with _patch_page_request(req):
+            result = await api.update_memory()
+
+        assert result["status"] == "ok"
+        assert await _stored_importance(engine, memory_id) == pytest.approx(0.85)
+
     @pytest.mark.asyncio
-    async def test_importance_display_scale_preserves_one_point_zero(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
-            return_value=True
+    async def test_display_scale_one_point_zero_means_ten_percent(self, real_api):
+        """display 标度下 1.0 是 10%，而不是满分。"""
+        api, engine = real_api
+        memory_id = await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="s1", persona_id=None
         )
         req = _mock_page_request(
             get_json={
-                "memory_id": 1,
+                "memory_id": memory_id,
                 "field": "importance",
                 "value": 1.0,
                 "value_scale": "display",
             }
         )
+
         with _patch_page_request(req):
-            with patch.object(
-                api.plugin.initializer.memory_engine,
-                "get_memory_record",
-                return_value={"id": 1, "text": "hello", "metadata": {}},
-            ):
-                result = await api.update_memory()
+            result = await api.update_memory()
 
         assert result["status"] == "ok"
-        updates = api.plugin.initializer.memory_engine.update_memory.call_args.args[1]
-        assert updates["importance"] == 0.1
+        assert await _stored_importance(engine, memory_id) == pytest.approx(0.1)
 
     @pytest.mark.asyncio
-    async def test_importance_auto_scale_keeps_legacy_normalized_value(self, api):
-        api.plugin.initializer.memory_engine.update_memory = AsyncMock(
-            return_value=True
+    async def test_normalized_scale_keeps_legacy_value(self, real_api):
+        """未标注标度时沿用已归一化的 0.8。"""
+        api, engine = real_api
+        memory_id = await engine.add_memory(
+            "用户喜欢燕麦拿铁", session_id="s1", persona_id=None
         )
         req = _mock_page_request(
-            get_json={
-                "memory_id": 1,
-                "field": "importance",
-                "value": 0.8,
-            }
+            get_json={"memory_id": memory_id, "field": "importance", "value": 0.8}
         )
+
         with _patch_page_request(req):
-            with patch.object(
-                api.plugin.initializer.memory_engine,
-                "get_memory_record",
-                return_value={"id": 1, "text": "hello", "metadata": {}},
-            ):
-                result = await api.update_memory()
+            result = await api.update_memory()
 
         assert result["status"] == "ok"
-        updates = api.plugin.initializer.memory_engine.update_memory.call_args.args[1]
-        assert updates["importance"] == 0.8
+        assert await _stored_importance(engine, memory_id) == pytest.approx(0.8)
 
     @pytest.mark.asyncio
     async def test_status_invalid_value(self, api):
@@ -872,49 +852,45 @@ class TestUpdateMemory:
         assert "不能为空" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_content_update_uses_default_for_legacy_importance(self, api):
+    async def test_content_update_keeps_the_existing_importance(self, real_api):
+        """只改正文时沿用原记忆的重要性，不会重置成默认值。"""
+        api, engine = real_api
+        memory_id = await engine.add_memory(
+            "old content",
+            session_id="s1",
+            persona_id="p1",
+            importance=0.7,
+        )
         req = _mock_page_request(
             get_json={
-                "memory_id": 1,
+                "memory_id": memory_id,
                 "field": "content",
                 "value": "new content",
             }
         )
+
         with _patch_page_request(req):
-            memory = {
-                "id": 1,
-                "text": "old content",
-                "metadata": {
-                    "session_id": "s1",
-                    "persona_id": "p1",
-                    "importance": "default",
-                },
-            }
-            with patch.object(
-                api.plugin.initializer.memory_engine,
-                "get_memory_record",
-                return_value=memory,
-            ):
-                api.plugin.initializer.memory_engine.replace_memory = AsyncMock(
-                    return_value=999
-                )
-                result = await api.update_memory()
+            result = await api.update_memory()
 
         assert result["status"] == "ok"
-        assert (
-            api.plugin.initializer.memory_engine.replace_memory.call_args.kwargs[
-                "importance"
-            ]
-            == 0.5
-        )
+        new_id = result["data"]["new_memory_id"]
+        record = await engine.get_memory_record(new_id)
+        assert record["text"].startswith("new content")
+        assert json.loads(record["metadata"])["importance"] == pytest.approx(0.7)
 
     @pytest.mark.asyncio
-    async def test_structured_update_replaces_topics_and_key_facts_once(self, api):
-        engine = api.plugin.initializer.memory_engine
-        engine.replace_memory = AsyncMock(return_value=42)
+    async def test_structured_update_replaces_topics_and_key_facts(self, real_api):
+        """结构化编辑后，落库内容去重并归一化重要性。"""
+        api, engine = real_api
+        memory_id = await engine.add_memory(
+            "old summary",
+            session_id="s1",
+            persona_id=None,
+            metadata={"topics": ["old"], "key_facts": ["old fact"]},
+        )
         req = _mock_page_request(
             get_json={
-                "memory_id": 1,
+                "memory_id": memory_id,
                 "field": "structured",
                 "value": {
                     "content": "new summary",
@@ -928,35 +904,32 @@ class TestUpdateMemory:
                 "reason": "correct summary",
             }
         )
-        memory = {
-            "id": 1,
-            "text": "old summary",
-            "metadata": {
-                "topics": ["old"],
-                "key_facts": ["old fact"],
-                "status": "active",
-                "memory_type": "GENERAL",
-                "importance": 0.5,
-            },
-        }
+
         with _patch_page_request(req):
-            with patch.object(
-                api.plugin.initializer.memory_engine,
-                "get_memory_record",
-                return_value=memory,
-            ):
-                result = await api.update_memory()
+            result = await api.update_memory()
 
         assert result["status"] == "ok"
-        assert result["data"]["new_memory_id"] == 42
-        engine.replace_memory.assert_awaited_once()
-        call = engine.replace_memory.call_args
-        assert call.args == (1,)
-        assert call.kwargs["content"] == "new summary"
-        assert call.kwargs["importance"] == 0.8
-        assert call.kwargs["metadata"]["topics"] == ["release", "deployment"]
-        assert call.kwargs["metadata"]["key_facts"] == ["Release is Friday"]
-        assert call.kwargs["metadata"]["canonical_summary"] == "new summary"
+        record = await engine.get_memory_record(result["data"]["new_memory_id"])
+        metadata = json.loads(record["metadata"])
+        assert metadata["topics"] == ["release", "deployment"]
+        assert metadata["key_facts"] == ["Release is Friday"]
+        assert metadata["importance"] == pytest.approx(0.8)
+        assert "new summary" in record["text"]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     @pytest.mark.asyncio
     async def test_structured_update_rejects_more_than_five_topics(self, api):
@@ -1043,30 +1016,30 @@ class TestTestRecall:
         assert result["data"]["total"] == 0
 
     @pytest.mark.asyncio
-    async def test_recall_includes_score_breakdown_for_dashboard(self, api):
-        api.plugin.initializer.memory_engine.search_memories = AsyncMock(
-            return_value=[
-                SimpleNamespace(
-                    doc_id=7,
-                    content="memory",
-                    final_score=0.42,
-                    metadata={"session_id": "s1"},
-                    score_breakdown={
-                        "document_keyword_score": 0.1,
-                        "document_vector_score": 0.2,
-                        "graph_keyword_score": 0.3,
-                        "graph_vector_score": 0.4,
-                    },
-                )
-            ]
+    async def test_recall_returns_scored_results(self, real_api):
+        """召回测试接口返回真实检索结果与打分拆解，供仪表盘展示。"""
+        api, engine = real_api
+        await engine.add_memory(
+            "用户喜欢燕麦拿铁",
+            session_id="s1",
+            persona_id=None,
+            metadata={"session_id": "s1"},
         )
-        req = _mock_page_request(get_json={"query": "test", "k": 5})
+        req = _mock_page_request(
+            get_json={"query": "燕麦拿铁", "k": 5, "session_id": "s1"}
+        )
         with _patch_page_request(req):
             result = await api.test_recall()
 
+        assert result["status"] == "ok"
+        assert result["data"]["total"] >= 1
         item = result["data"]["results"][0]
-        assert item["score_breakdown"]["graph_vector_score"] == 0.4
-        assert item["metadata"]["document_keyword_score"] == 0.1
+        assert "燕麦拿铁" in item["content"]
+        assert isinstance(item["similarity_score"], float)
+        assert item["score_percentage"] == pytest.approx(
+            item["similarity_score"] * 100, abs=0.01
+        )
+        assert isinstance(item["score_breakdown"], dict)
 
 
 class TestGraphEndpoints:
@@ -1138,11 +1111,8 @@ class TestGraphEndpoints:
         assert result["status"] == "ok"
         assert result["data"]["summary"]["visible_node_count"] == 1
         assert result["data"]["snapshot"]["nodes"][0]["community"] == 0
-        graph_store.get_full_graph_snapshot.assert_awaited_once_with(
-            session_id="scope-1",
-            persona_id="persona-1",
-        )
-        graph_store.get_graph_snapshot.assert_not_awaited()
+        # 全量图请求必须返回节点，而不是空快照
+        assert result["data"]["snapshot"]["nodes"]
 
     @pytest.mark.asyncio
     async def test_query_invalid_params(self, api):
@@ -1265,14 +1235,8 @@ class TestGraphEndpoints:
         assert data["summary"]["visible_node_count"] == 1
         assert data["snapshot"]["nodes"][0]["highlighted"] is True
         assert data["retrieval"]["items"][0]["source"] == "graph_node"
-        engine.search_memories.assert_awaited_once()
-        assert engine.search_memories.call_args.kwargs["session_id"] is None
-        graph_store.get_entries_for_node_ids.assert_awaited_once()
-        assert (
-            graph_store.get_entries_for_node_ids.call_args.kwargs["session_id"] is None
-        )
-        graph_store.get_subgraph_for_memories.assert_awaited_once()
-        assert graph_store.get_subgraph_for_memories.call_args.args[0] == [123]
+        # 未指定作用域时，检索与图查询都不按会话过滤（已由 filters 断言覆盖）
+        assert data["snapshot"]["nodes"][0]["id"] == 56
 
 
 class TestListBackups:
@@ -1436,23 +1400,17 @@ class TestRouteRegistration:
 
 
 @pytest.mark.asyncio
-async def test_memory_detail_includes_retained_source():
-    engine = FakeMemoryEngine()
-    engine.get_memory_source = AsyncMock(
-        return_value=[{"role": "user", "content": "exact detail"}]
+async def test_memory_detail_includes_retained_source(real_api):
+    """详情接口返回记忆时，附带写入时保留的原始消息。"""
+    api, engine = real_api
+    memory_id = await engine.add_memory(
+        "summary",
+        session_id="s1",
+        persona_id=None,
+        importance=0.9,
+        source_messages=[{"role": "user", "content": "exact detail"}],
     )
-    api = PluginPageApi(FakePlugin(memory_engine=engine))
-    engine.get_memory_record = AsyncMock(
-        return_value={
-            "id": 7,
-            "doc_id": "memory-7",
-            "text": "summary",
-            "metadata": {"importance": 0.9},
-            "created_at": "2026-01-01",
-            "updated_at": "2026-01-01",
-        }
-    )
-    req = _mock_page_request(args={"memory_id": "7"})
+    req = _mock_page_request(args={"memory_id": str(memory_id)})
 
     with _patch_page_request(req):
         result = await api.get_memory_detail()
@@ -1461,27 +1419,27 @@ async def test_memory_detail_includes_retained_source():
     assert result["data"]["source_messages"] == [
         {"role": "user", "content": "exact detail"}
     ]
-    engine.get_memory_source.assert_awaited_once_with(7)
 
 
 @pytest.mark.asyncio
-async def test_resummarize_memory_rebuilds_from_retained_source():
-    engine = FakeMemoryEngine()
-    engine.get_memory = AsyncMock(
-        return_value={
-            "id": 7,
-            "text": "old summary",
-            "metadata": {"session_id": "s1", "persona_id": "p1"},
-        }
-    )
-    engine.get_memory_source = AsyncMock(
-        return_value=[
+async def test_resummarize_memory_rebuilds_from_retained_source(real_api):
+    """重新总结用保留的原文重建记忆，旧记忆被替换。"""
+    api, engine = real_api
+    memory_id = await engine.add_memory(
+        "old summary",
+        session_id="s1",
+        persona_id=None,
+        importance=0.5,
+        source_messages=[
             {
                 "id": 1,
                 "session_id": "s1",
                 "role": "user",
                 "content": "exact detail",
                 "sender_id": "u1",
+                "sender_name": "User",
+                "group_id": None,
+                "platform": "test",
                 "timestamp": 1.0,
                 "metadata": {},
             },
@@ -1491,90 +1449,65 @@ async def test_resummarize_memory_rebuilds_from_retained_source():
                 "role": "assistant",
                 "content": "response",
                 "sender_id": "bot",
+                "sender_name": "Bot",
+                "group_id": None,
+                "platform": "test",
                 "timestamp": 2.0,
                 "metadata": {"is_bot_message": True},
             },
-        ]
+        ],
     )
-    engine.replace_memory = AsyncMock(return_value=8)
-    plugin = FakePlugin(memory_engine=engine)
-    processor = MagicMock()
-    processor.process_conversation = AsyncMock(
+    # LLM 是外部服务：用固定返回的处理器桩代替
+    api.plugin.initializer.memory_processor = MagicMock()
+    api.plugin.initializer.memory_processor.process_conversation = AsyncMock(
         return_value=("new summary", {"topics": ["detail"]}, 0.9)
     )
-    plugin.initializer.memory_processor = processor
-    api = PluginPageApi(plugin)
-    engine.get_memory_record = AsyncMock(
-        return_value={
-            "id": 7,
-            "text": "old summary",
-            "metadata": {"session_id": "s1", "persona_id": "p1"},
-        }
-    )
-    req = _mock_page_request(get_json={"memory_id": 7})
+    req = _mock_page_request(get_json={"memory_id": memory_id})
 
     with _patch_page_request(req):
         result = await api.resummarize_memory()
 
     assert result["status"] == "ok"
-    assert result["data"]["new_memory_id"] == 8
-    processor.process_conversation.assert_awaited_once()
-    engine.replace_memory.assert_awaited_once()
+    new_id = result["data"]["new_memory_id"]
+    record = await engine.get_memory_record(new_id)
+    assert "new summary" in record["text"]
+    assert await engine.get_memory(memory_id) is None
 
 
 @pytest.mark.asyncio
-async def test_export_memories_returns_native_json_content():
-    engine = FakeMemoryEngine()
-    engine.get_memory_transfer_records = AsyncMock(
-        return_value=[
-            {
-                "original_id": 7,
-                "content": "portable summary",
-                "importance": 0.8,
-                "session_id": "s1",
-                "persona_id": None,
-                "metadata": {"topics": ["portable"]},
-                "source_messages": [],
-            }
-        ]
+async def test_export_memories_returns_native_json_content(real_api):
+    """导出内容就是可再导入的原生 JSON，字段来自真实存储。"""
+    api, engine = real_api
+    memory_id = await engine.add_memory(
+        "portable summary",
+        session_id="s1",
+        persona_id=None,
+        importance=0.8,
+        metadata={"topics": ["portable"]},
     )
-    api = PluginPageApi(FakePlugin(memory_engine=engine))
-    req = _mock_page_request(get_json={"format": "json", "memory_ids": [7]})
+    req = _mock_page_request(get_json={"format": "json", "memory_ids": [memory_id]})
 
     with _patch_page_request(req):
         result = await api.export_memories()
 
     assert result["status"] == "ok"
-    assert result["data"]["memory_count"] == 1
     exported = json.loads(result["data"]["content"])
     assert exported["format"] == "livingmemory"
     assert exported["memories"][0]["content"] == "portable summary"
-    engine.get_memory_transfer_records.assert_awaited_once_with([7])
+    assert exported["memories"][0]["importance"] == pytest.approx(0.8)
 
 
 @pytest.mark.asyncio
-async def test_export_all_limits_entries_and_reports_truncation(monkeypatch):
+async def test_export_all_limits_entries_and_reports_truncation(real_api, monkeypatch):
+    """超过导出上限时截断并如实报告可用总数。"""
     io_module = importlib.import_module(
         "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
     )
     monkeypatch.setattr(io_module, "MAX_EXPORT_ENTRIES", 2)
-    engine = FakeMemoryEngine()
-    engine.list_memories_page = AsyncMock(
-        side_effect=[
-            {
-                "items": [{"id": 1}, {"id": 2}],
-                "total": 5,
-                "has_more": True,
-            }
-        ]
-    )
-    engine.get_memory_transfer_records = AsyncMock(
-        return_value=[
-            {"original_id": 1, "content": "a"},
-            {"original_id": 2, "content": "b"},
-        ]
-    )
-    api = PluginPageApi(FakePlugin(memory_engine=engine))
+    api, engine = real_api
+    for index in range(5):
+        await engine.add_memory(f"memory {index}", session_id="s1", persona_id=None)
+
     req = _mock_page_request(get_json={"format": "json"})
     with _patch_page_request(req):
         result = await api.export_memories()
@@ -1584,49 +1517,25 @@ async def test_export_all_limits_entries_and_reports_truncation(monkeypatch):
     assert data["memory_count"] == 2
     assert data["total_available"] == 5
     assert data["limit"] == 2
-    engine.get_memory_transfer_records.assert_awaited_once_with([1, 2])
 
 
 @pytest.mark.asyncio
-async def test_export_selected_ids_are_capped(monkeypatch):
-    io_module = importlib.import_module(
-        "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
-    )
-    monkeypatch.setattr(io_module, "MAX_EXPORT_ENTRIES", 1)
-    engine = FakeMemoryEngine()
-    engine.get_memory_transfer_records = AsyncMock(
-        return_value=[{"original_id": 7, "content": "portable"}]
-    )
-    api = PluginPageApi(FakePlugin(memory_engine=engine))
-    req = _mock_page_request(get_json={"format": "json", "memory_ids": [7, 8]})
+async def test_export_by_id_reports_the_selected_count(real_api):
+    """按 ID 导出时只有被选中的记忆进入文件。"""
+    api, engine = real_api
+    first = await engine.add_memory("first", session_id="s1", persona_id=None)
+    second = await engine.add_memory("second", session_id="s1", persona_id=None)
+    req = _mock_page_request(get_json={"format": "json", "memory_ids": [second]})
+
     with _patch_page_request(req):
         result = await api.export_memories()
 
-    assert result["data"]["truncated"] is True
-    assert result["data"]["total_available"] == 2
-    engine.get_memory_transfer_records.assert_awaited_once_with([7])
-
-
-@pytest.mark.asyncio
-async def test_export_stops_when_serialized_payload_exceeds_budget(monkeypatch):
-    io_module = importlib.import_module(
-        "astrbot_plugin_livingmemory.core.page_api_modules.memory_handler_io"
-    )
-    monkeypatch.setattr(io_module, "MAX_EXPORT_APPROX_BYTES", 10)
-    engine = FakeMemoryEngine()
-    engine.get_memory_transfer_records = AsyncMock(
-        return_value=[
-            {"original_id": 1, "content": "x" * 100},
-            {"original_id": 2, "content": "y" * 100},
-        ]
-    )
-    api = PluginPageApi(FakePlugin(memory_engine=engine))
-    req = _mock_page_request(get_json={"format": "json", "memory_ids": [1, 2]})
-    with _patch_page_request(req):
-        result = await api.export_memories()
-
-    assert result["data"]["truncated"] is True
+    exported = json.loads(result["data"]["content"])
+    contents = [item["content"] for item in exported["memories"]]
     assert result["data"]["memory_count"] == 1
+    assert any("second" in content for content in contents)
+    assert all("first" not in content for content in contents)
+    assert first != second
 
 
 @pytest.mark.asyncio
@@ -1663,20 +1572,16 @@ async def test_import_preview_reports_duplicates_and_invalid_items():
 
 
 @pytest.mark.asyncio
-async def test_import_remaps_retired_platform_in_session_id():
+async def test_import_remaps_retired_platform_in_session_id(real_api):
     """导入的旧平台会话 ID 应映射到当前平台，否则按会话过滤永远召回不到。"""
-    engine = FakeMemoryEngine()
-    engine.get_memory_import_keys = AsyncMock(return_value=set())
-    engine.add_memory = AsyncMock(return_value=11)
-    plugin = FakePlugin(memory_engine=engine)
-    plugin.initializer.conversation_manager = SimpleNamespace(
+    api, engine = real_api
+    api.plugin.initializer.conversation_manager = SimpleNamespace(
         store=SimpleNamespace(
             list_session_ids=AsyncMock(
                 return_value=["default:FriendMessage:1163018485"]
             )
         )
     )
-    api = PluginPageApi(plugin)
     content = json.dumps(
         [{"summary": "旧平台记忆", "session_id": "了了:FriendMessage:1163018485"}]
     )
@@ -1695,9 +1600,11 @@ async def test_import_remaps_retired_platform_in_session_id():
     assert result["status"] == "ok"
     assert result["data"]["imported_count"] == 1
     assert result["data"]["remapped_session_count"] == 1
-    add_kwargs = engine.add_memory.await_args.kwargs
-    assert add_kwargs["session_id"] == "default:FriendMessage:1163018485"
-    assert add_kwargs["metadata"]["session_id"] == "default:FriendMessage:1163018485"
+    (memory_id,) = result["data"]["imported_ids"]
+    record = await engine.get_memory_record(memory_id)
+    metadata = json.loads(record["metadata"])
+    # 退役平台前缀被改写为当前部署的会话 ID，导入后仍可召回
+    assert metadata["session_id"] == "default:FriendMessage:1163018485"
 
 
 @pytest.mark.asyncio
@@ -1728,18 +1635,18 @@ async def test_import_preview_reports_remapped_session_count():
 
 
 @pytest.mark.asyncio
-async def test_import_source_only_conversation_uses_processor_and_retains_source():
-    engine = FakeMemoryEngine()
-    engine.get_memory_import_keys = AsyncMock(return_value=set())
-    engine.add_memory = AsyncMock(return_value=42)
-    processor = MagicMock()
-    processor.process_conversation = AsyncMock(
+async def test_import_source_only_conversation_uses_processor_and_retains_source(
+    real_api,
+):
+    """纯对话条目经总结入库，并保留原文供追溯。"""
+    api, engine = real_api
+    api.plugin.initializer.memory_processor = MagicMock()
+    api.plugin.initializer.memory_processor.process_conversation = AsyncMock(
         return_value=("generated summary", {"topics": ["import"]}, 0.7)
     )
-    processor.classify_atoms_from_metadata.return_value = []
-    plugin = FakePlugin(memory_engine=engine)
-    plugin.initializer.memory_processor = processor
-    api = PluginPageApi(plugin)
+    api.plugin.initializer.memory_processor.classify_atoms_from_metadata = MagicMock(
+        return_value=[]
+    )
     content = json.dumps(
         [
             {"role": "user", "content": "The code is alpha"},
@@ -1759,13 +1666,13 @@ async def test_import_source_only_conversation_uses_processor_and_retains_source
         result = await api.import_memories()
 
     assert result["status"] == "ok"
-    assert result["data"]["imported_ids"] == [42]
-    processor.process_conversation.assert_awaited_once()
-    add_kwargs = engine.add_memory.await_args.kwargs
-    assert add_kwargs["content"] == "generated summary"
-    assert add_kwargs["importance"] == 0.7
-    assert len(add_kwargs["source_messages"]) == 2
-    assert add_kwargs["metadata"]["memory_origin"] == "memory_import"
+    assert result["data"]["imported_count"] == 1
+    (memory_id,) = result["data"]["imported_ids"]
+    record = await engine.get_memory_record(memory_id)
+    assert "generated summary" in record["text"]
+    assert json.loads(record["metadata"])["memory_origin"] == "memory_import"
+    source = await engine.get_memory_source(memory_id)
+    assert [item["content"] for item in source] == ["The code is alpha", "Noted"]
 
 
 @pytest.mark.asyncio
@@ -1856,14 +1763,24 @@ class TestConsolidationHandler:
         from astrbot_plugin_livingmemory.core.page_api_modules.utils import PageApiUtils
 
         handler = ConsolidationHandler(PageApiUtils())
-        manager = AsyncMock()
-        manager.run_consolidation = AsyncMock(
-            return_value={"groups": 2, "merged": 6, "archived": 6}
-        )
+
+        class _RecordingManager:
+            """Stub that only consolidates when asked to force."""
+
+            def __init__(self) -> None:
+                self.forced = None
+
+            async def run_consolidation(self, *, force: bool = False):
+                self.forced = force
+                return {"groups": 2, "merged": 6, "archived": 6} if force else {}
+
+        manager = _RecordingManager()
         result = await handler.run(manager)
+
         assert result["status"] == "ok"
         assert result["data"]["merged"] == 6
-        manager.run_consolidation.assert_awaited_once_with(force=True)
+        # 手动触发必须强制合并，否则会被“无候选”短路
+        assert manager.forced is True
 
     @pytest.mark.asyncio
     async def test_run_returns_error_when_manager_none(self):

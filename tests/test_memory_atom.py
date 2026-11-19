@@ -175,6 +175,32 @@ def test_classify_atoms_batch() -> None:
         assert any(p in a.entities for p in ["张三", "李四"])
 
 
+def test_classify_atoms_handles_explicit_full_dates_and_today() -> None:
+    from datetime import datetime
+
+    past_iso = classify_atoms(["2020-01-14参加项目评审"])
+    assert len(past_iso) == 1
+    assert past_iso[0].atom_type == AtomType.EPISODIC
+
+    past_cn = classify_atoms(["2020年5月30日开会讨论方案"])
+    assert len(past_cn) == 1
+    assert past_cn[0].atom_type == AtomType.EPISODIC
+
+    future_iso = classify_atoms(["2099-05-30参加项目评审"])
+    assert len(future_iso) == 1
+    assert future_iso[0].atom_type == AtomType.PLANNED
+    assert future_iso[0].event_time is not None
+    assert datetime.fromtimestamp(future_iso[0].event_time).year == 2099
+
+    now_dt = datetime.fromtimestamp(time.time())
+    today_fact = f"{now_dt.month}月{now_dt.day}日参加项目评审"
+    today_atoms = classify_atoms([today_fact])
+    assert len(today_atoms) == 1
+    assert today_atoms[0].atom_type == AtomType.PLANNED
+    assert today_atoms[0].event_time is not None
+    assert datetime.fromtimestamp(today_atoms[0].event_time).year == now_dt.year
+
+
 # ---------- AtomStore persistence ----------
 
 
@@ -466,6 +492,28 @@ def test_classify_planned_wins_over_preference() -> None:
 def test_classify_fact_with_stative_verb() -> None:
     atom_type, confidence, _ = _classify_single("项目属于张三负责")
     assert atom_type == AtomType.FACTUAL
+
+
+def test_classify_name_with_ai_prefix_is_not_preference() -> None:
+    """单字「爱」不应把姓名（爱丽丝）误判为偏好（#445）。"""
+    atom_type, _, _ = _classify_single("爱丽丝描述了一个空房间")
+    assert atom_type != AtomType.PREFERENCE
+
+
+def test_classify_preference_expressions_still_detected() -> None:
+    """移除单字「爱」后，常见的偏好表达仍应命中。"""
+    assert _classify_single("我爱喝咖啡")[0] == AtomType.PREFERENCE
+    assert _classify_single("我不爱吃香菜")[0] == AtomType.PREFERENCE
+
+
+def test_classify_completed_past_event_is_not_planned() -> None:
+    """过去已完成事件不应被判为未来计划（#445）。"""
+    atom_type, _, _ = _classify_single("昨天已经完成调试")
+    assert atom_type == AtomType.EPISODIC
+
+
+def test_classify_completed_today_is_not_planned() -> None:
+    assert _classify_single("今天完成了调试")[0] != AtomType.PLANNED
 
 
 # ---------- TTL boundary conditions ----------

@@ -117,12 +117,9 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     recall_scope is not None
                     and recall_scope == event.unified_msg_origin
                 )
-                recall_persona_id = access.persona_id
-                use_persona_filtering = bool(
-                    self.config_manager.filtering_settings.get(
-                        "use_persona_filtering", True
-                    )
-                )
+                # 检索过滤只看 recall_persona_id：关闭人格过滤时它为空，
+                # 但 access.persona_id 仍保留真实人格供写入使用（#438）。
+                recall_persona_id = access.recall_persona_id
 
                 default_k = int(self.config_manager.get("recall_engine.top_k", 5))
                 max_k = int(self.config_manager.get("recall_engine.max_k", 10))
@@ -134,7 +131,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
 
                 limited_k = max(1, min(requested_k_int, max_k))
 
-                channel_scope = access.channel_scope
+                extra_scopes = access.extra_read_scopes
                 with trace_request_context(
                     session_id=event.unified_msg_origin,
                     scope=recall_session_id,
@@ -146,9 +143,12 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                         "k": limited_k,
                         "session_id": recall_session_id,
                         "persona_id": recall_persona_id,
+                        # 模型主动检索属于“实际使用”，是访问统计的写入来源；
+                        # 自动注入与 beta agentic 检索仍不强化。
+                        "track_access": True,
                     }
-                    if channel_scope:
-                        search_kwargs["extra_scopes"] = [channel_scope]
+                    if extra_scopes:
+                        search_kwargs["extra_scopes"] = extra_scopes
                     memories = await self.memory_engine.search_memories(**search_kwargs)
 
                 serialized_results = []
@@ -178,7 +178,7 @@ class MemorySearchTool(FunctionTool[AstrAgentContext]):
                     "query": cleaned_query,
                     "applied_filters": {
                         "session_filtered": session_filtered,
-                        "persona_filtered": use_persona_filtering,
+                        "persona_filtered": recall_persona_id is not None,
                     },
                     "count": len(serialized_results),
                     "results": serialized_results,

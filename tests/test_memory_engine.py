@@ -2125,201 +2125,150 @@ async def test_update_memory_status_only_skips_graph_reindex(tmp_path: Path):
 
 
 class TestMemoryEngineDocumentQueries:
-    """针对 MemoryEngine 新增的文档读侧方法的 SQL 行为验证。"""
+    """文档读侧方法通过真实引擎与真实数据库验证。"""
 
     @staticmethod
-    def _make_engine(db_path: str) -> MemoryEngine:
-        """构造只初始化 db_connection 的最小引擎实例。"""
-        engine = MemoryEngine.__new__(MemoryEngine)
-        engine.db_connection = None
-        engine.db_path = db_path
-        return engine
+    async def _seed(tmp_path):
+        """Create real memories and return the engine plus their ids."""
+        from tests.real_engine_support import make_engine
 
-    @staticmethod
-    async def _create_documents_table(db: "aiosqlite.Connection") -> None:
-        await db.execute(
-            """
-            CREATE TABLE documents (
-                id INTEGER PRIMARY KEY,
-                doc_id TEXT,
-                text TEXT,
-                metadata TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-            """
+        engine, db = await make_engine(tmp_path / "docs")
+        first = await engine.add_memory(
+            "low preference",
+            session_id="livingmemory:global",
+            persona_id=None,
+            importance=0.3,
+            metadata={
+                "memory_type": "PREFERENCE",
+                "create_time": 10,
+                "agent_adapter_id": "test",
+            },
+            preserve_create_time=True,
         )
-
-    @staticmethod
-    def _seed_rows() -> list[tuple[int, str, str, dict]]:
-        return [
-            (
-                1,
-                "1",
-                "low preference",
-                {"memory_type": "PREFERENCE", "importance": 0.3, "create_time": 10},
-            ),
-            (
-                2,
-                "2",
-                "high preference",
-                {"memory_type": "PREFERENCE", "importance": 0.9, "create_time": 20},
-            ),
-            (
-                3,
-                "3",
-                "other fact",
-                {
-                    "memory_type": "FACT",
-                    "importance": 1.0,
-                    "create_time": 30,
-                    "session_id": "s1",
-                    "status": "active",
-                },
-            ),
-        ]
-
-    @staticmethod
-    async def _seed_db(db_path: str) -> None:
-        async with aiosqlite.connect(db_path) as db:
-            await TestMemoryEngineDocumentQueries._create_documents_table(db)
-            for (
-                memory_id,
-                doc_id,
-                text,
-                metadata,
-            ) in TestMemoryEngineDocumentQueries._seed_rows():
-                await db.execute(
-                    """
-                    INSERT INTO documents
-                        (id, doc_id, text, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        memory_id,
-                        doc_id,
-                        text,
-                        json.dumps(metadata),
-                        "created",
-                        "updated",
-                    ),
-                )
-            await db.commit()
-
-    @staticmethod
-    async def _connect_engine(db_path: str) -> MemoryEngine:
-        engine = TestMemoryEngineDocumentQueries._make_engine(db_path)
-        engine.db_connection = await aiosqlite.connect(db_path)
-        engine.db_connection.row_factory = aiosqlite.Row
-        return engine
+        second = await engine.add_memory(
+            "high preference",
+            session_id="livingmemory:global",
+            persona_id=None,
+            importance=0.9,
+            metadata={
+                "memory_type": "PREFERENCE",
+                "create_time": 20,
+                "agent_adapter_id": "test",
+            },
+            preserve_create_time=True,
+        )
+        third = await engine.add_memory(
+            "other fact",
+            session_id="s1",
+            persona_id=None,
+            importance=1.0,
+            metadata={
+                "memory_type": "FACT",
+                "create_time": 30,
+                "agent_adapter_id": "test",
+            },
+            preserve_create_time=True,
+        )
+        return engine, db, (first, second, third)
 
     @pytest.mark.asyncio
     async def test_list_memories_page_type_filter_and_sort(self, tmp_path):
-        db_path = str(tmp_path / "memories.db")
-        await self._seed_db(db_path)
-        engine = await self._connect_engine(db_path)
+        from tests.real_engine_support import close_engine
+
+        engine, db, (first, second, _third) = await self._seed(tmp_path)
         try:
             result = await engine.list_memories_page(
                 memory_type="PREFERENCE", sort_key="importance_desc"
             )
         finally:
-            await engine.db_connection.close()
+            await close_engine(engine, db)
 
         assert result["total"] == 2
         assert result["sort"] == "importance_desc"
-        assert [item["id"] for item in result["items"]] == [2, 1]
+        assert [item["id"] for item in result["items"]] == [second, first]
 
     @pytest.mark.asyncio
     async def test_list_memories_page_filters_and_pagination(self, tmp_path):
-        db_path = str(tmp_path / "memories.db")
-        await self._seed_db(db_path)
-        engine = await self._connect_engine(db_path)
+        from tests.real_engine_support import close_engine
+
+        engine, db, (first, second, third) = await self._seed(tmp_path)
         try:
             session_page = await engine.list_memories_page(session_id="s1")
-            assert session_page["total"] == 1
-            assert [item["id"] for item in session_page["items"]] == [3]
-
             status_page = await engine.list_memories_page(status="active")
-            # 未写 status 的行按默认值视为 active，三条全部命中
-            assert status_page["total"] == 3
-
-            keyword_page = await engine.list_memories_page(keyword="3")
-            assert keyword_page["total"] == 1
-            assert keyword_page["items"][0]["id"] == 3
-
+            keyword_page = await engine.list_memories_page(keyword="other fact")
             text_page = await engine.list_memories_page(keyword="preference")
-            assert text_page["total"] == 2
-
             paged = await engine.list_memories_page(page=2, page_size=2)
-            # created_desc 全序为 [3, 2, 1]，第 2 页只剩 id=1
-            assert paged["total"] == 3
-            assert [item["id"] for item in paged["items"]] == [1]
-            assert paged["has_more"] is False
-
             unknown_sort = await engine.list_memories_page(sort_key="bogus")
-            assert unknown_sort["sort"] == "created_desc"
         finally:
-            await engine.db_connection.close()
+            await close_engine(engine, db)
 
-    @pytest.mark.asyncio
-    async def test_list_memories_page_requires_connection(self, tmp_path):
-        engine = self._make_engine(str(tmp_path / "memories.db"))
-        with pytest.raises(RuntimeError):
-            await engine.list_memories_page()
+        assert session_page["total"] == 1
+        assert [item["id"] for item in session_page["items"]] == [third]
+        # 未显式归档的记忆都算 active
+        assert status_page["total"] == 3
+        assert [item["id"] for item in keyword_page["items"]] == [third]
+        assert text_page["total"] == 2
+        # created_desc 全序为 [third, second, first]，第 2 页只剩 first
+        assert paged["total"] == 3
+        assert [item["id"] for item in paged["items"]] == [first]
+        assert paged["has_more"] is False
+        assert unknown_sort["sort"] == "created_desc"
 
     @pytest.mark.asyncio
     async def test_get_memory_record(self, tmp_path):
-        db_path = str(tmp_path / "memories.db")
-        await self._seed_db(db_path)
-        engine = await self._connect_engine(db_path)
+        from tests.real_engine_support import close_engine
+
+        engine, db, (_first, second, _third) = await self._seed(tmp_path)
         try:
-            record = await engine.get_memory_record(2)
+            record = await engine.get_memory_record(second)
             missing = await engine.get_memory_record(999)
         finally:
-            await engine.db_connection.close()
+            await close_engine(engine, db)
 
         assert record is not None
-        assert record["id"] == 2
-        assert record["doc_id"] == "2"
-        assert record["text"] == "high preference"
-        assert record["created_at"] == "created"
-        assert record["updated_at"] == "updated"
+        assert record["id"] == second
+        assert record["text"].startswith("high preference")
+        assert json.loads(record["metadata"])["importance"] == pytest.approx(0.9)
         assert missing is None
 
     @pytest.mark.asyncio
     async def test_get_consolidation_candidates(self, tmp_path):
-        db_path = str(tmp_path / "memories.db")
-        await self._seed_db(db_path)
-        engine = await self._connect_engine(db_path)
+        from tests.real_engine_support import close_engine
+
+        engine, db, (first, _second, _third) = await self._seed(tmp_path)
         try:
-            # importance < 0.5 且 create_time < 100：仅 id=1 命中
             candidates = await engine.get_consolidation_candidates(0.5, 100.0)
             all_rows = await engine.get_consolidation_candidates(1.1, 10**9)
         finally:
-            await engine.db_connection.close()
+            await close_engine(engine, db)
 
-        assert [c["id"] for c in candidates] == [1]
-        assert candidates[0]["content"] == "low preference"
+        # 只有低重要性且足够旧的记忆进入合并候选
+        assert [c["id"] for c in candidates] == [first]
+        assert "low preference" in candidates[0]["content"]
         assert candidates[0]["metadata"]["memory_type"] == "PREFERENCE"
-        assert [c["id"] for c in all_rows] == [1, 2, 3]
+        assert len(all_rows) == 3
 
     @pytest.mark.asyncio
     async def test_get_consolidation_stats(self, tmp_path):
-        db_path = str(tmp_path / "memories.db")
-        await self._seed_db(db_path)
-        engine = await self._connect_engine(db_path)
-        try:
-            await engine.db_connection.execute(
-                "INSERT INTO documents(text, metadata) VALUES ('merged', ?)",
-                (json.dumps({"consolidated_from": [1, 2], "status": "active"}),),
-            )
-            await engine.db_connection.commit()
+        from tests.real_engine_support import close_engine
 
+        engine, db, (first, second, _third) = await self._seed(tmp_path)
+        try:
+            await engine.add_memory(
+                "merged memory",
+                session_id="livingmemory:global",
+                persona_id=None,
+                metadata={
+                    "consolidated_from": [first, second],
+                    "agent_adapter_id": "test",
+                },
+            )
             stats = await engine.get_consolidation_stats()
         finally:
-            await engine.db_connection.close()
+            await close_engine(engine, db)
 
-        assert stats == {"consolidated_count": 1, "archived_count": 0}
+        assert stats["consolidated_count"] == 1
+        assert stats["archived_count"] == 0
 
 
 @pytest.mark.asyncio

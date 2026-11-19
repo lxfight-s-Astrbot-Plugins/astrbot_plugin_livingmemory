@@ -66,6 +66,46 @@ class SettingsHandler:
             options.setdefault(adapter_id, adapter_id)
         return options
 
+    async def _group_options(self) -> dict[str, str]:
+        """List group chats the plugin has recorded, for the blacklist picker.
+
+        Uses the plugin's own conversation store instead of making users copy
+        group ids by hand; already-saved entries are kept so a group that has
+        been idle for a while does not disappear from the picker.
+
+        Returns:
+            Mapping of group id to a display label.
+        """
+        options: dict[str, str] = {}
+        initializer = getattr(self.plugin, "initializer", None)
+        manager = getattr(initializer, "conversation_manager", None)
+        store = getattr(manager, "store", None)
+        list_sessions = getattr(store, "get_recent_sessions", None)
+        if callable(list_sessions):
+            try:
+                sessions = await list_sessions(200)
+            except Exception as exc:
+                logger.warning("读取会话列表失败: %s", exc)
+                sessions = []
+            for session in sessions:
+                session_id = str(getattr(session, "session_id", "") or "")
+                if "groupmessage" not in session_id.casefold():
+                    continue
+                group_id = session_id.rsplit(":", 1)[-1]
+                if not group_id:
+                    continue
+                platform = str(getattr(session, "platform", "") or "")
+                messages = int(getattr(session, "message_count", 0) or 0)
+                options[group_id] = (
+                    f"{group_id} ({platform}, {messages})" if platform else group_id
+                )
+        for group_id in (
+            self.plugin.config_manager.get("filtering_settings.group_blacklist", [])
+            or []
+        ):
+            options.setdefault(str(group_id), str(group_id))
+        return options
+
     def _load_schema(self) -> dict[str, Any]:
         if self._schema is None:
             try:
@@ -181,6 +221,7 @@ class SettingsHandler:
 
         sections = []
         adapter_options = self._adapter_options()
+        group_options = await self._group_options()
         for group, meta in self._groups():
             group_title = self._localized(locale_data, group, "description") or str(
                 meta.get("description") or group
@@ -194,6 +235,12 @@ class SettingsHandler:
                         type="adapter-list",
                         options=list(adapter_options),
                         option_labels=list(adapter_options.values()),
+                    )
+                elif field["path"] == "filtering_settings.group_blacklist":
+                    field.update(
+                        type="group-list",
+                        options=list(group_options),
+                        option_labels=list(group_options.values()),
                     )
             if fields:
                 sections.append(
@@ -285,6 +332,13 @@ class SettingsHandler:
         except Exception as exc:
             logger.warning("保存插件配置失败: %s", exc, exc_info=True)
             return self.utils.error(f"保存失败: {exc}")
+
+        initializer = getattr(self.plugin, "initializer", None)
+        if initializer is not None and hasattr(initializer, "reload_runtime_config"):
+            try:
+                initializer.reload_runtime_config()
+            except Exception as exc:
+                logger.warning("刷新运行期配置失败: %s", exc, exc_info=True)
 
         return self.utils.ok(
             {

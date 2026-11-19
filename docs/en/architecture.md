@@ -123,7 +123,17 @@ flowchart LR
 - Graph memory and atoms are written next; failures there are logged and reconciled by index maintenance and rebuild instead of rolling back the successful main document, so one graph-index failure does not lose the whole memory.
 - Source messages go to the separate `memory_sources` table as JSON and never participate in retrieval; if that write fails the newly created memory is deleted and the error is raised, keeping every memory traceable to its source.
 - Deletion runs BM25 → vector → `documents`; a failed vector delete restores BM25 from the backup, and a failed document delete only warns because the primary data is already gone.
-- Access statistics are not written one row at a time: the same batch of doc_ids is coalesced into one update within a three-second window, and atom access counts are coalesced separately, cutting `json_set` calls and commits.
+- Access statistics are not written one row at a time: the same batch of doc_ids is coalesced into one update within a three-second window, and atom access counts are coalesced separately, cutting `json_set` calls and commits; explicit deep reads join the same coalescing queue.
+- Access strengthening comes only from explicit model use; passive injection, recent-memory filler and paginated continuations do not count:
+
+| Caller | Strengthens? |
+| --- | --- |
+| Automatic injection (`on_llm_request`) | No |
+| `recall_long_term_memory` (baseline / beta) | Yes, once per document per tool call |
+| `read_memory_evidence` | Yes, only on a successful first page; cursor continuations do not count |
+| `/lmem search`, external API, WebUI recall test | No |
+| Recent-memory filler | No |
+
 - Sessions use revision numbers and write locks: a summarization task records the revision before reading its range, and cursor commits clamp against the current message count and compare the revision inside the store write lock; rollback or session reset invalidates the old task.
 
 ## Storage model
@@ -179,9 +189,9 @@ flowchart TB
 ## Lifecycle and forgetting
 
 - Summarization triggers once unsummarized rounds reach the threshold (default 10); a day change or long idle gap (default 180 minutes) splits the window, and the background task consumes oldest segments until the backlog is empty or `max_segments_per_run` is reached, so a multi-day conversation is not compressed into one memory.
-- Long-term memory importance decays daily by `importance_decay.decay_rate` (default 0.005); memories accessed inside the window get a reduced effective decay based on access count, and the count itself is multiplied by 0.5 after each daily decay so an old hotspot cannot avoid decay forever.
+- Long-term memory importance decays daily by `importance_decay.decay_rate` (default 0.005); memories explicitly recalled or deep-read inside the window get a reduced effective decay based on access count, and the count itself is multiplied by 0.5 after each daily decay so an old hotspot cannot avoid decay forever. Passive injection does not count as access.
 - Atoms have type-specific TTLs: 7 days for episodes, 2 for plans, 180 for facts, 90 for relations, 60 for preferences and 30 for unknown atoms; importance and reinforcement enlarge the TTL, and decay types are linear, exponential or step.
-- Atom states are active, dormant, superseded, expired and forgotten; access reinforces new atoms, expiry first soft-deletes and later cleans up, and graph plus FTS rows are updated together.
+- Atom states are active, dormant, superseded, expired and forgotten; explicit recall or deep reads reinforce new atoms (passive injection does not), expiry first soft-deletes and later cleans up, and graph plus FTS rows are updated together.
 - Memory consolidation runs daily or during reflection, groups by session or semantic similarity (threshold default 0.7) and merges; the retention policy archives or deletes originals, and archived memories can be restored from the dashboard.
 - Automatic cleanup archives (rather than deletes) aged low-importance memories by default (`forgetting_agent.auto_archived_enabled=true`, 120 days and importance below 0.25); archived documents are restorable from the dashboard.
 - Version backups are created when the plugin version changes and keep the 2 most recent copies; daily backups follow `backup_settings.keep_days` (default 7 days), and total backup size is capped at 512 MB. Database migration and high-risk batch operations also take a backup first.

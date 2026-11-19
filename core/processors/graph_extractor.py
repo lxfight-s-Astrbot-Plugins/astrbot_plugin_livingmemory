@@ -45,10 +45,10 @@ class GraphExtractor:
         """Return display name, canonical identity, and metadata for people."""
         resolved: list[tuple[str, str, dict[str, Any]]] = []
         identities = metadata.get("participant_identities")
-        if isinstance(identities, list):
+        if isinstance(identities, list) and identities:
             seen: set[str] = set()
             for item in identities:
-                if not isinstance(item, dict):
+                if not isinstance(item, dict) or item.get("is_bot"):
                     continue
                 identity_key = EntityResolver.canonicalize(
                     str(item.get("identity_key") or "")
@@ -71,13 +71,13 @@ class GraphExtractor:
                             "sender_id": str(item.get("sender_id") or ""),
                             "platform": str(item.get("platform") or "unknown"),
                             "aliases": aliases,
-                            "is_bot": bool(item.get("is_bot", False)),
+                            "is_bot": False,
                         },
                     )
                 )
                 if len(resolved) >= self.max_participants:
                     break
-        if resolved:
+            # A bot-only identity list must not fall back to untyped names.
             return resolved
 
         participants = EntityResolver.dedupe_preserve_order(
@@ -445,12 +445,11 @@ class GraphExtractor:
             persona_id = getattr(atom, "persona_id", None)
             entities = getattr(atom, "entities", []) or []
 
-            # Atom entities mix topics and LLM participant labels. Stable sender
-            # identities replace the participant labels when they are available.
+            # Participant labels from the summary are not graph topics.
             entity_keys: list[str] = []
             for entity in entities:
                 if (
-                    participant_nodes
+                    participant_values
                     and EntityResolver.canonicalize(str(entity)) in participant_values
                 ):
                     continue

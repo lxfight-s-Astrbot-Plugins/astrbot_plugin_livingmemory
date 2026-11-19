@@ -108,6 +108,33 @@ class GraphMemoryManager:
         atoms: list | None = None,
     ) -> tuple[list[GraphEntry], list[int]]:
         """Persist graph structure without touching the vector index."""
+        if (
+            atoms is None
+            and isinstance(metadata, dict)
+            and isinstance(metadata.get("key_facts"), list)
+        ):
+            fact_list = [
+                str(item).strip() for item in metadata["key_facts"] if str(item).strip()
+            ]
+            if fact_list:
+                from ..processors.atom_classifier import classify_atoms
+
+                atoms = classify_atoms(
+                    key_facts=fact_list,
+                    topics=(
+                        metadata.get("topics")
+                        if isinstance(metadata.get("topics"), list)
+                        else None
+                    ),
+                    participants=(
+                        metadata.get("participants")
+                        if isinstance(metadata.get("participants"), list)
+                        else None
+                    ),
+                    parent_importance=float(metadata.get("importance", 0.5) or 0.5),
+                    session_id=metadata.get("session_id"),
+                    persona_id=metadata.get("persona_id"),
+                )
         extracted = self.graph_extractor.extract(
             source_memory_id, content, metadata, atoms
         )

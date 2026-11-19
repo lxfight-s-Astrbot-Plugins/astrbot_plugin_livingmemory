@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.13.0 稳定版
+      text: 2.14.1 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.13.0 已发布
+## 2.14.1 已发布
 
-2.13.0 是 Dashboard 外观版本：默认外观升级到 macOS 26 Liquid Glass，外观面板支持自定义强调色、壁纸、玻璃强度、圆角、密度与字体，并完成一轮样式收敛与修复；首屏 gzip 81,597 B 仍在预算内。无命令、配置或数据库迁移变化。[版本与升级](/releases)提供下载和升级说明。
+2.14.1 修复机器人被计入图谱人物的问题，并改进记忆召回、原子分类和索引维护。下载与升级步骤见[版本与升级](/releases)。
 
 ## 这份文档适合谁？
 

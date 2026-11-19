@@ -11,6 +11,7 @@ from typing import Any
 
 GLOBAL_MEMORY_SCOPE = "livingmemory:global"
 CHANNEL_SCOPE_PREFIX = "livingmemory:channel"
+PLATFORM_SCOPE_PREFIX = "livingmemory:user:"
 
 # 一个检索请求可携带单个作用域，或「个人 + 频道」等多个作用域的并集。
 MemoryScopeFilter = str | Sequence[str] | None
@@ -31,7 +32,12 @@ current_adapter_access: ContextVar[AdapterAccess | None] = ContextVar(
 
 @contextmanager
 def adapter_access(config: Any, event: Any, *, write: bool = False):
-    """Apply adapter policy to this task and reset it when the request finishes."""
+    """Apply adapter policy to this task and reset it when the request finishes.
+
+    An empty ``shared_adapter_ids`` list is treated as "not configured": a saved
+    empty list previously selected the single-instance branch, so every memory
+    written by another adapter became invisible (#442).
+    """
     adapter_id = (
         event if isinstance(event, str) else _event_value(event, "get_platform_id")
     )
@@ -43,7 +49,8 @@ def adapter_access(config: Any, event: Any, *, write: bool = False):
         allowed = (adapter_id,)
     elif shared is not None:
         members = parse_value_list(shared)
-        allowed = tuple(sorted(members)) if adapter_id in members else (adapter_id,)
+        if members:
+            allowed = tuple(sorted(members)) if adapter_id in members else (adapter_id,)
     token = current_adapter_access.set(AdapterAccess(adapter_id, allowed))
     try:
         yield
@@ -198,18 +205,38 @@ def resolve_sender_alias(
 
 @dataclass(frozen=True, slots=True)
 class EventMemoryAccess:
-    """一次事件请求内解析出的白名单、人格与记忆作用域。"""
+    """一次事件请求内解析出的白名单、人格与记忆作用域。
+
+    ``persona_id`` 始终是事件当前人格，供写入、档案与提示词选择使用；
+    ``recall_persona_id`` 只在 ``use_persona_filtering`` 开启时等于它，关闭时为
+    None，表示检索不按人格过滤（跨人格共享召回）。
+
+    ``legacy_scopes`` 仅在 ``user_scope_ignore_platform`` 开启时非空：写入使用
+    不含平台段的新作用域，检索额外并联旧格式作用域，历史记忆无需迁移也能召回。
+    """
 
     allowed: bool
     persona_id: str | None
     scope: str | None
     channel_scope: str | None = None
+    recall_persona_id: str | None = None
+    legacy_scopes: tuple[str, ...] = ()
+
+    @property
+    def extra_read_scopes(self) -> list[str]:
+        """检索时并联的附加作用域（频道公共记忆 + 旧格式用户作用域）。"""
+        scopes = [self.channel_scope] if self.channel_scope else []
+        scopes.extend(self.legacy_scopes)
+        return scopes
 
 
 async def resolve_event_memory_access(
     config: Any, context: Any, event: Any
 ) -> EventMemoryAccess:
-    """一次解析事件的白名单、人格过滤与记忆作用域。
+    """一次解析事件的白名单、人格与记忆作用域。
+
+    ``filtering_settings.use_persona_filtering`` 只控制检索过滤：写入链路始终解析
+    真实人格，避免关闭开关后新记忆全部丢失 persona_id（#438）。
 
     Args:
         config: ConfigManager 或宿主配置。
@@ -221,16 +248,24 @@ async def resolve_event_memory_access(
     """
     if not is_event_memory_allowed(config, event):
         return EventMemoryAccess(allowed=False, persona_id=None, scope=None)
-    persona_id = None
-    if _config_get(config, "filtering_settings.use_persona_filtering", True):
-        from .utils import get_persona_id
+    from .utils import get_persona_id
 
-        persona_id = await get_persona_id(context, event)
+    persona_id = await get_persona_id(context, event)
+    persona_filtering = bool(
+        _config_get(config, "filtering_settings.use_persona_filtering", True)
+    )
     return EventMemoryAccess(
         allowed=True,
         persona_id=persona_id,
         scope=resolve_memory_scope(config, event),
         channel_scope=resolve_channel_memory_scope(config, event),
+        recall_persona_id=persona_id if persona_filtering else None,
+        # 解耦模式下并联检索旧格式用户作用域，历史记忆不迁移也能召回（#442）。
+        legacy_scopes=(
+            legacy_user_scopes(config, event, known_platform_names(context))
+            if user_scope_ignores_platform(config)
+            else ()
+        ),
     )
 
 
@@ -383,8 +418,44 @@ def memory_scope_visible(
     return scopes is None or metadata.get("session_id") in scopes
 
 
+def is_group_blacklisted(config: Any, event: Any) -> bool:
+    """Whether this event's group or session is on the memory blacklist.
+
+    A blacklisted group skips capture, reflection, recall and the agent memory
+    tools entirely; it does not affect normal conversation. Entries match a
+    group id, a full session id, a session prefix (``<entry>:``) or a trailing
+    segment (``:<entry>``), so both "paste the group id" and "paste the UMO"
+    work across adapters (#440).
+    """
+    blocked = {
+        value.casefold()
+        for value in parse_value_list(
+            _config_get(config, "filtering_settings.group_blacklist", "")
+        )
+    }
+    if not blocked:
+        return False
+    group_id = _event_value(event, "get_group_id", "group_id").casefold()
+    session_id = _event_value(
+        event, "unified_msg_origin", "unified_msg_origin"
+    ).casefold()
+    if group_id and group_id in blocked:
+        return True
+    if not session_id:
+        return False
+    if session_id in blocked:
+        return True
+    return any(
+        session_id.startswith(f"{entry}:") or session_id.endswith(f":{entry}")
+        for entry in blocked
+    )
+
+
 def is_event_memory_allowed(config: Any, event: Any) -> bool:
-    """Apply the plugin-level allowlist consistently to every entry point."""
+    """Apply the plugin-level blacklist and allowlist to every entry point."""
+    # 黑名单优先：命中即拒绝，与白名单是否开启无关
+    if is_group_blacklisted(config, event):
+        return False
     if not _config_get(config, "access_control.whitelist_enabled", False):
         return True
     allowed = {
@@ -413,11 +484,103 @@ def is_event_memory_allowed(config: Any, event: Any) -> bool:
     )
 
 
+def user_scope_ignores_platform(config: Any) -> bool:
+    """Whether user scopes drop the platform segment (cross-adapter sharing)."""
+    return bool(
+        _config_get(config, "filtering_settings.user_scope_ignore_platform", False)
+    )
+
+
 def resolve_user_memory_scope(config: Any, event: Any) -> str:
-    """构造用户级作用域；身份别名与运行时读写共用同一份配置。"""
+    """构造用户级作用域；身份别名与运行时读写共用同一份配置。
+
+    开启 ``user_scope_ignore_platform`` 后不再写入平台段，同一个人在不同适配器
+    之间共享同一份记忆（#442）。旧格式作用域由 ``legacy_user_scopes`` 并联召回。
+    """
     platform = _event_value(event, "get_platform_name", "platform").casefold()
     identity = resolve_event_identity(config, event).casefold()
-    return f"livingmemory:user:{platform or 'unknown'}:{identity}"
+    if user_scope_ignores_platform(config):
+        return f"{PLATFORM_SCOPE_PREFIX}{identity}"
+    return f"{PLATFORM_SCOPE_PREFIX}{platform or 'unknown'}:{identity}"
+
+
+def legacy_user_scopes(
+    config: Any,
+    event: Any,
+    platforms: Sequence[str] = (),
+) -> tuple[str, ...]:
+    """在解耦模式下，返回需要并联检索的旧格式用户作用域。
+
+    只枚举确实出现过的平台名（宿主平台实例 + 配置里的平台类型），因此作用域
+    数量有界，可以直接走既有的 ``IN (...)`` 过滤，不需要 LIKE 扫描。
+
+    Args:
+        config: ConfigManager 或宿主配置。
+        event: 当前消息事件。
+        platforms: 已知平台名（平台类型，如 ``aiocqhttp``）。
+
+    Returns:
+        旧格式作用域元组；未启用解耦或无法解析身份时为空。
+    """
+    if not user_scope_ignores_platform(config):
+        return ()
+    identity = resolve_event_identity(config, event).casefold()
+    if not identity:
+        return ()
+    names = {
+        str(name or "").strip().casefold()
+        for name in platforms
+        if str(name or "").strip()
+    }
+    names.add(_event_value(event, "get_platform_name", "platform").casefold())
+    scopes: list[str] = []
+    for name in sorted(names):
+        scope = f"{PLATFORM_SCOPE_PREFIX}{name}:{identity}" if name else ""
+        if scope and scope not in scopes:
+            scopes.append(scope)
+    return tuple(scopes)
+
+
+def known_platform_names(context: Any) -> tuple[str, ...]:
+    """收集当前部署中已知的平台名，用于枚举旧格式用户作用域。
+
+    Args:
+        context: 插件 Context；缺失或结构不符时返回空元组。
+
+    Returns:
+        平台名元组（去重、保持发现顺序）。
+    """
+    names: list[str] = []
+    manager = getattr(context, "platform_manager", None)
+    get_insts = getattr(manager, "get_insts", None)
+    if callable(get_insts):
+        try:
+            insts = list(get_insts() or [])
+        except Exception:
+            insts = []
+        for inst in insts:
+            meta = getattr(inst, "meta", None)
+            name = ""
+            if callable(meta):
+                try:
+                    name = str(getattr(meta(), "name", "") or "")
+                except Exception:
+                    name = ""
+            if name and name not in names:
+                names.append(name)
+    get_config = getattr(context, "get_config", None)
+    if callable(get_config):
+        try:
+            entries = list(get_config().get("platform", []) or [])
+        except Exception:
+            entries = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("type") or "")
+            if name and name not in names:
+                names.append(name)
+    return tuple(names)
 
 
 def resolve_memory_scope(config: Any, event: Any) -> str | None:
@@ -479,8 +642,10 @@ __all__ = [
     "resolve_channel_memory_scope",
     "resolve_event_memory_access",
     "is_event_memory_allowed",
+    "is_group_blacklisted",
     "is_suspicious_session_id",
     "parse_identity_aliases",
+    "PLATFORM_SCOPE_PREFIX",
     "parse_value_list",
     "resolve_event_identity",
     "resolve_memory_scope",

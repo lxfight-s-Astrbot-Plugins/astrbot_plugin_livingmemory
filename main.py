@@ -5,8 +5,10 @@ main.py - LivingMemory 插件主文件
 
 import asyncio
 import re
+import sys
 from collections.abc import AsyncGenerator
 from importlib import metadata as importlib_metadata
+from importlib import util as importlib_util
 from typing import Any
 
 from astrbot.api import logger
@@ -42,6 +44,20 @@ from .core.tools import (
 
 _MIN_ASTRBOT_VERSION = "4.24.2"
 _ASTRBOT_DISTRIBUTION_NAMES = ("AstrBot", "astrbot")
+
+
+def _probe_lazy_dependencies() -> None:
+    """Fail fast at plugin import if lazy-loaded runtime packages are absent.
+
+    Using ``find_spec`` avoids loading ``networkx`` into ``sys.modules`` during
+    startup while still letting AstrBot's plugin loader detect missing packages
+    and run automatic dependency recovery.
+    """
+    if "networkx" not in sys.modules and importlib_util.find_spec("networkx") is None:
+        raise ModuleNotFoundError("No module named 'networkx'", name="networkx")
+
+
+_probe_lazy_dependencies()
 
 
 def _parse_version(v: str) -> tuple[int, ...]:

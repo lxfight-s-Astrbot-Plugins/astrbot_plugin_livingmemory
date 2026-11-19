@@ -213,3 +213,53 @@ test("dense relationships do not pull spiral arms back into the core", () => {
   const outer = result.nodes.filter(node => Math.hypot(node.homeX,node.homeY,node.homeZ) > result.communities[0].radius * 0.6);
   assert.ok(outer.every(node => Math.hypot(node.x,node.y,node.z) > Math.hypot(node.homeX,node.homeY,node.homeZ)*0.85));
 });
+
+test("spiral galaxies form a thin disk with a compact central bulge when viewed edge-on", () => {
+  const N = 320;
+  const nodes = Array.from({ length: N }, (_, id) => ({
+    id,
+    community: 0,
+    type: id === 0 ? "person" : id < 12 ? "topic" : id < 40 ? "summary" : "fact",
+    weight: 1,
+  }));
+  const edges = Array.from({ length: N - 1 }, (_, i) => ({
+    source: i + 1,
+    target: i < 12 ? 0 : i < 40 ? 1 + (i % 11) : 12 + (i % 28),
+    weight: 1,
+  }));
+  const result = createSimulation(prepareGraph({ nodes, edges }));
+  result.simulation.tick(result.iterations);
+  const community = result.communities[0];
+  const hub = result.nodes[community.hub];
+  const wx = result.frames[6], wy = result.frames[7], wz = result.frames[8];
+  const innerZ = [], outerZ = [];
+  let maxPlanar = 0;
+  for (const node of result.nodes) {
+    if (node.id === hub.id) continue;
+    const dx = node.x - hub.x, dy = node.y - hub.y, dz = node.z - hub.z;
+    const z = Math.abs(dx * wx + dy * wy + dz * wz);
+    const dist = Math.hypot(dx, dy, dz);
+    maxPlanar = Math.max(maxPlanar, dist);
+    if (dist < community.radius * 0.35) innerZ.push(z);
+    else outerZ.push(z);
+  }
+  const mean = arr => arr.reduce((sum, v) => sum + v, 0) / arr.length;
+  assert.ok(Math.max(...outerZ) < maxPlanar * 0.08, "outer spiral disk should stay thin");
+  assert.ok(mean(outerZ) < maxPlanar * 0.025, "most disk stars should hug the midplane");
+  assert.ok(mean(innerZ) > mean(outerZ), "central bulge should be thicker than outer disk");
+});
+
+test("multiple large communities exhibit diverse galaxy morphologies", () => {
+  const nodes = [], edges = [];
+  for (let c = 0; c < 6; c++) {
+    const base = c * 100;
+    for (let i = 0; i < 100; i++) {
+      nodes.push({ id: base + i, community: c, type: i === 0 ? "person" : i < 10 ? "topic" : "fact", weight: 1 });
+      if (i > 0) edges.push({ source: base, target: base + i, weight: 1 });
+    }
+    if (c > 0) edges.push({ source: 0, target: base, weight: 2 });
+  }
+  const result = createSimulation(prepareGraph({ nodes, edges }));
+  const types = new Set(result.communities.map(c => c.galaxyType));
+  assert.ok(types.size >= 4, `expected diverse galaxy morphologies, got ${[...types]}`);
+});

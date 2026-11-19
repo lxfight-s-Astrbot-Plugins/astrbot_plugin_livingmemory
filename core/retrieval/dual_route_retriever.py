@@ -212,19 +212,21 @@ class DualRouteRetriever:
                     float(doc_result.bm25_score or 0.0),
                     4,
                 )
-                score_breakdown["document_vector_score"] = round(
-                    float(doc_result.vector_score or 0.0),
-                    4,
-                )
+                if doc_result.vector_score is not None:
+                    score_breakdown["document_vector_score"] = round(
+                        float(doc_result.vector_score),
+                        4,
+                    )
             if graph_result is not None:
                 score_breakdown["graph_keyword_score"] = round(
                     float(graph_result.keyword_score or 0.0),
                     4,
                 )
-                score_breakdown["graph_vector_score"] = round(
-                    float(graph_result.vector_score or 0.0),
-                    4,
-                )
+                if graph_result.vector_score is not None:
+                    score_breakdown["graph_vector_score"] = round(
+                        float(graph_result.vector_score),
+                        4,
+                    )
 
             merged_results.append(
                 HybridResult(
