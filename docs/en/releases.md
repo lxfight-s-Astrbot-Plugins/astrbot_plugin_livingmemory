@@ -1,5 +1,18 @@
 # Releases and Upgrades
 
+## 2.14.2 · November 19, 2026
+
+2.14.2 fixes false summary rejections and retry windows that grow as messages arrive. [Download 2.14.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.2)
+
+### What changed
+
+- Summary validation recognizes nicknames from the original conversation, including ones that contain generic terms. It also accepts string scores such as `"0.7"` and logs the reason for each rejection.
+- Retries use the original segment. New messages wait for the next segment, and reaching the retry limit advances the cursor only past the failed segment. [#478](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/478)
+
+### Installing and upgrading
+
+Reload LivingMemory after updating to 2.14.2. The revised rules apply to future summaries and pending retries.
+
 ## 2.14.1 · November 19, 2026
 
 2.14.1 fixes issues in graph person counts, memory recall, and index maintenance. [Download 2.14.1](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.1)
