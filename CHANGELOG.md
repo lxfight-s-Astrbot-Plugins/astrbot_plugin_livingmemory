@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 图谱抽取跳过标记为 `is_bot` 的参与者。已有的机器人节点可通过 `/lmem rebuild-graph` 清理。([#472](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/472))
+
 ## [2.14.0] - 2026-11-17
 
 2.14.0 是记忆质量、跨端作用域与 Dashboard 3D 星图升级版本：修复原子分类、总结解析回退、图入口中文二字组 FTS 与被动注入访问计数污染，新增群聊记忆黑名单、用户模式跨平台共享、私密记忆可见性提示与 Embedding Provider 动态重解析，并将 3D 知识图谱升级为多形态天体星系与深空天文台 HUD 界面、重做设置页为按需加载的分类导航工作台。公开命令与数据库结构保持兼容，图入口 FTS 在启动时自动按 `PRAGMA user_version` 回填。
