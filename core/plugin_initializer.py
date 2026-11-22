@@ -567,8 +567,8 @@ class PluginInitializer(InitializerFaissMixin):
             if graph_memory_enabled
             else None,
             "adapter_instances": adapter_instances,
-                        "retrieval_timeout_seconds": get("retrieval_timeout_seconds", 10.0),
-"rrf_k": get("fusion_strategy.rrf_k", 60),
+            "retrieval_timeout_seconds": get("retrieval_timeout_seconds", 10.0),
+            "rrf_k": get("fusion_strategy.rrf_k", 60),
             "decay_rate": get("importance_decay.decay_rate", 0.01),
             "access_decay_window_days": get(
                 "importance_decay.access_decay_window_days", 30.0
