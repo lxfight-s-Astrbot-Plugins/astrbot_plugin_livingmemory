@@ -1,4 +1,5 @@
 {
+  "retrieval_timeout_seconds": {"description": "检索/重排超时（秒）", "type": "float", "default": 10.0, "hint": "超过后回退到融合排序结果"},
     "bot_language": {
         "description": "机器人回复语言",
         "hint": "设置插件命令和状态回复的语言。zh=中文（默认），en=English，ru=Русский，ja=日本語。",
