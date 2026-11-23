@@ -54,6 +54,7 @@ class RecallEngineConfig(BaseModel):
     search_cache_enabled: bool = True
     search_cache_ttl_seconds: float = Field(default=45.0, ge=0.0, le=600.0)
     search_cache_max_size: int = Field(default=32, ge=0, le=10000)
+    retrieval_timeout_seconds: float = Field(default=10.0, ge=0.5, le=120.0)
     fusion_mode: str = "score"
     fusion_bm25_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     recall_candidate_multiplier: int = Field(default=3, ge=1, le=10)

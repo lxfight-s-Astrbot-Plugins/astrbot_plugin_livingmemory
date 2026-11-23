@@ -598,6 +598,9 @@ class PluginInitializer(InitializerFaissMixin):
                 "recall_engine.search_cache_ttl_seconds", 45.0
             ),
             "search_cache_max_size": get("recall_engine.search_cache_max_size", 256),
+            "retrieval_timeout_seconds": get(
+                "recall_engine.retrieval_timeout_seconds", 10.0
+            ),
             "fallback_enabled": get("recall_engine.fallback_to_vector", True),
             "rerank_enabled": get("recall_engine.rerank_enabled", False),
             "rerank_candidates": get("recall_engine.rerank_candidates", 20),

@@ -200,6 +200,10 @@
                 "description": "Max Search Cache Entries",
                 "hint": "Maximum number of retrieval results kept in memory. When the limit is exceeded, the least recently used entries are evicted. Allowed range: 0-10000."
             },
+            "retrieval_timeout_seconds": {
+                "description": "Retrieval & Rerank Timeout (seconds)",
+                "hint": "Timeout limit for each retrieval route (BM25/vector/graph) and reranking; falls back to available results or fused ranking on timeout. Allowed range: 0.5-120."
+            },
             "private_memory_notice_enabled": {
                 "description": "Private Memory Notice",
                 "hint": "Append a notice to injected memories marked visibility=private and disclosed=false, stating that the assistant experienced this privately and the user has not been told. Disable to omit the notice."

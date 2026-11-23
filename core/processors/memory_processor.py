@@ -792,10 +792,16 @@ class MemoryProcessor:
             if rejection:
                 global _low_quality_rejections
                 _low_quality_rejections += 1
+                summary_preview = (
+                    str(structured_data.get("summary", ""))
+                    .replace("\n", " ")
+                    .strip()[:80]
+                )
                 logger.warning(
                     "[MemoryProcessor] 总结质量不达标（low），拒绝写入主库: "
                     f"{rejection}, "
-                    f"rejected_total={_low_quality_rejections}"
+                    f"rejected_total={_low_quality_rejections}, "
+                    f"summary={summary_preview!r}"
                 )
                 raise LowQualityMemoryError(f"总结质量不达标（{rejection}）")
 

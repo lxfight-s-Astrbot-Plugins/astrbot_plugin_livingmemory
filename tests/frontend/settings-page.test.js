@@ -393,3 +393,94 @@ test("settings modified-only filter shows only changed values", () => {
   assert.doesNotMatch(container.innerHTML, /recall_engine\.max_k/);
   assert.match(container.innerHTML, /settings\.modifiedBadge/);
 });
+
+test("group-list defaults to unchecked, collects checked items, and resets to default", () => {
+  globalThis.window = { t: (key) => key };
+  const page = new SettingsPage({}, {});
+  try {
+    for (const emptyValue of [[], null, undefined]) {
+      const html = page.renderField({
+        path: "filtering_settings.group_blacklist",
+        type: "group-list",
+        value: emptyValue,
+        default: [],
+        label: "Group blacklist",
+        options: ["10001", "10002"],
+        option_labels: ["Group A", "Group B"],
+      });
+      assert.doesNotMatch(html, /checked/, `value=${String(emptyValue)} 不应勾选任何群`);
+    }
+
+    const selectedHtml = page.renderField({
+      path: "filtering_settings.group_blacklist",
+      type: "group-list",
+      value: ["10002"],
+      default: [],
+      label: "Group blacklist",
+      options: ["10001", "10002"],
+      option_labels: ["Group A", "Group B"],
+    });
+    assert.doesNotMatch(selectedHtml, /value="10001" checked/);
+    assert.match(selectedHtml, /value="10002" checked/);
+
+    const groupElement = {
+      dataset: { settingPath: "filtering_settings.group_blacklist", type: "group-list", original: "set" },
+      querySelectorAll: () => [{ value: "10002" }],
+    };
+    const adapterElement = {
+      dataset: { settingPath: "filtering_settings.shared_adapter_ids", type: "adapter-list", original: "null" },
+      querySelectorAll: () => [{ value: "qq-a" }],
+    };
+    globalThis.document = { querySelectorAll: () => [groupElement, adapterElement] };
+
+    const collected = page.collectValues();
+    assert.deepEqual(collected["filtering_settings.group_blacklist"], ["10002"]);
+    assert.equal(collected["filtering_settings.shared_adapter_ids"], null);
+
+    groupElement.querySelectorAll = () => [];
+    assert.deepEqual(page.collectValues()["filtering_settings.group_blacklist"], []);
+
+    const boxes = [
+      { value: "10001", checked: true },
+      { value: "10002", checked: true },
+    ];
+    const control = {
+      dataset: {},
+      querySelectorAll: () => boxes,
+    };
+    page._applyDefault(control, "group-list", []);
+    assert.deepEqual(
+      boxes.map((b) => b.checked),
+      [false, false]
+    );
+    assert.equal(control.dataset.edited, "1");
+  } finally {
+    delete globalThis.document;
+    delete globalThis.window;
+  }
+});
+
+test("fetch initializes baseline so unsaved changes are detected", async () => {
+  const container = { innerHTML: "", dataset: { bound: "1" } };
+  const control = { dataset: { settingPath: "recall_engine.top_k", type: "int" }, value: "5" };
+  globalThis.document = {
+    getElementById: (id) => (id === "settings-container" ? container : null),
+    querySelectorAll: () => [control],
+  };
+  globalThis.window = {
+    t: (key) => key,
+    getLanguage: () => "zh",
+  };
+  const page = new SettingsPage({}, { get: async () => ({ sections }) });
+  try {
+    await page.fetch();
+    assert.notEqual(page._baseline, null);
+    assert.equal(page.hasUnsavedChanges(), false);
+
+    control.value = "8";
+    assert.equal(page.hasUnsavedChanges(), true);
+  } finally {
+    delete globalThis.document;
+    delete globalThis.window;
+  }
+});

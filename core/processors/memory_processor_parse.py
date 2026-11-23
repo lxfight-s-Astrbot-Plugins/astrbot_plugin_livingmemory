@@ -16,9 +16,19 @@ from ..base.exceptions import MemoryParseError
 from ..managers.profile_manager import normalize_profile_updates
 from ..models.conversation_models import Message
 
-_GENERIC_NOUNS = ("某群成员", "某用户", "某人", "有人", "群成员")
-_GENERIC_LABELS = (*_GENERIC_NOUNS, "用户", "对方")
-_GENERIC_REFERENCE = re.compile("|".join((*_GENERIC_NOUNS, r"(?:用户|对方)(?=说)")))
+_ALWAYS_GENERIC_NOUNS = ("某群成员", "某用户")
+_CONTEXTUAL_GENERIC_NOUNS = ("群成员", "某人", "某个人", "有人")
+_GENERIC_LABELS = (*_ALWAYS_GENERIC_NOUNS, *_CONTEXTUAL_GENERIC_NOUNS, "用户", "对方")
+_GENERIC_SPEECH_VERBS = r"(?:说|问|询问|表示|提到|提及|回复|指出|吐槽|告诉|讨论|聊|分享|认为|称|建议|提出|发了|发送)"
+_GENERIC_REFERENCE = re.compile(
+    "|".join(
+        (
+            *_ALWAYS_GENERIC_NOUNS,
+            rf"(?:{'|'.join(_CONTEXTUAL_GENERIC_NOUNS)})(?={_GENERIC_SPEECH_VERBS})",
+            r"(?:用户|对方)(?=说)",
+        )
+    )
+)
 
 
 def try_fix_json(text: str) -> str:
