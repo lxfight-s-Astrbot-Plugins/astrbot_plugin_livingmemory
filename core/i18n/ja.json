@@ -90,6 +90,11 @@
     "compact": {
       "starting": "データベースを圧縮しています (VACUUM、auto_vacuum=INCREMENTAL 変換を含む。元に戻すには再度 VACUUM が必要です)。大規模データでは時間がかかる場合があります...",
       "done": "圧縮完了 (compact、auto_vacuum=INCREMENTAL を有効化。元に戻すには再度 VACUUM が必要です): データベース {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, 解放 {reclaimed} MB"
+    },
+    "orphans": {
+      "disabled": "グラフ記憶が有効ではないため、孤立グラフベクトルをプレビューできません。",
+      "rebuild_active": "グラフ再構築が進行中です。完了後に孤立グラフベクトルのプレビューを再実行してください。",
+      "preview": "孤立グラフベクトル プレビュー (読み取り専用・削除なし): 保存済み={stored}, 参照中={referenced}, 孤立候補={orphans}, サンプルID=[{samples}]"
     }
   },
   "search": {

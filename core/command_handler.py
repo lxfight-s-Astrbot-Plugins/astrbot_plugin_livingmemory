@@ -263,6 +263,33 @@ class CommandHandler(ExternalApiCommandMixin):
                 )
                 return
 
+            if normalized in {"orphans", "orphan-vectors"}:
+                graph_manager = getattr(
+                    self.memory_engine, "graph_memory_manager", None
+                )
+                if graph_manager is None or not callable(
+                    getattr(graph_manager, "preview_orphan_vectors", None)
+                ):
+                    yield event.plain_result(t("diag.orphans.disabled"))
+                    return
+                preview = await graph_manager.preview_orphan_vectors()
+                if preview.get("rebuild_active"):
+                    yield event.plain_result(t("diag.orphans.rebuild_active"))
+                    return
+                samples = ", ".join(
+                    str(doc_id) for doc_id in (preview.get("sample_ids") or [])
+                )
+                yield event.plain_result(
+                    t(
+                        "diag.orphans.preview",
+                        stored=preview.get("stored_count", 0),
+                        referenced=preview.get("referenced_count", 0),
+                        orphans=preview.get("orphan_count", 0),
+                        samples=samples or "-",
+                    )
+                )
+                return
+
             yield event.plain_result(t("diag.collecting"))
             diagnostics = await self.memory_engine.get_diagnostics()
             yield event.plain_result(self._format_diag_report(diagnostics))

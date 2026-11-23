@@ -16,6 +16,7 @@ LivingMemory commands use the `/lmem` prefix.
 | `/lmem reset` | Reset current session memory context |
 | `/lmem cleanup [preview\|exec]` | Clean old memory injection fragments from message history |
 | `/lmem trace [n\|id]` | Show recent recall trace summaries; pass a trace id for one detail (routes, rejection reasons, candidates, injected memories) |
+| `/lmem diag orphans` | (Admin) Read-only preview of orphan graph-vector candidates not referenced by `graph_entries` (count and sample IDs, no deletion) |
 | `/lmem help` | Show help |
 
 ## Index maintenance states

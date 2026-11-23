@@ -90,6 +90,11 @@
     "compact": {
       "starting": "Compacting databases (VACUUM, converting to auto_vacuum=INCREMENTAL; switching back requires running VACUUM again), this may take a while on large data...",
       "done": "Compaction done (compact, auto_vacuum=INCREMENTAL enabled; switching back requires running VACUUM again): database {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, reclaimed {reclaimed} MB"
+    },
+    "orphans": {
+      "disabled": "Graph memory is not enabled; cannot preview orphan graph vectors.",
+      "rebuild_active": "Graph rebuild is currently in progress; retry orphan preview after it finishes.",
+      "preview": "Orphan graph-vector preview (read-only, no deletion): stored={stored}, referenced={referenced}, orphan candidates={orphans}, sample IDs=[{samples}]"
     }
   },
   "search": {
