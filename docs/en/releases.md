@@ -1,5 +1,21 @@
 # Releases and Upgrades
 
+## 2.15.0 · November 23, 2026
+
+2.15.0 adds configurable idle catch-up summary thresholds, three-database SQLite freelist reclamation, read-only orphan graph-vector preview, transactional SQLite backups, and group-capture hot-path optimizations. [Download 2.15.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.15.0)
+
+### What changed
+
+- Add `reflection_engine.idle_summary_minutes` (default `60`, range `0-1440`); setting `0` disables idle catch-up summaries and clears any stale `idle_summary_pending` flag. ([#480](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/480) / [#488](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/488) / [#491](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/491))
+- Add three-database SQLite freelist reclamation and `/lmem diag compact`: new databases enable `auto_vacuum=INCREMENTAL`, and manual compaction runs `VACUUM` and truncates WAL (switching back requires running `VACUUM` again). ([#476](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/476))
+- Add admin read-only command `/lmem diag orphans` to inspect orphan graph-vector candidates without deleting data. ([#477](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/477))
+- Unify transactional SQLite backup with disk-space prechecks, `VACUUM INTO` with `Connection.backup()` fallback, `PRAGMA quick_check` verification, and atomic staging; skip zero-byte `conversations.db` files and keep plugin startup resilient when version backups fail. ([#449](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/449))
+- Optimize group-capture hot-path message count reuse and `ConversationManager` session-cache concurrency. ([#447](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/447))
+
+### Installing and upgrading
+
+Reload LivingMemory after updating to 2.15.0. Existing databases can run `/lmem diag compact` during an idle window to enable incremental freelist reclamation.
+
 ## 2.14.3 · November 23, 2026
 
 2.14.3 fixes Windows pre-1970 timestamp failures during graph rebuilds, Dashboard group blacklist saving, scope migration profile uniqueness errors, summary quality-gate false positives, and retrieval timeout configuration forwarding. [Download 2.14.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.3)

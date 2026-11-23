@@ -7,6 +7,25 @@
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-11-23
+
+2.15.0 新增空闲补总结阈值配置、SQLite 三库空闲页回收与 `/lmem diag compact`、孤儿图向量管理员只读预览 `/lmem diag orphans`，并改进事务化备份与群聊捕获热路径并发性能。[#447](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/447) [#449](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/449) [#476](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/476) [#477](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/477) [#491](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/491)
+
+### 新功能
+
+- **空闲补总结阈值可配置**（[#480](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/480) / [#488](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/488) / [#491](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/491)）：新增 `reflection_engine.idle_summary_minutes`（默认 `60`，范围 `0-1440`），设为 `0` 时关闭空闲补总结并清理历史残留的 `idle_summary_pending` 标记。
+- **三库 SQLite 空闲页回收与压缩**（[#476](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/476)）：新库初始化默认启用 `auto_vacuum=INCREMENTAL`；常规维护按增量回收三库空闲页；`/lmem diag compact` 统一对主库、图文档库、会话库执行 `VACUUM` 转换并在压缩后截断 WAL（切回旧模式需再次执行 `VACUUM`）。
+- **孤儿图向量管理员只读预览**（[#477](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/477)）：新增 `/lmem diag orphans`（别名 `orphan-vectors`）管理员命令，只读对比图向量库与 `graph_entries` 引用并展示候选孤儿数与样例 ID，不自动删除数据。
+
+### 优化与修复
+
+- **事务化紧凑 SQLite 备份与升级启动容错**（[#449](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/449)）：统一 `BackupManager` 与迁移备份路径，支持磁盘空间预检、`VACUUM INTO` 失败时回退 `Connection.backup()`、`PRAGMA quick_check` 校验与 staging 原子切换；跳过未初始化的 0 字节 `conversations.db`，备份失败时保留旧备份与版本标记而不阻断插件启动。
+- **群聊捕获热路径与会话缓存并发优化**（[#447](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/447)）：写消息事务内原子返回会话消息数（兼容 SQLite `< 3.35` 回退），减少冗余查库；`ConversationManager` 缓存改为按会话锁保护的就地更新并保证更大 `limit` 查询穿透与结构化内容规范化一致。
+
+### 行为变化与升级注意
+
+1. 更新到 2.15.0 后重载 LivingMemory；历史库如需启用增量空闲页回收，可在空闲时段执行一次 `/lmem diag compact`。
+
 ## [2.14.3] - 2026-11-23
 
 2.14.3 为稳定性与可用性修复版本，集中解决 Windows 图谱重建日期异常、Dashboard 群聊黑名单保存失效、作用域迁移档案唯一约束冲突、质量闸门误杀以及检索超时配置不生效等问题。[#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485) [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489)

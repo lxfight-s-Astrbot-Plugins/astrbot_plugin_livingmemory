@@ -1,5 +1,21 @@
 # 版本与升级
 
+## 2.15.0 · 2026-11-23
+
+2.15.0 新增空闲补总结阈值配置、SQLite 三库空闲页回收与压缩、孤儿图向量只读预览，并改进事务化备份与群聊捕获热路径并发性能。 [下载 2.15.0](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.15.0)
+
+### 本次更新
+
+- 新增 `reflection_engine.idle_summary_minutes`（默认 `60`，允许范围 `0-1440`），设为 `0` 时关闭空闲补总结并清理历史残留的 `idle_summary_pending` 标记。([#480](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/480) / [#488](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/488) / [#491](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/491))
+- 新增三库 SQLite 空闲页回收与 `/lmem diag compact`：新库默认启用 `auto_vacuum=INCREMENTAL`，手动压缩会在转换与 `VACUUM` 后截断 WAL（切回旧模式需再次执行 `VACUUM`）。([#476](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/476))
+- 新增管理员只读命令 `/lmem diag orphans`，用于对账预览孤儿图向量候选范围而不执行删除。([#477](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/477))
+- 统一事务化 SQLite 备份路径：预检磁盘空间、优先 `VACUUM INTO` 并支持回退 `Connection.backup()`、经 `PRAGMA quick_check` 校验后原子落地；跳过 0 字节 `conversations.db`，备份失败不阻断插件启动。([#449](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/449))
+- 优化群聊捕获热路径的写后计数复用与 `ConversationManager` 会话缓存并发更新。([#447](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/447))
+
+### 安装与升级
+
+更新到 2.15.0 后重载 LivingMemory。历史库可在空闲时段执行一次 `/lmem diag compact` 启用增量空闲页回收。
+
 ## 2.14.3 · 2026-11-23
 
 2.14.3 修复 Windows 历史日期建图中断、设置页群聊黑名单保存失效、作用域迁移档案冲突、质量闸门误杀及检索超时配置不生效。 [下载 2.14.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.3)
