@@ -1,5 +1,21 @@
 # 版本与升级
 
+## 2.14.3 · 2026-11-23
+
+2.14.3 修复 Windows 历史日期建图中断、设置页群聊黑名单保存失效、作用域迁移档案冲突、质量闸门误杀及检索超时配置不生效。 [下载 2.14.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.3)
+
+### 本次更新
+
+- 容忍 Windows 下 1970 年前日期触发的 `OSError`，避免 `/lmem rebuild-graph` 与时间范围召回中断。([#484](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/484) / [#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485))
+- 修复设置页「群聊记忆黑名单」（`group-list`）显示全选且保存丢包的问题，并修复页面加载基线未初始化导致未保存提醒失效。([#481](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/481))
+- 修复 `/lmem migrate-scope apply` 在多条旧作用域同人格档案并存时触发 `idx_profiles_scope_persona` 唯一约束失败，改为每组仅迁最新一条。([#487](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/487))
+- 收紧质量闸门泛称匹配至言说主语语境、拒绝日志补充摘要片段，并为 `/lmem summarize` 增加遇到 `LowQualityMemoryError` 时自动重试一次。([#483](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/483))
+- 在 `recall_engine` 中正式暴露并转发 `retrieval_timeout_seconds`（默认 `10.0` 秒，允许范围 `0.5-120.0` 秒）。([#482](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/482) / [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489))
+
+### 安装与升级
+
+更新到 2.14.3 后重载 LivingMemory。如需自定义检索/重排超时，可在 Dashboard「设置 → 召回」中调整 `recall_engine.retrieval_timeout_seconds`。
+
 ## 2.14.2 · 2026-11-19
 
 2.14.2 修复记忆总结误判和重试窗口扩大。 [下载 2.14.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.2)

@@ -1,5 +1,21 @@
 # Releases and Upgrades
 
+## 2.14.3 · November 23, 2026
+
+2.14.3 fixes Windows pre-1970 timestamp failures during graph rebuilds, Dashboard group blacklist saving, scope migration profile uniqueness errors, summary quality-gate false positives, and retrieval timeout configuration forwarding. [Download 2.14.3](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.3)
+
+### What changed
+
+- Handle `OSError` raised for pre-1970 dates on Windows so `/lmem rebuild-graph` and time-bounded recall do not abort. ([#484](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/484) / [#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485))
+- Fix Dashboard settings `group-list` rendering all groups checked, dropping values on save, and ignoring reset-to-default; also fix settings baseline initialization so unsaved-changes prompts work. ([#481](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/481))
+- Fix `/lmem migrate-scope apply` failing with `idx_profiles_scope_persona` uniqueness errors when multiple legacy scopes hold profiles for the same persona by migrating only the newest row per persona. ([#487](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/487))
+- Narrow generic-term quality checks to speaker-subject + speech-verb contexts, log summary snippets on rejection, and automatically retry `/lmem summarize` once on `LowQualityMemoryError`. ([#483](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/483))
+- Expose and forward `retrieval_timeout_seconds` under `recall_engine` (default `10.0`, range `0.5-120.0`) with four-language i18n and validation. ([#482](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/482) / [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489))
+
+### Installing and upgrading
+
+Reload LivingMemory after updating to 2.14.3. To customize retrieval/rerank timeouts, adjust `recall_engine.retrieval_timeout_seconds` in Dashboard Settings under Recall.
+
 ## 2.14.2 · November 19, 2026
 
 2.14.2 fixes false summary rejections and retry windows that grow as messages arrive. [Download 2.14.2](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/releases/tag/2.14.2)

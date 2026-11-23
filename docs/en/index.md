@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.14.2
+      text: Get 2.14.3
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.14.2 is released
+## 2.14.3 is released
 
-2.14.2 fixes summaries rejected because of a participant's nickname and keeps retries on the original segment. Downloads and upgrade steps are available in [Releases and Upgrades](/en/releases).
+2.14.3 fixes Windows pre-1970 graph rebuild failures, Dashboard group blacklist saving, scope migration profile uniqueness conflicts, summary quality-gate false positives, and retrieval timeout forwarding. Downloads and upgrade steps are available in [Releases and Upgrades](/en/releases).
 
 ## Who is this for?
 
