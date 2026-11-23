@@ -342,6 +342,7 @@ class AgenticMemorySearchTool(FunctionTool[AstrAgentContext]):
                             recall_persona_id=recall_persona_id,
                             memory_id=memory.doc_id,
                             include_source=True,
+                            extra_scopes=extra_scopes,
                         )
                     except asyncio.CancelledError:
                         raise

@@ -3,6 +3,8 @@
 import asyncio
 from typing import Any
 
+from ..memory_scope import memory_scope_visible, merge_memory_scopes
+
 
 async def read_memory_evidence_core(
     *,
@@ -11,6 +13,7 @@ async def read_memory_evidence_core(
     recall_persona_id: str | None,
     memory_id: int,
     include_source: bool = False,
+    extra_scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     """加载当前可见证据；不存在与越权不可区分，真实存储错误向上传播。"""
     try:
@@ -22,11 +25,9 @@ async def read_memory_evidence_core(
     if not doc:
         return {"memory_id": memory_id, "status": "not_found"}
     metadata = doc["metadata"]
+    scope_filter = merge_memory_scopes(recall_session_id, extra_scopes)
     if (
-        (
-            recall_session_id is not None
-            and metadata.get("session_id") != recall_session_id
-        )
+        not memory_scope_visible(metadata, scope_filter)
         or (
             recall_persona_id is not None
             and metadata.get("persona_id") != recall_persona_id
