@@ -59,6 +59,8 @@ class PluginInitializer(InitializerFaissMixin):
         self.graph_db: Any | None = None
         # FAISS 索引异步落盘器（core/faiss_async_persist.py），随 db/graph_db 创建
         self._index_persisters: list = []
+        # _open_vector_storage() 的返回值，运行期刷新配置时复用
+        self._storage: dict[str, Any] | None = None
         self.memory_engine: MemoryEngine | None = None
         self.memory_processor: MemoryProcessor | None = None
         self.db_migration: DBMigration | None = None
@@ -436,6 +438,7 @@ class PluginInitializer(InitializerFaissMixin):
         logger.info("开始完整初始化流程...")
         try:
             storage = await self._open_vector_storage()
+            self._storage = storage
             self.db_migration = DBMigration(str(storage["db_path"]))
             if self.config_manager.get("migration_settings.auto_migrate", True):
                 await self._check_and_migrate_database()
@@ -680,9 +683,11 @@ class PluginInitializer(InitializerFaissMixin):
 
     def reload_runtime_config(self) -> None:
         """Refresh cached configuration on live runtime components after WebUI updates."""
-        if self.memory_engine is not None:
-            data_dir = Path(self.memory_engine.db_path).parent
-            new_config = self._build_memory_engine_config(data_dir)
+        if self.memory_engine is not None and self._storage is not None:
+            # 必须复用 _open_vector_storage() 返回的字典：_build_memory_engine_config()
+            # 按 storage["..."] 取值，直接传 data_dir(Path) 会抛
+            # TypeError: 'PosixPath' object is not subscriptable
+            new_config = self._build_memory_engine_config(self._storage)
             self.memory_engine.config.update(new_config)
             self.memory_engine._search_cache_enabled = bool(
                 new_config.get("search_cache_enabled", True)

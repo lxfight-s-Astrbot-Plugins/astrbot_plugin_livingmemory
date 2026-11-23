@@ -547,6 +547,12 @@ async def test_complete_initialization_wires_graph_db_and_engine_config(
     assert init.memory_engine.config["atom_maintenance_interval_hours"] == 12.0
     assert init.memory_engine.config["atom_forget_delay_days"] == 3.0
     assert init.memory_processor.config.get("atom_enabled") is False
+    # 存储映射需保留，供 WebUI 保存后的运行期配置刷新复用
+    assert init._storage is not None
+    assert init._storage["graph_memory_enabled"] is True
+    assert Path(init._storage["graph_doc_path"]) == (
+        tmp_path / "livingmemory_graph_documents.db"
+    )
 
 
 @pytest.mark.asyncio
@@ -878,3 +884,49 @@ async def test_open_faiss_db_rebuilds_on_dimension_mismatch(initializer, tmp_pat
     assert index_rebuilt is True
     assert len(created) == 2
     assert not index_path.exists()
+
+
+def test_reload_runtime_config_reuses_storage_mapping(initializer, tmp_path):
+    """WebUI 保存后刷新运行期配置时不能再把 data_dir(Path) 当成 storage 字典。
+
+    回归：reload_runtime_config() 直接把 Path 传给 _build_memory_engine_config()，
+    后者按 storage["graph_memory_enabled"] 取值，抛
+    TypeError: 'PosixPath' object is not subscriptable。
+    """
+    storage = {
+        "data_dir": tmp_path,
+        "db_path": tmp_path / "livingmemory.db",
+        "graph_doc_path": tmp_path / "livingmemory_graph_documents.db",
+        "graph_memory_enabled": True,
+        "stopwords_dir": tmp_path / "stopwords",
+    }
+    initializer._storage = storage
+    initializer.graph_db = Mock()
+    initializer.memory_engine = SimpleNamespace(
+        db_path=str(storage["db_path"]),
+        config={},
+        hybrid_retriever=None,
+        dual_route_retriever=None,
+        graph_keyword_retriever=None,
+        graph_retriever=None,
+        profile_manager=None,
+        _search_cache_enabled=True,
+        _search_cache_ttl=45.0,
+        _search_cache_max_size=256,
+        _invalidate_search_cache=Mock(),
+    )
+
+    initializer.reload_runtime_config()
+
+    config = initializer.memory_engine.config
+    assert config["graph_memory_enabled"] is True
+    assert config["graph_document_path"] == str(storage["graph_doc_path"])
+    assert config["stopwords_path"] == str(storage["stopwords_dir"])
+    assert config["rrf_k"] == 60
+    initializer.memory_engine._invalidate_search_cache.assert_called_once_with()
+
+    # 图记忆关闭时的映射同样应被正确解读
+    storage["graph_memory_enabled"] = False
+    initializer.reload_runtime_config()
+    assert initializer.memory_engine.config["graph_memory_enabled"] is False
+    assert initializer.memory_engine.config["graph_document_path"] is None
