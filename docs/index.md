@@ -14,7 +14,7 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 2.14.3 稳定版
+      text: 2.15.0 稳定版
       link: /releases
 features:
   - title: 自动长期记忆
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard 与 Agent 工具"]
 ```
 
-## 2.14.3 已发布
+## 2.15.0 已发布
 
-2.14.3 修复 Windows 历史日期建图中断、设置页群聊黑名单保存失效、作用域迁移档案冲突、质量闸门误杀及检索超时配置不生效。下载与升级步骤见[版本与升级](/releases)。
+2.15.0 新增空闲补总结阈值配置、SQLite 三库空闲页回收与 `/lmem diag compact`、孤儿图向量只读预览 `/lmem diag orphans`，并改进事务化备份与群聊捕获热路径并发性能。下载与升级步骤见[版本与升级](/releases)。
 
 ## 这份文档适合谁？
 
