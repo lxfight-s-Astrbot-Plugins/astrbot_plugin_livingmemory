@@ -302,6 +302,10 @@
                 "description": "Idle Gap Split (minutes)",
                 "hint": "When the gap between adjacent messages exceeds this many minutes, only the oldest segment is summarized; 0 = do not split by idle gap. Allowed range: 0-1440."
             },
+            "idle_summary_minutes": {
+                "description": "Idle Catch-Up Summary Threshold (minutes)",
+                "hint": "After a session is idle for this many minutes, the next turn temporarily lowers the trigger threshold to 1 round for a catch-up summary; set to 0 to disable idle catch-up and trigger strictly by summary_trigger_rounds. Unlike Idle Gap Split (which splits windows after triggering), this controls whether idle time triggers early. Allowed range: 0-1440."
+            },
             "include_source_time_tags": {
                 "description": "Include Source Time Tags",
                 "hint": "Derive source dates from original message timestamps and store them without relying on LLM inference."

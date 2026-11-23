@@ -75,6 +75,7 @@ class ReflectionEngineConfig(BaseModel):
     max_segments_per_run: int = Field(default=10, ge=1, le=50)
     window_split_by_day: bool = True
     window_split_gap_minutes: int = Field(default=180, ge=0, le=1440)
+    idle_summary_minutes: int = Field(default=60, ge=0, le=1440)
     include_source_time_tags: bool = True
     source_retention_importance_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
