@@ -7,6 +7,26 @@
 
 ## [Unreleased]
 
+## [2.14.3] - 2026-11-23
+
+2.14.3 为稳定性与可用性修复版本，集中解决 Windows 图谱重建日期异常、Dashboard 群聊黑名单保存失效、作用域迁移档案唯一约束冲突、质量闸门误杀以及检索超时配置不生效等问题。[#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485) [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489)
+
+### 修复
+
+- **Windows 1970 年前日期容错**（[#484](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/484) / [#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485)）：`_parse_event_time()` 与 `parse_time_bound()` 捕获 `timestamp()` 在 Windows 上对 1970 年前日期抛出的 `OSError`，避免 `/lmem rebuild-graph` 与时间范围召回中断。
+- **Dashboard 群聊黑名单与脏检查基线**（[#481](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/481)）：修复设置页 `group-list` 字段默认全选、保存时字段丢包及恢复默认按钮无效的问题；同时修复 `fetch()` 中 `_baseline` 始终为 `null` 导致未保存离开提示不生效的缺陷。
+- **作用域迁移 `memory_profiles` 唯一约束冲突**（[#487](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/487)）：迁移 `memory_profiles` 时按 `COALESCE(persona_id, '')` 分组，仅挑选目标作用域尚无同人格档案且每组最新的一条迁移，其余旧档案留在原作用域并计入 `remaining`，同时正确覆盖 `NULL` 与空串碰撞。
+- **记忆总结质量闸门与手动总结重试**（[#483](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/483)）：收紧 `群成员`、`某人`、`有人` 的泛称判定为说话人主语 + 言说动词语境，放行描述性表达（如「群成员碎片」「群成员的昵称」）；拒绝日志输出摘要片段；`/lmem summarize` 遇到质量拒绝时自动重试一次。
+- **检索与重排超时配置生效**（[#482](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/482) / [#486](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/486)）：在 `recall_engine` 分组声明 `retrieval_timeout_seconds`（默认 `10.0`，范围 `0.5–120.0`），补齐 4 语种 i18n 与 Pydantic 校验，并在 `_build_memory_engine_config()` 正确转发给各检索器。
+
+### 验证
+
+- 本地 1,639 项后端测试、212 项前端测试、Ruff 检查与 VitePress 文档构建全部通过。
+
+### 行为变化与升级注意
+
+1. 更新到 2.14.3 后重载 LivingMemory 即可生效；如需调整检索/重排超时，可在 Dashboard 设置页「召回 → 检索与重排超时（秒）」配置 `recall_engine.retrieval_timeout_seconds`。
+
 ## [2.14.2] - 2026-11-19
 
 2.14.2 修复记忆总结被误拒绝，以及失败重试时反复扩大输入窗口的问题，减少重复发送给模型的对话内容。[#478](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/478)
