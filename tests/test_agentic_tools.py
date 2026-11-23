@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
+from astrbot.api.platform import MessageType
 
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.models.memory_atom import AtomStatus, MemoryAtom
@@ -49,6 +50,13 @@ def _context(event):
     wrapper = Mock()
     wrapper.context = inner
     return wrapper
+
+
+def _channel_event(group_id, sender_id="1001"):
+    event = _event(sender_id=sender_id, umo=f"qq:GroupMessage:{group_id}")
+    event.get_group_id.return_value = group_id
+    event.get_message_type.return_value = MessageType.GROUP_MESSAGE
+    return event
 
 
 def _plugin_context(persona_id=None):
@@ -352,6 +360,86 @@ class TestAgenticSearchTool:
 
 
 class TestMemoryReadTool:
+    @pytest.mark.asyncio
+    async def test_channel_search_and_deep_read_share_scope(self, engine):
+        source = [
+            {
+                "role": "user",
+                "sender_id": "1001",
+                "timestamp": 100.0,
+                "content": "群友约好周三去露营",
+            }
+        ]
+        shared_id = await engine.add_memory(
+            content="频道记忆：周三露营",
+            session_id="livingmemory:channel:qq:campers",
+            source_messages=source,
+        )
+        personal_id = await engine.add_memory(
+            content="个人记忆：喜欢露营",
+            session_id="livingmemory:user:qq:1001",
+        )
+        config = _config(
+            channel_memory={"enabled": True},
+            filtering_settings={"memory_scope_mode": "user"},
+        )
+        search, read = _tools(engine, config=config)
+        context = _context(_channel_event("campers"))
+
+        recalled = _loads(await search.call(context, query="露营", include_source=True))
+        by_id = {item["id"]: item for item in recalled["results"]}
+        assert set(by_id) == {shared_id, personal_id}
+        assert by_id[shared_id]["source_status"] == "ok"
+        assert by_id[shared_id]["source_messages"][0]["content"] == source[0]["content"]
+
+        same_group = _context(_channel_event("campers", sender_id="1002"))
+        shared = _loads(
+            await read.call(same_group, memory_id=shared_id, include_source=True)
+        )
+        assert shared["status"] == "success"
+        assert shared["source_messages"][0]["content"] == source[0]["content"]
+        own = _loads(await read.call(context, memory_id=personal_id))
+        assert own["status"] == "success"
+
+        private_event = _event(umo="qq:FriendMessage:1001")
+        private_event.get_group_id.return_value = ""
+        private_event.get_message_type.return_value = MessageType.FRIEND_MESSAGE
+        _, disabled_read = _tools(
+            engine,
+            config=_config(filtering_settings={"memory_scope_mode": "user"}),
+        )
+        for tool, caller, memory_id in (
+            (read, same_group, personal_id),
+            (read, _context(_channel_event("other")), shared_id),
+            (read, _context(private_event), shared_id),
+            (disabled_read, context, shared_id),
+        ):
+            result = _loads(await tool.call(caller, memory_id=memory_id))
+            assert result["status"] == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_channel_only_recall_limits_read_in_legacy_mode(self, engine):
+        other_channel_id = await engine.add_memory(
+            content="另一个群的露营约定",
+            session_id="livingmemory:channel:qq:other",
+        )
+        search, read = _tools(
+            engine,
+            config=_config(
+                channel_memory={"enabled": True},
+                filtering_settings={
+                    "memory_scope_mode": "legacy",
+                    "use_session_filtering": False,
+                },
+            ),
+        )
+        context = _context(_channel_event("campers"))
+
+        recalled = _loads(await search.call(context, query="露营"))
+        assert recalled["results"] == []
+        result = _loads(await read.call(context, memory_id=other_channel_id))
+        assert result["status"] == "not_found"
+
     @pytest.mark.asyncio
     async def test_read_facts_and_source_pages_with_cursor(self, engine):
         source = [

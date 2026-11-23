@@ -125,7 +125,7 @@ class MemoryReadTool(FunctionTool[AstrAgentContext]):
             event,
             recall_session_id,
             recall_persona_id,
-            _extra_scopes,
+            extra_scopes,
             access_error,
         ) = await resolve_tool_access(self.config_manager, self.context, context)
         with adapter_access(self.config_manager, event):
@@ -158,6 +158,7 @@ class MemoryReadTool(FunctionTool[AstrAgentContext]):
                         recall_persona_id=recall_persona_id,
                         memory_id=memory_id,
                         include_source=include_source,
+                        extra_scopes=extra_scopes,
                     ),
                 )
             except asyncio.CancelledError:

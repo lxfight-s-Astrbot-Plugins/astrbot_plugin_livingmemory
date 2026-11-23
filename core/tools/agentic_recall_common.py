@@ -36,7 +36,7 @@ def bounded_status(data: dict[str, Any], max_chars: int = 500) -> str:
 
 async def resolve_tool_access(
     config_manager: Any, plugin_context: Any, wrapper_context: Any
-) -> tuple[Any, str | None, str | None, str | None, dict[str, Any] | None]:
+) -> tuple[Any, str | None, str | None, list[str] | None, dict[str, Any] | None]:
     """解析工具调用的访问上下文；不允许时返回错误结构。
 
     Args:
