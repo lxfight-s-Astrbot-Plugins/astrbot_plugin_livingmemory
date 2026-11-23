@@ -192,6 +192,17 @@ class MessageUtils:
         max_messages = self.config_manager.get(
             "session_manager.max_messages_per_session", 1000
         )
+        # Consume the one-shot count captured by the latest insertion transaction;
+        # when absent (e.g. direct store writes or concurrent consumer) or above
+        # the cap, fall back to a fresh DB count check.
+        pop_count = getattr(self.conversation_manager, "pop_recent_message_count", None)
+        recent_count = pop_count(session_id) if callable(pop_count) else None
+        if (
+            isinstance(recent_count, int)
+            and not isinstance(recent_count, bool)
+            and recent_count <= max_messages
+        ):
+            return
         cleanup_batch_size = self.config_manager.get(
             "session_manager.cleanup_batch_size", 50
         )

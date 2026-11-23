@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ from astrbot.api import logger
 
 from ..core.models.conversation_models import Message, Session, serialize_to_json
 from .sqlite_connection import open_connection
+
+_SUPPORTS_RETURNING = sqlite3.sqlite_version_info >= (3, 35, 0)
 
 
 class ConversationStore:
@@ -295,7 +298,9 @@ class ConversationStore:
             rows = await cursor.fetchall()
         return [str(row["session_id"]) for row in rows if row["session_id"]]
 
-    async def add_message(self, message: Message) -> int:
+    async def add_message(
+        self, message: Message, *, return_count: bool = False
+    ) -> int | tuple[int, int]:
         """
         添加消息到数据库
 
@@ -316,75 +321,106 @@ class ConversationStore:
         content = Message.content_to_text(message.content)
         now = time.time()
         async with self._write_lock:
-            await self.connection.execute(
-                """
-                INSERT INTO sessions (
-                    session_id, platform, created_at, last_active_at,
-                    message_count, participants, metadata
+            try:
+                await self.connection.execute(
+                    """
+                    INSERT INTO sessions (
+                        session_id, platform, created_at, last_active_at,
+                        message_count, participants, metadata
+                    )
+                    VALUES (?, ?, ?, ?, 0, '[]', '{}')
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (message.session_id, platform, now, message.timestamp),
                 )
-                VALUES (?, ?, ?, ?, 0, '[]', '{}')
-                ON CONFLICT(session_id) DO NOTHING
+
+                cursor = await self.connection.execute(
+                    """
+                    INSERT INTO messages (
+                        session_id, role, content, sender_id, sender_name,
+                        group_id, platform, timestamp, metadata
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (message.session_id, platform, now, message.timestamp),
-            )
-
-            cursor = await self.connection.execute(
-                """
-                INSERT INTO messages (
-                    session_id, role, content, sender_id, sender_name,
-                    group_id, platform, timestamp, metadata
+                    (
+                        message.session_id,
+                        message.role,
+                        content,
+                        sender_id,
+                        message.sender_name,
+                        message.group_id,
+                        platform,
+                        message.timestamp,
+                        serialize_to_json(message.metadata),
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
+
+                message_id = cursor.lastrowid if cursor.lastrowid else 0
+                message_count = await self._update_session_after_insert(
                     message.session_id,
-                    message.role,
-                    content,
-                    sender_id,
-                    message.sender_name,
-                    message.group_id,
-                    platform,
-                    message.timestamp,
-                    serialize_to_json(message.metadata),
-                ),
-            )
-
-            message_id = cursor.lastrowid if cursor.lastrowid else 0
-
-            await self.connection.execute(
-                """
-                UPDATE sessions
-                SET message_count = message_count + 1,
-                    last_active_at = ?,
-                    participants = CASE
-                        WHEN ? = '' THEN participants
-                        WHEN EXISTS (
-                            SELECT 1
-                            FROM json_each(COALESCE(NULLIF(participants, ''), '[]'))
-                            WHERE value = ?
-                        ) THEN participants
-                        ELSE json_insert(
-                            COALESCE(NULLIF(participants, ''), '[]'),
-                            '$[#]',
-                            ?
-                        )
-                    END
-                WHERE session_id = ?
-            """,
-                (
                     message.timestamp,
                     sender_id,
-                    sender_id,
-                    sender_id,
-                    message.session_id,
-                ),
-            )
-            await self.connection.commit()
+                    return_count=return_count,
+                )
+                await self.connection.commit()
+            except BaseException:
+                await self.connection.rollback()
+                raise
 
         logger.debug(
             f"[ConversationStore] 添加消息: session={message.session_id}, role={message.role}"
         )
-        return message_id
+        return (message_id, message_count or 0) if return_count else message_id
+
+    async def _update_session_after_insert(
+        self,
+        session_id: str,
+        timestamp: float,
+        sender_id: str,
+        *,
+        return_count: bool,
+    ) -> int | None:
+        """Update session counters/participants, falling back when RETURNING is absent."""
+        use_returning = return_count and _SUPPORTS_RETURNING
+        returning_clause = (
+            "\n                RETURNING message_count" if use_returning else ""
+        )
+        cursor = await self.connection.execute(
+            f"""
+            UPDATE sessions
+            SET message_count = message_count + 1,
+                last_active_at = ?,
+                participants = CASE
+                    WHEN ? = '' THEN participants
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM json_each(COALESCE(NULLIF(participants, ''), '[]'))
+                        WHERE value = ?
+                    ) THEN participants
+                    ELSE json_insert(
+                        COALESCE(NULLIF(participants, ''), '[]'),
+                        '$[#]',
+                        ?
+                    )
+                END
+            WHERE session_id = ?{returning_clause}
+            """,
+            (timestamp, sender_id, sender_id, sender_id, session_id),
+        )
+        message_count: int | None = None
+        if use_returning:
+            row = await cursor.fetchone()
+            message_count = int(row[0]) if row else 0
+        await cursor.close()
+
+        if return_count and not use_returning:
+            async with self.connection.execute(
+                "SELECT message_count FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ) as count_cursor:
+                row = await count_cursor.fetchone()
+            message_count = int(row[0]) if row else 0
+        return message_count
 
     async def get_messages(
         self, session_id: str, limit: int = 50, sender_id: str | None = None
