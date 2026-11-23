@@ -138,7 +138,20 @@ export class SettingsPage {
       } finally {
         this._suppressCapture = false;
       }
-      this._baseline = this._snapshotValues();
+      const baseline = {};
+      this.sections.forEach((section) => {
+        (section.fields || []).forEach((field) => {
+          baseline[field.path] = field.value;
+        });
+      });
+      if (typeof document.querySelectorAll === "function") {
+        try {
+          Object.assign(baseline, this.collectValues());
+        } catch (_error) {
+          /* ignore malformed initial DOM */
+        }
+      }
+      this._baseline = JSON.stringify(baseline);
     } catch (error) {
       this.renderFeedback(error.message || window.t("settings.loadFailed"), true);
       container.innerHTML =
@@ -490,13 +503,18 @@ export class SettingsPage {
     const isModified = this._isFieldModified(field);
     let control = "";
     if (field.type === "adapter-list" || field.type === "group-list") {
-      /* 两者都是"从动态来源复选"：适配器实例 / 插件已记录的群聊。 */
-      const selected = value ?? field.options;
+      /* null = 全部 只适用于 shared_adapter_ids；黑名单缺省应为空选。 */
+      const selected =
+        field.type === "adapter-list"
+          ? value ?? field.options
+          : Array.isArray(value)
+          ? value
+          : [];
       const cssClass = field.type === "adapter-list" ? "adapter-options" : "group-options";
       control = '<fieldset class="' + cssClass + '" aria-label="' + esc(field.label) + '" ' + common +
         ' data-original="' + (value === null ? "null" : "set") + '">' + (field.options.length ? field.options.map((id, i) =>
         '<label><input type="checkbox" value="' + esc(id) + '"' +
-        (selected.includes(id) ? ' checked' : '') + '> ' + esc(field.option_labels[i]) + '</label>'
+        (Array.isArray(selected) && selected.includes(id) ? ' checked' : '') + '> ' + esc(field.option_labels[i]) + '</label>'
       ).join("") : '<span class="field-empty">' + esc(window.t("settings.groupListEmpty")) + '</span>') + '</fieldset>';
     } else if (field.type === "bool") {
       control =
@@ -631,7 +649,15 @@ export class SettingsPage {
   }
 
   _applyDefault(control, type, defaultValue) {
-    if (type === "bool") {
+    if (type === "group-list" || type === "adapter-list") {
+      const selected = Array.isArray(defaultValue)
+        ? new Set(defaultValue.map(String))
+        : new Set();
+      control.querySelectorAll?.('input[type="checkbox"]').forEach((input) => {
+        input.checked = selected.has(String(input.value));
+      });
+      if (control.dataset) control.dataset.edited = "1";
+    } else if (type === "bool") {
       control.checked = Boolean(defaultValue);
     } else if (type === "list") {
       control.value = JSON.stringify(defaultValue ?? [], null, 2);
@@ -791,9 +817,11 @@ export class SettingsPage {
     document.querySelectorAll("[data-setting-path]").forEach((element) => {
       const path = element.dataset.settingPath;
       const type = element.dataset.type;
-      if (type === "adapter-list") {
-        values[path] = element.dataset.original === "null" && !element.dataset.edited
-          ? null : Array.from(element.querySelectorAll('input:checked'), input => input.value);
+      if (type === "adapter-list" || type === "group-list") {
+        values[path] =
+          type === "adapter-list" && element.dataset.original === "null" && !element.dataset.edited
+            ? null
+            : Array.from(element.querySelectorAll("input:checked"), (input) => input.value);
       } else if (type === "bool") {
         values[path] = Boolean(element.checked);
       } else if (type === "int") {
