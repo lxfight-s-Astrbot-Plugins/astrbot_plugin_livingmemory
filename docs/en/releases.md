@@ -6,11 +6,11 @@
 
 ### What changed
 
-- Handle `OSError` raised by `datetime.timestamp()` for pre-1970 dates on Windows in `_parse_event_time()` and `parse_time_bound()`. ([#484](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/484) / [#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485))
-- Fix Dashboard settings `group-list` rendering all groups checked, dropping values on save, and ignoring reset-to-default; also fix `fetch()` baseline initialization so unsaved-changes prompts work. ([#481](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/481))
-- Fix `/lmem migrate-scope apply` failing with `UNIQUE constraint failed: idx_profiles_scope_persona` when multiple legacy scopes hold profiles for the same persona by migrating only the newest row per `COALESCE(persona_id, '')`. ([#487](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/487))
+- Handle `OSError` raised for pre-1970 dates on Windows so `/lmem rebuild-graph` and time-bounded recall do not abort. ([#484](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/484) / [#485](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/485))
+- Fix Dashboard settings `group-list` rendering all groups checked, dropping values on save, and ignoring reset-to-default; also fix settings baseline initialization so unsaved-changes prompts work. ([#481](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/481))
+- Fix `/lmem migrate-scope apply` failing with `idx_profiles_scope_persona` uniqueness errors when multiple legacy scopes hold profiles for the same persona by migrating only the newest row per persona. ([#487](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/487))
 - Narrow generic-term quality checks to speaker-subject + speech-verb contexts, log summary snippets on rejection, and automatically retry `/lmem summarize` once on `LowQualityMemoryError`. ([#483](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/483))
-- Expose and forward `recall_engine.retrieval_timeout_seconds` (default `10.0`, range `0.5-120.0`) with four-language i18n and validation. ([#482](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/482) / [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489))
+- Expose and forward `retrieval_timeout_seconds` under `recall_engine` (default `10.0`, range `0.5-120.0`) with four-language i18n and validation. ([#482](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/issues/482) / [#489](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory/pull/489))
 
 ### Installing and upgrading
 
