@@ -389,6 +389,17 @@
                     "step": 1
                 }
             },
+            "retrieval_timeout_seconds": {
+                "description": "检索与重排超时（秒）",
+                "hint": "单路检索（BM25/向量/图谱）与重排的超时上限，超时后自动降级回退到已有结果或融合排序。（允许范围：0.5–120）",
+                "type": "float",
+                "default": 10.0,
+                "slider": {
+                    "min": 0.5,
+                    "max": 120.0,
+                    "step": 0.5
+                }
+            },
             "private_memory_notice_enabled": {
                 "description": "私密记忆注入提示",
                 "hint": "当记忆标记为 visibility=private 且 disclosed=false 时，在注入文本中追加提示，说明这是机器人私下经历、用户并不知道。关闭后不追加该提示。",
