@@ -412,6 +412,78 @@ async def test_short_gap_keeps_the_normal_threshold(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_idle_summary_minutes_zero_disables_catchup_and_clears_stale_flag(
+    tmp_path,
+):
+    """idle_summary_minutes=0 时不触发空闲补总结，并清理残留的 idle_summary_pending（#480/#488）。"""
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path,
+        config={
+            "reflection_engine": {
+                "summary_trigger_rounds": 10,
+                "idle_summary_minutes": 0,
+            }
+        },
+        host=HostContext(),
+    )
+    try:
+        await _seed_old_round(manager, PRIVATE_SESSION, gap_minutes=300)
+        await manager.update_session_metadata(
+            PRIVATE_SESSION, "idle_summary_pending", True
+        )
+        event = _Event(umo=PRIVATE_SESSION, text="关闭空闲补总结后的新问题")
+
+        await handler.handle_memory_recall(event, _req("关闭空闲补总结后的新问题"))
+        await handler.handle_memory_reflection(event, _resp("新回答"))
+        await _settle(handler)
+        await handler.shutdown()
+
+        assert (await engine.get_statistics())["total_memories"] == 0
+        assert (
+            await manager.get_session_metadata(
+                PRIVATE_SESSION, "idle_summary_pending", False
+            )
+            is False
+        )
+    finally:
+        await close_handler(handler, manager, store, engine, db)
+
+
+@pytest.mark.asyncio
+async def test_idle_summary_minutes_custom_threshold_is_respected(tmp_path):
+    """自定义 idle_summary_minutes=120：100 分钟不触发，150 分钟触发（#480）。"""
+    handler, manager, store, engine, db = await make_handler(
+        tmp_path,
+        config={
+            "reflection_engine": {
+                "summary_trigger_rounds": 10,
+                "idle_summary_minutes": 120,
+            }
+        },
+        host=HostContext(),
+    )
+    try:
+        await _seed_old_round(manager, PRIVATE_SESSION, gap_minutes=100)
+        event = _Event(umo=PRIVATE_SESSION, text="100分钟后的问题")
+        await handler.handle_memory_recall(event, _req("100分钟后的问题"))
+        await handler.handle_memory_reflection(event, _resp("回答1"))
+        await _settle(handler)
+        assert (await engine.get_statistics())["total_memories"] == 0
+
+        other_session = "qq:FriendMessage:idle-150"
+        await _seed_old_round(manager, other_session, gap_minutes=150)
+        event2 = _Event(umo=other_session, text="150分钟后的问题")
+        await handler.handle_memory_recall(event2, _req("150分钟后的问题"))
+        await handler.handle_memory_reflection(event2, _resp("回答2"))
+        await _settle(handler)
+        await handler.shutdown()
+
+        assert (await engine.get_statistics())["total_memories"] == 1
+    finally:
+        await close_handler(handler, manager, store, engine, db)
+
+
+@pytest.mark.asyncio
 async def test_reflection_concurrency_is_capped(tmp_path):
     """多个会话同时触发总结时，同时进入 Provider 的任务数不超过上限。"""
     provider = SummaryProvider(delay=0.2)

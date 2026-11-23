@@ -26,9 +26,10 @@ _DEFAULT_MEMORY_SCOPE = object()
 # 仅限制反思总结（LLM + 记忆写入）阶段，不限制消息入库。
 _MAX_CONCURRENT_REFLECTIONS = 2
 
-# 长空闲补总结阈值：距上一条消息超过该时长时，下一轮对话立即补一次总结，
+# 长空闲补总结默认阈值（分钟）：距上一条消息超过该时长时，下一轮对话立即补一次总结，
 # 不再等 summary_trigger_rounds 轮（避免长时间不聊导致这次对话永久漏总结）。
-_IDLE_SUMMARY_GAP_SECONDS = 60 * 60
+# 可通过 reflection_engine.idle_summary_minutes 配置，设为 0 表示关闭。
+_DEFAULT_IDLE_SUMMARY_MINUTES = 60
 
 
 def _message_timestamp(message: Any) -> float | None:
@@ -59,16 +60,24 @@ def cancel_session_storage_task(
     return True
 
 
-async def _mark_idle_summary_if_needed(manager: Any, session_id: str) -> bool:
+async def _mark_idle_summary_if_needed(
+    manager: Any,
+    session_id: str,
+    *,
+    idle_minutes: int = _DEFAULT_IDLE_SUMMARY_MINUTES,
+) -> bool:
     """长空闲后标记“下一轮补总结”，返回是否写入标记。
 
     Args:
         manager: ConversationManager；会话元数据与最近消息的读取方。
         session_id: 会话 ID。
+        idle_minutes: 空闲补总结阈值（分钟）；``<= 0`` 时关闭检测。
 
     Returns:
         bool: 本次是否新写入 ``idle_summary_pending=True``。
     """
+    if idle_minutes <= 0:
+        return False
     try:
         messages = await manager.get_messages(session_id, limit=2)
     except Exception as exc:
@@ -81,7 +90,7 @@ async def _mark_idle_summary_if_needed(manager: Any, session_id: str) -> bool:
     if previous_timestamp is None or current_timestamp is None:
         return False
     gap_seconds = current_timestamp - previous_timestamp
-    if gap_seconds < _IDLE_SUMMARY_GAP_SECONDS:
+    if gap_seconds < idle_minutes * 60:
         return False
     await manager.update_session_metadata(session_id, "idle_summary_pending", True)
     logger.info(
@@ -304,7 +313,15 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             return None
 
         # 长空闲后的下一轮：标记补总结，_reflection_plan 会把触发阈值降为 1
-        await _mark_idle_summary_if_needed(self.conversation_manager, session_id)
+        idle_minutes = int(
+            self.config_manager.get(
+                "reflection_engine.idle_summary_minutes",
+                _DEFAULT_IDLE_SUMMARY_MINUTES,
+            )
+        )
+        await _mark_idle_summary_if_needed(
+            self.conversation_manager, session_id, idle_minutes=idle_minutes
+        )
 
         # 工具轮：tool loop 尚未结束，总结会截断在工具调用中间，
         # 因此只把助手文字写入会话库，最终回复轮才触发后台总结。
@@ -395,12 +412,24 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         trigger_rounds = self.config_manager.get(
             "reflection_engine.summary_trigger_rounds", 10
         )
-        # 长空闲后的补总结标记：本次只要有未总结轮次就触发，不改变正常阈值逻辑
+        # 长空闲后的补总结标记：本次只要有未总结轮次就触发，不改变正常阈值逻辑；
+        # 若用户已将 idle_summary_minutes 设为 0 关闭该机制，忽略并清理历史残留标记。
+        idle_minutes = int(
+            self.config_manager.get(
+                "reflection_engine.idle_summary_minutes",
+                _DEFAULT_IDLE_SUMMARY_MINUTES,
+            )
+        )
         idle_summary_pending = bool(
             await self.conversation_manager.get_session_metadata(
                 session_id, "idle_summary_pending", False
             )
         )
+        if idle_summary_pending and idle_minutes <= 0:
+            await self.conversation_manager.update_session_metadata(
+                session_id, "idle_summary_pending", False
+            )
+            idle_summary_pending = False
         if idle_summary_pending:
             trigger_rounds = 1
         last_summarized_index = await self.conversation_manager.get_session_metadata(
