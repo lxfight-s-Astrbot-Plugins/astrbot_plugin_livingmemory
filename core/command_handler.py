@@ -13,6 +13,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult
 
 from .base.config_manager import ConfigManager
+from .base.exceptions import LowQualityMemoryError
 from .base.usage_metrics import get_usage_snapshot
 from .command_handler_external import ExternalApiCommandMixin
 from .i18n_backend import t, t_list
@@ -863,15 +864,25 @@ class CommandHandler(ExternalApiCommandMixin):
             if not is_group_chat and "GroupMessage" in session_id:
                 is_group_chat = True
 
-            (
-                content,
-                metadata,
-                importance,
-            ) = await self._memory_processor.process_conversation(
-                messages=history_messages,
-                is_group_chat=is_group_chat,
-                persona_id=persona_id,
-            )
+            for attempt in range(2):
+                try:
+                    (
+                        content,
+                        metadata,
+                        importance,
+                    ) = await self._memory_processor.process_conversation(
+                        messages=history_messages,
+                        is_group_chat=is_group_chat,
+                        persona_id=persona_id,
+                    )
+                    break
+                except LowQualityMemoryError as exc:
+                    if attempt == 0:
+                        logger.warning(
+                            f"[{session_id}] 手动总结质量未达标，自动重试一次: {exc}"
+                        )
+                        continue
+                    raise
 
             atoms = self._memory_processor.classify_atoms_from_metadata(
                 metadata=metadata,

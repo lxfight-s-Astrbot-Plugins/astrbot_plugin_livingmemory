@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
+from astrbot_plugin_livingmemory.core.base.exceptions import LowQualityMemoryError
 from astrbot_plugin_livingmemory.core.command_handler import CommandHandler
 from astrbot_plugin_livingmemory.core.managers.conversation_manager import (
     ConversationManager,
 )
-from astrbot_plugin_livingmemory.core.base.exceptions import LowQualityMemoryError
 from astrbot_plugin_livingmemory.core.models.conversation_models import Message
 from astrbot_plugin_livingmemory.core.processors.memory_processor import MemoryProcessor
 from astrbot_plugin_livingmemory.core.retrieval.vector_retriever import VectorRetriever
@@ -267,6 +267,56 @@ async def test_summarize_calls_processor_and_stores_memory():
     # Should have stored the memory
     memory_engine.add_memory.assert_awaited_once()
     # Should report success
+    assert any("总结完成" in m for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_summarize_retries_once_on_low_quality_error():
+    """handle_summarize 遇到偶发质量拒绝时应自动重试一次（#483）。"""
+    memory_processor = Mock()
+    memory_processor.process_conversation = AsyncMock(
+        side_effect=[
+            LowQualityMemoryError("总结质量不达标（generic_term=群成员）"),
+            (
+                "张三和李四完成了群聊迁移排查",
+                {"topics": ["排障"], "source_window": {}},
+                0.7,
+            ),
+        ]
+    )
+    memory_processor.classify_atoms_from_metadata = Mock(return_value=[])
+
+    memory_engine = Mock()
+    memory_engine.db_path = "/tmp/test.db"
+    memory_engine.add_memory = AsyncMock(return_value=1)
+
+    conv_mgr = Mock()
+    conv_mgr.store = Mock()
+    conv_mgr.store.get_message_count = AsyncMock(return_value=5)
+    conv_mgr.get_session_metadata = AsyncMock(return_value=0)
+    conv_mgr.get_messages_range = AsyncMock(return_value=_make_private_messages())
+    conv_mgr.update_session_metadata = AsyncMock()
+
+    context = Mock()
+    context.conversation_manager = Mock()
+
+    handler = CommandHandler(
+        context=context,
+        config_manager=ConfigManager(),
+        memory_engine=memory_engine,
+        conversation_manager=conv_mgr,
+        index_validator=None,
+        memory_processor=memory_processor,
+    )
+
+    with patch(
+        "astrbot_plugin_livingmemory.core.utils.get_persona_id",
+        new=AsyncMock(return_value="persona_1"),
+    ):
+        msgs = [m async for m in handler.handle_summarize(_MockEvent())]
+
+    assert memory_processor.process_conversation.await_count == 2
+    memory_engine.add_memory.assert_awaited_once()
     assert any("总结完成" in m for m in msgs)
 
 
