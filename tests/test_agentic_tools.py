@@ -595,3 +595,18 @@ class TestAgenticIntegrationChain:
 
         remaining = step3.get("remaining_budget", {})
         assert 0 <= remaining.get("remaining_calls", 0) <= 2
+
+
+def test_parse_time_bound_pre_1970_date_raises_value_error(monkeypatch) -> None:
+    from astrbot_plugin_livingmemory.core.tools import agentic_recall_common
+
+    real_datetime = agentic_recall_common.datetime
+
+    class _Pre1970Datetime(real_datetime):
+        def timestamp(self) -> float:
+            raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(agentic_recall_common, "datetime", _Pre1970Datetime)
+
+    with pytest.raises(ValueError, match="unsupported time format"):
+        agentic_recall_common.parse_time_bound("1964-07-14")

@@ -138,6 +138,9 @@ def _parse_event_time(text: str) -> float | None:
             return datetime(year, month, day).timestamp()
         except ValueError:
             return None
+        except OSError:
+            # Windows 上 timestamp() 对 1970 年前的日期抛 OSError。
+            return None
 
     # month/day format like "5月30日"
     m = re.search(r"(\d{1,2})月(\d{1,2})[日号]", text)

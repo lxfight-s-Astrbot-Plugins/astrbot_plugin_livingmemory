@@ -1030,6 +1030,22 @@ def test_event_time_parsing_no_time() -> None:
     assert result is None
 
 
+def test_event_time_parsing_pre_1970_date_returns_none(monkeypatch) -> None:
+    from astrbot_plugin_livingmemory.core.processors import atom_classifier
+
+    real_datetime = atom_classifier.datetime
+
+    class _Pre1970Datetime(real_datetime):
+        def timestamp(self) -> float:
+            raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(atom_classifier, "datetime", _Pre1970Datetime)
+
+    result = atom_classifier._parse_event_time("1964年7月14日收官")
+
+    assert result is None
+
+
 # ---------- compute_ttl type coverage ----------
 
 
