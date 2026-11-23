@@ -173,7 +173,14 @@ class LivingMemoryPlugin(Star):
         """初始化插件"""
         try:
             # 版本变更时自动备份数据（在任何数据库操作之前，通过线程池避免阻塞事件循环）
-            await self._backup_manager.backup_if_needed_async()
+            # 备份失败时 BackupManager 会事务中止并保留旧备份与 .plugin_version 以便下次重试，
+            # 此处记录错误后继续插件初始化，避免备份故障直接阻断启动。
+            try:
+                await self._backup_manager.backup_if_needed_async()
+            except Exception as e:
+                logger.error(
+                    f"[BackupManager] 版本备份失败，已保留旧备份与版本标记并继续初始化: {e}"
+                )
 
             # 启动时清理历史备份（版本/适配器/作用域迁移/每日备份）；失败不阻断初始化
             try:

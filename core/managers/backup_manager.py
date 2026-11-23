@@ -10,14 +10,22 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import json
+import os
 import re
 import shutil
+import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
 from astrbot.api import logger
+
+from ...storage.sqlite_connection import (
+    backup_sqlite_file,
+    ensure_backup_disk_space,
+)
 
 # Match metadata.yaml; backup manifests use this plugin version.
 PLUGIN_VERSION = "2.14.3"
@@ -98,8 +106,17 @@ class BackupManager:
 
         stored = self.get_stored_version()
         old_label = stored or "unknown"
-        backup_dir = self.data_dir / "backups" / f"v{old_label}"
-        backup_dir.mkdir(parents=True, exist_ok=True)
+        backups_root = self.data_dir / "backups"
+        backups_root.mkdir(parents=True, exist_ok=True)
+        backup_dir = backups_root / f"v{old_label}"
+        self._recover_interrupted_publish(backup_dir)
+        ensure_backup_disk_space(
+            backups_root, self._estimate_backup_bytes(), label="版本备份"
+        )
+        staging_dir = backups_root / (
+            f".v{old_label}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        )
+        staging_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
             f"[BackupManager] 检测到版本变更 ({old_label} → {PLUGIN_VERSION})，"
@@ -107,38 +124,158 @@ class BackupManager:
         )
 
         copied_count = 0
-        for pattern in _BACKUP_PATTERNS:
-            for file_path in self.data_dir.glob(pattern):
-                if not file_path.is_file():
+        compacted_dbs: set[str] = set()
+        try:
+            for pattern in _BACKUP_PATTERNS:
+                if pattern in ("*.db-wal", "*.db-shm"):
                     continue
-                dest = backup_dir / file_path.name
-                try:
-                    shutil.copy2(file_path, dest)
-                    copied_count += 1
-                except OSError as exc:
-                    logger.error(
-                        f"[BackupManager] 备份文件失败 {file_path.name}: {exc}"
+                for file_path in self.data_dir.glob(pattern):
+                    if not file_path.is_file():
+                        continue
+                    dest = staging_dir / file_path.name
+                    copied_count += self._stage_primary_file(
+                        file_path, dest, compacted_dbs
                     )
 
-        # Write backup metadata
-        info = {
-            "plugin_version": PLUGIN_VERSION,
-            "previous_version": old_label,
-            "backup_timestamp": datetime.now(timezone.utc).isoformat(),
-            "backup_unix_time": time.time(),
-            "files_copied": copied_count,
-            "data_dir": str(self.data_dir),
-        }
-        info_path = backup_dir / _BACKUP_INFO_FILE
-        info_path.write_text(
-            json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+            for sidecar_pattern in ("*.db-wal", "*.db-shm"):
+                for file_path in self.data_dir.glob(sidecar_pattern):
+                    if not file_path.is_file():
+                        continue
+                    parent_db_name = file_path.name[:-4]
+                    if parent_db_name in compacted_dbs:
+                        continue
+                    dest = staging_dir / file_path.name
+                    shutil.copy2(file_path, dest)
+                    copied_count += 1
 
-        # Update stored version AFTER successful backup
+            # Write backup metadata into staging before atomic publish
+            info = {
+                "plugin_version": PLUGIN_VERSION,
+                "previous_version": old_label,
+                "backup_timestamp": datetime.now(timezone.utc).isoformat(),
+                "backup_unix_time": time.time(),
+                "files_copied": copied_count,
+                "data_dir": str(self.data_dir),
+            }
+            info_path = staging_dir / _BACKUP_INFO_FILE
+            info_path.write_text(
+                json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            self._publish_staging_dir(staging_dir, backup_dir)
+        except Exception as exc:
+            logger.error(f"[BackupManager] 事务备份失败，已中止 ({backup_dir}): {exc}")
+            raise
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+
+        # Update stored version AFTER full backup is published
         self.write_current_version()
 
         logger.info(f"[BackupManager] 备份完成: {copied_count} 个文件 → {backup_dir}")
         return str(backup_dir)
+
+    def _estimate_backup_bytes(self) -> int:
+        """Estimate minimum free disk space needed for all matched backup files."""
+        seen: set[Path] = set()
+        total = 0
+        for pattern in _BACKUP_PATTERNS:
+            for file_path in self.data_dir.glob(pattern):
+                if not file_path.is_file() or file_path in seen:
+                    continue
+                seen.add(file_path)
+                total += file_path.stat().st_size
+        return total
+
+    def _stage_primary_file(
+        self, file_path: Path, dest: Path, compacted_dbs: set[str]
+    ) -> int:
+        """Stage a primary data file into the transaction directory."""
+        if file_path.suffix == ".db":
+            wal_path = Path(f"{file_path}-wal")
+            has_wal_data = wal_path.is_file() and wal_path.stat().st_size > 0
+            if file_path.stat().st_size == 0 and not has_wal_data:
+                logger.info(
+                    f"[BackupManager] 跳过未初始化的空数据库文件: {file_path.name}"
+                )
+                compacted_dbs.add(file_path.name)
+                return 0
+            try:
+                backup_sqlite_file(file_path, dest)
+            except sqlite3.Error as exc:
+                raise RuntimeError(
+                    f"SQLite 紧凑备份失败 ({file_path.name}): {exc}"
+                ) from exc
+            compacted_dbs.add(file_path.name)
+            return 1
+
+        shutil.copy2(file_path, dest)
+        return 1
+
+    @staticmethod
+    def _recover_interrupted_publish(backup_dir: Path) -> None:
+        """Restore an archived backup dir if a prior swap crashed mid-publish."""
+        archived_dirs = sorted(
+            (
+                p
+                for p in backup_dir.parent.glob(f".{backup_dir.name}.old.*.tmp")
+                if p.is_dir()
+            ),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not archived_dirs:
+            return
+        if not backup_dir.exists():
+            try:
+                os.replace(archived_dirs[0], backup_dir)
+                logger.warning(
+                    f"[BackupManager] 检测到上次发布中断，已恢复旧备份目录: {backup_dir}"
+                )
+            except OSError as exc:
+                logger.error(
+                    f"[BackupManager] 恢复中断的旧备份目录失败 ({backup_dir}): {exc}"
+                )
+                return
+        for stale in archived_dirs:
+            if stale.exists():
+                shutil.rmtree(stale, ignore_errors=True)
+
+    @classmethod
+    def _publish_staging_dir(cls, staging_dir: Path, backup_dir: Path) -> None:
+        """Atomically publish *staging_dir* to *backup_dir*, preserving prior data on error."""
+        cls._recover_interrupted_publish(backup_dir)
+        if not backup_dir.exists():
+            os.replace(staging_dir, backup_dir)
+            return
+
+        archived_old = backup_dir.with_name(
+            f".{backup_dir.name}.old.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        )
+        os.replace(backup_dir, archived_old)
+        try:
+            os.replace(staging_dir, backup_dir)
+        except Exception:
+            if not backup_dir.exists() and archived_old.exists():
+                try:
+                    os.replace(archived_old, backup_dir)
+                except OSError as restore_exc:
+                    logger.error(
+                        f"[BackupManager] 恢复旧备份目录失败 ({backup_dir}): {restore_exc}"
+                    )
+            raise
+        shutil.rmtree(archived_old, ignore_errors=True)
+
+    @staticmethod
+    def _backup_sqlite_compact(src: Path, dest: Path) -> bool:
+        """Create a compact standalone SQLite snapshot atomically via ``VACUUM INTO``."""
+        try:
+            backup_sqlite_file(src, dest)
+            return True
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning(f"[BackupManager] SQLite 紧凑备份失败 ({src.name}): {exc}")
+            return False
 
     async def backup_if_needed_async(self) -> str | None:
         """异步版本：通过 asyncio.to_thread 将同步文件 I/O 卸载到线程池。"""
@@ -350,7 +487,7 @@ class BackupManager:
 
         result: list[dict] = []
         for backup_dir in sorted(backups_path.iterdir(), reverse=True):
-            if not backup_dir.is_dir():
+            if not backup_dir.is_dir() or backup_dir.name.startswith("."):
                 continue
             info_path = backup_dir / _BACKUP_INFO_FILE
             info: dict = {}

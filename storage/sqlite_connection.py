@@ -10,7 +10,11 @@ WAL 依赖数据库同目录的 ``-shm`` 共享内存文件与 POSIX 文件锁�
 from __future__ import annotations
 
 import asyncio
+import errno
+import os
+import shutil
 import sqlite3
+import uuid
 from pathlib import Path
 
 import aiosqlite
@@ -252,3 +256,125 @@ def _remove_db_files(db_path: Path) -> None:
             Path(f"{db_path}{suffix}").unlink()
         except FileNotFoundError:
             continue
+
+
+def _is_disk_full_error(exc: BaseException) -> bool:
+    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+        return True
+    msg = str(exc).lower()
+    return "disk is full" in msg or "no space left on device" in msg
+
+
+def ensure_backup_disk_space(
+    target_dir: Path, required_bytes: int, *, label: str = "备份"
+) -> None:
+    """Verify *target_dir*'s filesystem has at least *required_bytes* free."""
+    if required_bytes <= 0:
+        return
+    try:
+        free_bytes = shutil.disk_usage(target_dir).free
+    except OSError:
+        return
+    if free_bytes < required_bytes:
+        raise OSError(
+            errno.ENOSPC,
+            f"磁盘空间不足，无法完成{label}："
+            f"当前可用 {free_bytes / 1024 / 1024:.2f} MiB，"
+            f"至少需要 {required_bytes / 1024 / 1024:.2f} MiB，"
+            "请先清理磁盘空间或历史备份后重试",
+        )
+
+
+def backup_sqlite_file(
+    src: Path, dest: Path, *, allow_online_backup_fallback: bool = True
+) -> None:
+    """Create a verified standalone SQLite snapshot atomically at *dest*.
+
+    Validates the SQLite header first, verifies available disk space, prefers
+    ``VACUUM INTO`` for compact output, and only falls back to SQLite's online
+    ``Connection.backup()`` (merging WAL consistently) when ``VACUUM INTO``
+    fails for non-corruption/non-disk-full reasons.
+    """
+    src = Path(src)
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not src.is_file() or src.stat().st_size < 16:
+        raise sqlite3.DatabaseError(f"invalid or empty SQLite file: {src.name}")
+    with src.open("rb") as fh:
+        if fh.read(16) != b"SQLite format 3\x00":
+            raise sqlite3.DatabaseError(f"invalid SQLite header: {src.name}")
+
+    wal_path = Path(f"{src}-wal")
+    estimated_bytes = src.stat().st_size + (
+        wal_path.stat().st_size if wal_path.is_file() else 0
+    )
+    ensure_backup_disk_space(
+        dest.parent, estimated_bytes, label=f"SQLite 备份 ({src.name})"
+    )
+
+    tmp_dest = dest.with_name(f".{dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    connection: sqlite3.Connection | None = None
+    backup_conn: sqlite3.Connection | None = None
+    verify_conn: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(str(src), timeout=10.0, isolation_level=None)
+        connection.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        try:
+            connection.execute("VACUUM INTO ?", (str(tmp_dest),))
+        except (sqlite3.Error, OSError) as vacuum_exc:
+            if _is_disk_full_error(vacuum_exc):
+                free_mb = shutil.disk_usage(dest.parent).free / 1024 / 1024
+                raise OSError(
+                    errno.ENOSPC,
+                    f"磁盘空间不足，VACUUM INTO 备份 {src.name} 失败"
+                    f"（可用 {free_mb:.2f} MiB）: {vacuum_exc}",
+                ) from vacuum_exc
+            if not allow_online_backup_fallback:
+                raise
+            if tmp_dest.exists():
+                tmp_dest.unlink()
+            ensure_backup_disk_space(
+                dest.parent, estimated_bytes, label=f"SQLite 在线备份 ({src.name})"
+            )
+            logger.warning(
+                f"[SQLiteBackup] VACUUM INTO 失败，尝试 SQLite 在线备份 ({src.name}): {vacuum_exc}"
+            )
+            backup_conn = sqlite3.connect(str(tmp_dest), timeout=10.0)
+            try:
+                connection.backup(backup_conn)
+            except (sqlite3.Error, OSError) as online_exc:
+                if _is_disk_full_error(online_exc):
+                    free_mb = shutil.disk_usage(dest.parent).free / 1024 / 1024
+                    raise OSError(
+                        errno.ENOSPC,
+                        f"磁盘空间不足，SQLite 在线备份 {src.name} 失败"
+                        f"（可用 {free_mb:.2f} MiB）: {online_exc}",
+                    ) from online_exc
+                raise
+            finally:
+                backup_conn.close()
+                backup_conn = None
+
+        connection.close()
+        connection = None
+
+        verify_conn = sqlite3.connect(str(tmp_dest), timeout=10.0)
+        row = verify_conn.execute("PRAGMA quick_check").fetchone()
+        verify_conn.close()
+        verify_conn = None
+        if row is None or row[0] != "ok":
+            raise sqlite3.DatabaseError(f"quick_check failed: {row}")
+
+        os.replace(tmp_dest, dest)
+    finally:
+        if backup_conn is not None:
+            backup_conn.close()
+        if verify_conn is not None:
+            verify_conn.close()
+        if connection is not None:
+            connection.close()
+        try:
+            if tmp_dest.exists():
+                tmp_dest.unlink()
+        except OSError:
+            pass
