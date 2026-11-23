@@ -94,6 +94,12 @@ async def open_connection(
     )
     await db.execute("PRAGMA temp_store = MEMORY")
     if apply_journal_mode:
+        # 新库尚未建表时启用增量回收，避免大删改后长期累积空洞页
+        page_cursor = await db.execute("PRAGMA page_count")
+        page_row = await page_cursor.fetchone()
+        await page_cursor.close()
+        if page_row is not None and int(page_row[0]) <= 1:
+            await db.execute("PRAGMA auto_vacuum = INCREMENTAL")
         await db.execute(f"PRAGMA journal_mode = {_journal_mode}")
     return db
 

@@ -271,7 +271,126 @@ class MemoryEngineStatsMixin:
             "archived_count": archived_count,
         }
 
-    async def maintain_storage(self, *, vacuum: bool = False) -> dict[str, Any]:
+    def _maintenance_database_paths(self) -> list[Path]:
+        """Collect existing plugin SQLite databases eligible for storage maintenance."""
+        primary = Path(self.db_path)
+        candidates = [primary]
+        graph_doc_path = self.config.get("graph_document_path")
+        if graph_doc_path:
+            candidates.append(Path(str(graph_doc_path)))
+        else:
+            candidates.append(primary.parent / "livingmemory_graph_documents.db")
+        candidates.append(primary.parent / "conversations.db")
+
+        seen: set[Path] = set()
+        result: list[Path] = []
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            result.append(candidate)
+        return result
+
+    @staticmethod
+    async def _drain_pragma(connection: aiosqlite.Connection, statement: str) -> None:
+        """Execute a PRAGMA and consume/close its cursor before running VACUUM."""
+        cursor = await connection.execute(statement)
+        await cursor.fetchall()
+        await cursor.close()
+
+    async def _reclaim_database_freelist(
+        self,
+        db_path: Path,
+        *,
+        force: bool = False,
+        min_free_ratio: float = 0.2,
+        min_free_bytes: int = 5 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Inspect a SQLite DB's freelist and compact it when forced or over threshold."""
+        wal_path = Path(f"{db_path}-wal")
+        before_db = db_path.stat().st_size if db_path.is_file() else 0
+        before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+        compacted = False
+        needs_manual_compact = False
+        free_bytes = 0
+        free_ratio = 0.0
+
+        async with aiosqlite.connect(str(db_path), isolation_level=None) as connection:
+            await connection.execute("PRAGMA busy_timeout = 10000")
+
+            async def _pragma_int(pragma_name: str) -> int:
+                cursor = await connection.execute(f"PRAGMA {pragma_name}")
+                row = await cursor.fetchone()
+                await cursor.close()
+                return int(row[0]) if row and row[0] is not None else 0
+
+            page_count = await _pragma_int("page_count")
+            freelist_count = await _pragma_int("freelist_count")
+            page_size = await _pragma_int("page_size")
+            auto_vacuum = await _pragma_int("auto_vacuum")
+
+            total_bytes = page_count * page_size
+            free_bytes = freelist_count * page_size
+            free_ratio = (free_bytes / total_bytes) if total_bytes > 0 else 0.0
+
+            over_threshold = (
+                free_bytes >= min_free_bytes and free_ratio >= min_free_ratio
+            )
+            if force or (over_threshold and auto_vacuum == 2):
+                try:
+                    await self._drain_pragma(
+                        connection, "PRAGMA wal_checkpoint(TRUNCATE)"
+                    )
+                    if not force and auto_vacuum == 2:
+                        await self._drain_pragma(
+                            connection, "PRAGMA incremental_vacuum"
+                        )
+                    else:
+                        if auto_vacuum == 0:
+                            await self._drain_pragma(
+                                connection, "PRAGMA auto_vacuum = INCREMENTAL"
+                            )
+                        await connection.execute("VACUUM")
+                    # Flush rebuilt pages from the WAL back into the DB immediately.
+                    await self._drain_pragma(
+                        connection, "PRAGMA wal_checkpoint(TRUNCATE)"
+                    )
+                    compacted = True
+                except aiosqlite.OperationalError as exc:
+                    logger.warning(
+                        f"[StorageMaintenance] 跳过空洞回收 ({db_path.name}): {exc}"
+                    )
+            elif over_threshold:
+                needs_manual_compact = True
+                logger.info(
+                    f"[StorageMaintenance] {db_path.name} 空洞约 "
+                    f"{free_bytes / 1024 / 1024:.2f} MiB ({free_ratio:.0%})，"
+                    "未启用 incremental auto_vacuum，跳过后台全量 VACUUM（可手动执行压缩转换）"
+                )
+
+        after_db = db_path.stat().st_size if db_path.is_file() else 0
+        after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+        reclaimed = max(0, before_db + before_wal - after_db - after_wal)
+        return {
+            "path": str(db_path),
+            "compacted": compacted,
+            "needs_manual_compact": needs_manual_compact,
+            "auto_vacuum": auto_vacuum,
+            "free_bytes_before": free_bytes,
+            "free_ratio_before": round(free_ratio, 4),
+            "bytes_reclaimed": reclaimed,
+        }
+
+    async def maintain_storage(
+        self,
+        *,
+        vacuum: bool = False,
+        auto_vacuum_threshold_ratio: float = 0.2,
+        auto_vacuum_min_free_bytes: int = 5 * 1024 * 1024,
+    ) -> dict[str, Any]:
         """Run SQLite storage maintenance and return size diagnostics."""
         try:
             db_path = Path(self.db_path)
@@ -305,11 +424,26 @@ class MemoryEngineStatsMixin:
 
             await self.db_connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
-            if vacuum:
-                await self.db_connection.execute("VACUUM")
+            compacted_databases: list[dict[str, Any]] = []
+            extra_reclaimed = 0
+            primary_resolved = db_path.resolve() if db_path.exists() else None
+            for target_db in self._maintenance_database_paths():
+                db_result = await self._reclaim_database_freelist(
+                    target_db,
+                    force=vacuum,
+                    min_free_ratio=auto_vacuum_threshold_ratio,
+                    min_free_bytes=auto_vacuum_min_free_bytes,
+                )
+                compacted_databases.append(db_result)
+                if primary_resolved is None or target_db.resolve() != primary_resolved:
+                    extra_reclaimed += int(db_result["bytes_reclaimed"])
 
             after_size = db_path.stat().st_size if db_path.exists() else 0
             after_wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+            primary_reclaimed = max(
+                0,
+                before_size + before_wal_size - after_size - after_wal_size,
+            )
             return {
                 "success": True,
                 "vacuum": vacuum,
@@ -317,10 +451,8 @@ class MemoryEngineStatsMixin:
                 "db_size_after": after_size,
                 "wal_size_before": before_wal_size,
                 "wal_size_after": after_wal_size,
-                "bytes_reclaimed": max(
-                    0,
-                    before_size + before_wal_size - after_size - after_wal_size,
-                ),
+                "bytes_reclaimed": primary_reclaimed + extra_reclaimed,
+                "compacted_databases": compacted_databases,
             }
         except asyncio.CancelledError:
             raise
@@ -576,44 +708,75 @@ class MemoryEngineStatsMixin:
         }
 
     async def compact_storage(self) -> dict[str, Any]:
-        """用独立连接执行 ``VACUUM``，返回压缩前后大小。
+        """用独立连接对主库及关联库执行 ``VACUUM`` 与增量模式转换，返回压缩前后大小。
 
         使用独立的 autocommit 连接，避免复用引擎长连接上的隐式事务（SQLite
         禁止在事务内 VACUUM）。引擎连接保持打开时 VACUUM 需要短暂的独占写锁；
         若此时有并发写入会抛 ``database is locked``，交由命令错误处理展示。
 
         Returns:
-            压缩统计：压缩前后与释放的字节数。
+            压缩统计：压缩前后与释放的字节数，以及各数据库明细。
 
         Raises:
-            RuntimeError: 数据库文件不存在。
+            RuntimeError: 主数据库文件不存在。
         """
         db_path = Path(self.db_path)
         if not db_path.is_file():
             raise RuntimeError(f"database file not found: {db_path}")
-        wal_path = Path(f"{self.db_path}-wal")
-        before_db = db_path.stat().st_size
-        before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
-        logger.info("[Diag] 开始 VACUUM 压缩数据库: %s", db_path)
-        async with aiosqlite.connect(str(db_path), isolation_level=None) as connection:
-            # PRAGMA 的结果必须取回并关闭游标，否则游标仍在执行中，VACUUM 会报
-            # "cannot VACUUM - SQL statements in progress"。
-            for statement in (
-                "PRAGMA busy_timeout = 10000",
-                "PRAGMA wal_checkpoint(TRUNCATE)",
-                "PRAGMA incremental_vacuum",
-            ):
-                cursor = await connection.execute(statement)
-                await cursor.fetchall()
-                await cursor.close()
-            await connection.execute("VACUUM")
-        after_db = db_path.stat().st_size
-        after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+
+        total_db_before = 0
+        total_db_after = 0
+        total_wal_before = 0
+        total_wal_after = 0
+        databases: list[dict[str, Any]] = []
+
+        for target_db in self._maintenance_database_paths():
+            wal_path = Path(f"{target_db}-wal")
+            before_db = target_db.stat().st_size
+            before_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+            logger.info("[Diag] 开始 VACUUM 压缩数据库: %s", target_db)
+            async with aiosqlite.connect(
+                str(target_db), isolation_level=None
+            ) as connection:
+                # PRAGMA 的结果必须取回并关闭游标，否则游标仍在执行中，VACUUM 会报
+                # "cannot VACUUM - SQL statements in progress"。
+                for statement in (
+                    "PRAGMA busy_timeout = 10000",
+                    "PRAGMA wal_checkpoint(TRUNCATE)",
+                    "PRAGMA incremental_vacuum",
+                    "PRAGMA auto_vacuum = INCREMENTAL",
+                ):
+                    await self._drain_pragma(connection, statement)
+                await connection.execute("VACUUM")
+                # Flush rebuilt pages written to the WAL by VACUUM back into the DB.
+                await self._drain_pragma(connection, "PRAGMA wal_checkpoint(TRUNCATE)")
+            after_db = target_db.stat().st_size
+            after_wal = wal_path.stat().st_size if wal_path.is_file() else 0
+            total_db_before += before_db
+            total_db_after += after_db
+            total_wal_before += before_wal
+            total_wal_after += after_wal
+            databases.append(
+                {
+                    "path": str(target_db),
+                    "db_size_before": before_db,
+                    "db_size_after": after_db,
+                    "wal_size_before": before_wal,
+                    "wal_size_after": after_wal,
+                    "bytes_reclaimed": max(
+                        0, before_db + before_wal - after_db - after_wal
+                    ),
+                }
+            )
+
         return {
             "success": True,
-            "db_size_before": before_db,
-            "db_size_after": after_db,
-            "wal_size_before": before_wal,
-            "wal_size_after": after_wal,
-            "bytes_reclaimed": max(0, before_db + before_wal - after_db - after_wal),
+            "db_size_before": total_db_before,
+            "db_size_after": total_db_after,
+            "wal_size_before": total_wal_before,
+            "wal_size_after": total_wal_after,
+            "bytes_reclaimed": max(
+                0, total_db_before + total_wal_before - total_db_after - total_wal_after
+            ),
+            "databases": databases,
         }
