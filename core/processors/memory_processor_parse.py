@@ -6,6 +6,7 @@ MemoryProcessor 的解析、校验与格式化辅助函数
 
 import json
 import re
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,20 @@ from astrbot.api import logger
 from ..base.exceptions import MemoryParseError
 from ..managers.profile_manager import normalize_profile_updates
 from ..models.conversation_models import Message
+
+_ALWAYS_GENERIC_NOUNS = ("某群成员", "某用户")
+_CONTEXTUAL_GENERIC_NOUNS = ("群成员", "某人", "某个人", "有人")
+_GENERIC_LABELS = (*_ALWAYS_GENERIC_NOUNS, *_CONTEXTUAL_GENERIC_NOUNS, "用户", "对方")
+_GENERIC_SPEECH_VERBS = r"(?:说|问|询问|表示|提到|提及|回复|指出|吐槽|告诉|讨论|聊|分享|认为|称|建议|提出|发了|发送)"
+_GENERIC_REFERENCE = re.compile(
+    "|".join(
+        (
+            *_ALWAYS_GENERIC_NOUNS,
+            rf"(?:{'|'.join(_CONTEXTUAL_GENERIC_NOUNS)})(?={_GENERIC_SPEECH_VERBS})",
+            r"(?:用户|对方)(?=说)",
+        )
+    )
+)
 
 
 def try_fix_json(text: str) -> str:
@@ -302,46 +317,41 @@ def get_default_structured_data(is_group_chat: bool) -> dict[str, Any]:
 
 
 def validate_summary_quality(structured_data: dict[str, Any]) -> str:
-    """
-    校验总结质量，返回质量等级。
+    """Return the summary's quality grade."""
+    return "low" if summary_quality_rejection(structured_data) else "normal"
 
-    检查规则：
-    1. summary 不能为空或过短（< 10 字符）
-    2. key_facts 至少有 1 条，且不能是纯标点/符号残片
-    3. importance 在合法范围内
-    4. summary 不含泛化词（"某用户"、"有人"等）
 
-    Returns:
-        "normal" 或 "low"
-    """
+def summary_quality_rejection(
+    structured_data: dict[str, Any], participant_names: Iterable[str] = ()
+) -> str | None:
+    """Return the reason for rejecting a summary, if any."""
     summary = structured_data.get("summary", "")
     key_facts = structured_data.get("key_facts", [])
-    importance = structured_data.get("importance", 0.5)
 
     if not summary or len(summary.strip()) < 10:
-        return "low"
+        return "summary_too_short"
     if not key_facts:
-        return "low"
+        return "missing_key_facts"
     # 截断残片：字段被截断时容易产出「,」「；」这类纯标点条目（#446）。
     if any(not re.search(r"\w", str(fact)) for fact in key_facts):
-        return "low"
-    if not isinstance(importance, (int, float)) or not (0.0 <= importance <= 1.0):
-        return "low"
+        return "invalid_key_fact"
+    try:
+        importance = float(structured_data.get("importance", 0.5))
+    except (TypeError, ValueError, OverflowError):
+        return "invalid_importance"
+    if not 0.0 <= importance <= 1.0:
+        return "invalid_importance"
 
-    # 泛化词检测
-    generic_terms = [
-        "某用户",
-        "有人",
-        "某人",
-        "用户说",
-        "对方说",
-        "群成员",
-        "某群成员",
-    ]
-    if any(term in summary for term in generic_terms):
-        return "low"
-
-    return "normal"
+    if _GENERIC_REFERENCE.search(summary):
+        # Match complete nicknames from the conversation, leaving bare placeholders intact.
+        for name in sorted(set(participant_names), key=len, reverse=True):
+            if name not in _GENERIC_LABELS and any(
+                term in name for term in _GENERIC_LABELS
+            ):
+                summary = summary.replace(name, " ")
+        if match := _GENERIC_REFERENCE.search(summary):
+            return f"generic_term={match[0]}"
+    return None
 
 
 def build_storage_format(

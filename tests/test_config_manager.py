@@ -5,7 +5,6 @@ Tests for config manager and validator behavior.
 from unittest.mock import patch
 
 import pytest
-
 from astrbot_plugin_livingmemory.core.base.config_manager import ConfigManager
 from astrbot_plugin_livingmemory.core.base.config_validator import validate_config
 from astrbot_plugin_livingmemory.core.base.exceptions import ConfigurationError
@@ -128,9 +127,7 @@ def test_validate_config_accepts_merged_model_shape() -> None:
 
 
 def test_validate_config_accepts_retrieval_importance_threshold() -> None:
-    config = validate_config(
-        {"recall_engine": {"min_importance_for_retrieval": 0.65}}
-    )
+    config = validate_config({"recall_engine": {"min_importance_for_retrieval": 0.65}})
 
     assert config.recall_engine.min_importance_for_retrieval == 0.65
 
@@ -218,3 +215,36 @@ def test_config_manager_graph_memory_property() -> None:
     assert manager.graph_memory["enabled"] is False
     assert manager.get("graph_memory.graph_route_weight") == 0.35
     assert manager.get("graph_memory.document_route_weight") == 0.65
+
+
+def test_retrieval_timeout_seconds_validated_and_forwarded_to_engine(tmp_path) -> None:
+    """recall_engine.retrieval_timeout_seconds 应通过校验并转发到引擎配置（#482）。"""
+    from types import SimpleNamespace
+
+    from astrbot_plugin_livingmemory.core.plugin_initializer import PluginInitializer
+
+    assert ConfigManager().get("recall_engine.retrieval_timeout_seconds") == 10.0
+
+    manager = ConfigManager({"recall_engine": {"retrieval_timeout_seconds": 1.5}})
+    assert manager.get("recall_engine.retrieval_timeout_seconds") == 1.5
+
+    with pytest.raises(ConfigurationError):
+        ConfigManager({"recall_engine": {"retrieval_timeout_seconds": 0.1}})
+
+    context = SimpleNamespace(
+        get_config=lambda: {"platform": []},
+        platform_manager=SimpleNamespace(get_insts=lambda: []),
+    )
+    initializer = PluginInitializer.__new__(PluginInitializer)
+    initializer.context = context
+    initializer.config_manager = manager
+
+    engine_cfg = initializer._build_memory_engine_config(
+        {
+            "graph_memory_enabled": False,
+            "graph_doc_path": tmp_path / "graph_docs.db",
+            "stopwords_dir": tmp_path / "stopwords",
+            "data_dir": tmp_path,
+        }
+    )
+    assert engine_cfg["retrieval_timeout_seconds"] == 1.5

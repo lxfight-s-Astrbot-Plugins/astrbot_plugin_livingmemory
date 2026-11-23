@@ -84,12 +84,12 @@
     "storage": "Занято (storage): база={db_size} MB, WAL={wal_size} MB, каталог данных={data_dir} MB",
     "backups": "Резервные копии (backups): файлов={count}, размер={size} MB, последняя={latest}",
     "last_decay": "Последнее затухание (last_decay): {last_decay}",
-    "hint": "Подсказка: /lmem diag compact выполняет VACUUM для сжатия базы (долго на больших данных, избегайте записи)",
+    "hint": "Подсказка: /lmem diag compact выполняет VACUUM для всех трёх БД и переводит их в режим auto_vacuum=INCREMENTAL (для возврата потребуется повторный VACUUM; долго на больших данных, избегайте записи)",
     "action_name": "Диагностика данных",
     "collecting": "Сбор диагностики данных...",
     "compact": {
-      "starting": "Сжатие базы данных (VACUUM), на больших данных может занять время...",
-      "done": "Сжатие завершено (compact): база {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, освобождено {reclaimed} MB"
+      "starting": "Сжатие баз данных (VACUUM, перевод в auto_vacuum=INCREMENTAL; для возврата потребуется повторный VACUUM), на больших данных может занять время...",
+      "done": "Сжатие завершено (compact, включён auto_vacuum=INCREMENTAL; для возврата потребуется повторный VACUUM): база {db_before} MB -> {db_after} MB, WAL {wal_before} MB -> {wal_after} MB, освобождено {reclaimed} MB"
     },
     "orphans": {
       "disabled": "Графовая память отключена; предпросмотр осиротевших векторов графа недоступен.",

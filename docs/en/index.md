@@ -14,7 +14,7 @@ hero:
       text: Quick Start
       link: /en/guide/getting-started
     - theme: alt
-      text: Get 2.14.1
+      text: Get 2.14.3
       link: /en/releases
 features:
   - title: Automatic long-term memory
@@ -43,9 +43,9 @@ flowchart LR
     ENGINE --> API["Dashboard and agent tools"]
 ```
 
-## 2.14.1 is released
+## 2.14.3 is released
 
-2.14.1 fixes the bot being counted as a person in the graph and improves memory recall, atom classification, and index maintenance. Downloads and upgrade steps are available in [Releases and Upgrades](/en/releases).
+2.14.3 fixes Windows pre-1970 graph rebuild failures, Dashboard group blacklist saving, scope migration profile uniqueness conflicts, summary quality-gate false positives, and retrieval timeout forwarding. Downloads and upgrade steps are available in [Releases and Upgrades](/en/releases).
 
 ## Who is this for?
 

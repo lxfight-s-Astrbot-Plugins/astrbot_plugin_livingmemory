@@ -25,6 +25,7 @@ from .memory_processor_parse import (
     format_conversation,
     normalize_parsed_data,
     parse_llm_response,
+    summary_quality_rejection,
     try_fix_json,
     validate_importance,
     validate_summary_quality,
@@ -784,20 +785,25 @@ class MemoryProcessor:
             structured_data = parse_llm_response(llm_response_text, is_group_chat)
 
             # 4.5 质量校验：低质量总结默认不写入主库，由调用方按可重试失败处理
-            quality = self._validate_summary_quality(structured_data)
-            if quality == "low":
+            rejection = summary_quality_rejection(
+                structured_data,
+                (message.sender_name for message in messages if message.sender_name),
+            )
+            if rejection:
                 global _low_quality_rejections
                 _low_quality_rejections += 1
+                summary_preview = (
+                    str(structured_data.get("summary", ""))
+                    .replace("\n", " ")
+                    .strip()[:80]
+                )
                 logger.warning(
                     "[MemoryProcessor] 总结质量不达标（low），拒绝写入主库: "
-                    f"summary={(structured_data.get('summary') or '')[:60]!r}, "
-                    f"key_facts={len(structured_data.get('key_facts') or [])}, "
-                    f"rejected_total={_low_quality_rejections}"
+                    f"{rejection}, "
+                    f"rejected_total={_low_quality_rejections}, "
+                    f"summary={summary_preview!r}"
                 )
-                raise LowQualityMemoryError(
-                    "总结质量不达标（summary/key_facts/importance 校验失败）"
-                )
-            structured_data["_quality"] = quality
+                raise LowQualityMemoryError(f"总结质量不达标（{rejection}）")
 
             # 5. 构建存储格式
             fallback_excerpt = (
@@ -818,7 +824,7 @@ class MemoryProcessor:
                 self.config.get("include_source_time_tags", True),
             )
             # 将质量标记写入 metadata
-            metadata["summary_quality"] = structured_data.get("_quality", "normal")
+            metadata["summary_quality"] = "normal"
 
             importance = float(structured_data.get("importance", 0.5))
 
@@ -876,10 +882,7 @@ class MemoryProcessor:
         """
         return build_storage_format(fallback_excerpt, structured_data, is_group_chat)
 
-    @staticmethod
-    def _validate_summary_quality(structured_data: dict[str, Any]) -> str:
-        """校验总结质量，返回 "normal" 或 "low"。"""
-        return validate_summary_quality(structured_data)
+    _validate_summary_quality = staticmethod(validate_summary_quality)
 
     def build_memory_from_structured_data(
         self,
@@ -888,12 +891,9 @@ class MemoryProcessor:
         fallback_excerpt: str = "",
     ) -> tuple[str, dict[str, Any], float]:
         """复用自动总结流程，将结构化数据转换为标准记忆存储格式。"""
-        # 与自动总结路径保持一致：先校验质量，再规范化。
-        # 这样原始 importance 越界等异常仍会被判为 low quality。
+        # Check the original importance before normalization clamps it.
         quality = self._validate_summary_quality(structured_data)
         normalized = normalize_parsed_data(structured_data, is_group_chat)
-        normalized["_quality"] = quality
-
         content, metadata = self._build_storage_format(
             fallback_excerpt or normalized.get("summary", ""),
             normalized,

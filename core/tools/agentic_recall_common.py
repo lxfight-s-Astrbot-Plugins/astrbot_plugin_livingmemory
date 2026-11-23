@@ -122,4 +122,8 @@ def parse_time_bound(value: Any, *, is_end: bool = False) -> float | None:
         raise ValueError(f"unsupported time format: {value}")
     if parsed.tzinfo is None and is_end and len(text) <= 10:
         parsed = datetime.combine(parsed.date(), dt_time.max.replace(microsecond=0))
-    return parsed.timestamp()
+    try:
+        return parsed.timestamp()
+    except OSError as exc:
+        # Windows 上 timestamp() 对 1970 年前的日期抛 OSError。
+        raise ValueError(f"unsupported time format: {value}") from exc

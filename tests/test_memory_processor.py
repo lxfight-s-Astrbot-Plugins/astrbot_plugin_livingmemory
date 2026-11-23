@@ -355,11 +355,45 @@ async def test_summary_quality_low_for_missing_key_facts():
 
 
 @pytest.mark.asyncio
+async def test_summary_quality_accepts_known_nickname_containing_generic_term():
+    messages = _make_messages()
+    messages[0].sender_name = "圣某人"
+    provider = _DummyLLMProvider(
+        '{"summary":"我记得圣某人确认明天下午三点开会。",'
+        '"key_facts":["圣某人确认明天下午三点开会"],"importance":0.7}'
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    _, metadata, _ = await processor.process_conversation(
+        messages=messages, is_group_chat=True
+    )
+
+    assert metadata["summary_quality"] == "normal"
+    assert metadata["participant_identities"][0]["display_name"] == "圣某人"
+
+
+@pytest.mark.asyncio
+async def test_summary_quality_accepts_numeric_string_in_embedded_json():
+    provider = _DummyLLMProvider(
+        '总结如下：{"summary":"我记得张三确认明天下午三点开会。",'
+        '"key_facts":["张三确认明天下午三点开会"],"importance":"0.7"}'
+    )
+    processor = MemoryProcessor(llm_provider=provider, context=None)
+
+    _, metadata, importance = await processor.process_conversation(
+        messages=_make_messages(), is_group_chat=False
+    )
+
+    assert metadata["summary_quality"] == "normal"
+    assert importance == 0.7
+
+
+@pytest.mark.asyncio
 async def test_summary_quality_low_for_generic_terms():
     """summary 包含泛化词（某用户、有人等）时质量校验为 low，默认拒绝写入。"""
     llm = _DummyLLMProvider(
         """{
-            "summary":"某用户提到了一些事情",
+            "summary":"我记得有人提到了一些事情",
             "topics":["闲聊"],
             "key_facts":["某用户说了话"],
             "sentiment":"neutral",
@@ -368,12 +402,53 @@ async def test_summary_quality_low_for_generic_terms():
     )
     processor = MemoryProcessor(llm_provider=llm, context=None)
 
-    with pytest.raises(LowQualityMemoryError):
+    with pytest.raises(LowQualityMemoryError, match="generic_term=有人"):
         await processor.process_conversation(
             messages=_make_messages(),
             is_group_chat=False,
             persona_id=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_summary_quality_allows_descriptive_generic_nouns_and_rejects_speaker_placeholders():
+    """描述性语境里的「群成员」「某人」「有人」不应被误拒，仅作为说话人主语时拒绝（#483）。"""
+    descriptive_cases = [
+        "删除了 9 个孤儿 scope 共 35 条群成员碎片，已备份到 backups/vector_cleanup。",
+        "排查了群成员的昵称映射逻辑，确认不会覆盖私聊身份。",
+        "zzj 帮我修好了某人家的服务器上的定时任务配置。",
+        "针对有人反馈后的超时问题，把检索超时降到了 1.5 秒。",
+    ]
+    for summary in descriptive_cases:
+        llm = _DummyLLMProvider(
+            f'{{"summary":"{summary}","topics":["排障"],"key_facts":["{summary}"],"importance":0.7}}'
+        )
+        processor = MemoryProcessor(llm_provider=llm, context=None)
+        _, metadata, _ = await processor.process_conversation(
+            messages=_make_messages(),
+            is_group_chat=False,
+            persona_id=None,
+        )
+        assert metadata["summary_quality"] == "normal", summary
+
+    placeholder_cases = [
+        ("群成员表示明天不来参加会议了。", "generic_term=群成员"),
+        ("某人说昨天刚把服务器迁到香港节点。", "generic_term=某人"),
+        ("有人问我能不能支持关闭空闲补总结。", "generic_term=有人"),
+        ("某群成员分享了一份排障笔记。", "generic_term=某群成员"),
+        ("某用户希望增加导出按钮。", "generic_term=某用户"),
+    ]
+    for summary, expected in placeholder_cases:
+        llm = _DummyLLMProvider(
+            f'{{"summary":"{summary}","topics":["闲聊"],"key_facts":["记录"],"importance":0.5}}'
+        )
+        processor = MemoryProcessor(llm_provider=llm, context=None)
+        with pytest.raises(LowQualityMemoryError, match=expected):
+            await processor.process_conversation(
+                messages=_make_messages(),
+                is_group_chat=True,
+                persona_id=None,
+            )
 
 
 def test_validate_summary_quality_directly():

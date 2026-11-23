@@ -441,8 +441,6 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             event,
             session_id,
             total_messages,
-            last_summarized_index,
-            pending_summary,
             expected_revision,
         )
 
@@ -451,8 +449,6 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         event: AstrMessageEvent,
         session_id: str,
         total_messages: int,
-        last_summarized_index: int,
-        pending_summary: dict | None,
         expected_revision: int | None,
     ) -> _ReflectionPlan | None:
         """首次触发总结：解析人格/作用域后构造最老片段计划。"""
@@ -464,8 +460,6 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         return await self._build_reflection_plan_for_cursor(
             session_id,
             total_messages,
-            last_summarized_index,
-            pending_summary,
             expected_revision,
             access.persona_id,
             memory_scope,
@@ -475,8 +469,6 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         self,
         session_id: str,
         total_messages: int,
-        last_summarized_index: int,
-        pending_summary: dict | None,
         expected_revision: int | None,
         persona_id: Any,
         memory_scope: str,
@@ -487,44 +479,41 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         )
         (
             start_index,
-            candidate_messages,
+            history_messages,
+            retry_count,
         ) = await self.conversation_manager.get_summary_window(session_id, max_messages)
-        if len(candidate_messages) < 2:
+        if len(history_messages) < 2:
             return None
-        end_index = start_index + len(candidate_messages)
-        retry_count = pending_summary.get("retry_count", 0) if pending_summary else 0
 
-        # 窗口切分配置：跨天或空闲间隔超过阈值时从最老片段开始逐段总结，
-        # 避免一整段跨天/跨长空闲的对话被合并进同一条记忆。
-        split_by_day = bool(
-            self.config_manager.get("reflection_engine.window_split_by_day", True)
-        )
-        try:
-            gap_minutes = int(
-                self.config_manager.get(
-                    "reflection_engine.window_split_gap_minutes", 180
+        if not retry_count:
+            split_by_day = bool(
+                self.config_manager.get("reflection_engine.window_split_by_day", True)
+            )
+            try:
+                gap_minutes = int(
+                    self.config_manager.get(
+                        "reflection_engine.window_split_gap_minutes", 180
+                    )
                 )
-            )
-        except (TypeError, ValueError):
-            gap_minutes = 180
+            except (TypeError, ValueError):
+                gap_minutes = 180
 
-        split = self._find_window_split_boundary(
-            candidate_messages,
-            split_by_day=split_by_day,
-            gap_minutes=gap_minutes,
-        )
-        if split is not None:
-            split_offset, split_reason = split
-            end_index = start_index + split_offset
-            reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
-            logger.info(
-                f"[{session_id}] 总结窗口按{reason_text}在消息 {end_index} 处切分："
-                f"本次总结片段 [{start_index}:{end_index}]，"
-                f"后续片段在同一任务内继续消费"
+            split = self._find_window_split_boundary(
+                history_messages,
+                split_by_day=split_by_day,
+                gap_minutes=gap_minutes,
             )
+            if split is not None:
+                split_offset, split_reason = split
+                history_messages = history_messages[:split_offset]
+                reason_text = "日期变化" if split_reason == "day" else "空闲间隔"
+                logger.info(
+                    f"[{session_id}] 总结窗口按{reason_text}在消息 "
+                    f"{start_index + split_offset} 处切分"
+                )
 
-        messages_to_summarize = end_index - start_index
-        rounds_to_summarize = messages_to_summarize // 2
+        end_index = start_index + len(history_messages)
+        rounds_to_summarize = len(history_messages) // 2
         # 这里记录的是本次片段的大小，不是触发阈值；窗口会按日期/空闲边界切分，
         # 片段轮数常小于 summary_trigger_rounds，措辞需避免被误读为「阈值被改小」。
         logger.info(
@@ -532,7 +521,6 @@ class MemoryReflection(MemoryReflectionStorageMixin):
             f"消息范围 [{start_index}:{end_index}]/{total_messages}, "
             f"本次片段 {rounds_to_summarize} 轮"
         )
-        history_messages = candidate_messages[:messages_to_summarize]
         if retry_count >= 3:
             logger.warning(
                 f"[{session_id}] Abandoning failed summary segment [{start_index}:{end_index}]"
@@ -569,22 +557,9 @@ class MemoryReflection(MemoryReflectionStorageMixin):
         total_messages = await self.conversation_manager.store.get_message_count(
             session_id
         )
-        last_summarized_index = await self.conversation_manager.get_session_metadata(
-            session_id, "last_summarized_index", 0
-        )
-        pending_summary = await self.conversation_manager.get_session_metadata(
-            session_id, "pending_summary", None
-        )
-        if pending_summary is not None:
-            return None
-        if total_messages - last_summarized_index < 2:
-            return None
-
         return await self._build_reflection_plan_for_cursor(
             session_id,
             total_messages,
-            last_summarized_index,
-            pending_summary,
             expected_revision,
             persona_id,
             memory_scope,

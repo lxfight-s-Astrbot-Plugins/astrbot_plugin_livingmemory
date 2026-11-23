@@ -259,9 +259,7 @@ async def _make_db_with_graph(tmp_path, doc_scopes, atom_scopes, graph_scopes):
 async def test_missing_optional_tables_are_skipped(tmp_path):
     """图记忆关闭时 memory_atoms / graph_entries 不存在，文档迁移仍应可用（M1）。"""
     conn = await aiosqlite.connect(tmp_path / "lm.db")
-    await conn.execute(
-        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
-    )
+    await conn.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)")
     await conn.execute(
         "INSERT INTO documents (id, metadata) VALUES (1, ?)",
         (json.dumps({"session_id": OLD_PRIVATE}),),
@@ -384,9 +382,7 @@ async def test_execute_backup_runs_outside_pending_transaction(tmp_path):
 async def test_malformed_and_non_object_metadata_are_normalized_and_migrated(tmp_path):
     """坏 JSON / 非对象根之前会被计数但静默不改，现在应归一化后真正迁移（m1/m2）。"""
     conn = await aiosqlite.connect(tmp_path / "lm.db")
-    await conn.execute(
-        "CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)"
-    )
+    await conn.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, metadata TEXT)")
     rows = ["{bad json", "[]", "5", "null", '"text"']
     for idx, metadata in enumerate(rows, start=1):
         await conn.execute(
@@ -474,6 +470,84 @@ async def test_profile_conflicts_are_skipped_instead_of_failing(tmp_path):
         assert [row[0] for row in await cursor.fetchall()] == sorted(
             [OLD_PRIVATE, TARGET]
         )
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_multiple_source_profiles_same_persona_migrate_latest_without_unique_error(
+    tmp_path,
+):
+    """多条不同旧作用域的同人格档案迁往同一 target 时，仅迁最新 1 条不触发唯一约束（#487）。"""
+    conn = await _make_db(tmp_path, [OLD_PRIVATE], [])
+    await conn.execute(
+        "CREATE TABLE memory_profiles ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, persona_id TEXT, "
+        "profile_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL DEFAULT 0, "
+        "UNIQUE(scope, persona_id))"
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX idx_profiles_scope_persona "
+        "ON memory_profiles(scope, COALESCE(persona_id, ''))"
+    )
+    await conn.executemany(
+        "INSERT INTO memory_profiles (scope, persona_id, profile_json, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        [
+            ("legacy:s1", "p1", '{"ver": 1}', 100.0),
+            ("legacy:s2", "p1", '{"ver": 3}', 300.0),
+            ("legacy:s3", "p1", '{"ver": 2}', 200.0),
+            # NULL 与空串在 idx_profiles_scope_persona 下等价，也应只迁最新 1 条
+            ("legacy:s1", None, '{"kind": "null"}', 50.0),
+            ("legacy:s2", "", '{"kind": "empty"}', 150.0),
+        ],
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        result = await migrator.execute(await migrator.plan(TARGET))
+
+        assert result.documents == 1
+        assert result.profiles == 2
+        assert result.remaining == 3
+
+        cursor = await conn.execute(
+            "SELECT persona_id, profile_json FROM memory_profiles "
+            "WHERE scope = ? ORDER BY COALESCE(persona_id, '')",
+            (TARGET,),
+        )
+        assert await cursor.fetchall() == [
+            ("", '{"kind": "empty"}'),
+            ("p1", '{"ver": 3}'),
+        ]
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_profile_null_and_empty_persona_conflict_with_target_is_skipped(tmp_path):
+    """目标已有 NULL persona 档案时，旧作用域的空串 persona 档案也应识别冲突并跳过（#487）。"""
+    conn = await _make_db(tmp_path, [], [])
+    await _make_profiles(conn)
+    await conn.execute(
+        "CREATE UNIQUE INDEX idx_profiles_scope_persona "
+        "ON memory_profiles(scope, COALESCE(persona_id, ''))"
+    )
+    await conn.execute(
+        "INSERT INTO memory_profiles (scope, persona_id) VALUES (?, ?)",
+        (TARGET, None),
+    )
+    await conn.execute(
+        "INSERT INTO memory_profiles (scope, persona_id) VALUES (?, ?)",
+        (OLD_PRIVATE, ""),
+    )
+    await conn.commit()
+    try:
+        migrator = ScopeMigrator(conn)
+        result = await migrator.execute(await migrator.plan(TARGET))
+
+        assert result.profiles == 0
+        assert result.remaining == 1
     finally:
         await conn.close()
 

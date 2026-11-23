@@ -388,23 +388,45 @@ class ScopeMigrator:
             )
 
         if "memory_profiles" in existing:
+            col_cursor = await self._db.execute("PRAGMA table_info(memory_profiles)")
+            profile_cols = {str(row[1]) for row in await col_cursor.fetchall()}
+            profile_order = (
+                "updated_at DESC, id DESC"
+                if "updated_at" in profile_cols
+                else "id DESC"
+            )
             profile_where = (
                 "COALESCE(scope, '') <> ? "
-                # 目标作用域已有同一人格的档案时跳过，否则触发唯一约束
+                # 索引 idx_profiles_scope_persona 按 (scope, COALESCE(persona_id, ''))
+                # 建唯一约束，判重必须同样用 COALESCE 覆盖 NULL 与空串的碰撞。
                 "AND NOT EXISTS (SELECT 1 FROM memory_profiles AS other "
-                "WHERE other.scope = ? AND other.persona_id IS memory_profiles.persona_id)"
+                "WHERE other.scope = ? "
+                "AND COALESCE(other.persona_id, '') = COALESCE(memory_profiles.persona_id, ''))"
             )
             profile_params: list[Any] = [plan.target, plan.target, plan.target]
             if plan.source is not None:
                 profile_where += " AND COALESCE(scope, '') = ?"
                 profile_params.append(plan.source)
-            statements.append(
-                (
-                    "memory_profiles",
-                    f"UPDATE memory_profiles SET scope = ? WHERE {profile_where}",
-                    profile_params,
+            # 多条旧作用域同人格档案同时落入 target 时，单条批量 UPDATE 会触发
+            # idx_profiles_scope_persona 冲突回滚（#487）。按人格分组仅迁移最新 1 条，
+            # 其余同人格旧档案留在原作用域并计入 remaining。
+            profile_sql = f"""
+                UPDATE memory_profiles
+                SET scope = ?
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY COALESCE(persona_id, '')
+                                   ORDER BY {profile_order}
+                               ) AS rn
+                        FROM memory_profiles
+                        WHERE {profile_where}
+                    )
+                    WHERE rn = 1
                 )
-            )
+            """
+            statements.append(("memory_profiles", profile_sql, profile_params))
 
         counts = {
             "documents": 0,
