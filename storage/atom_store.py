@@ -28,6 +28,28 @@ if TYPE_CHECKING:
     from ..core.processors.text_processor import TextProcessor
 
 
+# 旧版本写入的 atom_type（例如 1.x 的 "rule"）在枚举收敛后就不再合法。
+# 读库路径上遇到未知类型不能抛异常：route_execution 会吞掉异常并返回空列表，
+# 那等于把整条 atoms 检索路由静默清空。这里统一降级为 UNKNOWN，且只告警一次。
+_warned_legacy_atom_types: set[str] = set()
+
+
+def _coerce_atom_type(raw: Any) -> AtomType:
+    """把库里的 atom_type 转成枚举；未知值降级为 UNKNOWN，而不是抛 ValueError。"""
+    try:
+        return AtomType(raw)
+    except ValueError:
+        key = str(raw)
+        if key not in _warned_legacy_atom_types:
+            _warned_legacy_atom_types.add(key)
+            logger.warning(
+                "memory_atoms 中出现未知的 atom_type=%r（通常来自旧版本数据），已按 unknown 处理；"
+                "如需保留原语义，可手动迁移该类型。",
+                raw,
+            )
+        return AtomType.UNKNOWN
+
+
 class AtomStore:
     """Persist memory atoms with FTS search support."""
 
@@ -513,7 +535,7 @@ class AtomStore:
 
             new_count = int(row["reinforcement_count"]) + 1
             importance = float(row["importance"])
-            atom_type = AtomType(row["atom_type"])
+            atom_type = _coerce_atom_type(row["atom_type"])
             event_time = float(row["event_time"]) if row["event_time"] else None
             new_ttl, decay = compute_ttl(atom_type, importance, new_count, event_time)
 
@@ -713,7 +735,7 @@ class AtomStore:
         return MemoryAtom(
             atom_id=int(row["id"]),
             parent_memory_id=int(row["parent_memory_id"]),
-            atom_type=AtomType(row["atom_type"]),
+            atom_type=_coerce_atom_type(row["atom_type"]),
             content=row["content"],
             entities=json.loads(row["entities"]) if row["entities"] else [],
             importance=float(row["importance"]),
