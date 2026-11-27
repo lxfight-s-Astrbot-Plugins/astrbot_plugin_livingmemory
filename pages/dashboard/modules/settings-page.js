@@ -171,11 +171,9 @@ export class SettingsPage {
   /* 过滤/展开重渲染前先收走当前 DOM 值，避免只渲染子集时误判脏状态。 */
   _captureVisibleValues() {
     if (this._suppressCapture || typeof document.querySelectorAll !== "function") return;
-    try {
-      Object.assign(this._formValues, this.collectValues());
-    } catch (_error) {
-      /* 非法输入留到保存时再提示；此处不应打断渲染。 */
-    }
+    document.querySelectorAll("[data-setting-path]").forEach((control) => {
+      this._formValues[control.dataset.settingPath] = this._readControlValue(control);
+    });
   }
 
   _snapshotValues() {
@@ -186,7 +184,6 @@ export class SettingsPage {
     } catch (_error) {
       return null;
     }
-    Object.assign(current, this._formValues);
     try {
       Object.assign(current, this.collectValues());
     } catch (_error) {
@@ -622,30 +619,30 @@ export class SettingsPage {
   }
 
   _rememberValue(control) {
-    const path = control.dataset.settingPath;
-    const type = control.dataset.type;
+    const { settingPath: path, type } = control.dataset;
     if (!path) return;
     if (type === "adapter-list" || type === "group-list") {
-      this._formValues[path] = Array.from(
-        control.querySelectorAll("input:checked"),
-        (input) => input.value
-      );
       control.dataset.edited = "1";
-      return;
     }
-    if (type === "bool") {
-      this._formValues[path] = Boolean(control.checked);
-      return;
+    this._formValues[path] = this._readControlValue(control);
+  }
+
+  _readControlValue(control) {
+    const { type, original, edited } = control.dataset;
+    if (type === "adapter-list" || type === "group-list") {
+      if (type === "adapter-list" && original === "null" && !edited) return null;
+      return Array.from(control.querySelectorAll("input:checked"), (input) => input.value);
     }
+    if (type === "bool") return Boolean(control.checked);
     if (type === "list") {
       try {
-        this._formValues[path] = JSON.parse(control.value);
+        const parsed = JSON.parse(control.value);
+        if (Array.isArray(parsed)) return parsed;
       } catch (_error) {
-        this._formValues[path] = control.value;
+        /* 未完成的 JSON 编辑保留原样，保存时再提示。 */
       }
-      return;
     }
-    this._formValues[path] = control.value;
+    return control.value;
   }
 
   _applyDefault(control, type, defaultValue) {
@@ -721,10 +718,8 @@ export class SettingsPage {
         if (control) this._rememberValue(control);
       });
       container.addEventListener("change", (event) => {
-        const group = event.target.closest?.('[data-type="adapter-list"]');
         const control = event.target.closest?.("[data-setting-path]");
         if (control) this._rememberValue(control);
-        if (group) group.dataset.edited = "1";
         if (event.target.dataset.adapterTarget !== undefined) {
           const index = event.target.dataset.adapterTarget;
           container.querySelector('[data-adapter-assign="' + index + '"]').disabled =
@@ -813,38 +808,28 @@ export class SettingsPage {
   }
 
   collectValues() {
-    const values = {};
+    const types = new Map(this.sections.flatMap((section) =>
+      (section.fields || []).map((field) => [field.path, field.type])
+    ));
+    const values = { ...this._formValues };
     document.querySelectorAll("[data-setting-path]").forEach((element) => {
-      const path = element.dataset.settingPath;
-      const type = element.dataset.type;
-      if (type === "adapter-list" || type === "group-list") {
-        values[path] =
-          type === "adapter-list" && element.dataset.original === "null" && !element.dataset.edited
-            ? null
-            : Array.from(element.querySelectorAll("input:checked"), (input) => input.value);
-      } else if (type === "bool") {
-        values[path] = Boolean(element.checked);
-      } else if (type === "int") {
-        const parsed = Number.parseInt(element.value, 10);
-        if (Number.isNaN(parsed)) throw new Error(path);
-        values[path] = parsed;
-      } else if (type === "float") {
-        const parsed = Number.parseFloat(element.value);
-        if (Number.isNaN(parsed)) throw new Error(path);
-        values[path] = parsed;
-      } else if (type === "list") {
-        let parsed;
-        try {
-          parsed = JSON.parse(element.value);
-        } catch {
+      const { settingPath, type } = element.dataset;
+      types.set(settingPath, type);
+      values[settingPath] = this._readControlValue(element);
+    });
+    for (const [path, value] of Object.entries(values)) {
+      const type = types.get(path);
+      if (type === "int" || type === "float") {
+        const parsed = Number(value);
+        if (String(value ?? "").trim() === "" || !Number.isFinite(parsed) ||
+            (type === "int" && !Number.isInteger(parsed))) {
           throw new Error(path);
         }
-        if (!Array.isArray(parsed)) throw new Error(path);
         values[path] = parsed;
-      } else {
-        values[path] = element.value;
+      } else if (type === "list" && !Array.isArray(value)) {
+        throw new Error(path);
       }
-    });
+    }
     return values;
   }
 
@@ -853,13 +838,17 @@ export class SettingsPage {
     const button = document.getElementById("settings-save-btn");
     let values;
     try {
-      values = this.collectValues();
+      const previous = JSON.parse(this._baseline ?? "{}");
+      values = Object.fromEntries(Object.entries(this.collectValues()).filter(
+        ([path, value]) => JSON.stringify(value) !== JSON.stringify(previous[path])
+      ));
     } catch (error) {
       const message = window.t("settings.invalidValue", error.message);
       this.renderFeedback(message, true);
       showToast(message, true);
       return;
     }
+    if (!Object.keys(values).length) return;
     if (!await this._confirmDangerousChanges(values)) {
       this.renderFeedback(window.t("settings.saveCancelled"));
       return;

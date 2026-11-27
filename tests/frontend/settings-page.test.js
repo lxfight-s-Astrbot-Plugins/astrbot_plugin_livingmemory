@@ -290,6 +290,98 @@ test("save failure renders an error feedback bar", async () => {
   }
 });
 
+test("saving includes a reset hidden by modified-only and an edit hidden by search", async () => {
+  const delay = "example.delay";
+  const retries = "example.retries";
+  const limit = "example.limit";
+  const fields = [
+    { path: delay, label: "Delay", type: "float", value: 0.25, default: 0.5 },
+    { path: retries, label: "Retries", type: "int", value: 2, default: 3 },
+    { path: limit, label: "Limit", type: "int", value: 4, default: 5 },
+  ];
+  const controls = fields.map((field) => ({
+    dataset: { settingPath: field.path, type: field.type },
+    value: String(field.value),
+  }));
+  const listeners = {};
+  const container = {
+    dataset: {},
+    innerHTML: "",
+    addEventListener(type, listener) { listeners[type] = listener; },
+    querySelector(selector) {
+      return controls.find((control) => selector.includes(control.dataset.settingPath));
+    },
+  };
+  globalThis.window = { t: (key) => key };
+  globalThis.document = {
+    getElementById: (id) => id === "settings-container" ? container : null,
+    querySelectorAll: () => controls.filter((control) =>
+      container.innerHTML.includes(`data-setting-path="${control.dataset.settingPath}"`)
+    ),
+  };
+  const posts = [];
+  const page = new SettingsPage({}, {
+    get: async () => ({ sections: [{ key: "example", title: "Example", fields }] }),
+    post: async (route, body) => {
+      posts.push({ route, body });
+      for (const field of fields) {
+        if (Object.hasOwn(body.values, field.path)) {
+          field.value = body.values[field.path];
+        }
+      }
+    },
+  });
+
+  try {
+    page._filterModified = true;
+    await page.fetch();
+    assert.equal(page.hasUnsavedChanges(), false);
+
+    const reset = { dataset: { resetPath: delay, resetType: "float", default: "0.5" } };
+    await listeners.click({
+      target: { closest: (selector) => selector === "[data-reset-path]" ? reset : null },
+    });
+    assert.doesNotMatch(container.innerHTML, /data-setting-path="example\.delay"/);
+    assert.equal(page.hasUnsavedChanges(), true);
+
+    controls[1].value = "7";
+    listeners.input({ target: { closest: () => controls[1] } });
+    page._query = "limit";
+    page.render();
+    assert.doesNotMatch(container.innerHTML, /data-setting-path="example\.retries"/);
+    await page.save();
+
+    assert.deepEqual(posts, [{ route: "config/update", body: { values: { [delay]: 0.5, [retries]: 7 } } }]);
+    assert.equal(JSON.parse(page._baseline)[delay], 0.5);
+    assert.equal(JSON.parse(page._baseline)[limit], 4);
+    assert.equal(page.hasUnsavedChanges(), false);
+  } finally {
+    delete globalThis.document;
+    delete globalThis.window;
+  }
+});
+
+test("hidden drafts retain types and get validated when saved", () => {
+  const page = new SettingsPage({}, {});
+  page.sections = [{ fields: [
+    { path: "limit", type: "int" },
+    { path: "enabled", type: "bool" },
+    { path: "tags", type: "list" },
+  ] }];
+  globalThis.document = { querySelectorAll: () => [] };
+  try {
+    page._formValues = { limit: "5", enabled: false, tags: [] };
+    assert.deepEqual(page.collectValues(), { limit: 5, enabled: false, tags: [] });
+    page._formValues.limit = "5.5";
+    assert.throws(() => page.collectValues(), /limit/);
+    page._formValues.limit = "5";
+    page._formValues.tags = "{unfinished";
+    assert.throws(() => page.collectValues(), /tags/);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
 test("editing a filtered-out field still counts as dirty", () => {
   globalThis.window = { t: (key) => key };
   const page = new SettingsPage({}, {});
