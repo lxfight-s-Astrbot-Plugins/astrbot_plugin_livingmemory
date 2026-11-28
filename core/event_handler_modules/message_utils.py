@@ -7,15 +7,57 @@ import asyncio
 import hashlib
 import re
 import time
+from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from PIL import Image as PillowImage
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 if TYPE_CHECKING:
+    from astrbot.core.message.components import Image
+
     from ..base.config_manager import ConfigManager
     from ..managers.conversation_manager import ConversationManager
+
+
+_STICKER_SUMMARIES = {"动画表情", "[动画表情]", "[表情]"}
+
+
+def _is_animated_local_gif(image: "Image") -> bool:
+    """Inspect the original local attachment without downloading or inferring its type."""
+    ref = getattr(image, "path", None) or image.url or image.file
+    if not isinstance(ref, str) or not ref:
+        return False
+    try:
+        if ref.startswith("file:"):
+            from astrbot.core.utils.media_utils import file_uri_to_path
+
+            ref = file_uri_to_path(ref)
+        path = Path(ref)
+        if (
+            ref.startswith(("//", "\\\\"))
+            or not path.is_absolute()
+            or not path.is_file()
+        ):
+            return False
+        with path.open("rb") as stream:
+            if stream.read(6) not in (b"GIF87a", b"GIF89a"):
+                return False
+            stream.seek(0)
+            with PillowImage.open(stream, formats=("GIF",)) as picture:
+                return bool(getattr(picture, "is_animated", False))
+    except (
+        EOFError,
+        ImportError,
+        OSError,
+        ValueError,
+        PillowImage.DecompressionBombError,
+    ):
+        return False
 
 
 class MessageUtils:
@@ -86,6 +128,105 @@ class MessageUtils:
             del cache[oldest_key]
         cache[dedup_key] = time.time()
 
+    @staticmethod
+    def get_request_image_captions(
+        req: ProviderRequest, *, dedicated_parts_only: bool = False
+    ) -> list[str]:
+        """Read AstrBot image captions from the current request."""
+        captions = []
+        for part in getattr(req, "extra_user_content_parts", None) or ():
+            text = (
+                part.get("text")
+                if isinstance(part, dict)
+                else getattr(part, "text", None)
+            )
+            if not isinstance(text, str):
+                continue
+            pattern = r"<image_caption>(.*?)</image_caption>"
+            if dedicated_parts_only and not re.fullmatch(
+                pattern, text.strip(), re.DOTALL
+            ):
+                continue
+            captions.extend(
+                caption.strip()
+                for caption in re.findall(pattern, text, re.DOTALL)
+                if caption.strip()
+            )
+        return captions
+
+    @staticmethod
+    def get_request_image_urls(
+        req: ProviderRequest, *, include_image_urls: bool = True
+    ) -> list[str]:
+        """Read current image attachments without changing the provider request."""
+        urls = (
+            list(getattr(req, "image_urls", None) or ()) if include_image_urls else []
+        )
+        for part in getattr(req, "extra_user_content_parts", None) or ():
+            if isinstance(part, dict):
+                if part.get("type") == "image_url" and not part.get("_no_save"):
+                    image_url = part.get("image_url")
+                    if isinstance(image_url, dict):
+                        urls.append(image_url.get("url"))
+            elif getattr(part, "type", None) == "image_url" and not getattr(
+                part, "_no_save", False
+            ):
+                urls.append(getattr(getattr(part, "image_url", None), "url", None))
+        return list(dict.fromkeys(url for url in urls if isinstance(url, str) and url))
+
+    @staticmethod
+    async def get_sticker_images(
+        event: AstrMessageEvent, images: list["Image"]
+    ) -> set[int]:
+        """Identify current QQ stickers and animated GIF reactions."""
+        get_platform_name = getattr(event, "get_platform_name", None)
+        if (
+            not images
+            or not callable(get_platform_name)
+            or get_platform_name() != "aiocqhttp"
+        ):
+            return set()
+
+        raw_message = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        segments = (
+            raw_message.get("message") if isinstance(raw_message, Mapping) else None
+        )
+        raw_images = (
+            [
+                segment.get("data")
+                for segment in segments
+                if isinstance(segment, Mapping) and segment.get("type") == "image"
+            ]
+            if isinstance(segments, list)
+            else []
+        )
+
+        stickers = set()
+        # Trust raw positions only when they still align with normalized images.
+        if len(raw_images) == len(images):
+            for index, data in enumerate(raw_images):
+                if not isinstance(data, Mapping):
+                    continue
+                if (
+                    str(data.get("sub_type", "")).strip() == "1"
+                    or data.get("emoji_id")
+                    or data.get("emoji_package_id")
+                    or str(data.get("summary", "")).strip() in _STICKER_SUMMARIES
+                ):
+                    stickers.add(index)
+
+        if len(stickers) < len(images):
+
+            def animated_reactions() -> set[int]:
+                return {
+                    index
+                    for index, image in enumerate(images)
+                    if index not in stickers and _is_animated_local_gif(image)
+                }
+
+            stickers.update(await asyncio.to_thread(animated_reactions))
+        return stickers
+
     async def extract_message_content(
         self, event: AstrMessageEvent, req: ProviderRequest | None = None
     ) -> str:
@@ -106,20 +247,7 @@ class MessageUtils:
             Video,
         )
 
-        # 预先提取所有图片转述（按 extra_user_content_parts 中的出现顺序）
-        # AstrBot 按消息链中图片的顺序依次追加转述，与 get_messages() 中 Image 的顺序一一对应
-        caption_queue: list[str] = []
-        if req is not None:
-            for part in getattr(req, "extra_user_content_parts", []):
-                text = getattr(part, "text", "")
-                if not text:
-                    continue
-                for m in re.findall(
-                    r"<image_caption>(.*?)</image_caption>", text, re.DOTALL
-                ):
-                    m = m.strip()
-                    if m:
-                        caption_queue.append(m)
+        caption_queue = self.get_request_image_captions(req) if req is not None else []
 
         parts = []
         caption_idx = 0

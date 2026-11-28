@@ -218,6 +218,13 @@ def _install_astrbot_stubs() -> None:
     class Image(_BaseComponent):
         type = "image"
 
+        def __init__(self, file="", url="", path="", **kwargs):
+            super().__init__(file=file, url=url, path=path, **kwargs)
+
+        @classmethod
+        def fromFileSystem(cls, path):
+            return cls(file=str(path), path=str(path))
+
     class Record(_BaseComponent):
         type = "record"
 
@@ -251,8 +258,8 @@ def _install_astrbot_stubs() -> None:
     class Reply(_BaseComponent):
         type = "reply"
 
-        def __init__(self, message_str=""):
-            super().__init__(message_str=message_str)
+        def __init__(self, message_str="", *, id="", chain=None):
+            super().__init__(message_str=message_str, id=id, chain=chain)
 
     def register(*args, **kwargs):
         return lambda obj: obj

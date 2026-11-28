@@ -8,11 +8,13 @@
 import json
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from PIL import Image as PillowImage
 
-from astrbot.core.message.components import Plain
+from astrbot.core.message.components import Image, Plain, Reply
 
 from tests.real_engine_support import HostContext, close_handler, make_handler
 
@@ -69,6 +71,23 @@ class _Event:
         if self._checkpoint is not None:
             return self._checkpoint
         return default
+
+
+class _QQImageEvent(_Event):
+    def __init__(self, images, metadata, *, text="", extra_parts=()):
+        super().__init__(message_str=text)
+        self.parts = [*images, *extra_parts]
+        self.message_obj = SimpleNamespace(
+            raw_message={
+                "message": [{"type": "image", "data": data} for data in metadata]
+            }
+        )
+
+    def get_platform_name(self):
+        return "aiocqhttp"
+
+    def get_messages(self):
+        return [*super().get_messages(), *self.parts]
 
 
 def _now(offset: int = 0) -> float:
@@ -144,7 +163,9 @@ async def test_recall_appends_memories_as_temporary_parts(handler_bundle):
     injected = _injected(req)
     assert "spare key" in injected
     assert "<RAG-Faiss-Memory>" in injected
-    assert all(getattr(part, "_no_save", False) for part in req.extra_user_content_parts)
+    assert all(
+        getattr(part, "_no_save", False) for part in req.extra_user_content_parts
+    )
     # 注入不得改写 prompt 或 system_prompt
     assert req.prompt == "where is my spare key"
     assert req.system_prompt == ""
@@ -234,7 +255,9 @@ async def test_message_limit_keeps_at_most_the_configured_window(tmp_path):
 @pytest.mark.asyncio
 async def test_recall_is_skipped_without_any_user_content(handler_bundle):
     handler, manager, store, engine, db = handler_bundle
-    await engine.add_memory("User keeps a spare key", session_id=SESSION_ID, persona_id=None)
+    await engine.add_memory(
+        "User keeps a spare key", session_id=SESSION_ID, persona_id=None
+    )
     event = _Event(message_str="")
     req = _req(prompt="")
 
@@ -243,10 +266,285 @@ async def test_recall_is_skipped_without_any_user_content(handler_bundle):
     assert req.extra_user_content_parts == []
 
 
+def _observe_image_recall(handler_bundle, monkeypatch, caption="green lighthouse"):
+    handler, _, _, engine, _ = handler_bundle
+    search = AsyncMock(return_value=[])
+    generate = AsyncMock(return_value=SimpleNamespace(completion_text=caption))
+    monkeypatch.setattr(engine, "search_memories", search)
+    monkeypatch.setattr(
+        handler.context,
+        "get_config",
+        lambda **_: {
+            "provider_settings": {"default_image_caption_provider_id": "vision"}
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(handler.context, "llm_generate", generate, raising=False)
+    return handler, search, generate
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "legacy_method", ["user_message_before", "user_message_after"]
+    "metadata,text,native_caption",
+    [
+        ({"sub_type": 1}, "", "native sticker caption"),
+        ({"sub_type": "1"}, "", None),
+        ({"summary": "[动画表情]"}, "", "native sticker caption"),
+        ({"emoji_package_id": "10"}, "", "native sticker caption"),
+        ({"emoji_id": "20"}, "", None),
+    ],
 )
+async def test_current_stickers_do_not_search_or_caption(
+    handler_bundle, monkeypatch, metadata, text, native_caption
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    event = _QQImageEvent([Image(file="sticker.gif")], [metadata], text=text)
+    parts = (
+        [SimpleNamespace(text=f"<image_caption>{native_caption}</image_caption>")]
+        if native_caption
+        else []
+    )
+    req = _req(text, parts)
+    req.image_urls = [] if native_caption else ["prepared-sticker.png"]
+
+    await handler.handle_memory_recall(event, req)
+
+    assert req.extra_user_content_parts == parts
+    assert req.image_urls == ([] if native_caption else ["prepared-sticker.png"])
+    search.assert_not_awaited()
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata,text,captioned",
+    [
+        ({}, "", False),
+        ({}, "Sticker test", False),
+        ({"sub_type": 0}, "A photo for reference", False),
+        ({}, "Do you remember this sticker?", False),
+        ({"sub_type": 1}, "Do you remember this sticker?", True),
+    ],
+)
+async def test_recall_keeps_normal_images_and_sticker_questions(
+    handler_bundle, monkeypatch, metadata, text, captioned
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    event = _QQImageEvent([Image(file="attachment.gif")], [metadata], text=text)
+    parts = (
+        [SimpleNamespace(text="<image_caption>sticker description</image_caption>")]
+        if captioned
+        else []
+    )
+    req = _req(text, parts)
+    req.image_urls = [] if captioned else ["prepared-attachment.png"]
+
+    await handler.handle_memory_recall(event, req)
+
+    if captioned:
+        generate.assert_not_awaited()
+        assert search.await_args.kwargs["query"] == text
+    else:
+        generate.assert_awaited_once()
+        expected_query = "\n".join(part for part in (text, "green lighthouse") if part)
+        assert search.await_args.kwargs["query"] == expected_query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["", "Remember our trip?"])
+async def test_failed_caption_preserves_available_text(
+    handler_bundle, monkeypatch, text
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    event = _QQImageEvent([Image(file="ordinary.png")], [{}], text=text)
+    req = _req(text)
+    req.image_urls = ["prepared-ordinary.png"]
+    generate.side_effect = TimeoutError
+
+    await handler.handle_memory_recall(event, req)
+
+    generate.assert_awaited_once()
+    if text:
+        assert search.await_args.kwargs["query"] == text
+    else:
+        search.assert_not_awaited()
+    assert req.image_urls == ["prepared-ordinary.png"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "format_name,animated,platform,metadata,text,native,expected",
+    [
+        ("GIF", True, "aiocqhttp", {}, "", True, ""),
+        ("GIF", True, "aiocqhttp", {"sub_type": 0}, "", False, ""),
+        (
+            "GIF",
+            True,
+            "aiocqhttp",
+            {},
+            "Remember our trip?",
+            True,
+            "Remember our trip?",
+        ),
+        ("GIF", True, "telegram", {}, "", True, "ordinary caption"),
+        ("GIF", False, "aiocqhttp", {}, "", True, "ordinary caption"),
+        ("PNG", True, "aiocqhttp", {}, "", True, "ordinary caption"),
+        (
+            "PNG",
+            False,
+            "aiocqhttp",
+            {},
+            "Sticker test",
+            True,
+            "Sticker test\nordinary caption",
+        ),
+    ],
+)
+async def test_recall_classifies_locally_confirmed_animated_gif(
+    handler_bundle,
+    monkeypatch,
+    tmp_path,
+    format_name,
+    animated,
+    platform,
+    metadata,
+    text,
+    native,
+    expected,
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    path = tmp_path / "actual-format-not-reflected-in-extension.jpg"
+    with PillowImage.new("RGB", (32, 32), "red") as frame:
+        with PillowImage.new("RGB", (32, 32), "blue") as next_frame:
+            frame.save(
+                path, format=format_name, save_all=animated, append_images=[next_frame]
+            )
+
+    event = _QQImageEvent([Image.fromFileSystem(path)], [metadata], text=text)
+    monkeypatch.setattr(event, "get_platform_name", lambda: platform)
+    caption = SimpleNamespace(text="<image_caption>ordinary caption</image_caption>")
+    req = _req(text, [caption] if native else [])
+    req.image_urls = [] if native else ["montage-preview.png"]
+
+    await handler.handle_memory_recall(event, req)
+
+    generate.assert_not_awaited()
+    if not expected:
+        search.assert_not_awaited()
+    else:
+        assert search.await_args.kwargs["query"] == expected
+
+
+@pytest.mark.asyncio
+async def test_sticker_caption_is_replaced_with_descriptions_of_eligible_images(
+    handler_bundle, monkeypatch
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    photos = [Image(file="sticker.gif"), Image(file="ordinary.png")]
+    quote = Reply(id="10", chain=[Image(file="quoted.png")])
+    event = _QQImageEvent(
+        photos,
+        [{"sub_type": 1}, {"sub_type": 0}],
+        text="这是什么？",
+        extra_parts=[quote],
+    )
+    caption = SimpleNamespace(text="<image_caption>mixed aggregate</image_caption>")
+    supplement = {"type": "image_url", "image_url": {"url": "supplement.png"}}
+    req = _req("这是什么？", [caption, supplement])
+    req.image_urls = []
+    prepare = AsyncMock(return_value=["prepared-ordinary.png", "prepared-quoted.png"])
+    monkeypatch.setattr(handler._memory_recall, "_prepare_recall_images", prepare)
+
+    await handler.handle_memory_recall(event, req)
+
+    assert prepare.await_args.args[2] == ["ordinary.png", "quoted.png"]
+    assert generate.await_args.kwargs["image_urls"] == [
+        "supplement.png",
+        "prepared-ordinary.png",
+        "prepared-quoted.png",
+    ]
+    assert search.await_args.kwargs["query"] == "这是什么？\ngreen lighthouse"
+    assert req.extra_user_content_parts == [caption, supplement]
+
+
+@pytest.mark.asyncio
+async def test_prepared_normal_image_keeps_its_place_in_mixed_request(
+    handler_bundle, monkeypatch
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    event = _QQImageEvent(
+        [Image(file="ordinary.gif"), Image(file="sticker.gif")],
+        [{"sub_type": 0}, {"sub_type": 1}],
+    )
+    req = _req("")
+    req.image_urls = ["prepared-ordinary.png", "prepared-sticker.png"]
+
+    await handler.handle_memory_recall(event, req)
+
+    assert generate.await_args.kwargs["image_urls"] == ["prepared-ordinary.png"]
+    assert search.await_args.kwargs["query"] == "green lighthouse"
+    assert req.image_urls == ["prepared-ordinary.png", "prepared-sticker.png"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "original_urls,prepared_urls,recovered_urls,expected_urls",
+    [
+        (["sticker.gif"], ["prepared-sticker.png"], [], []),
+        (
+            ["sticker.gif", "ordinary.png"],
+            ["prepared-sticker.png", "prepared-ordinary.png"],
+            [],
+            ["prepared-ordinary.png"],
+        ),
+        (
+            ["sticker.gif", "ordinary.png"],
+            ["prepared-sticker.png"],
+            ["ordinary.png"],
+            ["prepared-ordinary.png"],
+        ),
+    ],
+)
+async def test_explicit_request_filters_prepared_sticker_parts(
+    handler_bundle,
+    monkeypatch,
+    original_urls,
+    prepared_urls,
+    recovered_urls,
+    expected_urls,
+):
+    handler, search, generate = _observe_image_recall(handler_bundle, monkeypatch)
+    event = _QQImageEvent([Image(file="sticker.gif")], [{"sub_type": 1}])
+
+    def request(urls):
+        return _req(
+            "", [{"type": "image_url", "image_url": {"url": url}} for url in urls]
+        )
+
+    supplied = request(original_urls)
+    req = request(prepared_urls)
+    monkeypatch.setattr(
+        event, "get_extra", lambda key: supplied if key == "provider_request" else None
+    )
+    prepare = AsyncMock(return_value=expected_urls)
+    monkeypatch.setattr(handler._memory_recall, "_prepare_recall_images", prepare)
+
+    await handler.handle_memory_recall(event, req)
+
+    if recovered_urls:
+        assert prepare.await_args.args[2] == recovered_urls
+    else:
+        prepare.assert_not_awaited()
+    if expected_urls:
+        assert generate.await_args.kwargs["image_urls"] == expected_urls
+        assert search.await_args.kwargs["query"] == "green lighthouse"
+    else:
+        generate.assert_not_awaited()
+        search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_method", ["user_message_before", "user_message_after"])
 async def test_deprecated_injection_modes_fall_back_to_extra_parts(
     tmp_path, legacy_method
 ):
@@ -265,8 +563,7 @@ async def test_deprecated_injection_modes_fall_back_to_extra_parts(
         assert req.prompt == "user question"
         assert "spare key" in _injected(req)
         assert all(
-            getattr(part, "_no_save", False)
-            for part in req.extra_user_content_parts
+            getattr(part, "_no_save", False) for part in req.extra_user_content_parts
         )
     finally:
         await close_handler(handler, manager, store, engine, db)
@@ -480,6 +777,4 @@ async def test_recall_with_recent_context_preserves_oldest_message_and_order(
     req = _req(prompt="follow up question")
     await handler.handle_memory_recall(event, req)
 
-    assert captured_queries == [
-        "first question | first answer follow up question"
-    ]
+    assert captured_queries == ["first question | first answer follow up question"]
