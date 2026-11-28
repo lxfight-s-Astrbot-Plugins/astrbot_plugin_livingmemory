@@ -13,6 +13,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.platform import MessageType
 from astrbot.api.provider import ProviderRequest
 from astrbot.core.agent.message import TextPart
+from astrbot.core.message.components import Image, Reply
 
 from ..memory_scope import (
     is_event_memory_allowed,
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
 
 class MemoryRecall:
     """记忆召回类"""
+
+    _IMAGE_CAPTION_TIMEOUT_SECONDS = 20.0
 
     def __init__(
         self,
@@ -99,6 +102,214 @@ class MemoryRecall:
             timestamp /= 1000.0
         return timestamp if timestamp > 0 else None
 
+    async def _describe_images_for_recall(
+        self,
+        event: AstrMessageEvent,
+        image_urls: list[str],
+        source_urls: list[str] | None = None,
+        unresolved_quotes: list[Reply] | None = None,
+    ) -> str:
+        """Use the session's AstrBot captioning provider for direct image input."""
+        session_id = event.unified_msg_origin
+        try:
+            settings = self.context.get_config(umo=session_id).get(
+                "provider_settings", {}
+            )
+            provider_id = settings.get("default_image_caption_provider_id")
+            if not provider_id:
+                return ""
+            async with asyncio.timeout(self._IMAGE_CAPTION_TIMEOUT_SECONDS):
+                if source_urls or unresolved_quotes:
+                    prepared_urls = await self._prepare_recall_images(
+                        event, settings, source_urls or [], unresolved_quotes or []
+                    )
+                    image_urls = list(dict.fromkeys([*image_urls, *prepared_urls]))
+                if not image_urls:
+                    return ""
+                response = await self.context.llm_generate(
+                    chat_provider_id=provider_id,
+                    prompt=settings.get("image_caption_prompt")
+                    or "Please describe the image.",
+                    image_urls=image_urls,
+                )
+        except Exception as exc:
+            logger.warning(f"[{session_id}] 召回图片转述失败（{type(exc).__name__}）")
+            return ""
+        caption = getattr(response, "completion_text", None)
+        return caption.strip() if isinstance(caption, str) else ""
+
+    @staticmethod
+    async def _prepare_recall_images(
+        event: AstrMessageEvent,
+        settings: dict,
+        source_urls: list[str],
+        unresolved_quotes: list[Reply],
+    ) -> list[str]:
+        """Recover eligible image files when the host consumed the aggregate input."""
+        from astrbot.core.utils.image_input import prepare_request_images
+        from astrbot.core.utils.media_utils import normalize_model_image_max_size
+
+        if unresolved_quotes:
+            from astrbot.core.utils.quoted_message.settings import SETTINGS
+            from astrbot.core.utils.quoted_message_parser import (
+                extract_quoted_message_images,
+            )
+
+            overrides = settings.get("quoted_message_parser")
+            quote_settings = (
+                SETTINGS.with_overrides(overrides)
+                if isinstance(overrides, dict)
+                else SETTINGS
+            )
+            for quote in unresolved_quotes:
+                try:
+                    source_urls = [
+                        *source_urls,
+                        *await extract_quoted_message_images(
+                            event, quote, settings=quote_settings
+                        ),
+                    ]
+                except Exception as exc:
+                    logger.debug(f"恢复引用图片失败（{type(exc).__name__}）")
+
+        options = settings.get("image_compress_options", {})
+        max_size = normalize_model_image_max_size(
+            options.get("max_size") if isinstance(options, dict) else None
+        )
+        visual_request = ProviderRequest(image_urls=source_urls)
+        await prepare_request_images(
+            visual_request, event, max_size=max_size, prepared={}, finalize=False
+        )
+        return visual_request.image_urls
+
+    async def _get_recall_image_captions(
+        self, event: AstrMessageEvent, req: ProviderRequest
+    ) -> list[str]:
+        """Find captions for images eligible for automatic recall."""
+        captions = self.message_utils.get_request_image_captions(
+            req, dedicated_parts_only=True
+        )
+        messages = event.get_messages() if hasattr(event, "get_messages") else []
+        direct_images = [part for part in messages if isinstance(part, Image)]
+        stickers = await self.message_utils.get_sticker_images(event, direct_images)
+        if not stickers:
+            if not captions:
+                image_urls = self.message_utils.get_request_image_urls(req)
+                if image_urls:
+                    caption = await self._describe_images_for_recall(event, image_urls)
+                    if caption:
+                        captions.append(caption)
+            return captions
+
+        sticker_urls = {
+            url
+            for index in stickers
+            for url in (direct_images[index].url, direct_images[index].file)
+            if url
+        }
+        eligible_images = [
+            image for index, image in enumerate(direct_images) if index not in stickers
+        ]
+        unresolved_quotes = []
+        for part in messages:
+            if isinstance(part, Reply):
+                quoted_images = [
+                    image for image in part.chain or [] if isinstance(image, Image)
+                ]
+                if quoted_images:
+                    eligible_images.extend(quoted_images)
+                else:
+                    unresolved_quotes.append(part)
+
+        ready_urls = self.message_utils.get_request_image_urls(
+            req, include_image_urls=False
+        )
+        legacy_urls = list(getattr(req, "image_urls", None) or ())
+        source_urls = [image.url or image.file for image in eligible_images]
+        get_extra = getattr(event, "get_extra", None)
+        original_request = (
+            get_extra("provider_request") if callable(get_extra) else None
+        )
+        if original_request is not None and original_request is not req:
+            original_urls = list(getattr(original_request, "image_urls", None) or ())
+            original_part_urls = self.message_utils.get_request_image_urls(
+                original_request, include_image_urls=False
+            )
+            source_urls = []
+            unresolved_quotes = []
+            # AstrBot prepares both legacy references and persistent image parts.
+            # If an image part was removed during preparation, use eligible
+            # original references instead of guessing which prepared part is the sticker.
+            if not sticker_urls.isdisjoint(original_part_urls):
+                if len(original_part_urls) == len(ready_urls):
+                    sticker_urls.update(
+                        prepared
+                        for source, prepared in zip(
+                            original_part_urls, ready_urls, strict=True
+                        )
+                        if source in sticker_urls
+                    )
+                else:
+                    source_urls.extend(original_part_urls)
+                    ready_urls = []
+            if len(original_urls) == len(legacy_urls):
+                for source, prepared in zip(original_urls, legacy_urls, strict=True):
+                    if source in sticker_urls:
+                        sticker_urls.add(prepared)
+                    else:
+                        ready_urls.append(prepared)
+            else:
+                source_urls.extend(
+                    url for url in original_urls if url not in sticker_urls
+                )
+            # Supplied descriptions can be reused when the original request did
+            # not include a sticker; the host may have appended another caption.
+            captions = (
+                self.message_utils.get_request_image_captions(
+                    original_request, dedicated_parts_only=True
+                )
+                if sticker_urls.isdisjoint(
+                    self.message_utils.get_request_image_urls(original_request)
+                )
+                else []
+            )
+        else:
+            captions = []
+            if all(
+                image.url in legacy_urls or image.file in legacy_urls
+                for index, image in enumerate(direct_images)
+                if index in stickers
+            ):
+                ready_urls.extend(legacy_urls)
+                # Active URLs include host-processed images from quoted messages.
+                source_urls = []
+                unresolved_quotes = []
+            elif (
+                len(legacy_urls) == len(eligible_images) + len(stickers)
+                and not unresolved_quotes
+            ):
+                sticker_urls.update(legacy_urls[index] for index in stickers)
+                ready_urls.extend(legacy_urls)
+                source_urls = []
+
+        ready_urls = list(
+            dict.fromkeys(url for url in ready_urls if url not in sticker_urls)
+        )
+        source_urls = list(
+            dict.fromkeys(
+                url
+                for url in source_urls
+                if url and url not in sticker_urls and url not in ready_urls
+            )
+        )
+        if ready_urls or source_urls or unresolved_quotes:
+            caption = await self._describe_images_for_recall(
+                event, ready_urls, source_urls, unresolved_quotes
+            )
+            if caption:
+                captions.append(caption)
+        return captions
+
     async def handle_memory_recall(self, event: AstrMessageEvent, req: ProviderRequest):
         """Query and inject long-term memory before LLM request"""
         try:
@@ -121,8 +332,9 @@ class MemoryRecall:
                     prompt_text.strip()
                 )
                 has_extra_parts = bool(extra_parts)
+                has_image_urls = bool(getattr(req, "image_urls", None))
 
-                if not has_prompt_text and not has_extra_parts:
+                if not (has_prompt_text or has_extra_parts or has_image_urls):
                     logger.debug(f"[{session_id}] 请求中无可用用户内容，跳过记忆召回")
                     return
 
@@ -184,8 +396,12 @@ class MemoryRecall:
                     )
                     return
 
-                if not actual_query:
-                    logger.warning(f"[{session_id}] 原始用户消息为空，跳过记忆召回")
+                image_captions = await self._get_recall_image_captions(event, req)
+                query_for_search = "\n".join(
+                    part for part in [actual_query, *image_captions] if part
+                )
+                if not query_for_search:
+                    logger.debug(f"[{session_id}] 用户消息无可检索内容，跳过记忆召回")
                     return
 
                 # on_llm_request 钩子在 _ensure_persona_and_skills 之前触发，
@@ -196,9 +412,6 @@ class MemoryRecall:
                 recall_session_id = recall_access.scope
                 # 检索过滤受 use_persona_filtering 控制；写入/档案仍用真实人格。
                 recall_persona_id = recall_access.recall_persona_id
-
-                # 使用原始用户输入作为召回关键字
-                query_for_search = actual_query
 
                 # 上下文扩展：拼接最近2轮对话作为查询，提升检索精准度
                 if self.config_manager.get(
@@ -242,7 +455,7 @@ class MemoryRecall:
                                     context_parts.append(content.strip())
                             if context_parts:
                                 expanded = " | ".join(context_parts)
-                                query_for_search = expanded + " " + actual_query
+                                query_for_search = expanded + " " + query_for_search
                                 logger.debug(
                                     f"[{session_id}] Expanded query with context: "
                                     f"{len(context_parts)} history messages + current message, "
